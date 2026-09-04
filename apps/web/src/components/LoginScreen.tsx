@@ -1,6 +1,6 @@
 import { FormEvent, useState } from "react";
-import { LockKeyhole } from "lucide-react";
 import { ApiError, login } from "../api/client";
+import { BrandMark } from "./BrandMark";
 
 interface LoginScreenProps {
   onAuthenticated: () => void;
@@ -38,9 +38,7 @@ export function LoginScreen({ onAuthenticated }: LoginScreenProps) {
   return (
     <main className="login-page">
       <form className="login-panel" onSubmit={handleSubmit}>
-        <div className="login-mark" aria-hidden="true">
-          <LockKeyhole size={22} />
-        </div>
+        <BrandMark className="login-brand-logo" />
         <div>
           <h1>Aether</h1>
           <p>Where memories gather, preserved beyond time.</p>

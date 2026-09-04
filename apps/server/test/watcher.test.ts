@@ -58,8 +58,9 @@ describe("library watcher", () => {
           type: "all",
           recursive: true
         });
+        const latestJob = scanner.listJobs(1)[0];
 
-        return assets?.page.total === 1;
+        return assets?.page.total === 1 && latestJob?.status === "completed";
       });
 
       const latestJob = scanner.listJobs(1)[0];

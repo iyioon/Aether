@@ -1,5 +1,6 @@
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import type { FastifyReply } from "fastify";
 import type { AetherDatabase } from "../db/database.js";
 import { UnsafePathError, resolveMediaPath } from "../security/path-safety.js";
@@ -15,6 +16,13 @@ export interface ResolvedAssetFile {
 export interface ByteRange {
   start: number;
   end: number;
+}
+
+export interface AssetStreamHeaders {
+  ifModifiedSince?: string;
+  ifNoneMatch?: string;
+  ifRange?: string;
+  range?: string;
 }
 
 export async function resolveAssetFile(
@@ -40,6 +48,51 @@ export async function resolveAssetFile(
     sizeBytes: fileStat.size,
     mtimeMs: Math.trunc(fileStat.mtimeMs)
   };
+}
+
+export function assetEntityTag(file: ResolvedAssetFile): string {
+  const hash = createHash("sha256")
+    .update(`${file.asset.id}:${file.sizeBytes}:${file.mtimeMs}`)
+    .digest("hex")
+    .slice(0, 32);
+
+  return `"${hash}"`;
+}
+
+export function assetLastModifiedHeader(file: ResolvedAssetFile): string {
+  return new Date(assetLastModifiedTimeMs(file)).toUTCString();
+}
+
+export function isAssetNotModified(
+  file: ResolvedAssetFile,
+  headers: AssetStreamHeaders
+): boolean {
+  if (headers.ifNoneMatch) {
+    return entityTagMatches(headers.ifNoneMatch, assetEntityTag(file));
+  }
+
+  if (!headers.ifModifiedSince) {
+    return false;
+  }
+
+  const sinceTime = Date.parse(headers.ifModifiedSince);
+
+  return Number.isFinite(sinceTime) && assetLastModifiedTimeMs(file) <= sinceTime;
+}
+
+export function requestedByteRange(
+  file: ResolvedAssetFile,
+  headers: AssetStreamHeaders
+): ByteRange | "invalid" | null {
+  if (!headers.range) {
+    return null;
+  }
+
+  if (headers.ifRange && !ifRangeMatches(file, headers.ifRange)) {
+    return null;
+  }
+
+  return parseRangeHeader(headers.range, file.sizeBytes);
 }
 
 export function parseRangeHeader(
@@ -99,23 +152,16 @@ export function sendAssetStream({
   reply,
   file,
   range,
-  disposition
+  disposition,
+  method = "GET"
 }: {
   reply: FastifyReply;
   file: ResolvedAssetFile;
   range: ByteRange | null;
   disposition: "inline" | "attachment";
+  method?: string;
 }): FastifyReply {
-  const contentType = file.asset.mimeType ?? "application/octet-stream";
-  const contentDisposition =
-    disposition === "attachment"
-      ? attachmentDisposition(file.asset.name)
-      : inlineDisposition(file.asset.name);
-
-  reply.header("accept-ranges", "bytes");
-  reply.header("cache-control", "private, max-age=3600");
-  reply.header("content-disposition", contentDisposition);
-  reply.type(contentType);
+  setAssetStreamHeaders(reply, file, disposition);
 
   if (range) {
     const chunkSize = range.end - range.start + 1;
@@ -125,6 +171,11 @@ export function sendAssetStream({
       `bytes ${range.start}-${range.end}/${file.sizeBytes}`
     );
     reply.header("content-length", String(chunkSize));
+
+    if (method === "HEAD") {
+      return reply.send();
+    }
+
     return reply.send(
       createReadStream(file.sourcePath, {
         start: range.start,
@@ -134,13 +185,32 @@ export function sendAssetStream({
   }
 
   reply.header("content-length", String(file.sizeBytes));
+
+  if (method === "HEAD") {
+    return reply.send();
+  }
+
   return reply.send(createReadStream(file.sourcePath));
+}
+
+export function sendAssetNotModified({
+  reply,
+  file,
+  disposition
+}: {
+  reply: FastifyReply;
+  file: ResolvedAssetFile;
+  disposition: "inline" | "attachment";
+}): FastifyReply {
+  setAssetStreamHeaders(reply, file, disposition);
+  return reply.code(304).send();
 }
 
 export function sendRangeNotSatisfiable(
   reply: FastifyReply,
   sizeBytes: number
 ): FastifyReply {
+  reply.header("accept-ranges", "bytes");
   reply.header("content-range", `bytes */${sizeBytes}`);
   return reply.code(416).send({ error: "range_not_satisfiable" });
 }
@@ -155,6 +225,55 @@ function inlineDisposition(fileName: string): string {
 
 function attachmentDisposition(fileName: string): string {
   return `attachment; filename="${asciiFallback(fileName)}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
+}
+
+function setAssetStreamHeaders(
+  reply: FastifyReply,
+  file: ResolvedAssetFile,
+  disposition: "inline" | "attachment"
+): void {
+  const contentType = file.asset.mimeType ?? "application/octet-stream";
+  const contentDisposition =
+    disposition === "attachment"
+      ? attachmentDisposition(file.asset.name)
+      : inlineDisposition(file.asset.name);
+
+  reply.header("accept-ranges", "bytes");
+  reply.header("cache-control", "private, max-age=3600");
+  reply.header("content-disposition", contentDisposition);
+  reply.header("etag", assetEntityTag(file));
+  reply.header("last-modified", assetLastModifiedHeader(file));
+  reply.type(contentType);
+}
+
+function assetLastModifiedTimeMs(file: ResolvedAssetFile): number {
+  return Math.floor(file.mtimeMs / 1000) * 1000;
+}
+
+function entityTagMatches(header: string, entityTag: string): boolean {
+  return header
+    .split(",")
+    .map((entry) => entry.trim())
+    .some((entry) => entry === "*" || entry === entityTag);
+}
+
+function ifRangeMatches(file: ResolvedAssetFile, ifRangeHeader: string): boolean {
+  const header = ifRangeHeader.trim();
+
+  if (!header) {
+    return false;
+  }
+
+  if (header.startsWith("\"")) {
+    return header === assetEntityTag(file);
+  }
+
+  const validatorTime = Date.parse(header);
+
+  return (
+    Number.isFinite(validatorTime) &&
+    assetLastModifiedTimeMs(file) <= validatorTime
+  );
 }
 
 function asciiFallback(fileName: string): string {

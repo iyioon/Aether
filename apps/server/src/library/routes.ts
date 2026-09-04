@@ -81,7 +81,7 @@ const VideoPreviewQuery = z.object({
 
 const RatingBody = z
   .object({
-    rating: z.number().int().min(0).max(5).nullable().optional(),
+    rating: z.number().int().min(0).max(10).nullable().optional(),
     favorite: z.boolean().optional()
   })
   .refine((data) => data.rating !== undefined || data.favorite !== undefined);
@@ -95,7 +95,7 @@ const BatchAssetIds = z.array(z.string().min(1).max(256)).min(1).max(500);
 const BatchRatingBody = z
   .object({
     assetIds: BatchAssetIds,
-    rating: z.number().int().min(0).max(5).nullable().optional(),
+    rating: z.number().int().min(0).max(10).nullable().optional(),
     favorite: z.boolean().optional()
   })
   .refine((data) => data.rating !== undefined || data.favorite !== undefined);

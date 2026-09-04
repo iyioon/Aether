@@ -51,7 +51,11 @@ test("supports login, scan, batch annotation, fullscreen, and feed", async ({
   });
   await expect(batchActions).toContainText(/2\s*items selected/);
 
-  await page.getByRole("button", { name: "Set 4 star rating" }).click();
+  const batchRatingSlider = page.getByRole("slider", {
+    name: "Set rating for selected media"
+  });
+  await batchRatingSlider.focus();
+  await page.keyboard.press("ArrowLeft");
   await expect(batchActions).toContainText("2 items updated.");
 
   await page.getByPlaceholder("Tag selection").fill("Trip");
@@ -102,4 +106,41 @@ test("supports login, scan, batch annotation, fullscreen, and feed", async ({
   await expect
     .poll(async () => feedScroller.evaluate((element) => element.scrollTop))
     .toBeLessThan(scrolledFeedTop);
+});
+
+test("collapses the desktop sidebar without breaking the mobile drawer", async ({
+  page
+}) => {
+  await page.goto("/");
+
+  await page.getByLabel("Password").fill(password);
+  await page.getByRole("button", { name: "Enter" }).click();
+  await expect(page.getByRole("heading", { name: "media" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Collapse sidebar" }).click();
+
+  await expect(page.locator(".app-shell")).toHaveClass(/sidebar-collapsed/);
+  await expect(page.locator(".library-sidebar")).toHaveCSS("display", "none");
+
+  const expandButton = page.getByRole("button", { name: "Expand sidebar" });
+  const heading = page.locator(".view-heading");
+  await expect(expandButton).toBeVisible();
+  await expect(heading.getByRole("heading", { name: "media" })).toBeVisible();
+
+  const expandBox = await expandButton.boundingBox();
+  const headingBox = await heading.boundingBox();
+  expect(expandBox).not.toBeNull();
+  expect(headingBox).not.toBeNull();
+  expect(expandBox!.x).toBeLessThan(headingBox!.x);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(expandButton).toBeHidden();
+
+  const mobileToggle = page.getByRole("button", { name: "Open folders" }).first();
+  await expect(mobileToggle).toBeVisible();
+  await mobileToggle.click();
+
+  await expect(page.locator(".app-shell")).toHaveClass(/sidebar-open/);
+  await expect(page.locator(".library-sidebar")).toHaveCSS("display", "grid");
+  await expect(page.locator(".mobile-sidebar-close")).toBeVisible();
 });

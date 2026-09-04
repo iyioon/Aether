@@ -62,7 +62,7 @@ describe("annotations", () => {
         "x-csrf-token": auth.csrfToken
       },
       payload: {
-        rating: 4,
+        rating: 10,
         favorite: true
       }
     });
@@ -70,12 +70,12 @@ describe("annotations", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json().asset).toMatchObject({
       id: asset.id,
-      rating: 4,
+      rating: 10,
       favorite: true
     });
 
     const updated = firstAsset();
-    expect(updated.rating).toBe(4);
+    expect(updated.rating).toBe(10);
     expect(updated.favorite).toBe(true);
   });
 
@@ -338,7 +338,7 @@ describe("annotations", () => {
       },
       payload: {
         assetIds,
-        rating: 4,
+        rating: 8,
         favorite: true
       }
     });
@@ -347,8 +347,8 @@ describe("annotations", () => {
     expect(ratings.json()).toMatchObject({
       updated: 2,
       assets: [
-        { id: assetIds[0], rating: 4, favorite: true },
-        { id: assetIds[1], rating: 4, favorite: true }
+        { id: assetIds[0], rating: 8, favorite: true },
+        { id: assetIds[1], rating: 8, favorite: true }
       ]
     });
 

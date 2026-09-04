@@ -25,7 +25,10 @@ import {
   Heart,
   Image,
   LogOut,
+  Maximize2,
   Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   Rows3,
   Search,
@@ -34,6 +37,8 @@ import {
   Star,
   Tags,
   Video,
+  Volume2,
+  VolumeX,
   X,
   type LucideIcon
 } from "lucide-react";
@@ -84,6 +89,9 @@ import {
   type FolderScanState,
   type FolderTreeItem
 } from "./FolderTreePanel";
+import { BrandMark } from "./BrandMark";
+import { GalleryCardCuration } from "./GalleryCardCuration";
+import { RatingSlider } from "./RatingSlider";
 import { IconButton } from "./ui/IconButton";
 
 interface AppShellProps {
@@ -126,7 +134,9 @@ const FEED_WHEEL_LOCK_MS = 620;
 const FEED_WHEEL_THRESHOLD = 28;
 const FEED_TOUCH_DISTANCE = 54;
 const FEED_TOUCH_VELOCITY = 0.34;
+const FEED_PRELOAD_DISTANCE = 1;
 const GALLERY_METADATA_STORAGE_KEY = "aether.gallery.metadata-fields";
+const SIDEBAR_COLLAPSED_STORAGE_KEY = "aether.sidebar.collapsed";
 
 const galleryMetadataOptions: Array<{
   label: string;
@@ -179,6 +189,9 @@ export function AppShell({ onLogout }: AppShellProps) {
   const [isLoadingAssets, setIsLoadingAssets] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
+  const [annotationAssetId, setAnnotationAssetId] = useState<string | null>(
+    null
+  );
   const [scanState, setScanState] = useState<FolderScanState>("idle");
   const [view, setView] = useState<ViewMode>(initialLibraryState.view);
   const [openControlMenu, setOpenControlMenu] =
@@ -220,15 +233,24 @@ export function AppShell({ onLogout }: AppShellProps) {
   const [batchError, setBatchError] = useState<string | null>(null);
   const [batchStatus, setBatchStatus] = useState<string | null>(null);
   const [isSavingBatch, setIsSavingBatch] = useState(false);
+  const [savingRatingAssetIds, setSavingRatingAssetIds] = useState<Set<string>>(
+    () => new Set()
+  );
   const [assetReloadToken, setAssetReloadToken] = useState(0);
   const [watchStatus, setWatchStatus] = useState<LibraryWatchStatus | null>(
     null
   );
   const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isTopBarCollapsed, setIsTopBarCollapsed] = useState(
-    initialLibraryState.view === "feed"
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(
+    readSidebarCollapsedPreference
   );
+  const [isTopBarCollapsed, setIsTopBarCollapsed] = useState(
+    () =>
+      initialLibraryState.view === "feed" &&
+      shouldCollapseFeedControlsByDefault()
+  );
+  const [isFeedChromeHidden, setIsFeedChromeHidden] = useState(false);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const loadMoreInFlightRef = useRef(false);
   const observedScanJobIdRef = useRef<string | null>(null);
@@ -589,6 +611,10 @@ export function AppShell({ onLogout }: AppShellProps) {
     () => assets.find((asset) => asset.id === selectedAssetId) ?? null,
     [assets, selectedAssetId]
   );
+  const annotationAsset = useMemo(
+    () => assets.find((asset) => asset.id === annotationAssetId) ?? null,
+    [annotationAssetId, assets]
+  );
   const sortLabel =
     sortOptions.find((option) => option.value === sort)?.label ?? "Newest";
   const mediaTypeLabel =
@@ -622,7 +648,11 @@ export function AppShell({ onLogout }: AppShellProps) {
     if (selectedAssetId && !selectedAsset) {
       setSelectedAssetId(null);
     }
-  }, [selectedAsset, selectedAssetId]);
+
+    if (annotationAssetId && !annotationAsset) {
+      setAnnotationAssetId(null);
+    }
+  }, [annotationAsset, annotationAssetId, selectedAsset, selectedAssetId]);
 
   async function loadTree() {
     const response = await getTree();
@@ -643,15 +673,35 @@ export function AppShell({ onLogout }: AppShellProps) {
     setSelectedFolderId(folderId);
     setIsSidebarOpen(false);
     setOpenControlMenu(null);
+    setAnnotationAssetId(null);
+    setIsFeedChromeHidden(false);
     if (view === "feed") {
-      setIsTopBarCollapsed(true);
+      setIsTopBarCollapsed(shouldCollapseFeedControlsByDefault());
     }
+  }
+
+  function collapseSidebar() {
+    setIsSidebarCollapsed(true);
+    setIsSidebarOpen(false);
+  }
+
+  function expandSidebar() {
+    setIsSidebarCollapsed(false);
   }
 
   function switchView(nextView: ViewMode) {
     setView(nextView);
     setOpenControlMenu(null);
-    setIsTopBarCollapsed(nextView === "feed");
+    setAnnotationAssetId(null);
+    setIsFeedChromeHidden(false);
+    setIsTopBarCollapsed(
+      nextView === "feed" && shouldCollapseFeedControlsByDefault()
+    );
+  }
+
+  function setFeedChromeVisibility(isHidden: boolean) {
+    setIsFeedChromeHidden(isHidden);
+    setIsTopBarCollapsed(isHidden || shouldCollapseFeedControlsByDefault());
   }
 
   function toggleFolderExpansion(folderId: string) {
@@ -821,6 +871,51 @@ export function AppShell({ onLogout }: AppShellProps) {
 
   function handleAssetUpdated(updatedAsset: AssetRecord) {
     mergeUpdatedAssets([updatedAsset]);
+  }
+
+  async function saveAssetRating(
+    asset: AssetRecord,
+    input: { rating?: number | null; favorite?: boolean }
+  ) {
+    setAssetError(null);
+    setSavingRatingAssetIds((current) => {
+      const next = new Set(current);
+      next.add(asset.id);
+      return next;
+    });
+
+    mergeUpdatedAssets([optimisticRatingAsset(asset, input)]);
+
+    try {
+      const { asset: updatedAsset } = await updateAssetRating(asset.id, input);
+      mergeUpdatedAssets([updatedAsset]);
+
+      if (ratingFilter !== "all" || sort === "rating") {
+        setAssetReloadToken((current) => current + 1);
+      }
+    } catch (caught) {
+      mergeUpdatedAssets([asset]);
+      setAssetError(ratingActionErrorMessage(caught));
+    } finally {
+      setSavingRatingAssetIds((current) => {
+        const next = new Set(current);
+        next.delete(asset.id);
+        return next;
+      });
+    }
+  }
+
+  function handleAssetTagsUpdated(assetId: string, tags: TagRecord[]) {
+    setAssets((currentAssets) =>
+      currentAssets.map((asset) =>
+        asset.id === assetId ? { ...asset, tags } : asset
+      )
+    );
+  }
+
+  function openAssetFullscreen(assetId: string) {
+    setAnnotationAssetId(null);
+    setSelectedAssetId(assetId);
   }
 
   function mergeUpdatedAssets(updatedAssets: AssetRecord[]) {
@@ -1065,16 +1160,43 @@ export function AppShell({ onLogout }: AppShellProps) {
     };
   }, [isSidebarOpen]);
 
+  useEffect(() => {
+    writeSidebarCollapsedPreference(isSidebarCollapsed);
+  }, [isSidebarCollapsed]);
+
   return (
-    <div className={isSidebarOpen ? "app-shell sidebar-open" : "app-shell"}>
-      <aside className="library-sidebar" aria-label="Library folders">
+    <div
+      className={[
+        "app-shell",
+        isSidebarOpen ? "sidebar-open" : "",
+        isSidebarCollapsed ? "sidebar-collapsed" : ""
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      <aside
+        className="library-sidebar"
+        id="library-sidebar"
+        aria-label="Library folders"
+      >
         <div className="brand-block">
-          <span className="brand-symbol">Ae</span>
+          <BrandMark />
           <div>
             <strong>Aether</strong>
             <span>Private library</span>
           </div>
           <IconButton
+            aria-controls="library-sidebar"
+            aria-expanded={!isSidebarCollapsed}
+            className="desktop-sidebar-collapse"
+            icon={PanelLeftClose}
+            label="Collapse sidebar"
+            title="Hide folders"
+            onClick={collapseSidebar}
+          />
+          <IconButton
+            aria-controls="library-sidebar"
+            aria-expanded={isSidebarOpen}
             className="mobile-sidebar-close"
             icon={X}
             label="Close folders"
@@ -1122,7 +1244,8 @@ export function AppShell({ onLogout }: AppShellProps) {
           "library-main",
           selectedAssetCount > 0 ? "has-selection" : "",
           view === "feed" ? "view-feed" : "view-gallery",
-          view === "feed" && isTopBarCollapsed ? "topbar-collapsed" : ""
+          view === "feed" && isTopBarCollapsed ? "topbar-collapsed" : "",
+          view === "feed" && isFeedChromeHidden ? "feed-chrome-hidden" : ""
         ]
           .filter(Boolean)
           .join(" ")}
@@ -1167,11 +1290,22 @@ export function AppShell({ onLogout }: AppShellProps) {
 
         <header className="library-toolbar">
           <IconButton
+            aria-controls="library-sidebar"
+            aria-expanded={isSidebarOpen}
             className="mobile-sidebar-toggle"
             icon={Menu}
             label="Open folders"
             title="Folders"
             onClick={() => setIsSidebarOpen(true)}
+          />
+          <IconButton
+            aria-controls="library-sidebar"
+            aria-expanded={!isSidebarCollapsed}
+            className="desktop-sidebar-expand"
+            icon={PanelLeftOpen}
+            label="Expand sidebar"
+            title="Show folders"
+            onClick={expandSidebar}
           />
 
           <div className="view-heading">
@@ -1639,9 +1773,16 @@ export function AppShell({ onLogout }: AppShellProps) {
             loadMoreRef={loadMoreRef}
             measuredAspectRatios={measuredAspectRatios}
             resetKey={listQueryKey}
+            savingRatingAssetIds={savingRatingAssetIds}
             selectedAssetIds={selectedAssetIds}
             onLoadMore={() => void handleLoadMore()}
             onMediaDimensionsKnown={handleMediaDimensionsKnown}
+            onFavoriteAsset={(asset, favorite) =>
+              void saveAssetRating(asset, { favorite })
+            }
+            onRateAsset={(asset, rating) =>
+              void saveAssetRating(asset, { rating })
+            }
             onSelectAsset={setSelectedAssetId}
             onToggleSelection={toggleAssetSelection}
           />
@@ -1652,15 +1793,29 @@ export function AppShell({ onLogout }: AppShellProps) {
             isLoadingMore={isLoadingMore}
             hasMore={hasMoreAssets}
             loadMoreRef={loadMoreRef}
+            isFeedChromeHidden={isFeedChromeHidden}
+            isPlaybackPaused={selectedAssetId !== null}
+            syncedAssetId={selectedAssetId}
             onLoadMore={() => void handleLoadMore()}
-            onSelectAsset={setSelectedAssetId}
+            onFeedChromeHiddenChange={setFeedChromeVisibility}
+            onOpenAnnotations={setAnnotationAssetId}
+            onOpenAsset={openAssetFullscreen}
           />
         )}
       </main>
 
+      {view === "feed" && annotationAsset ? (
+        <FeedAnnotationDrawer
+          aiStatus={aiStatus}
+          asset={annotationAsset}
+          onAssetTagsUpdated={handleAssetTagsUpdated}
+          onAssetUpdated={handleAssetUpdated}
+          onClose={() => setAnnotationAssetId(null)}
+        />
+      ) : null}
+
       {selectedAsset ? (
         <FullscreenViewer
-          aiStatus={aiStatus}
           asset={selectedAsset}
           hasNext={assets.some(
             (asset, index) =>
@@ -1672,14 +1827,6 @@ export function AppShell({ onLogout }: AppShellProps) {
           onClose={() => setSelectedAssetId(null)}
           onNext={() => selectAdjacentAsset(1)}
           onPrevious={() => selectAdjacentAsset(-1)}
-          onAssetUpdated={handleAssetUpdated}
-          onAssetTagsUpdated={(assetId, tags) => {
-            setAssets((currentAssets) =>
-              currentAssets.map((asset) =>
-                asset.id === assetId ? { ...asset, tags } : asset
-              )
-            );
-          }}
         />
       ) : null}
     </div>
@@ -1721,6 +1868,8 @@ function BatchActionsBar({
   onClearTags: () => void;
   onUseSuggestion: (tagName: string) => void;
 }) {
+  const [batchRatingValue, setBatchRatingValue] = useState(5);
+
   return (
     <section className="batch-actions-bar" aria-label="Selected media actions">
       <div className="batch-summary">
@@ -1731,19 +1880,17 @@ function BatchActionsBar({
       <div className="batch-action-group batch-rating-group">
         <span className="batch-group-label">Rating</span>
         <div className="batch-rating-actions" aria-label="Batch rating">
-          {[1, 2, 3, 4, 5].map((value) => (
-            <button
-              className="star batch-star"
-              type="button"
-              key={value}
-              aria-label={`Set ${value} star rating`}
-              title={`Set ${value} stars`}
-              disabled={isSaving}
-              onClick={() => onRate(value)}
-            >
-              <Star size={17} />
-            </button>
-          ))}
+          <RatingSlider
+            className="batch-rating-slider"
+            density="batch"
+            disabled={isSaving}
+            label="Set rating for selected media"
+            value={batchRatingValue}
+            onCommit={(rating) => {
+              setBatchRatingValue(rating);
+              onRate(rating);
+            }}
+          />
           <button
             className="ghost-action compact-action"
             type="button"
@@ -2044,9 +2191,12 @@ function GalleryGrid({
   loadMoreRef,
   measuredAspectRatios,
   resetKey,
+  savingRatingAssetIds,
   selectedAssetIds,
   onLoadMore,
+  onFavoriteAsset,
   onMediaDimensionsKnown,
+  onRateAsset,
   onSelectAsset,
   onToggleSelection
 }: {
@@ -2060,9 +2210,12 @@ function GalleryGrid({
   loadMoreRef: MutableRefObject<HTMLDivElement | null>;
   measuredAspectRatios: Record<string, string>;
   resetKey: string;
+  savingRatingAssetIds: ReadonlySet<string>;
   selectedAssetIds: ReadonlySet<string>;
   onLoadMore: () => void;
+  onFavoriteAsset: (asset: AssetRecord, favorite: boolean) => void;
   onMediaDimensionsKnown: (assetId: string, width: number, height: number) => void;
+  onRateAsset: (asset: AssetRecord, rating: number | null) => void;
   onSelectAsset: (assetId: string) => void;
   onToggleSelection: (assetId: string) => void;
 }) {
@@ -2149,8 +2302,10 @@ function GalleryGrid({
           {Array.from({ length: 18 }).map((_, index) => (
             <article className="media-tile" key={index}>
               <div className="media-skeleton" />
-              <div className="tile-meta">
-                <span>Loading</span>
+              <div className="tile-info">
+                <div className="tile-meta">
+                  <span>Loading</span>
+                </div>
               </div>
             </article>
           ))}
@@ -2212,12 +2367,18 @@ function GalleryGrid({
                 const hiddenTagCount = metadataFields.has("tags")
                   ? Math.max(0, asset.tags.length - tagBadges.length)
                   : 0;
-                const hasBadges =
-                  metadataFields.has("rating") ||
-                  metadataFields.has("favorite") ||
+                const hasTitle = metadataFields.has("title");
+                const hasSecondaryMetadata = secondaryMetadata.length > 0;
+                const showRatingControl = metadataFields.has("rating");
+                const showFavoriteControl = metadataFields.has("favorite");
+                const hasCuration =
+                  showRatingControl ||
+                  showFavoriteControl ||
                   tagBadges.length > 0 ||
                   hiddenTagCount > 0;
-                const hasTitle = metadataFields.has("title");
+                const hasCardInfo =
+                  hasTitle || hasSecondaryMetadata || hasCuration;
+                const isSavingRating = savingRatingAssetIds.has(asset.id);
 
                 return (
                   <article
@@ -2254,68 +2415,31 @@ function GalleryGrid({
                     >
                       <Download size={15} />
                     </a>
-                    {hasTitle ? (
-                      <div className="tile-meta">
-                        <span title={asset.name}>{asset.name}</span>
-                      </div>
-                    ) : null}
-                    {secondaryMetadata.length ? (
-                      <div
-                        className={
-                          hasTitle
-                            ? "tile-submeta"
-                            : "tile-submeta tile-info-leading"
-                        }
-                      >
-                        {secondaryMetadata.map((entry) => (
-                          <span key={entry}>{entry}</span>
-                        ))}
-                      </div>
-                    ) : null}
-                    {hasBadges ? (
-                      <div
-                        className={
-                          hasTitle || secondaryMetadata.length
-                            ? "tile-badges"
-                            : "tile-badges tile-info-leading"
-                        }
-                      >
-                        {metadataFields.has("rating") ? (
-                          <span
-                            className={
-                              asset.rating ? "tile-badge active" : "tile-badge"
-                            }
-                            title={
-                              asset.rating
-                                ? `${asset.rating} star rating`
-                                : "Unrated"
-                            }
-                          >
-                            <Star size={12} />
-                            {asset.rating ?? 0}
-                          </span>
+                    {hasCardInfo ? (
+                      <div className="tile-info">
+                        {hasTitle ? (
+                          <div className="tile-meta">
+                            <span title={asset.name}>{asset.name}</span>
+                          </div>
                         ) : null}
-                        {metadataFields.has("favorite") ? (
-                          <span
-                            className={
-                              asset.favorite
-                                ? "tile-badge favorite active"
-                                : "tile-badge favorite"
-                            }
-                            title={asset.favorite ? "Favorite" : "Not favorite"}
-                          >
-                            <Heart size={12} />
-                          </span>
+                        {hasSecondaryMetadata ? (
+                          <div className="tile-submeta">
+                            {secondaryMetadata.map((entry) => (
+                              <span key={entry}>{entry}</span>
+                            ))}
+                          </div>
                         ) : null}
-                        {tagBadges.map((tag) => (
-                          <span className="tile-badge tag" key={tag.id}>
-                            {tag.displayName}
-                          </span>
-                        ))}
-                        {hiddenTagCount > 0 ? (
-                          <span className="tile-badge tag">
-                            +{hiddenTagCount}
-                          </span>
+                        {hasCuration ? (
+                          <GalleryCardCuration
+                            asset={asset}
+                            disabled={isSavingRating}
+                            hiddenTagCount={hiddenTagCount}
+                            showFavorite={showFavoriteControl}
+                            showRating={showRatingControl}
+                            tags={tagBadges}
+                            onFavoriteChange={onFavoriteAsset}
+                            onRatingChange={onRateAsset}
+                          />
                         ) : null}
                       </div>
                     ) : null}
@@ -2348,16 +2472,26 @@ function FeedPreview({
   isLoadingMore,
   hasMore,
   loadMoreRef,
+  isFeedChromeHidden,
+  isPlaybackPaused,
+  syncedAssetId,
   onLoadMore,
-  onSelectAsset
+  onFeedChromeHiddenChange,
+  onOpenAnnotations,
+  onOpenAsset
 }: {
   assets: AssetRecord[];
   isLoading: boolean;
   isLoadingMore: boolean;
   hasMore: boolean;
   loadMoreRef: MutableRefObject<HTMLDivElement | null>;
+  isFeedChromeHidden: boolean;
+  isPlaybackPaused: boolean;
+  syncedAssetId: string | null;
   onLoadMore: () => void;
-  onSelectAsset: (assetId: string) => void;
+  onFeedChromeHiddenChange: (isHidden: boolean) => void;
+  onOpenAnnotations: (assetId: string) => void;
+  onOpenAsset: (assetId: string) => void;
 }) {
   const feedRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<Array<HTMLElement | null>>([]);
@@ -2365,6 +2499,7 @@ function FeedPreview({
   const wheelLockUntilRef = useRef(0);
   const touchStartRef = useRef<FeedTouchStart | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [isFeedMuted, setIsFeedMuted] = useState(false);
   const firstAssetId = assets[0]?.id ?? "";
 
   useEffect(() => {
@@ -2375,6 +2510,34 @@ function FeedPreview({
     setActiveIndex(0);
     feedRef.current?.scrollTo({ top: 0 });
   }, [firstAssetId]);
+
+  useEffect(() => {
+    if (!syncedAssetId) {
+      return;
+    }
+
+    const syncedIndex = assets.findIndex((asset) => asset.id === syncedAssetId);
+
+    if (syncedIndex < 0) {
+      return;
+    }
+
+    const feedElement = feedRef.current;
+    const syncedItem = itemRefs.current[syncedIndex];
+    setActiveIndex(syncedIndex);
+
+    if (!feedElement || !syncedItem) {
+      return;
+    }
+
+    const targetTop = feedItemTop(feedElement, syncedItem);
+
+    if (Math.abs(feedElement.scrollTop - targetTop) <= 1) {
+      return;
+    }
+
+    feedElement.scrollTo({ top: targetTop, behavior: "auto" });
+  }, [assets, syncedAssetId]);
 
   useEffect(
     () => () => {
@@ -2422,6 +2585,14 @@ function FeedPreview({
     },
     [assets.length, hasMore, onLoadMore]
   );
+
+  const toggleFeedChrome = useCallback(() => {
+    onFeedChromeHiddenChange(!isFeedChromeHidden);
+  }, [isFeedChromeHidden, onFeedChromeHiddenChange]);
+
+  const handleAudibleAutoplayBlocked = useCallback(() => {
+    setIsFeedMuted(true);
+  }, []);
 
   const pageFeedBy = useCallback(
     (delta: number) => {
@@ -2586,45 +2757,83 @@ function FeedPreview({
       onWheel={handleFeedWheel}
     >
       <div className="feed-view" ref={feedRef} onScroll={handleFeedScroll}>
-        {assets.map((asset, index) => (
-          <article
-            className="feed-item"
-            data-feed-index={index}
-            key={asset.id}
-            ref={(node) => {
-              itemRefs.current[index] = node;
-            }}
-          >
-            <div className="feed-frame">
-              <button
-                className="media-preview-button"
-                type="button"
-                onClick={() => onSelectAsset(asset.id)}
-              >
-                <MediaPreview asset={asset} tall />
-              </button>
-              <div className="feed-meta">
-                <div>
-                  <span>{asset.mediaType}</span>
-                  <strong title={asset.name}>{asset.name}</strong>
+        {assets.map((asset, index) => {
+          return (
+            <article
+              className={
+                isFeedChromeHidden ? "feed-item details-hidden" : "feed-item"
+              }
+              data-feed-index={index}
+              key={asset.id}
+              ref={(node) => {
+                itemRefs.current[index] = node;
+              }}
+            >
+              <div className="feed-frame">
+                <button
+                  className="media-preview-button"
+                  type="button"
+                  aria-label={`${
+                    isFeedChromeHidden ? "Show" : "Hide"
+                  } feed controls and details`}
+                  title={isFeedChromeHidden ? "Show details" : "Hide details"}
+                  onClick={toggleFeedChrome}
+                >
+                  <MediaPreview
+                    asset={asset}
+                    muted={isFeedMuted}
+                    onAudibleAutoplayBlocked={handleAudibleAutoplayBlocked}
+                    playbackPaused={isPlaybackPaused}
+                    preloadPreview={
+                      asset.mediaType === "video" &&
+                      Math.abs(index - activeIndex) <= FEED_PRELOAD_DISTANCE
+                    }
+                    tall
+                  />
+                </button>
+                <div className="feed-meta">
+                  <button
+                    className="feed-meta-button"
+                    type="button"
+                    aria-haspopup="dialog"
+                    aria-label={`Open details for ${asset.name}`}
+                    title="Open details"
+                    onClick={() => onOpenAnnotations(asset.id)}
+                  >
+                    <span>{asset.mediaType}</span>
+                    <strong title={asset.name}>
+                      {asset.name}
+                    </strong>
+                  </button>
+                </div>
+                <div className="feed-actions">
+                  {asset.mediaType === "video" ? (
+                    <IconButton
+                      aria-pressed={!isFeedMuted}
+                      className="feed-sound-action"
+                      icon={isFeedMuted ? VolumeX : Volume2}
+                      iconSize={17}
+                      label={isFeedMuted ? "Unmute feed sound" : "Mute feed sound"}
+                      title={isFeedMuted ? "Sound off" : "Sound on"}
+                      onClick={() => setIsFeedMuted((current) => !current)}
+                    />
+                  ) : null}
+                  <IconButton
+                    className="feed-expand-action"
+                    icon={Maximize2}
+                    iconSize={17}
+                    label={`Open ${asset.name} fullscreen`}
+                    title="Fullscreen"
+                    onClick={() => onOpenAsset(asset.id)}
+                  />
                 </div>
               </div>
-              <div className="feed-actions">
-                <a
-                  className="icon-link"
-                  href={downloadUrl(asset.id)}
-                  aria-label="Download media"
-                  title="Download"
-                >
-                  <Download size={16} />
-                </a>
-              </div>
-            </div>
-            {hasMore && index === assets.length - 1 ? (
-              <div className="feed-load-sentinel" ref={loadMoreRef} />
-            ) : null}
-          </article>
-        ))}
+              {hasMore && index === assets.length - 1 ? (
+                <div className="feed-load-sentinel" ref={loadMoreRef} />
+              ) : null}
+            </article>
+          );
+        })}
       </div>
       <div className="feed-nav-rail" aria-label="Feed navigation">
         <button
@@ -2823,16 +3032,21 @@ function galleryTileChromeHeight(
 ): number {
   const hasTitle = fields.has("title");
   const hasSecondaryMetadata = fields.has("mediaType") || fields.has("size");
-  const hasBadges =
+  const hasCuration =
     fields.has("rating") || fields.has("favorite") || fields.has("tags");
-  const leadingInfoPadding =
-    !hasTitle && (hasSecondaryMetadata || hasBadges) ? 9 : 0;
+  const visibleSectionCount = [hasTitle, hasSecondaryMetadata, hasCuration]
+    .filter(Boolean).length;
+
+  if (visibleSectionCount === 0) {
+    return 0;
+  }
 
   return (
-    (hasTitle ? 34 : 0) +
-    (hasSecondaryMetadata ? 25 : 0) +
-    (hasBadges ? 32 : 0) +
-    leadingInfoPadding
+    19 +
+    (hasTitle ? 16 : 0) +
+    (hasSecondaryMetadata ? 15 : 0) +
+    (hasCuration ? 30 : 0) +
+    Math.max(0, visibleSectionCount - 1) * 6
   );
 }
 
@@ -2942,13 +3156,58 @@ function writeGalleryMetadataFields(
   );
 }
 
+function readSidebarCollapsedPreference(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  try {
+    return window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function writeSidebarCollapsedPreference(isCollapsed: boolean): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(
+      SIDEBAR_COLLAPSED_STORAGE_KEY,
+      String(isCollapsed)
+    );
+  } catch {
+    // A storage failure should not block the sidebar interaction.
+  }
+}
+
+function shouldCollapseFeedControlsByDefault(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return false;
+  }
+
+  return window.matchMedia(
+    "(max-width: 760px), (max-width: 920px) and (hover: none) and (pointer: coarse)"
+  ).matches;
+}
+
 function MediaPreview({
   asset,
+  muted = true,
+  onAudibleAutoplayBlocked,
   onDimensionsKnown,
+  playbackPaused = false,
+  preloadPreview = false,
   tall = false
 }: {
   asset: AssetRecord;
+  muted?: boolean;
+  onAudibleAutoplayBlocked?: () => void;
   onDimensionsKnown?: (assetId: string, width: number, height: number) => void;
+  playbackPaused?: boolean;
+  preloadPreview?: boolean;
   tall?: boolean;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -2958,12 +3217,51 @@ function MediaPreview({
   const [animatedImageFailed, setAnimatedImageFailed] = useState(false);
   const [videoPreviewFailed, setVideoPreviewFailed] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
+  const [isVideoReady, setIsVideoReady] = useState(false);
+  const videoSource =
+    asset.mediaType === "video"
+      ? videoPreviewFailed
+        ? mediaUrl(asset.id)
+        : videoPreviewUrl(asset.id, tall ? 720 : 480)
+      : "";
+  const shouldLoadVideo =
+    asset.mediaType === "video" && (isVisible || preloadPreview);
+
+  const playVisibleVideo = useCallback(() => {
+    if (asset.mediaType !== "video" || !isVisible || playbackPaused) {
+      return;
+    }
+
+    const video = videoRef.current;
+
+    if (!video) {
+      return;
+    }
+
+    video.muted = muted;
+    video.play().catch(() => {
+      if (muted) {
+        return;
+      }
+
+      video.muted = true;
+      onAudibleAutoplayBlocked?.();
+      video.play().catch(() => undefined);
+    });
+  }, [
+    asset.mediaType,
+    isVisible,
+    muted,
+    onAudibleAutoplayBlocked,
+    playbackPaused
+  ]);
 
   useEffect(() => {
     setHasError(false);
     setAnimatedImageFailed(false);
     setVideoPreviewFailed(false);
     setIsVisible(false);
+    setIsVideoReady(false);
   }, [asset.id, isAnimatedImage, tall]);
 
   useEffect(() => {
@@ -3020,12 +3318,26 @@ function MediaPreview({
       return;
     }
 
-    if (isVisible) {
-      video.play().catch(() => undefined);
+    if (isVisible && !playbackPaused) {
+      playVisibleVideo();
     } else {
       video.pause();
     }
-  }, [asset.id, asset.mediaType, isVisible]);
+  }, [asset.id, asset.mediaType, isVisible, playbackPaused, playVisibleVideo]);
+
+  useEffect(() => {
+    if (asset.mediaType !== "video" || !preloadPreview || isVisible) {
+      return;
+    }
+
+    videoRef.current?.load();
+  }, [asset.id, asset.mediaType, isVisible, preloadPreview, videoSource]);
+
+  useEffect(() => {
+    if (asset.mediaType === "video" && !shouldLoadVideo) {
+      setIsVideoReady(false);
+    }
+  }, [asset.mediaType, shouldLoadVideo]);
 
   if (hasError) {
     return (
@@ -3073,44 +3385,75 @@ function MediaPreview({
     );
   }
 
-  const videoSource = videoPreviewFailed
-    ? mediaUrl(asset.id)
-    : videoPreviewUrl(asset.id, tall ? 720 : 480);
-
   return (
-    <video
-      ref={videoRef}
-      className={tall ? "media-video tall" : "media-video"}
-      src={isVisible ? videoSource : undefined}
-      poster={thumbnailUrl(asset.id)}
-      data-preview-source={
-        isVisible ? (videoPreviewFailed ? "original" : "preview") : "poster"
-      }
-      muted
-      loop
-      playsInline
-      preload={isVisible ? "metadata" : "none"}
-      onLoadedMetadata={(event) => {
-        onDimensionsKnown?.(
-          asset.id,
-          event.currentTarget.videoWidth,
-          event.currentTarget.videoHeight
-        );
-      }}
-      onLoadedData={() => {
-        if (isVisible) {
-          videoRef.current?.play().catch(() => undefined);
+    <span
+      className={[
+        "media-video-shell",
+        tall ? "tall" : "",
+        isVideoReady ? "ready" : ""
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      <img
+        className="media-video-poster"
+        src={thumbnailUrl(asset.id)}
+        alt=""
+        aria-hidden="true"
+        loading={preloadPreview ? "eager" : "lazy"}
+        decoding="async"
+      />
+      <video
+        ref={videoRef}
+        className={tall ? "media-video tall" : "media-video"}
+        src={shouldLoadVideo ? videoSource : undefined}
+        poster={thumbnailUrl(asset.id)}
+        data-preview-source={
+          shouldLoadVideo
+            ? videoPreviewFailed
+              ? "original"
+              : "preview"
+            : "poster"
         }
-      }}
-      onError={() => {
-        if (!videoPreviewFailed) {
-          setVideoPreviewFailed(true);
-          return;
+        muted={muted}
+        loop
+        playsInline
+        preload={
+          shouldLoadVideo ? (preloadPreview ? "auto" : "metadata") : "none"
         }
+        onLoadedMetadata={(event) => {
+          onDimensionsKnown?.(
+            asset.id,
+            event.currentTarget.videoWidth,
+            event.currentTarget.videoHeight
+          );
+        }}
+        onLoadedData={() => {
+          setIsVideoReady(true);
 
-        setHasError(true);
-      }}
-    />
+          if (isVisible && !playbackPaused) {
+            playVisibleVideo();
+          }
+        }}
+        onCanPlay={() => {
+          setIsVideoReady(true);
+
+          if (isVisible && !playbackPaused) {
+            playVisibleVideo();
+          }
+        }}
+        onError={() => {
+          setIsVideoReady(false);
+
+          if (!videoPreviewFailed) {
+            setVideoPreviewFailed(true);
+            return;
+          }
+
+          setHasError(true);
+        }}
+      />
+    </span>
   );
 }
 
@@ -3132,14 +3475,21 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
   );
 }
 
-function isRatingShortcutKey(event: KeyboardEvent): boolean {
-  return (
-    event.key >= "1" &&
-    event.key <= "5" &&
-    !event.altKey &&
-    !event.ctrlKey &&
-    !event.metaKey
-  );
+const focusableSelector = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "[tabindex]:not([tabindex='-1'])"
+].join(",");
+
+function getFocusableElements(container: HTMLElement): HTMLElement[] {
+  return Array.from(container.querySelectorAll<HTMLElement>(focusableSelector))
+    .filter(
+      (element) =>
+        element.tabIndex >= 0 && element.getAttribute("aria-hidden") !== "true"
+    );
 }
 
 type ViewerStageSize = {
@@ -3148,22 +3498,21 @@ type ViewerStageSize = {
 };
 
 function mediaViewerFrameStyle(
-  asset: AssetRecord,
+  mediaSize: ViewerStageSize | null,
   stageSize: ViewerStageSize | null
 ): CSSProperties | undefined {
   if (
     !stageSize ||
     stageSize.width <= 0 ||
     stageSize.height <= 0 ||
-    !asset.width ||
-    !asset.height ||
-    asset.width <= 0 ||
-    asset.height <= 0
+    !mediaSize ||
+    mediaSize.width <= 0 ||
+    mediaSize.height <= 0
   ) {
     return undefined;
   }
 
-  const mediaAspectRatio = asset.width / asset.height;
+  const mediaAspectRatio = mediaSize.width / mediaSize.height;
   const stageAspectRatio = stageSize.width / stageSize.height;
   const frameWidth =
     mediaAspectRatio >= stageAspectRatio
@@ -3180,24 +3529,119 @@ function mediaViewerFrameStyle(
   };
 }
 
-function FullscreenViewer({
+function FeedAnnotationDrawer({
   aiStatus,
   asset,
-  hasNext,
-  hasPrevious,
   onClose,
-  onNext,
-  onPrevious,
   onAssetUpdated,
   onAssetTagsUpdated
 }: {
   aiStatus: AiStatus | null;
   asset: AssetRecord;
-  hasNext: boolean;
-  hasPrevious: boolean;
   onClose: () => void;
-  onNext: () => void;
-  onPrevious: () => void;
+  onAssetUpdated: (asset: AssetRecord) => void;
+  onAssetTagsUpdated: (assetId: string, tags: TagRecord[]) => void;
+}) {
+  const drawerRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    const previousFocus =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+
+    drawerRef.current?.focus({ preventScroll: true });
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onClose();
+        return;
+      }
+
+      if (event.key !== "Tab" || !drawerRef.current) {
+        return;
+      }
+
+      const focusableElements = getFocusableElements(drawerRef.current);
+
+      if (focusableElements.length === 0) {
+        event.preventDefault();
+        drawerRef.current.focus({ preventScroll: true });
+        return;
+      }
+
+      const firstElement = focusableElements[0]!;
+      const lastElement = focusableElements[focusableElements.length - 1]!;
+
+      if (event.shiftKey && document.activeElement === firstElement) {
+        event.preventDefault();
+        lastElement.focus();
+      } else if (!event.shiftKey && document.activeElement === lastElement) {
+        event.preventDefault();
+        firstElement.focus();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      previousFocus?.focus({ preventScroll: true });
+    };
+  }, [onClose]);
+
+  return (
+    <div className="feed-drawer-layer">
+      <button
+        className="feed-drawer-scrim"
+        type="button"
+        aria-label="Close details"
+        onClick={onClose}
+      />
+      <section
+        className="feed-annotation-drawer"
+        ref={drawerRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="feed-annotation-title"
+        tabIndex={-1}
+      >
+        <div className="feed-drawer-grip" aria-hidden="true" />
+        <header className="feed-drawer-header">
+          <div>
+            <span>{asset.mediaType}</span>
+            <h2 id="feed-annotation-title" title={asset.name}>
+              {asset.name}
+            </h2>
+            <p>{mediaDetailLine(asset)}</p>
+          </div>
+          <IconButton
+            className="feed-drawer-close"
+            icon={X}
+            iconSize={18}
+            label="Close details"
+            onClick={onClose}
+          />
+        </header>
+        <AssetAnnotationPanel
+          aiStatus={aiStatus}
+          asset={asset}
+          onAssetTagsUpdated={onAssetTagsUpdated}
+          onAssetUpdated={onAssetUpdated}
+        />
+      </section>
+    </div>
+  );
+}
+
+function AssetAnnotationPanel({
+  aiStatus,
+  asset,
+  onAssetUpdated,
+  onAssetTagsUpdated
+}: {
+  aiStatus: AiStatus | null;
+  asset: AssetRecord;
   onAssetUpdated: (asset: AssetRecord) => void;
   onAssetTagsUpdated: (assetId: string, tags: TagRecord[]) => void;
 }) {
@@ -3212,71 +3656,6 @@ function FullscreenViewer({
   const [isSavingTags, setIsSavingTags] = useState(false);
   const [isLoadingSmartTags, setIsLoadingSmartTags] = useState(false);
   const [isLoadingAiTags, setIsLoadingAiTags] = useState(false);
-  const viewerStageRef = useRef<HTMLElement | null>(null);
-  const [viewerStageSize, setViewerStageSize] =
-    useState<ViewerStageSize | null>(null);
-  const viewerMediaFrameStyle = useMemo(
-    () => mediaViewerFrameStyle(asset, viewerStageSize),
-    [asset.height, asset.width, viewerStageSize]
-  );
-
-  useEffect(() => {
-    const stage = viewerStageRef.current;
-
-    if (!stage) {
-      return;
-    }
-
-    let animationFrame: number | null = null;
-
-    const measureStage = () => {
-      const rect = stage.getBoundingClientRect();
-      const width = Math.max(0, Math.floor(rect.width));
-      const height = Math.max(0, Math.floor(rect.height));
-
-      setViewerStageSize((current) =>
-        current?.width === width && current.height === height
-          ? current
-          : { width, height }
-      );
-    };
-
-    const scheduleMeasure = () => {
-      if (animationFrame !== null) {
-        return;
-      }
-
-      animationFrame = window.requestAnimationFrame(() => {
-        animationFrame = null;
-        measureStage();
-      });
-    };
-
-    scheduleMeasure();
-
-    if (typeof window.ResizeObserver === "function") {
-      const resizeObserver = new window.ResizeObserver(scheduleMeasure);
-      resizeObserver.observe(stage);
-
-      return () => {
-        if (animationFrame !== null) {
-          window.cancelAnimationFrame(animationFrame);
-        }
-
-        resizeObserver.disconnect();
-      };
-    }
-
-    window.addEventListener("resize", scheduleMeasure);
-
-    return () => {
-      if (animationFrame !== null) {
-        window.cancelAnimationFrame(animationFrame);
-      }
-
-      window.removeEventListener("resize", scheduleMeasure);
-    };
-  }, []);
 
   useEffect(() => {
     let active = true;
@@ -3338,34 +3717,6 @@ function FullscreenViewer({
       window.clearTimeout(timer);
     };
   }, [tagInput, tags]);
-
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.target instanceof HTMLInputElement) {
-        if (event.key === "Escape") {
-          onClose();
-        }
-        return;
-      }
-
-      if (event.key === "Escape") {
-        onClose();
-      } else if (isRatingShortcutKey(event)) {
-        event.preventDefault();
-        void saveRating({ rating: Number(event.key) });
-      } else if (event.key === "ArrowRight" && hasNext) {
-        onNext();
-      } else if (event.key === "ArrowLeft" && hasPrevious) {
-        onPrevious();
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [asset.id, hasNext, hasPrevious, onAssetUpdated, onClose, onNext, onPrevious]);
 
   async function saveRating(input: {
     rating?: number | null;
@@ -3456,14 +3807,286 @@ function FullscreenViewer({
   }
 
   return (
-    <div className="viewer-backdrop" role="dialog" aria-modal="true">
-      <div className="viewer-topbar">
-        <div>
-          <strong>{asset.name}</strong>
-          <span>{mediaDetailLine(asset)}</span>
+    <section className="annotation-panel" aria-label="Media annotations">
+      <div className="annotation-row">
+        <span className="annotation-label">Rating</span>
+        <div className="rating-controls">
+          <RatingSlider
+            className="annotation-rating-slider"
+            disabled={isSavingRating}
+            label={`Rating for ${asset.name}`}
+            value={asset.rating}
+            onClear={() => void saveRating({ rating: null })}
+            onCommit={(rating) => void saveRating({ rating })}
+          />
         </div>
+        <button
+          className={asset.favorite ? "favorite-button active" : "favorite-button"}
+          type="button"
+          aria-label="Favorite"
+          title="Favorite"
+          aria-pressed={asset.favorite}
+          disabled={isSavingRating}
+          onClick={() => void saveRating({ favorite: !asset.favorite })}
+        >
+          <Heart size={18} />
+        </button>
+      </div>
+
+      <div className="tag-editor">
+        <div className="tag-editor-heading">
+          <span className="annotation-label">Tags</span>
+          <div className="tag-editor-actions">
+            <button
+              className="suggest-tags-button"
+              type="button"
+              disabled={isLoadingSmartTags || isSavingTags}
+              onClick={() => void loadSmartTagSuggestions()}
+            >
+              <Sparkles size={14} />
+              <span>{isLoadingSmartTags ? "Suggesting" : "Suggest tags"}</span>
+            </button>
+            {aiStatus?.enabled ? (
+              <button
+                className="suggest-tags-button"
+                type="button"
+                disabled={isLoadingAiTags || isSavingTags}
+                onClick={() => void loadAiTagSuggestions()}
+              >
+                <Sparkles size={14} />
+                <span>{isLoadingAiTags ? "Analyzing" : "Vision tags"}</span>
+              </button>
+            ) : null}
+          </div>
+        </div>
+        <div className="tag-chip-list">
+          {tags.map((tag) => (
+            <span className="tag-chip" key={tag.id}>
+              {tag.displayName}
+              <button
+                type="button"
+                aria-label={`Remove ${tag.displayName}`}
+                disabled={isSavingTags}
+                onClick={() => removeTag(tag.id)}
+              >
+                <X size={13} />
+              </button>
+            </span>
+          ))}
+          <div className="tag-input-wrap">
+            <input
+              value={tagInput}
+              maxLength={48}
+              placeholder="Add tag"
+              disabled={isSavingTags}
+              onChange={(event) => setTagInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  addTag(tagInput);
+                }
+              }}
+            />
+            <button
+              type="button"
+              aria-label="Add tag"
+              title="Add tag"
+              disabled={isSavingTags || !tagInput.trim()}
+              onClick={() => addTag(tagInput)}
+            >
+              <Plus size={15} />
+            </button>
+          </div>
+        </div>
+
+        {smartTagSuggestions.length ? (
+          <div
+            className="tag-suggestions smart-suggestions"
+            aria-label="Suggested tags"
+          >
+            {smartTagSuggestions.map((suggestion) => (
+              <button
+                type="button"
+                key={suggestion.normalizedName}
+                title={`${suggestion.reason}; confidence ${Math.round(
+                  suggestion.confidence * 100
+                )}%`}
+                disabled={isSavingTags}
+                onClick={() => addTag(suggestion.displayName)}
+              >
+                <Sparkles size={13} />
+                {suggestion.displayName}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        {tagSuggestions.length ? (
+          <div className="tag-suggestions">
+            {tagSuggestions.map((tag) => (
+              <button
+                type="button"
+                key={tag.id}
+                disabled={isSavingTags}
+                onClick={() => addTag(tag.displayName)}
+              >
+                {tag.displayName}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        {annotationError ? (
+          <span className="annotation-error">{annotationError}</span>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function FullscreenViewer({
+  asset,
+  hasNext,
+  hasPrevious,
+  onClose,
+  onNext,
+  onPrevious
+}: {
+  asset: AssetRecord;
+  hasNext: boolean;
+  hasPrevious: boolean;
+  onClose: () => void;
+  onNext: () => void;
+  onPrevious: () => void;
+}) {
+  const viewerStageRef = useRef<HTMLDivElement | null>(null);
+  const [viewerStageSize, setViewerStageSize] =
+    useState<ViewerStageSize | null>(null);
+  const [viewerVideoSize, setViewerVideoSize] =
+    useState<ViewerStageSize | null>(null);
+  const storedMediaSize = useMemo<ViewerStageSize | null>(() => {
+    if (!asset.width || !asset.height || asset.width <= 0 || asset.height <= 0) {
+      return null;
+    }
+
+    return { width: asset.width, height: asset.height };
+  }, [asset.height, asset.width]);
+  const viewerMediaSize =
+    asset.mediaType === "video"
+      ? viewerVideoSize ?? storedMediaSize
+      : storedMediaSize;
+  const viewerMediaFrameStyle = useMemo(
+    () => mediaViewerFrameStyle(viewerMediaSize, viewerStageSize),
+    [viewerMediaSize, viewerStageSize]
+  );
+
+  useEffect(() => {
+    const stage = viewerStageRef.current;
+
+    if (!stage) {
+      return;
+    }
+
+    let animationFrame: number | null = null;
+
+    const measureStage = () => {
+      const rect = stage.getBoundingClientRect();
+      const width = Math.max(0, Math.floor(rect.width));
+      const height = Math.max(0, Math.floor(rect.height));
+
+      setViewerStageSize((current) =>
+        current?.width === width && current.height === height
+          ? current
+          : { width, height }
+      );
+    };
+
+    const scheduleMeasure = () => {
+      if (animationFrame !== null) {
+        return;
+      }
+
+      animationFrame = window.requestAnimationFrame(() => {
+        animationFrame = null;
+        measureStage();
+      });
+    };
+
+    scheduleMeasure();
+
+    if (typeof window.ResizeObserver === "function") {
+      const resizeObserver = new window.ResizeObserver(scheduleMeasure);
+      resizeObserver.observe(stage);
+
+      return () => {
+        if (animationFrame !== null) {
+          window.cancelAnimationFrame(animationFrame);
+        }
+
+        resizeObserver.disconnect();
+      };
+    }
+
+    window.addEventListener("resize", scheduleMeasure);
+
+    return () => {
+      if (animationFrame !== null) {
+        window.cancelAnimationFrame(animationFrame);
+      }
+
+      window.removeEventListener("resize", scheduleMeasure);
+    };
+  }, []);
+
+  useEffect(() => {
+    setViewerVideoSize(null);
+  }, [asset.id]);
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.target instanceof HTMLInputElement) {
+        if (event.key === "Escape") {
+          onClose();
+        }
+        return;
+      }
+
+      if (event.key === "Escape") {
+        onClose();
+      } else if (event.key === "ArrowRight" && hasNext) {
+        onNext();
+      } else if (event.key === "ArrowLeft" && hasPrevious) {
+        onPrevious();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [hasNext, hasPrevious, onClose, onNext, onPrevious]);
+
+  const viewerClassName =
+    asset.mediaType === "video"
+      ? "viewer-backdrop viewer-video"
+      : "viewer-backdrop";
+
+  return (
+    <div
+      className={viewerClassName}
+      role="dialog"
+      aria-label={`${asset.name} viewer`}
+      aria-modal="true"
+    >
+      <div className="viewer-topbar" aria-label="Viewer controls">
         <div className="viewer-actions">
-          <a className="icon-link" href={downloadUrl(asset.id)} title="Download">
+          <a
+            className="icon-link"
+            href={downloadUrl(asset.id)}
+            aria-label={`Download ${asset.name}`}
+            title="Download"
+          >
             <Download size={18} />
           </a>
           <button
@@ -3487,169 +4110,45 @@ function FullscreenViewer({
         <ChevronLeft size={24} />
       </button>
 
-      <figure className="viewer-stage" ref={viewerStageRef}>
-        <div className="viewer-media-frame" style={viewerMediaFrameStyle}>
-          {asset.mediaType === "image" ? (
-            <img
-              src={mediaUrl(asset.id)}
-              alt={asset.name}
-              width={asset.width ?? undefined}
-              height={asset.height ?? undefined}
-            />
-          ) : (
-            <video
-              src={mediaUrl(asset.id)}
-              width={asset.width ?? undefined}
-              height={asset.height ?? undefined}
-              controls
-              autoPlay
-              loop
-              playsInline
-            />
-          )}
-        </div>
-      </figure>
+      <figure className="viewer-stage">
+        <div className="viewer-fit-area" ref={viewerStageRef}>
+          <div className="viewer-media-frame" style={viewerMediaFrameStyle}>
+            {asset.mediaType === "image" ? (
+              <img
+                src={mediaUrl(asset.id)}
+                alt={asset.name}
+                width={asset.width ?? undefined}
+                height={asset.height ?? undefined}
+              />
+            ) : (
+              <video
+                key={asset.id}
+                src={mediaUrl(asset.id)}
+                width={asset.width ?? undefined}
+                height={asset.height ?? undefined}
+                controls
+                autoPlay
+                loop
+                playsInline
+                onLoadedMetadata={(event) => {
+                  const { videoHeight, videoWidth } = event.currentTarget;
 
-      <section className="viewer-inspector" aria-label="Media annotations">
-        <div className="annotation-row">
-          <span className="annotation-label">Rating</span>
-          <div className="rating-controls">
-            {[1, 2, 3, 4, 5].map((value) => (
-              <button
-                className={asset.rating && value <= asset.rating ? "star active" : "star"}
-                type="button"
-                key={value}
-                aria-label={`Rate ${value} stars`}
-                title={`Rate ${value}`}
-                disabled={isSavingRating}
-                onClick={() =>
-                  void saveRating({
-                    rating: asset.rating === value ? null : value
-                  })
-                }
-              >
-                <Star size={18} />
-              </button>
-            ))}
-          </div>
-          <button
-            className={asset.favorite ? "favorite-button active" : "favorite-button"}
-            type="button"
-            aria-label="Favorite"
-            title="Favorite"
-            aria-pressed={asset.favorite}
-            disabled={isSavingRating}
-            onClick={() => void saveRating({ favorite: !asset.favorite })}
-          >
-            <Heart size={18} />
-          </button>
-        </div>
-
-        <div className="tag-editor">
-          <div className="tag-editor-heading">
-            <span className="annotation-label">Tags</span>
-            <div className="tag-editor-actions">
-              <button
-                className="suggest-tags-button"
-                type="button"
-                disabled={isLoadingSmartTags || isSavingTags}
-                onClick={() => void loadSmartTagSuggestions()}
-              >
-                <Sparkles size={14} />
-                <span>{isLoadingSmartTags ? "Suggesting" : "Suggest tags"}</span>
-              </button>
-              {aiStatus?.enabled ? (
-                <button
-                  className="suggest-tags-button"
-                  type="button"
-                  disabled={isLoadingAiTags || isSavingTags}
-                  onClick={() => void loadAiTagSuggestions()}
-                >
-                  <Sparkles size={14} />
-                  <span>{isLoadingAiTags ? "Analyzing" : "Vision tags"}</span>
-                </button>
-              ) : null}
-            </div>
-          </div>
-          <div className="tag-chip-list">
-            {tags.map((tag) => (
-              <span className="tag-chip" key={tag.id}>
-                {tag.displayName}
-                <button
-                  type="button"
-                  aria-label={`Remove ${tag.displayName}`}
-                  disabled={isSavingTags}
-                  onClick={() => removeTag(tag.id)}
-                >
-                  <X size={13} />
-                </button>
-              </span>
-            ))}
-            <div className="tag-input-wrap">
-              <input
-                value={tagInput}
-                maxLength={48}
-                placeholder="Add tag"
-                disabled={isSavingTags}
-                onChange={(event) => setTagInput(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    addTag(tagInput);
+                  if (videoWidth <= 0 || videoHeight <= 0) {
+                    return;
                   }
+
+                  setViewerVideoSize((current) =>
+                    current?.width === videoWidth &&
+                    current.height === videoHeight
+                      ? current
+                      : { width: videoWidth, height: videoHeight }
+                  );
                 }}
               />
-              <button
-                type="button"
-                aria-label="Add tag"
-                title="Add tag"
-                disabled={isSavingTags || !tagInput.trim()}
-                onClick={() => addTag(tagInput)}
-              >
-                <Plus size={15} />
-              </button>
-            </div>
+            )}
           </div>
-
-          {smartTagSuggestions.length ? (
-            <div className="tag-suggestions smart-suggestions" aria-label="Suggested tags">
-              {smartTagSuggestions.map((suggestion) => (
-                <button
-                  type="button"
-                  key={suggestion.normalizedName}
-                  title={`${suggestion.reason}; confidence ${Math.round(
-                    suggestion.confidence * 100
-                  )}%`}
-                  disabled={isSavingTags}
-                  onClick={() => addTag(suggestion.displayName)}
-                >
-                  <Sparkles size={13} />
-                  {suggestion.displayName}
-                </button>
-              ))}
-            </div>
-          ) : null}
-
-          {tagSuggestions.length ? (
-            <div className="tag-suggestions">
-              {tagSuggestions.map((tag) => (
-                <button
-                  type="button"
-                  key={tag.id}
-                  disabled={isSavingTags}
-                  onClick={() => addTag(tag.displayName)}
-                >
-                  {tag.displayName}
-                </button>
-              ))}
-            </div>
-          ) : null}
-
-          {annotationError ? (
-            <span className="annotation-error">{annotationError}</span>
-          ) : null}
         </div>
-      </section>
+      </figure>
 
       <button
         className="viewer-nav next"
@@ -3903,6 +4402,32 @@ function uniqueTagNames(tagNames: string[]): string[] {
 
 function selectedMediaLabel(count: number): string {
   return count === 1 ? "item" : "items";
+}
+
+function optimisticRatingAsset(
+  asset: AssetRecord,
+  input: { rating?: number | null; favorite?: boolean }
+): AssetRecord {
+  return {
+    ...asset,
+    favorite: input.favorite ?? asset.favorite,
+    rating: input.rating === undefined ? asset.rating : input.rating
+  };
+}
+
+function ratingActionErrorMessage(caught: unknown): string {
+  if (!(caught instanceof ApiError)) {
+    return "Unable to update media.";
+  }
+
+  switch (caught.code) {
+    case "asset_not_indexed":
+      return "This media is no longer indexed.";
+    case "invalid_request":
+      return "Rating request was invalid.";
+    default:
+      return "Unable to update media.";
+  }
 }
 
 function batchActionErrorMessage(caught: unknown, fallback: string): string {

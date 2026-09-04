@@ -2,6 +2,7 @@ import type { MediaRootConfig } from "../config/config.js";
 import type { AetherDatabase } from "../db/database.js";
 import { stableId } from "./ids.js";
 import type { MediaType } from "./media-types.js";
+import { assetSearchQuery, searchNgramText } from "./search-text.js";
 
 export interface FolderRecord {
   id: string;
@@ -367,14 +368,17 @@ function syncAssetSearchRow(
 ): void {
   db.prepare("DELETE FROM asset_search WHERE asset_id = ?").run(input.id);
   db.prepare(`
-    INSERT INTO asset_search (asset_id, root_id, folder_id, name, relative_path)
-    VALUES (@id, @rootId, @folderId, @name, @relativePath)
+    INSERT INTO asset_search
+      (asset_id, root_id, folder_id, name, relative_path, search_ngrams)
+    VALUES
+      (@id, @rootId, @folderId, @name, @relativePath, @searchNgrams)
   `).run({
     id: input.id,
     rootId: input.rootId,
     folderId: input.folderId,
     name: input.name,
-    relativePath: input.relativePath
+    relativePath: input.relativePath,
+    searchNgrams: searchNgramText(`${input.name} ${input.relativePath}`)
   });
 }
 
@@ -1193,17 +1197,6 @@ function normalizeTagSearch(query: string): string {
   return query.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase(
     "en-US"
   );
-}
-
-function assetSearchQuery(query: string): string {
-  const terms =
-    query
-      .normalize("NFKC")
-      .toLocaleLowerCase("en-US")
-      .match(/[\p{L}\p{N}]+/gu)
-      ?.slice(0, 8) ?? [];
-
-  return terms.map((term) => `${term}*`).join(" AND ");
 }
 
 function refreshTagUsageCounts(db: AetherDatabase): void {

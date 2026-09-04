@@ -1,6 +1,7 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
+import { searchNgramText } from "../library/search-text.js";
 
 export type AetherDatabase = Database.Database;
 
@@ -91,7 +92,7 @@ const migrations: Migration[] = [
 
       CREATE TABLE IF NOT EXISTS ratings (
         asset_id TEXT PRIMARY KEY REFERENCES assets(id) ON DELETE CASCADE,
-        rating INTEGER CHECK(rating BETWEEN 0 AND 5),
+        rating INTEGER CHECK(rating BETWEEN 0 AND 10),
         favorite INTEGER NOT NULL DEFAULT 0 CHECK(favorite IN (0, 1)),
         updated_at TEXT NOT NULL
       );
@@ -179,6 +180,57 @@ const migrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_login_attempts_last_failed_at
         ON login_attempts(last_failed_at);
     `
+  },
+  {
+    version: 6,
+    name: "asset_search_cjk_ngrams",
+    sql: `
+      DROP TABLE IF EXISTS asset_search;
+
+      CREATE VIRTUAL TABLE asset_search USING fts5(
+        asset_id UNINDEXED,
+        root_id UNINDEXED,
+        folder_id UNINDEXED,
+        name,
+        relative_path,
+        search_ngrams,
+        tokenize = 'unicode61'
+      );
+
+      INSERT INTO asset_search
+        (asset_id, root_id, folder_id, name, relative_path, search_ngrams)
+      SELECT
+        id,
+        root_id,
+        folder_id,
+        name,
+        relative_path,
+        aether_search_ngrams(name || ' ' || relative_path)
+      FROM assets;
+    `
+  },
+  {
+    version: 7,
+    name: "rating_scale_0_to_10",
+    sql: `
+      CREATE TABLE ratings_next (
+        asset_id TEXT PRIMARY KEY REFERENCES assets(id) ON DELETE CASCADE,
+        rating INTEGER CHECK(rating BETWEEN 0 AND 10),
+        favorite INTEGER NOT NULL DEFAULT 0 CHECK(favorite IN (0, 1)),
+        updated_at TEXT NOT NULL
+      );
+
+      INSERT INTO ratings_next (asset_id, rating, favorite, updated_at)
+      SELECT asset_id, rating, favorite, updated_at
+      FROM ratings;
+
+      DROP TABLE ratings;
+
+      ALTER TABLE ratings_next RENAME TO ratings;
+
+      CREATE INDEX IF NOT EXISTS idx_ratings_sort
+        ON ratings(favorite, rating);
+    `
   }
 ];
 
@@ -187,6 +239,9 @@ export function openDatabase(configDir: string): AetherDatabase {
   const databasePath = path.join(configDir, "aether.sqlite");
   const db = new Database(databasePath);
 
+  db.function("aether_search_ngrams", { deterministic: true }, (input: unknown) =>
+    typeof input === "string" ? searchNgramText(input) : ""
+  );
   db.pragma("foreign_keys = ON");
   db.pragma("journal_mode = WAL");
   db.pragma("busy_timeout = 5000");

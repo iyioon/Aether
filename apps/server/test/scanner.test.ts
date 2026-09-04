@@ -132,4 +132,48 @@ describe("library scanner", () => {
     expect(assets?.page.total).toBe(1);
     expect(assets?.items[0]?.name).toBe("photo.jpg");
   });
+
+  it("matches Korean filename substrings in search", async () => {
+    const mediaDir = path.join(cwd, "media", "2026", "seoul");
+    await writeFile(path.join(mediaDir, "제주도여행사진.jpg"), "fake image");
+    await writeFile(path.join(mediaDir, "가족모임.png"), "fake image");
+    await scanLibrary(db, config.mediaRoots);
+    const rootFolderId = folderIdFor(config.mediaRoots[0]!.id, "");
+
+    const travel = listAssets(db, {
+      folderId: rootFolderId,
+      offset: 0,
+      limit: 10,
+      sort: "filename",
+      type: "all",
+      recursive: true,
+      search: "여행"
+    });
+    const family = listAssets(db, {
+      folderId: rootFolderId,
+      offset: 0,
+      limit: 10,
+      sort: "filename",
+      type: "all",
+      recursive: true,
+      search: "가족"
+    });
+    const middle = listAssets(db, {
+      folderId: rootFolderId,
+      offset: 0,
+      limit: 10,
+      sort: "filename",
+      type: "all",
+      recursive: true,
+      search: "주도여"
+    });
+
+    expect(travel?.items.map((asset) => asset.name)).toEqual([
+      "제주도여행사진.jpg"
+    ]);
+    expect(family?.items.map((asset) => asset.name)).toEqual(["가족모임.png"]);
+    expect(middle?.items.map((asset) => asset.name)).toEqual([
+      "제주도여행사진.jpg"
+    ]);
+  });
 });

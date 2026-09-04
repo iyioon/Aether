@@ -1,0 +1,52 @@
+services:
+  aether:
+    build:
+      context: .
+    container_name: aether
+    restart: unless-stopped
+    init: true
+    ports:
+      # Local-only by default. Use a reverse proxy for HTTPS or change to
+      # "3030:3030" only for direct LAN access on a firewalled host.
+      - "127.0.0.1:3030:3030"
+    environment:
+      AETHER_HOST: 0.0.0.0
+      AETHER_PORT: 3030
+      AETHER_MEDIA_ROOTS: /media
+      AETHER_CONFIG_DIR: /config
+      AETHER_CACHE_DIR: /cache
+      AETHER_COOKIE_SECURE: ${AETHER_COOKIE_SECURE:-false}
+      AETHER_TRUST_PROXY: ${AETHER_TRUST_PROXY:-false}
+      AETHER_WATCH_ENABLED: ${AETHER_WATCH_ENABLED:-true}
+      AETHER_WATCH_DEBOUNCE_MS: ${AETHER_WATCH_DEBOUNCE_MS:-2000}
+      AETHER_AI_PROVIDER: ${AETHER_AI_PROVIDER:-disabled}
+      AETHER_OLLAMA_BASE_URL: ${AETHER_OLLAMA_BASE_URL:-http://127.0.0.1:11434}
+      AETHER_OLLAMA_VISION_MODEL: ${AETHER_OLLAMA_VISION_MODEL:-llava:latest}
+      AETHER_AI_TIMEOUT_MS: ${AETHER_AI_TIMEOUT_MS:-45000}
+      AETHER_PASSWORD_HASH: ${AETHER_PASSWORD_HASH:-}
+      AETHER_SESSION_SECRET: ${AETHER_SESSION_SECRET:-}
+      AETHER_LOGIN_MAX_ATTEMPTS: ${AETHER_LOGIN_MAX_ATTEMPTS:-10}
+      AETHER_LOGIN_WINDOW_MINUTES: ${AETHER_LOGIN_WINDOW_MINUTES:-15}
+      AETHER_LOGIN_LOCKOUT_MINUTES: ${AETHER_LOGIN_LOCKOUT_MINUTES:-15}
+      AETHER_WEB_DIST: /app/apps/web/dist
+    volumes:
+      - ./media:/media:ro
+      - ./config:/config
+      - ./cache:/cache
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3030/api/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

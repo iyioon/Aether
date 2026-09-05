@@ -103,6 +103,10 @@ export function parseRangeHeader(
     return null;
   }
 
+  if (sizeBytes <= 0) {
+    return "invalid";
+  }
+
   const match = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim());
 
   if (!match) {
@@ -251,16 +255,22 @@ function assetLastModifiedTimeMs(file: ResolvedAssetFile): number {
 }
 
 function entityTagMatches(header: string, entityTag: string): boolean {
+  const expectedTag = entityTagValue(entityTag);
+
   return header
     .split(",")
     .map((entry) => entry.trim())
-    .some((entry) => entry === "*" || entry === entityTag);
+    .some((entry) => entry === "*" || entityTagValue(entry) === expectedTag);
 }
 
 function ifRangeMatches(file: ResolvedAssetFile, ifRangeHeader: string): boolean {
   const header = ifRangeHeader.trim();
 
   if (!header) {
+    return false;
+  }
+
+  if (header.startsWith("W/")) {
     return false;
   }
 
@@ -274,6 +284,10 @@ function ifRangeMatches(file: ResolvedAssetFile, ifRangeHeader: string): boolean
     Number.isFinite(validatorTime) &&
     assetLastModifiedTimeMs(file) <= validatorTime
   );
+}
+
+function entityTagValue(tag: string): string {
+  return tag.startsWith("W/") ? tag.slice(2) : tag;
 }
 
 function asciiFallback(fileName: string): string {

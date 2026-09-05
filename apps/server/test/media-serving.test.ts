@@ -54,6 +54,7 @@ describe("media serving", () => {
     expect(parseRangeHeader("bytes=7-", 10)).toEqual({ start: 7, end: 9 });
     expect(parseRangeHeader("bytes=-4", 10)).toEqual({ start: 6, end: 9 });
     expect(parseRangeHeader("bytes=10-", 10)).toBe("invalid");
+    expect(parseRangeHeader("bytes=-4", 0)).toBe("invalid");
     expect(parseRangeHeader("items=0-2", 10)).toBe("invalid");
   });
 
@@ -71,8 +72,26 @@ describe("media serving", () => {
 
     expect(full.statusCode).toBe(200);
     expect(full.headers["accept-ranges"]).toBe("bytes");
+    expect(full.headers["cache-control"]).toBe("private, max-age=3600");
+    expect(full.headers["content-length"]).toBe("10");
     expect(full.headers["content-type"]).toContain("video/mp4");
     expect(full.body).toBe("0123456789");
+    const etag = String(full.headers.etag);
+    const lastModified = String(full.headers["last-modified"]);
+    expect(etag).toMatch(/^"[a-f0-9]{32}"$/);
+    expect(Number.isFinite(Date.parse(lastModified))).toBe(true);
+
+    const head = await app.inject({
+      method: "HEAD",
+      url: `/api/assets/${asset.id}/media`,
+      cookies
+    });
+
+    expect(head.statusCode).toBe(200);
+    expect(head.headers["accept-ranges"]).toBe("bytes");
+    expect(head.headers["content-length"]).toBe("10");
+    expect(head.headers.etag).toBe(etag);
+    expect(head.body).toBe("");
 
     const partial = await app.inject({
       method: "GET",
@@ -85,7 +104,46 @@ describe("media serving", () => {
 
     expect(partial.statusCode).toBe(206);
     expect(partial.headers["content-range"]).toBe("bytes 2-5/10");
+    expect(partial.headers["content-length"]).toBe("4");
     expect(partial.body).toBe("2345");
+
+    const matchingIfRange = await app.inject({
+      method: "GET",
+      url: `/api/assets/${asset.id}/media`,
+      cookies,
+      headers: {
+        "if-range": etag,
+        range: "bytes=2-5"
+      }
+    });
+
+    expect(matchingIfRange.statusCode).toBe(206);
+    expect(matchingIfRange.body).toBe("2345");
+
+    const staleIfRange = await app.inject({
+      method: "GET",
+      url: `/api/assets/${asset.id}/media`,
+      cookies,
+      headers: {
+        "if-range": "\"stale\"",
+        range: "bytes=2-5"
+      }
+    });
+
+    expect(staleIfRange.statusCode).toBe(200);
+    expect(staleIfRange.body).toBe("0123456789");
+
+    const notModified = await app.inject({
+      method: "GET",
+      url: `/api/assets/${asset.id}/media`,
+      cookies,
+      headers: {
+        "if-none-match": `W/${etag}`
+      }
+    });
+
+    expect(notModified.statusCode).toBe(304);
+    expect(notModified.body).toBe("");
 
     const invalid = await app.inject({
       method: "GET",
@@ -97,6 +155,7 @@ describe("media serving", () => {
     });
 
     expect(invalid.statusCode).toBe(416);
+    expect(invalid.headers["accept-ranges"]).toBe("bytes");
     expect(invalid.headers["content-range"]).toBe("bytes */10");
   });
 

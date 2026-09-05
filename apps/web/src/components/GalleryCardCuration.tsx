@@ -61,7 +61,9 @@ export function GalleryCardCuration({
           title={asset.favorite ? "Favorite" : "Add favorite"}
           onClick={() => onFavoriteChange(asset, !asset.favorite)}
         >
-          <Heart size={13} />
+          <span className="tile-favorite-glyph" aria-hidden="true">
+            <Heart size={15} strokeWidth={2.1} />
+          </span>
         </button>
       ) : null}
 

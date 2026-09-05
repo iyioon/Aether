@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { AppConfig } from "../config/config.js";
 import type { AetherDatabase } from "../db/database.js";
@@ -23,9 +23,11 @@ import {
 } from "./repository.js";
 import type { LibraryScanner } from "./scanner.js";
 import {
+  isAssetNotModified,
   mediaErrorStatus,
-  parseRangeHeader,
+  requestedByteRange,
   resolveAssetFile,
+  sendAssetNotModified,
   sendAssetStream,
   sendRangeNotSatisfiable
 } from "./media-serving.js";
@@ -210,72 +212,18 @@ export async function registerLibraryRoutes(
     return asset;
   });
 
-  app.get("/api/assets/:assetId/media", async (request, reply) => {
-    const params = AssetParams.safeParse(request.params);
-
-    if (!params.success) {
-      return reply.code(400).send({ error: "invalid_request" });
-    }
-
-    try {
-      const file = await resolveAssetFile(db, params.data.assetId);
-
-      if (!file) {
-        return reply.code(404).send({ error: "asset_not_found" });
-      }
-
-      const range = parseRangeHeader(
-        normalizedHeader(request.headers.range),
-        file.sizeBytes
-      );
-
-      if (range === "invalid") {
-        return sendRangeNotSatisfiable(reply, file.sizeBytes);
-      }
-
-      return sendAssetStream({
-        reply,
-        file,
-        range,
-        disposition: "inline"
-      });
-    } catch (error) {
-      return reply.code(mediaErrorStatus(error)).send({ error: "asset_not_found" });
-    }
+  app.route({
+    method: ["GET", "HEAD"],
+    url: "/api/assets/:assetId/media",
+    handler: async (request, reply) =>
+      streamAssetFile(request, reply, db, "inline")
   });
 
-  app.get("/api/assets/:assetId/download", async (request, reply) => {
-    const params = AssetParams.safeParse(request.params);
-
-    if (!params.success) {
-      return reply.code(400).send({ error: "invalid_request" });
-    }
-
-    try {
-      const file = await resolveAssetFile(db, params.data.assetId);
-
-      if (!file) {
-        return reply.code(404).send({ error: "asset_not_found" });
-      }
-
-      const range = parseRangeHeader(
-        normalizedHeader(request.headers.range),
-        file.sizeBytes
-      );
-
-      if (range === "invalid") {
-        return sendRangeNotSatisfiable(reply, file.sizeBytes);
-      }
-
-      return sendAssetStream({
-        reply,
-        file,
-        range,
-        disposition: "attachment"
-      });
-    } catch (error) {
-      return reply.code(mediaErrorStatus(error)).send({ error: "asset_not_found" });
-    }
+  app.route({
+    method: ["GET", "HEAD"],
+    url: "/api/assets/:assetId/download",
+    handler: async (request, reply) =>
+      streamAssetFile(request, reply, db, "attachment")
   });
 
   app.get("/api/assets/:assetId/thumbnail", async (request, reply) => {
@@ -582,6 +530,55 @@ export async function registerLibraryRoutes(
     provider: config.aiProvider,
     model: config.aiProvider === "ollama" ? config.ollamaVisionModel : null
   }));
+}
+
+async function streamAssetFile(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  db: AetherDatabase,
+  disposition: "inline" | "attachment"
+) {
+  const params = AssetParams.safeParse(request.params);
+
+  if (!params.success) {
+    return reply.code(400).send({ error: "invalid_request" });
+  }
+
+  try {
+    const file = await resolveAssetFile(db, params.data.assetId);
+
+    if (!file) {
+      return reply.code(404).send({ error: "asset_not_found" });
+    }
+
+    const streamHeaders = {
+      ifModifiedSince: normalizedHeader(request.headers["if-modified-since"]),
+      ifNoneMatch: normalizedHeader(request.headers["if-none-match"]),
+      ifRange: normalizedHeader(request.headers["if-range"]),
+      range: normalizedHeader(request.headers.range)
+    };
+
+    if (isAssetNotModified(file, streamHeaders)) {
+      return sendAssetNotModified({ reply, file, disposition });
+    }
+
+    const range =
+      request.method === "GET" ? requestedByteRange(file, streamHeaders) : null;
+
+    if (range === "invalid") {
+      return sendRangeNotSatisfiable(reply, file.sizeBytes);
+    }
+
+    return sendAssetStream({
+      reply,
+      file,
+      range,
+      disposition,
+      method: request.method
+    });
+  } catch (error) {
+    return reply.code(mediaErrorStatus(error)).send({ error: "asset_not_found" });
+  }
 }
 
 function normalizedHeader(value: string | string[] | undefined): string | undefined {

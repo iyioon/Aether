@@ -11,6 +11,7 @@ import {
   type TouchEvent as ReactTouchEvent,
   type WheelEvent as ReactWheelEvent
 } from "react";
+import { flushSync } from "react-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   Check,
@@ -24,6 +25,7 @@ import {
   Grid3X3,
   Heart,
   Image,
+  Info,
   LogOut,
   Maximize2,
   Menu,
@@ -1804,10 +1806,11 @@ export function AppShell({ onLogout }: AppShellProps) {
         )}
       </main>
 
-      {view === "feed" && annotationAsset ? (
-        <FeedAnnotationDrawer
+      {annotationAsset ? (
+        <MediaAnnotationDrawer
           aiStatus={aiStatus}
           asset={annotationAsset}
+          isAboveViewer={selectedAssetId !== null}
           onAssetTagsUpdated={handleAssetTagsUpdated}
           onAssetUpdated={handleAssetUpdated}
           onClose={() => setAnnotationAssetId(null)}
@@ -1824,7 +1827,12 @@ export function AppShell({ onLogout }: AppShellProps) {
           hasPrevious={assets.some(
             (asset, index) => asset.id === selectedAsset.id && index > 0
           )}
-          onClose={() => setSelectedAssetId(null)}
+          isInfoOpen={annotationAsset !== null}
+          onClose={() => {
+            setAnnotationAssetId(null);
+            setSelectedAssetId(null);
+          }}
+          onOpenInfo={() => setAnnotationAssetId(selectedAsset.id)}
           onNext={() => selectAdjacentAsset(1)}
           onPrevious={() => selectAdjacentAsset(-1)}
         />
@@ -1907,7 +1915,9 @@ function BatchActionsBar({
             disabled={isSaving}
             onClick={onFavorite}
           >
-            <Heart size={17} />
+            <span className="favorite-button-glyph" aria-hidden="true">
+              <Heart size={18} strokeWidth={2.1} />
+            </span>
           </button>
           <button
             className="favorite-button"
@@ -1917,7 +1927,9 @@ function BatchActionsBar({
             disabled={isSaving}
             onClick={onUnfavorite}
           >
-            <X size={16} />
+            <span className="favorite-button-glyph" aria-hidden="true">
+              <X size={16} />
+            </span>
           </button>
         </div>
       </div>
@@ -2500,7 +2512,14 @@ function FeedPreview({
   const touchStartRef = useRef<FeedTouchStart | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [isFeedMuted, setIsFeedMuted] = useState(false);
+  const [isFeedAudioBlocked, setIsFeedAudioBlocked] = useState(false);
+  const [audiblePlaybackRequest, setAudiblePlaybackRequest] = useState(0);
   const firstAssetId = assets[0]?.id ?? "";
+  const feedSoundState = isFeedAudioBlocked
+    ? "blocked"
+    : isFeedMuted
+      ? "muted"
+      : "on";
 
   useEffect(() => {
     itemRefs.current = itemRefs.current.slice(0, assets.length);
@@ -2591,8 +2610,52 @@ function FeedPreview({
   }, [isFeedChromeHidden, onFeedChromeHiddenChange]);
 
   const handleAudibleAutoplayBlocked = useCallback(() => {
+    setIsFeedAudioBlocked(true);
     setIsFeedMuted(true);
   }, []);
+
+  const handleAudiblePlaybackStarted = useCallback(() => {
+    setIsFeedAudioBlocked(false);
+  }, []);
+
+  const playActiveFeedVideoAudibly = useCallback(() => {
+    const activeItem = itemRefs.current[activeIndex];
+    const activeVideo = activeItem?.querySelector<HTMLVideoElement>("video");
+
+    if (!activeVideo) {
+      return;
+    }
+
+    activeVideo.muted = false;
+
+    if (activeVideo.volume === 0) {
+      activeVideo.volume = 1;
+    }
+
+    activeVideo
+      .play()
+      .then(() => {
+        setIsFeedAudioBlocked(false);
+      })
+      .catch(() => {
+        activeVideo.muted = true;
+        setIsFeedAudioBlocked(true);
+        setIsFeedMuted(true);
+      });
+  }, [activeIndex]);
+
+  const handleFeedSoundToggle = useCallback(() => {
+    if (isFeedMuted) {
+      setIsFeedAudioBlocked(false);
+      setIsFeedMuted(false);
+      setAudiblePlaybackRequest((current) => current + 1);
+      playActiveFeedVideoAudibly();
+      return;
+    }
+
+    setIsFeedAudioBlocked(false);
+    setIsFeedMuted(true);
+  }, [isFeedMuted, playActiveFeedVideoAudibly]);
 
   const pageFeedBy = useCallback(
     (delta: number) => {
@@ -2781,8 +2844,13 @@ function FeedPreview({
                 >
                   <MediaPreview
                     asset={asset}
+                    audiblePlaybackRequest={
+                      index === activeIndex ? audiblePlaybackRequest : 0
+                    }
+                    isActive={index === activeIndex}
                     muted={isFeedMuted}
                     onAudibleAutoplayBlocked={handleAudibleAutoplayBlocked}
+                    onAudiblePlaybackStarted={handleAudiblePlaybackStarted}
                     playbackPaused={isPlaybackPaused}
                     preloadPreview={
                       asset.mediaType === "video" &&
@@ -2809,13 +2877,24 @@ function FeedPreview({
                 <div className="feed-actions">
                   {asset.mediaType === "video" ? (
                     <IconButton
-                      aria-pressed={!isFeedMuted}
+                      aria-pressed={feedSoundState === "on"}
                       className="feed-sound-action"
-                      icon={isFeedMuted ? VolumeX : Volume2}
+                      data-audio-state={feedSoundState}
+                      icon={feedSoundState === "on" ? Volume2 : VolumeX}
                       iconSize={17}
-                      label={isFeedMuted ? "Unmute feed sound" : "Mute feed sound"}
-                      title={isFeedMuted ? "Sound off" : "Sound on"}
-                      onClick={() => setIsFeedMuted((current) => !current)}
+                      label={
+                        feedSoundState === "on"
+                          ? "Mute feed sound"
+                          : "Enable feed sound"
+                      }
+                      title={
+                        feedSoundState === "blocked"
+                          ? "Tap for sound"
+                          : feedSoundState === "on"
+                            ? "Sound on"
+                            : "Sound off"
+                      }
+                      onClick={handleFeedSoundToggle}
                     />
                   ) : null}
                   <IconButton
@@ -3195,16 +3274,22 @@ function shouldCollapseFeedControlsByDefault(): boolean {
 
 function MediaPreview({
   asset,
+  audiblePlaybackRequest = 0,
+  isActive = true,
   muted = true,
   onAudibleAutoplayBlocked,
+  onAudiblePlaybackStarted,
   onDimensionsKnown,
   playbackPaused = false,
   preloadPreview = false,
   tall = false
 }: {
   asset: AssetRecord;
+  audiblePlaybackRequest?: number;
+  isActive?: boolean;
   muted?: boolean;
   onAudibleAutoplayBlocked?: () => void;
+  onAudiblePlaybackStarted?: () => void;
   onDimensionsKnown?: (assetId: string, width: number, height: number) => void;
   playbackPaused?: boolean;
   preloadPreview?: boolean;
@@ -3228,7 +3313,7 @@ function MediaPreview({
     asset.mediaType === "video" && (isVisible || preloadPreview);
 
   const playVisibleVideo = useCallback(() => {
-    if (asset.mediaType !== "video" || !isVisible || playbackPaused) {
+    if (asset.mediaType !== "video" || !isActive || !isVisible || playbackPaused) {
       return;
     }
 
@@ -3239,20 +3324,29 @@ function MediaPreview({
     }
 
     video.muted = muted;
-    video.play().catch(() => {
-      if (muted) {
-        return;
-      }
+    video
+      .play()
+      .then(() => {
+        if (!muted && !video.muted) {
+          onAudiblePlaybackStarted?.();
+        }
+      })
+      .catch(() => {
+        if (muted) {
+          return;
+        }
 
-      video.muted = true;
-      onAudibleAutoplayBlocked?.();
-      video.play().catch(() => undefined);
-    });
+        video.muted = true;
+        onAudibleAutoplayBlocked?.();
+        video.play().catch(() => undefined);
+      });
   }, [
     asset.mediaType,
+    isActive,
     isVisible,
     muted,
     onAudibleAutoplayBlocked,
+    onAudiblePlaybackStarted,
     playbackPaused
   ]);
 
@@ -3318,12 +3412,27 @@ function MediaPreview({
       return;
     }
 
-    if (isVisible && !playbackPaused) {
+    if (isActive && isVisible && !playbackPaused) {
       playVisibleVideo();
     } else {
       video.pause();
     }
-  }, [asset.id, asset.mediaType, isVisible, playbackPaused, playVisibleVideo]);
+  }, [
+    asset.id,
+    asset.mediaType,
+    isActive,
+    isVisible,
+    playbackPaused,
+    playVisibleVideo
+  ]);
+
+  useEffect(() => {
+    if (asset.mediaType !== "video" || audiblePlaybackRequest <= 0) {
+      return;
+    }
+
+    playVisibleVideo();
+  }, [asset.mediaType, audiblePlaybackRequest, playVisibleVideo]);
 
   useEffect(() => {
     if (asset.mediaType !== "video" || !preloadPreview || isVisible) {
@@ -3529,15 +3638,17 @@ function mediaViewerFrameStyle(
   };
 }
 
-function FeedAnnotationDrawer({
+function MediaAnnotationDrawer({
   aiStatus,
   asset,
+  isAboveViewer = false,
   onClose,
   onAssetUpdated,
   onAssetTagsUpdated
 }: {
   aiStatus: AiStatus | null;
   asset: AssetRecord;
+  isAboveViewer?: boolean;
   onClose: () => void;
   onAssetUpdated: (asset: AssetRecord) => void;
   onAssetTagsUpdated: (assetId: string, tags: TagRecord[]) => void;
@@ -3591,7 +3702,13 @@ function FeedAnnotationDrawer({
   }, [onClose]);
 
   return (
-    <div className="feed-drawer-layer">
+    <div
+      className={
+        isAboveViewer
+          ? "feed-drawer-layer viewer-drawer-layer"
+          : "feed-drawer-layer"
+      }
+    >
       <button
         className="feed-drawer-scrim"
         type="button"
@@ -3603,14 +3720,14 @@ function FeedAnnotationDrawer({
         ref={drawerRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="feed-annotation-title"
+        aria-labelledby="media-annotation-title"
         tabIndex={-1}
       >
         <div className="feed-drawer-grip" aria-hidden="true" />
         <header className="feed-drawer-header">
           <div>
             <span>{asset.mediaType}</span>
-            <h2 id="feed-annotation-title" title={asset.name}>
+            <h2 id="media-annotation-title" title={asset.name}>
               {asset.name}
             </h2>
             <p>{mediaDetailLine(asset)}</p>
@@ -3829,7 +3946,9 @@ function AssetAnnotationPanel({
           disabled={isSavingRating}
           onClick={() => void saveRating({ favorite: !asset.favorite })}
         >
-          <Heart size={18} />
+          <span className="favorite-button-glyph" aria-hidden="true">
+            <Heart size={18} strokeWidth={2.1} />
+          </span>
         </button>
       </div>
 
@@ -3948,18 +4067,23 @@ function FullscreenViewer({
   asset,
   hasNext,
   hasPrevious,
+  isInfoOpen,
   onClose,
+  onOpenInfo,
   onNext,
   onPrevious
 }: {
   asset: AssetRecord;
   hasNext: boolean;
   hasPrevious: boolean;
+  isInfoOpen: boolean;
   onClose: () => void;
+  onOpenInfo: () => void;
   onNext: () => void;
   onPrevious: () => void;
 }) {
   const viewerStageRef = useRef<HTMLDivElement | null>(null);
+  const viewerVideoRef = useRef<HTMLVideoElement | null>(null);
   const [viewerStageSize, setViewerStageSize] =
     useState<ViewerStageSize | null>(null);
   const [viewerVideoSize, setViewerVideoSize] =
@@ -3978,6 +4102,30 @@ function FullscreenViewer({
   const viewerMediaFrameStyle = useMemo(
     () => mediaViewerFrameStyle(viewerMediaSize, viewerStageSize),
     [viewerMediaSize, viewerStageSize]
+  );
+  const playViewerVideo = useCallback(() => {
+    const video = viewerVideoRef.current;
+
+    if (!video) {
+      return;
+    }
+
+    video.play().catch(() => undefined);
+  }, []);
+  const navigateAndPlayViewerVideo = useCallback(
+    (direction: -1 | 1) => {
+      flushSync(() => {
+        if (direction > 0) {
+          onNext();
+        } else {
+          onPrevious();
+        }
+      });
+
+      playViewerVideo();
+      window.requestAnimationFrame(playViewerVideo);
+    },
+    [onNext, onPrevious, playViewerVideo]
   );
 
   useEffect(() => {
@@ -4043,7 +4191,23 @@ function FullscreenViewer({
   }, [asset.id]);
 
   useEffect(() => {
+    if (asset.mediaType !== "video") {
+      return;
+    }
+
+    const animationFrame = window.requestAnimationFrame(playViewerVideo);
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+    };
+  }, [asset.id, asset.mediaType, playViewerVideo]);
+
+  useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
+      if (isInfoOpen) {
+        return;
+      }
+
       if (event.target instanceof HTMLInputElement) {
         if (event.key === "Escape") {
           onClose();
@@ -4054,9 +4218,9 @@ function FullscreenViewer({
       if (event.key === "Escape") {
         onClose();
       } else if (event.key === "ArrowRight" && hasNext) {
-        onNext();
+        navigateAndPlayViewerVideo(1);
       } else if (event.key === "ArrowLeft" && hasPrevious) {
-        onPrevious();
+        navigateAndPlayViewerVideo(-1);
       }
     }
 
@@ -4065,7 +4229,13 @@ function FullscreenViewer({
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [hasNext, hasPrevious, onClose, onNext, onPrevious]);
+  }, [
+    hasNext,
+    hasPrevious,
+    isInfoOpen,
+    navigateAndPlayViewerVideo,
+    onClose
+  ]);
 
   const viewerClassName =
     asset.mediaType === "video"
@@ -4089,6 +4259,14 @@ function FullscreenViewer({
           >
             <Download size={18} />
           </a>
+          <IconButton
+            aria-haspopup="dialog"
+            icon={Info}
+            iconSize={18}
+            label={`Show info for ${asset.name}`}
+            title="Info"
+            onClick={onOpenInfo}
+          />
           <button
             className="icon-button"
             type="button"
@@ -4105,7 +4283,7 @@ function FullscreenViewer({
         type="button"
         aria-label="Previous media"
         disabled={!hasPrevious}
-        onClick={onPrevious}
+        onClick={() => navigateAndPlayViewerVideo(-1)}
       >
         <ChevronLeft size={24} />
       </button>
@@ -4123,13 +4301,16 @@ function FullscreenViewer({
             ) : (
               <video
                 key={asset.id}
+                ref={viewerVideoRef}
                 src={mediaUrl(asset.id)}
+                poster={thumbnailUrl(asset.id)}
                 width={asset.width ?? undefined}
                 height={asset.height ?? undefined}
                 controls
                 autoPlay
                 loop
                 playsInline
+                preload="metadata"
                 onLoadedMetadata={(event) => {
                   const { videoHeight, videoWidth } = event.currentTarget;
 
@@ -4144,6 +4325,8 @@ function FullscreenViewer({
                       : { width: videoWidth, height: videoHeight }
                   );
                 }}
+                onLoadedData={playViewerVideo}
+                onCanPlay={playViewerVideo}
               />
             )}
           </div>
@@ -4155,7 +4338,7 @@ function FullscreenViewer({
         type="button"
         aria-label="Next media"
         disabled={!hasNext}
-        onClick={onNext}
+        onClick={() => navigateAndPlayViewerVideo(1)}
       >
         <ChevronRight size={24} />
       </button>

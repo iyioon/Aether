@@ -17,7 +17,7 @@ function findAetherRoot(startDir: string): string {
   let current = path.resolve(startDir);
 
   while (true) {
-    if (existsSync(path.join(current, "docs", "IMPLEMENTATION_PLAN.md"))) {
+    if (isWorkspaceRoot(current)) {
       return current;
     }
 
@@ -28,6 +28,14 @@ function findAetherRoot(startDir: string): string {
 
     current = parent;
   }
+}
+
+function isWorkspaceRoot(directory: string): boolean {
+  return (
+    existsSync(path.join(directory, "package.json")) &&
+    existsSync(path.join(directory, "apps", "server", "package.json")) &&
+    existsSync(path.join(directory, "apps", "web", "package.json"))
+  );
 }
 
 function loadEnvFileIfPresent(filePath: string): void {

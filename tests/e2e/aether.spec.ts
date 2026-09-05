@@ -65,18 +65,32 @@ test("supports login, scan, batch annotation, fullscreen, and feed", async ({
   await page.getByRole("button", { name: "Clear selection" }).click();
   await expect(batchActions).toHaveCount(0);
 
-  await page.getByPlaceholder("Any tag").fill("Trip");
+  await page.locator(".filters-control summary").click();
+  await page.getByLabel("Find tag").fill("Trip");
   await page.keyboard.press("Enter");
   await expect(page.getByText("2 items indexed")).toBeVisible();
 
   await page.getByRole("img", { name: "family-photo.png" }).click();
-  const viewer = page.getByRole("dialog");
+  const viewer = page.getByRole("dialog", {
+    exact: true,
+    name: "family-photo.png viewer"
+  });
   await expect(viewer).toBeVisible();
-  await expect(viewer).toContainText("family-photo.png");
-  await page.getByRole("button", { name: "Suggest tags" }).click();
-  await expect(viewer.getByRole("button", { name: /Family/ })).toBeVisible();
-  await viewer.getByRole("button", { name: /Family/ }).click();
-  await expect(viewer).toContainText("Family");
+  await viewer
+    .getByRole("button", { name: "Show info for family-photo.png" })
+    .click();
+
+  const details = page.getByRole("dialog", {
+    exact: true,
+    name: "family-photo.png"
+  });
+  await expect(details).toBeVisible();
+  await details.getByRole("button", { name: "Suggest tags" }).click();
+  await expect(details.getByRole("button", { name: /Family/ })).toBeVisible();
+  await details.getByRole("button", { name: /Family/ }).click();
+  await expect(details).toContainText("Family");
+  await details.getByRole("button", { name: "Close details" }).click();
+  await expect(details).toHaveCount(0);
   await page.keyboard.press("Escape");
   await expect(viewer).toHaveCount(0);
 

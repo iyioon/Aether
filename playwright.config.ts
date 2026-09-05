@@ -5,6 +5,7 @@ const webPort = Number(process.env.AETHER_E2E_WEB_PORT ?? 4173);
 
 export default defineConfig({
   testDir: "tests/e2e",
+  testIgnore: ["**/._*"],
   timeout: 60_000,
   expect: {
     timeout: 10_000

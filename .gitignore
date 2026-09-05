@@ -9,7 +9,12 @@ playwright-report/
 test-results/
 .e2e/
 backups/
-docs/
+docs/AI_*.md
+docs/DECISIONS.md
+docs/DEPLOYMENT_SECURITY.md
+docs/FUTURE_FEATURES.md
+docs/IMPLEMENTATION_PLAN.md
+docs/*.local.md
 *.log
 .DS_Store
 ._*

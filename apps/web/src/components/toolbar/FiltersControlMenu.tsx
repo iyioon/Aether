@@ -51,6 +51,11 @@ export function FiltersControlMenu({
   onSetRatingFilter,
   onSetTagFilterDraft
 }: FiltersControlMenuProps) {
+  function applyTagFilterAndClose(tagName: string) {
+    onApplyTagFilter(tagName);
+    onSetOpenControlMenu(null);
+  }
+
   return (
     <ToolbarMenu
       align="end"
@@ -215,7 +220,7 @@ export function FiltersControlMenu({
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   event.preventDefault();
-                  onApplyTagFilter(tagFilterDraft);
+                  applyTagFilterAndClose(tagFilterDraft);
                 }
               }}
             />
@@ -236,7 +241,7 @@ export function FiltersControlMenu({
                 <button
                   type="button"
                   key={tag.id}
-                  onClick={() => onApplyTagFilter(tag.displayName)}
+                  onClick={() => applyTagFilterAndClose(tag.displayName)}
                 >
                   {tag.displayName}
                 </button>

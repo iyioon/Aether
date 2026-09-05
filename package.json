@@ -1,7 +1,13 @@
 {
   "name": "aether",
   "version": "0.1.0",
+  "description": "Private self-hosted media gallery for local photo and video libraries.",
   "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/iyioon/Aether.git"
+  },
   "type": "module",
   "workspaces": [
     "apps/server",
@@ -18,7 +24,8 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "test:e2e": "playwright test",
-    "check": "npm run typecheck && npm run test"
+    "check": "npm run typecheck && npm run test",
+    "verify": "npm run check && npm run build"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
@@ -27,5 +34,8 @@
     "tsx": "^4.20.4",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"
+  },
+  "engines": {
+    "node": ">=24.0.0"
   }
 }

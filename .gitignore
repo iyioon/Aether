@@ -12,6 +12,7 @@ backups/
 docs/
 *.log
 .DS_Store
+._*
 *.sqlite
 *.sqlite-*
 *.db

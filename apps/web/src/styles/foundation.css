@@ -44,11 +44,21 @@ button:disabled {
 .login-page {
   display: grid;
   min-height: 100vh;
+  min-height: 100dvh;
   place-items: center;
   padding: 24px;
+}
+
+.boot-screen {
   background:
     linear-gradient(rgba(16, 18, 20, 0.72), rgba(16, 18, 20, 0.9)),
     url("data:image/svg+xml,%3Csvg width='240' height='240' viewBox='0 0 240 240' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' stroke='%23eef2ee' stroke-opacity='0.07'%3E%3Cpath d='M0 80h240M0 160h240M80 0v240M160 0v240'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+.login-page {
+  background: url("/login-bg.png");
+  background-position: center;
+  background-size: cover;
 }
 
 .boot-mark {
@@ -67,7 +77,8 @@ button:disabled {
   padding: 32px;
   border: 1px solid rgba(238, 242, 238, 0.12);
   border-radius: 8px;
-  background: rgba(22, 26, 28, 0.94);
+  background: rgba(22, 26, 28, 0.9);
+  backdrop-filter: blur(14px);
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.34);
 }
 

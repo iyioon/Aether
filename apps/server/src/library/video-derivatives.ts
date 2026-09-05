@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { createReadStream, existsSync } from "node:fs";
 import { mkdir, rename, stat, unlink } from "node:fs/promises";
 import path from "node:path";
@@ -18,15 +17,15 @@ import {
   upsertDerivative
 } from "./repository.js";
 import type { ThumbnailFile } from "./thumbnails.js";
+import {
+  runMediaCommand,
+  withVideoProcessingSlot
+} from "./video-processing.js";
+export { MediaProcessingError } from "./video-processing.js";
 
 export interface VideoPreviewFile {
   path: string;
   contentType: string;
-}
-
-interface CommandResult {
-  stdout: string;
-  stderr: string;
 }
 
 interface ProbeStream {
@@ -52,13 +51,10 @@ interface VideoMetadata {
 const POSTER_TIMEOUT_MS = 20_000;
 const PREVIEW_TIMEOUT_MS = 45_000;
 const PROBE_TIMEOUT_MS = 10_000;
-const MAX_PROCESS_OUTPUT_BYTES = 96 * 1024;
-const MAX_VIDEO_PROCESSING_JOBS = 2;
+const VIDEO_PREVIEW_CACHE_VERSION = "v2";
 
 const pendingPosterJobs = new Map<string, Promise<ThumbnailFile>>();
 const pendingPreviewJobs = new Map<string, Promise<VideoPreviewFile>>();
-const videoProcessingQueue: Array<() => void> = [];
-let activeVideoProcessingJobs = 0;
 
 export async function ensureVideoPoster({
   db,
@@ -144,6 +140,7 @@ export async function ensureVideoPreview({
     "derivative",
     file.asset.id,
     "preview",
+    VIDEO_PREVIEW_CACHE_VERSION,
     String(previewSize),
     String(previewDurationSeconds),
     String(file.mtimeMs)
@@ -296,17 +293,24 @@ async function generateVideoPreview({
       file.sourcePath,
       "-map",
       "0:v:0",
+      "-map",
+      "0:a:0?",
       "-t",
       String(durationSeconds),
       "-vf",
       `scale=${size}:${size}:force_original_aspect_ratio=decrease,format=yuv420p`,
-      "-an",
       "-c:v",
       "libx264",
       "-preset",
       "veryfast",
       "-crf",
       "30",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "128k",
+      "-ac",
+      "2",
       "-movflags",
       "+faststart",
       "-f",
@@ -412,104 +416,6 @@ export async function probeVideoMetadata(
   };
 }
 
-async function runMediaCommand(
-  command: string,
-  args: string[],
-  timeoutMs: number
-): Promise<CommandResult> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-    const stdout: Buffer[] = [];
-    const stderr: Buffer[] = [];
-    let stdoutBytes = 0;
-    let stderrBytes = 0;
-    let timedOut = false;
-    let settled = false;
-
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill("SIGKILL");
-    }, timeoutMs);
-
-    child.stdout.on("data", (chunk: Buffer) => {
-      stdoutBytes += chunk.byteLength;
-
-      if (stdoutBytes <= MAX_PROCESS_OUTPUT_BYTES) {
-        stdout.push(chunk);
-      }
-    });
-
-    child.stderr.on("data", (chunk: Buffer) => {
-      stderrBytes += chunk.byteLength;
-
-      if (stderrBytes <= MAX_PROCESS_OUTPUT_BYTES) {
-        stderr.push(chunk);
-      }
-    });
-
-    child.on("error", (error) => {
-      finish(() => {
-        reject(error);
-      });
-    });
-
-    child.on("close", (code) => {
-      finish(() => {
-        const stdoutText = Buffer.concat(stdout).toString("utf8");
-        const stderrText = Buffer.concat(stderr).toString("utf8");
-
-        if (timedOut) {
-          reject(new MediaProcessingError(`${command} timed out.`));
-          return;
-        }
-
-        if (code !== 0) {
-          reject(
-            new MediaProcessingError(
-              stderrText.trim() || `${command} exited with code ${code ?? "unknown"}.`
-            )
-          );
-          return;
-        }
-
-        resolve({
-          stdout: stdoutText,
-          stderr: stderrText
-        });
-      });
-    });
-
-    function finish(callback: () => void) {
-      if (settled) {
-        return;
-      }
-
-      settled = true;
-      clearTimeout(timer);
-      callback();
-    }
-  });
-}
-
-async function withVideoProcessingSlot<T>(task: () => Promise<T>): Promise<T> {
-  if (activeVideoProcessingJobs >= MAX_VIDEO_PROCESSING_JOBS) {
-    await new Promise<void>((resolve) => {
-      videoProcessingQueue.push(resolve);
-    });
-  }
-
-  activeVideoProcessingJobs += 1;
-
-  try {
-    return await task();
-  } finally {
-    activeVideoProcessingJobs -= 1;
-    videoProcessingQueue.shift()?.();
-  }
-}
-
 function sendPreviewRange(
   reply: FastifyReply,
   previewPath: string,
@@ -548,7 +454,7 @@ function previewPathFor(
     cacheDir,
     "previews",
     assetId,
-    `${mtimeMs}-${size}-${durationSeconds}.mp4`
+    `${VIDEO_PREVIEW_CACHE_VERSION}-${mtimeMs}-${size}-${durationSeconds}.mp4`
   );
 }
 
@@ -609,12 +515,5 @@ export class UnsupportedVideoPreviewError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "UnsupportedVideoPreviewError";
-  }
-}
-
-export class MediaProcessingError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "MediaProcessingError";
   }
 }

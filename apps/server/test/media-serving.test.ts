@@ -255,6 +255,7 @@ describe("media serving", () => {
         "derivative",
         asset.id,
         "preview",
+        "v2",
         "320",
         "2",
         String(asset.mtimeMs)
@@ -263,6 +264,10 @@ describe("media serving", () => {
     expect(derivative?.status).toBe("ready");
     expect(derivative?.width).toBe(320);
     expect(derivative?.height).toBe(2);
+    expect(derivative?.path).toContain("v2-");
+    expect(derivative?.path ? await hasAudioStream(derivative.path) : false).toBe(
+      true
+    );
 
     const partial = await app.inject({
       method: "GET",
@@ -330,26 +335,62 @@ async function createTestVideo(outputPath: string): Promise<void> {
     "lavfi",
     "-i",
     "testsrc=size=64x36:rate=5",
+    "-f",
+    "lavfi",
+    "-i",
+    "sine=frequency=440:sample_rate=44100",
     "-t",
-    "1",
+    "2",
     "-c:v",
     "mpeg4",
     "-pix_fmt",
     "yuv420p",
+    "-c:a",
+    "aac",
+    "-b:a",
+    "96k",
+    "-shortest",
     "-y",
     outputPath
   ]);
 }
 
-async function runFixtureCommand(command: string, args: string[]): Promise<void> {
+async function hasAudioStream(filePath: string): Promise<boolean> {
+  const result = await runFixtureCommand("ffprobe", [
+    "-v",
+    "error",
+    "-select_streams",
+    "a:0",
+    "-show_entries",
+    "stream=codec_type",
+    "-of",
+    "csv=p=0",
+    filePath
+  ]);
+
+  return result.stdout
+    .trim()
+    .split(/\r?\n/)
+    .some((line) => line === "audio");
+}
+
+async function runFixtureCommand(
+  command: string,
+  args: string[]
+): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
-      stdio: ["ignore", "ignore", "pipe"]
+      stdio: ["ignore", "pipe", "pipe"]
     });
+    const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
     }, 15_000);
+
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout.push(chunk);
+    });
 
     child.stderr.on("data", (chunk: Buffer) => {
       stderr.push(chunk);
@@ -373,7 +414,10 @@ async function runFixtureCommand(command: string, args: string[]): Promise<void>
         return;
       }
 
-      resolve();
+      resolve({
+        stdout: Buffer.concat(stdout).toString("utf8"),
+        stderr: Buffer.concat(stderr).toString("utf8")
+      });
     });
   });
 }

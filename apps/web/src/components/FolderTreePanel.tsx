@@ -14,23 +14,12 @@ import {
   type LucideIcon
 } from "lucide-react";
 import type { LibraryWatchStatus } from "../api/client";
+import { folderTreeItemDomId } from "./folders/folder-tree-dom";
+import type {
+  FolderScanState,
+  FolderTreeItem
+} from "./folders/folder-tree-types";
 import { IconButton } from "./ui/IconButton";
-
-export type FolderScanState =
-  | "idle"
-  | "starting"
-  | "running"
-  | "completed"
-  | "failed";
-
-export interface FolderTreeItem {
-  id: string;
-  parentId: string | null;
-  label: string;
-  assetCount: number;
-  depth: number;
-  hasChildren: boolean;
-}
 
 interface FolderTreePanelProps {
   error: string | null;
@@ -273,10 +262,6 @@ function FolderTreeRow({
       <small className="tree-count">{item.assetCount}</small>
     </div>
   );
-}
-
-export function folderTreeItemDomId(folderId: string): string {
-  return `folder-tree-${folderId}`;
 }
 
 function scanLabel(state: FolderScanState): string {

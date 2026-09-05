@@ -1,4 +1,6 @@
 import {
+  ArrowDownNarrowWide,
+  ArrowUpNarrowWide,
   Heart,
   Image,
   Rows3,
@@ -10,17 +12,26 @@ import {
 import type {
   MediaTypeFilter,
   RatingFilter,
+  SortDirection,
   SortMode
 } from "../../api/client";
 
 export type ControlMenuId = "sort" | "layout" | "filters" | "actions";
 
 export const sortOptions: Array<{ label: string; value: SortMode }> = [
-  { label: "Newest", value: "newest" },
-  { label: "Oldest", value: "oldest" },
+  { label: "Date", value: "date" },
   { label: "Filename", value: "filename" },
   { label: "Rating", value: "rating" },
   { label: "Random", value: "random" }
+];
+
+export const sortDirectionOptions: Array<{
+  label: string;
+  value: SortDirection;
+  icon: LucideIcon;
+}> = [
+  { label: "Descending", value: "desc", icon: ArrowDownNarrowWide },
+  { label: "Ascending", value: "asc", icon: ArrowUpNarrowWide }
 ];
 
 export const mediaFilters: Array<{

@@ -18,7 +18,10 @@
   .filter-option-icon,
   .filter-option-state,
   .menu-choice,
+  .menu-choice::before,
+  .menu-choice-icon,
   .menu-option,
+  .menu-option::before,
   .menu-primary-action,
   .menu-secondary-action {
     transition: none;

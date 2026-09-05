@@ -6,12 +6,15 @@ Aether is designed for a private home server or trusted LAN. It should not be ex
 
 - One password protects the application.
 - Passwords are verified with Argon2id hashes.
+- Failed login attempts are throttled and locked out separately from normal browsing.
+- Authenticated library and media browsing is not globally request-limited, so large galleries and video range requests can load normally on a trusted LAN.
 - Sessions are stored server-side and referenced by signed cookies.
 - Mutating API routes require a CSRF token.
 - API responses default to `Cache-Control: no-store`.
 - Browser hardening headers include CSP, frame denial, and no-sniff behavior.
 - Source media is served by opaque asset IDs, not by raw filesystem paths.
 - Media roots are resolved to canonical paths and checked against symlink escapes.
+- The Settings page only exposes sanitized configuration status, never secrets or absolute filesystem paths.
 
 ## Deployment Defaults
 

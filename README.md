@@ -8,7 +8,7 @@ It is built for a home server or trusted local network. Aether does not require 
 
 - Password-protected web interface with server-side sessions and CSRF protection.
 - Folder tree that mirrors the configured media roots.
-- Virtualized gallery grid for large folders, with size and aspect-ratio controls.
+- Virtualized gallery grid for large folders, with size, aspect-ratio, and sort direction controls.
 - Vertical feed mode for one-item-at-a-time browsing.
 - Fullscreen viewer for images and videos.
 - Ratings, favorites, tags, tag suggestions, and batch annotation tools.
@@ -16,6 +16,7 @@ It is built for a home server or trusted local network. Aether does not require 
 - Authenticated media streaming with HTTP range support for video seeking.
 - Lazy thumbnails, video posters, and short preview clips stored in a local cache.
 - Animated image support for GIF, animated WebP, AVIF, and APNG-style files.
+- Settings page for browser-local appearance preferences, library controls, and read-only server/security status.
 - Optional local Ollama vision tag suggestions, disabled by default.
 - Docker Compose setup with read-only media mounts and local SQLite storage.
 

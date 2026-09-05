@@ -23,7 +23,8 @@ export interface TreeResponse {
 }
 
 export type MediaTypeFilter = "all" | "image" | "video";
-export type SortMode = "newest" | "oldest" | "filename" | "rating" | "random";
+export type SortMode = "date" | "filename" | "rating" | "random";
+export type SortDirection = "desc" | "asc";
 export type RatingFilter = "all" | "favorites" | "rated" | "unrated";
 
 export interface AssetRecord {
@@ -76,6 +77,7 @@ export interface AssetListResponse {
     total: number;
   };
   sort: SortMode;
+  order: SortDirection;
   type: MediaTypeFilter;
   recursive: boolean;
   search: string;
@@ -114,6 +116,37 @@ export interface LibraryWatchStatus {
   lastError: string | null;
 }
 
+export interface SettingsSummary {
+  server: {
+    environment: string;
+    version: string | null;
+  };
+  library: {
+    mediaRootCount: number;
+    mediaRoots: Array<{
+      id: string;
+      label: string;
+    }>;
+    watchEnabled: boolean;
+    watchDebounceMs: number;
+  };
+  security: {
+    passwordConfigured: boolean;
+    cookieSecure: boolean;
+    trustProxy: boolean;
+    sessionTtlDays: number;
+    loginMaxAttempts: number;
+    loginWindowMinutes: number;
+    loginLockoutMinutes: number;
+  };
+  ai: {
+    enabled: boolean;
+    provider: "disabled" | "ollama";
+    model: string | null;
+    timeoutMs: number;
+  };
+}
+
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
@@ -150,16 +183,19 @@ export async function getAssets(options: {
   offset?: number;
   limit?: number;
   sort?: SortMode;
+  order?: SortDirection;
   type?: MediaTypeFilter;
   recursive?: boolean;
   search?: string;
   tag?: string;
   rating?: RatingFilter;
 }): Promise<AssetListResponse> {
+  const sort = options.sort ?? "date";
   const params = new URLSearchParams({
     offset: String(options.offset ?? 0),
     limit: String(options.limit ?? 80),
-    sort: options.sort ?? "newest",
+    sort,
+    order: options.order ?? defaultSortDirectionForApiSort(sort),
     type: options.type ?? "all",
     recursive: String(options.recursive ?? true),
     search: options.search ?? "",
@@ -188,6 +224,14 @@ export async function getWatchStatus(): Promise<LibraryWatchStatus> {
 
 export async function getAiStatus(): Promise<AiStatus> {
   return request<AiStatus>("/api/admin/ai");
+}
+
+export async function getSettings(): Promise<SettingsSummary> {
+  return request<SettingsSummary>("/api/admin/settings");
+}
+
+function defaultSortDirectionForApiSort(sort: SortMode): SortDirection {
+  return sort === "filename" ? "asc" : "desc";
 }
 
 export async function updateAssetRating(

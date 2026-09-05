@@ -1,5 +1,5 @@
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
-import { LogOut, PanelLeftClose, X } from "lucide-react";
+import { LogOut, PanelLeftClose, Settings, X } from "lucide-react";
 import type { LibraryWatchStatus } from "../../api/client";
 import { BrandMark } from "../BrandMark";
 import { FolderTreePanel } from "../FolderTreePanel";
@@ -17,6 +17,7 @@ interface LibrarySidebarProps {
   isLoadingTree: boolean;
   isSidebarCollapsed: boolean;
   isSidebarOpen: boolean;
+  isSettingsOpen: boolean;
   items: FolderTreeItem[];
   scanState: FolderScanState;
   selectedFolderId: string | null;
@@ -31,6 +32,7 @@ interface LibrarySidebarProps {
     item: FolderTreeItem
   ) => void;
   onLogout: () => void;
+  onOpenSettings: () => void;
   onScan: () => void;
   onSelectFolder: (folderId: string) => void;
   onToggleFolderExpansion: (folderId: string) => void;
@@ -44,6 +46,7 @@ export function LibrarySidebar({
   isLoadingTree,
   isSidebarCollapsed,
   isSidebarOpen,
+  isSettingsOpen,
   items,
   scanState,
   selectedFolderId,
@@ -55,6 +58,7 @@ export function LibrarySidebar({
   onExpandAll,
   onFolderKeyDown,
   onLogout,
+  onOpenSettings,
   onScan,
   onSelectFolder,
   onToggleFolderExpansion
@@ -110,7 +114,24 @@ export function LibrarySidebar({
       />
 
       <div className="sidebar-actions">
-        <button className="ghost-action" type="button" onClick={onLogout}>
+        <button
+          className={
+            isSettingsOpen
+              ? "ghost-action sidebar-action active"
+              : "ghost-action sidebar-action"
+          }
+          type="button"
+          aria-current={isSettingsOpen ? "page" : undefined}
+          onClick={onOpenSettings}
+        >
+          <Settings size={16} />
+          <span>Settings</span>
+        </button>
+        <button
+          className="ghost-action sidebar-action"
+          type="button"
+          onClick={onLogout}
+        >
           <LogOut size={16} />
           <span>Sign out</span>
         </button>

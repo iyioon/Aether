@@ -1,4 +1,4 @@
-import { CheckCircle2, Grid3X3 } from "lucide-react";
+import { Check, Grid3X3 } from "lucide-react";
 import {
   aspectOptions,
   sizeOptions,
@@ -67,7 +67,7 @@ export function LayoutControlMenu({
             >
               <span>{option}</span>
               <span className="menu-check" aria-hidden="true">
-                {gridSize === option ? <CheckCircle2 size={14} /> : null}
+                {gridSize === option ? <Check size={13} /> : null}
               </span>
             </button>
           ))}
@@ -94,7 +94,7 @@ export function LayoutControlMenu({
             >
               <span>{option}</span>
               <span className="menu-check" aria-hidden="true">
-                {aspect === option ? <CheckCircle2 size={14} /> : null}
+                {aspect === option ? <Check size={13} /> : null}
               </span>
             </button>
           ))}

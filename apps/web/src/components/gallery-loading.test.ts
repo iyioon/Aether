@@ -51,10 +51,11 @@ describe("gallery loading helpers", () => {
     ).toBe(false);
   });
 
-  it("changes the active query key when filters change", () => {
+  it("changes the active query key when filters or sort direction change", () => {
     const baseKey = buildAssetListQueryKey({
       folderId: "folder-1",
-      sort: "newest",
+      sort: "date",
+      sortDirection: "desc",
       mediaType: "all",
       search: "",
       tagFilter: "",
@@ -63,7 +64,8 @@ describe("gallery loading helpers", () => {
 
     const filteredKey = buildAssetListQueryKey({
       folderId: "folder-1",
-      sort: "newest",
+      sort: "date",
+      sortDirection: "asc",
       mediaType: "image",
       search: "sky",
       tagFilter: "travel",

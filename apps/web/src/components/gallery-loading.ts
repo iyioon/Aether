@@ -1,12 +1,14 @@
 import type {
   MediaTypeFilter,
   RatingFilter,
+  SortDirection,
   SortMode
 } from "../api/client";
 
 export interface AssetListQueryKeyInput {
   folderId: string | null;
   sort: SortMode;
+  sortDirection: SortDirection;
   mediaType: MediaTypeFilter;
   search: string;
   tagFilter: string;
@@ -25,6 +27,7 @@ export function buildAssetListQueryKey(input: AssetListQueryKeyInput): string {
   return [
     input.folderId ?? "",
     input.sort,
+    input.sortDirection,
     input.mediaType,
     input.search,
     input.tagFilter,

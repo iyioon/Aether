@@ -20,6 +20,21 @@ test("supports login, scan, batch annotation, fullscreen, and feed", async ({
   await expect(page.getByText("7 items indexed")).toBeVisible({
     timeout: 15_000
   });
+  await page.getByRole("button", { name: "Settings" }).click();
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+  await page.getByRole("radio", { name: "Mist" }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-accent", "mist");
+  await expect
+    .poll(async () =>
+      page.locator(".settings-page").evaluate(
+        (element) => element.scrollWidth <= element.clientWidth + 1
+      )
+    )
+    .toBe(true);
+  await expect(page.getByText("Password protected")).toBeVisible();
+  await expect(page.getByText("test-session-secret")).toHaveCount(0);
+  await page.getByRole("button", { name: "Back to library" }).click();
+  await expect(page.getByRole("heading", { name: "media" })).toBeVisible();
   const tripsFolder = page.getByRole("treeitem", { name: /Trips/ });
   await expect(tripsFolder).toBeVisible();
   await page.getByRole("button", { name: "Collapse all folders" }).click();

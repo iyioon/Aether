@@ -246,6 +246,10 @@
   grid-column: 1 / -1;
 }
 
+.sort-direction-choice-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .menu-option-list {
   display: grid;
   gap: 3px;
@@ -260,6 +264,9 @@
   min-height: 36px;
   width: 100%;
   padding: 0 10px;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
   color: #dce4df;
   text-align: left;
   border: 1px solid transparent;
@@ -267,8 +274,19 @@
   background: transparent;
   transition:
     border-color 150ms ease,
-    background 150ms ease,
     color 150ms ease;
+}
+
+.menu-option::before,
+.menu-choice::before {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  content: "";
+  pointer-events: none;
+  opacity: 0;
+  background: rgba(255, 255, 255, 0.038);
+  transition: opacity 150ms ease;
 }
 
 .menu-choice {
@@ -277,12 +295,17 @@
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.025)),
     rgba(255, 255, 255, 0.025);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
 }
 
 .menu-option:hover,
 .menu-choice:hover {
   border-color: rgba(238, 242, 238, 0.08);
-  background: rgba(255, 255, 255, 0.045);
+}
+
+.menu-option:hover::before,
+.menu-choice:hover::before {
+  opacity: 1;
 }
 
 .menu-option.active,
@@ -292,6 +315,18 @@
   background:
     linear-gradient(180deg, rgba(147, 183, 165, 0.14), rgba(147, 183, 165, 0.075)),
     rgba(147, 183, 165, 0.075);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.032);
+}
+
+.menu-option.active:hover::before,
+.menu-choice.active:hover::before {
+  opacity: 0.55;
+}
+
+.menu-option > *,
+.menu-choice > * {
+  position: relative;
+  z-index: 1;
 }
 
 .menu-option > span:not(.menu-check),
@@ -347,13 +382,52 @@
   color: #bfe1ce;
 }
 
+.menu-choice-with-icon {
+  min-height: 42px;
+  padding-left: 6px;
+}
+
+.menu-choice-leading {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+}
+
+.menu-choice-icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  place-items: center;
+  color: #aab3ae;
+  border: 1px solid rgba(238, 242, 238, 0.08);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.menu-choice.active .menu-choice-icon {
+  color: #bfe1ce;
+  border-color: rgba(147, 183, 165, 0.18);
+  background: rgba(147, 183, 165, 0.08);
+}
+
 .menu-check {
   display: grid;
   width: 18px;
   height: 18px;
   flex: 0 0 auto;
   place-items: center;
-  color: #bfe1ce;
+  color: #0f1513;
+  border: 1px solid rgba(238, 242, 238, 0.09);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.menu-option.active .menu-check,
+.menu-choice.active .menu-check {
+  border-color: #93b7a5;
+  background: #93b7a5;
 }
 
 .menu-option:focus-visible,

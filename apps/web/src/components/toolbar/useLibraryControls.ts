@@ -2,10 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import type {
   MediaTypeFilter,
   RatingFilter,
+  SortDirection,
   SortMode,
   TreeResponse
 } from "../../api/client";
 import {
+  defaultSortDirectionForSort,
   normalizeTagDraft,
   writeLibraryStateToUrl,
   type AspectMode,
@@ -17,6 +19,7 @@ import { useTagSuggestions } from "../tags/useTagSuggestions";
 import {
   mediaFilters,
   ratingFilters,
+  sortDirectionOptions,
   sortOptions,
   type ControlMenuId
 } from "./library-control-options";
@@ -38,6 +41,9 @@ export function useLibraryControls({
   const [gridSize, setGridSize] = useState<GridSize>(initialState.gridSize);
   const [aspect, setAspect] = useState<AspectMode>(initialState.aspect);
   const [sort, setSort] = useState<SortMode>(initialState.sort);
+  const [sortDirection, setSortDirection] = useState<SortDirection>(
+    initialState.sortDirection
+  );
   const [mediaType, setMediaType] = useState<MediaTypeFilter>(
     initialState.mediaType
   );
@@ -71,6 +77,7 @@ export function useLibraryControls({
       gridSize,
       aspect,
       sort,
+      sortDirection,
       mediaType,
       ratingFilter,
       search,
@@ -84,6 +91,7 @@ export function useLibraryControls({
     search,
     selectedFolderId,
     sort,
+    sortDirection,
     tagFilter,
     tree,
     view
@@ -102,7 +110,10 @@ export function useLibraryControls({
   }, [selectedFolderId, tree]);
 
   const sortLabel =
-    sortOptions.find((option) => option.value === sort)?.label ?? "Newest";
+    sortOptions.find((option) => option.value === sort)?.label ?? "Date";
+  const sortDirectionLabel =
+    sortDirectionOptions.find((option) => option.value === sortDirection)
+      ?.label ?? "Descending";
   const mediaTypeLabel =
     mediaFilters.find((option) => option.value === mediaType)?.label ?? "All";
   const ratingFilterLabel =
@@ -139,6 +150,11 @@ export function useLibraryControls({
     clearTagFilter();
   }
 
+  function selectSort(nextSort: SortMode) {
+    setSort(nextSort);
+    setSortDirection(defaultSortDirectionForSort(nextSort));
+  }
+
   return {
     activeFilterLabels,
     applyTagFilter,
@@ -165,11 +181,15 @@ export function useLibraryControls({
     setOpenControlMenu,
     setRatingFilter,
     setSearchDraft,
-    setSort,
+    setSort: selectSort,
+    setSortDirection,
     setTagFilterDraft,
     setView,
     sort,
+    sortDirection,
+    sortDirectionLabel,
     sortLabel,
+    sortSummary: sort === "random" ? sortLabel : `${sortLabel} · ${sortDirectionLabel}`,
     tagFilter,
     tagFilterDraft,
     view

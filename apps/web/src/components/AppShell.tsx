@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { logout } from "../api/client";
+import { getSettings, logout, type SettingsSummary } from "../api/client";
 import { shouldCollapseFeedControlsByDefault } from "./app/app-helpers";
 import { useLibraryTree } from "./app/useLibraryTree";
 import { useAssetList } from "./assets/useAssetList";
@@ -14,6 +14,8 @@ import { useMeasuredAspectRatios } from "./gallery/useMeasuredAspectRatios";
 import { FullscreenViewer } from "./media/FullscreenViewer";
 import { MediaAnnotationDrawer } from "./media/MediaAnnotationDrawer";
 import { useMediaActions } from "./media/useMediaActions";
+import { SettingsPage } from "./settings/SettingsPage";
+import { useAppearanceSettings } from "./settings/useAppearanceSettings";
 import { LibrarySidebar } from "./sidebar/LibrarySidebar";
 import { useSidebarState } from "./sidebar/useSidebarState";
 import { LibraryControlStrip } from "./toolbar/LibraryControlStrip";
@@ -29,6 +31,14 @@ interface AppShellProps {
 
 export function AppShell({ onLogout }: AppShellProps) {
   const initialLibraryState = useMemo(() => readLibraryStateFromUrl(), []);
+  const [activePage, setActivePage] = useState<"library" | "settings">(
+    "library"
+  );
+  const [settingsSummary, setSettingsSummary] =
+    useState<SettingsSummary | null>(null);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [isLoadingSettings, setIsLoadingSettings] = useState(false);
+  const { accent, accentOptions, setAccent } = useAppearanceSettings();
   const {
     aiStatus,
     error,
@@ -87,10 +97,13 @@ export function AppShell({ onLogout }: AppShellProps) {
     setRatingFilter,
     setSearchDraft,
     setSort,
+    setSortDirection,
     setTagFilterDraft,
     setView,
     sort,
+    sortDirection,
     sortLabel,
+    sortSummary,
     tagFilter,
     tagFilterDraft,
     view
@@ -121,6 +134,7 @@ export function AppShell({ onLogout }: AppShellProps) {
     ratingFilter,
     search,
     sort,
+    sortDirection,
     tagFilter,
     tree
   });
@@ -147,7 +161,6 @@ export function AppShell({ onLogout }: AppShellProps) {
   });
   const {
     annotationAsset,
-    closeFullscreen,
     handleAssetTagsUpdated,
     handleAssetUpdated,
     openAssetFullscreen,
@@ -187,6 +200,7 @@ export function AppShell({ onLogout }: AppShellProps) {
     : `${assets.length} loaded`;
 
   function selectFolder(folderId: string) {
+    setActivePage("library");
     setSelectedFolderId(folderId);
     closeSidebar();
     setOpenControlMenu(null);
@@ -198,6 +212,7 @@ export function AppShell({ onLogout }: AppShellProps) {
   }
 
   function switchView(nextView: ViewMode) {
+    setActivePage("library");
     setView(nextView);
     setOpenControlMenu(null);
     setAnnotationAssetId(null);
@@ -210,6 +225,40 @@ export function AppShell({ onLogout }: AppShellProps) {
   function setFeedChromeVisibility(isHidden: boolean) {
     setIsFeedChromeHidden(isHidden);
     setIsTopBarCollapsed(isHidden || shouldCollapseFeedControlsByDefault());
+  }
+
+  function setSettingsView(nextView: ViewMode) {
+    setView(nextView);
+    setIsFeedChromeHidden(false);
+    setIsTopBarCollapsed(
+      nextView === "feed" && shouldCollapseFeedControlsByDefault()
+    );
+  }
+
+  async function refreshSettingsSummary() {
+    setIsLoadingSettings(true);
+    setSettingsError(null);
+
+    try {
+      setSettingsSummary(await getSettings());
+    } catch {
+      setSettingsError("Settings could not be loaded.");
+    } finally {
+      setIsLoadingSettings(false);
+    }
+  }
+
+  function openSettings() {
+    setActivePage("settings");
+    closeSidebar();
+    setOpenControlMenu(null);
+    setAnnotationAssetId(null);
+    setSelectedAssetId(null);
+    void refreshSettingsSummary();
+  }
+
+  function backToLibrary() {
+    setActivePage("library");
   }
 
   async function handleLogout() {
@@ -235,6 +284,7 @@ export function AppShell({ onLogout }: AppShellProps) {
         isLoadingTree={isLoadingTree}
         isSidebarCollapsed={isSidebarCollapsed}
         isSidebarOpen={isSidebarOpen}
+        isSettingsOpen={activePage === "settings"}
         items={tree?.roots.length ? visibleFolderItems : []}
         scanState={scanState}
         selectedFolderId={selectedFolderId}
@@ -246,6 +296,7 @@ export function AppShell({ onLogout }: AppShellProps) {
         onExpandAll={expandAllFolders}
         onFolderKeyDown={handleFolderTreeKeyDown}
         onLogout={() => void handleLogout()}
+        onOpenSettings={openSettings}
         onScan={() => void handleScan()}
         onSelectFolder={selectFolder}
         onToggleFolderExpansion={toggleFolderExpansion}
@@ -263,140 +314,191 @@ export function AppShell({ onLogout }: AppShellProps) {
         className={[
           "library-main",
           selectedAssetCount > 0 ? "has-selection" : "",
-          view === "feed" ? "view-feed" : "view-gallery",
-          view === "feed" && isTopBarCollapsed ? "topbar-collapsed" : "",
-          view === "feed" && isFeedChromeHidden ? "feed-chrome-hidden" : ""
+          activePage === "settings"
+            ? "view-settings"
+            : view === "feed"
+              ? "view-feed"
+              : "view-gallery",
+          activePage === "library" && view === "feed" && isTopBarCollapsed
+            ? "topbar-collapsed"
+            : "",
+          activePage === "library" && view === "feed" && isFeedChromeHidden
+            ? "feed-chrome-hidden"
+            : ""
         ]
           .filter(Boolean)
           .join(" ")}
       >
-        {view === "feed" && isTopBarCollapsed ? (
-          <FeedCollapsedTopbar
-            selectedLabel={selectedLabel}
-            totalAssets={totalAssets}
-            onOpenControls={() => setIsTopBarCollapsed(false)}
-            onOpenSidebar={openSidebar}
-            onSwitchView={switchView}
-          />
-        ) : null}
-
-        <LibraryToolbar
-          isSidebarCollapsed={isSidebarCollapsed}
-          isSidebarOpen={isSidebarOpen}
-          searchDraft={searchDraft}
-          selectedLabel={selectedLabel}
-          totalAssets={totalAssets}
-          view={view}
-          onExpandSidebar={expandSidebar}
-          onOpenSidebar={openSidebar}
-          onSearchDraftChange={setSearchDraft}
-          onSwitchView={switchView}
-        />
-
-        <LibraryControlStrip
-          actionSummary={actionSummary}
-          activeFilterLabels={activeFilterLabels}
-          aspect={aspect}
-          assets={assets}
-          filterSummary={filterSummary}
-          filterTagSuggestions={filterTagSuggestions}
-          galleryMetadataFields={galleryMetadataFields}
-          gridSize={gridSize}
-          isLoadingAssets={isLoadingAssets}
-          isSavingBatch={isSavingBatch}
-          layoutSummary={layoutSummary}
-          mediaType={mediaType}
-          mediaTypeLabel={mediaTypeLabel}
-          openControlMenu={openControlMenu}
-          ratingFilter={ratingFilter}
-          ratingFilterLabel={ratingFilterLabel}
-          selectedAssetCount={selectedAssetCount}
-          sort={sort}
-          sortLabel={sortLabel}
-          tagFilter={tagFilter}
-          tagFilterDraft={tagFilterDraft}
-          view={view}
-          onApplyTagFilter={applyTagFilter}
-          onClearGalleryMetadataFields={clearGalleryMetadataFields}
-          onClearLibraryFilters={clearLibraryFilters}
-          onClearSelectedAssets={clearSelectedAssets}
-          onClearTagFilter={clearTagFilter}
-          onHideFeedControls={() => setIsTopBarCollapsed(true)}
-          onResetGalleryMetadataFields={resetGalleryMetadataFields}
-          onSelectLoadedAssets={selectLoadedAssets}
-          onSetAspect={setAspect}
-          onSetGridSize={setGridSize}
-          onSetMediaType={setMediaType}
-          onSetOpenControlMenu={setOpenControlMenu}
-          onSetRatingFilter={setRatingFilter}
-          onSetSort={setSort}
-          onSetTagFilterDraft={setTagFilterDraft}
-          onToggleGalleryMetadataField={toggleGalleryMetadataField}
-        />
-
-        {selectedAssetCount > 0 ? (
-          <BatchActionsBar
-            selectedCount={selectedAssetCount}
-            tagDraft={batchTagDraft}
-            tagSuggestions={batchTagSuggestions}
-            isSaving={isSavingBatch}
-            status={batchStatus}
-            error={batchError}
-            onClear={clearSelectedAssets}
-            onRate={(rating) => void saveBatchRating({ rating })}
-            onClearRating={() => void saveBatchRating({ rating: null })}
-            onFavorite={() => void saveBatchRating({ favorite: true })}
-            onUnfavorite={() => void saveBatchRating({ favorite: false })}
-            onTagDraftChange={setBatchTagDraft}
-            onAddTag={() => void saveBatchTags([batchTagDraft], "add")}
-            onReplaceTags={() => void saveBatchTags([batchTagDraft], "replace")}
-            onClearTags={() => void saveBatchTags([], "replace")}
-            onUseSuggestion={(tagName) => void saveBatchTags([tagName], "add")}
-          />
-        ) : null}
-
-        {assetError ? <div className="inline-error">{assetError}</div> : null}
-
-        {view === "gallery" ? (
-          <GalleryGrid
-            assets={assets}
+        {activePage === "settings" ? (
+          <SettingsPage
+            accent={accent}
+            accentOptions={accentOptions}
             aspect={aspect}
-            metadataFields={galleryMetadataFields}
+            galleryMetadataFields={galleryMetadataFields}
             gridSize={gridSize}
-            isLoading={isLoadingAssets}
-            isLoadingMore={isLoadingMore}
-            hasMore={hasMoreAssets}
-            loadMoreRef={loadMoreRef}
-            measuredAspectRatios={measuredAspectRatios}
-            resetKey={listQueryKey}
-            savingRatingAssetIds={savingRatingAssetIds}
-            selectedAssetIds={selectedAssetIds}
-            onLoadMore={() => void handleLoadMore()}
-            onMediaDimensionsKnown={handleMediaDimensionsKnown}
-            onFavoriteAsset={(asset, favorite) =>
-              void saveAssetRating(asset, { favorite })
-            }
-            onRateAsset={(asset, rating) =>
-              void saveAssetRating(asset, { rating })
-            }
-            onSelectAsset={setSelectedAssetId}
-            onToggleSelection={toggleAssetSelection}
+            isLoading={isLoadingSettings}
+            mediaType={mediaType}
+            ratingFilter={ratingFilter}
+            settings={settingsSummary}
+            settingsError={settingsError}
+            sort={sort}
+            sortDirection={sortDirection}
+            sortSummary={sortSummary}
+            view={view}
+            onBack={backToLibrary}
+            onSetAccent={setAccent}
+            onClearGalleryMetadataFields={clearGalleryMetadataFields}
+            onRefreshSettings={() => void refreshSettingsSummary()}
+            onResetGalleryMetadataFields={resetGalleryMetadataFields}
+            onSetAspect={setAspect}
+            onSetGridSize={setGridSize}
+            onSetMediaType={setMediaType}
+            onSetRatingFilter={setRatingFilter}
+            onSetSort={setSort}
+            onSetSortDirection={setSortDirection}
+            onSetView={setSettingsView}
+            onToggleGalleryMetadataField={toggleGalleryMetadataField}
           />
         ) : (
-          <FeedPreview
-            assets={assets}
-            isLoading={isLoadingAssets}
-            isLoadingMore={isLoadingMore}
-            hasMore={hasMoreAssets}
-            loadMoreRef={loadMoreRef}
-            isFeedChromeHidden={isFeedChromeHidden}
-            isPlaybackPaused={selectedAssetId !== null}
-            syncedAssetId={selectedAssetId}
-            onLoadMore={() => void handleLoadMore()}
-            onFeedChromeHiddenChange={setFeedChromeVisibility}
-            onOpenAnnotations={setAnnotationAssetId}
-            onOpenAsset={openAssetFullscreen}
-          />
+          <>
+            {view === "feed" && isTopBarCollapsed ? (
+              <FeedCollapsedTopbar
+                selectedLabel={selectedLabel}
+                totalAssets={totalAssets}
+                onOpenControls={() => setIsTopBarCollapsed(false)}
+                onOpenSidebar={openSidebar}
+                onSwitchView={switchView}
+              />
+            ) : null}
+
+            <LibraryToolbar
+              isSidebarCollapsed={isSidebarCollapsed}
+              isSidebarOpen={isSidebarOpen}
+              searchDraft={searchDraft}
+              selectedLabel={selectedLabel}
+              totalAssets={totalAssets}
+              view={view}
+              onExpandSidebar={expandSidebar}
+              onOpenSidebar={openSidebar}
+              onSearchDraftChange={setSearchDraft}
+              onSwitchView={switchView}
+            />
+
+            <LibraryControlStrip
+              actionSummary={actionSummary}
+              activeFilterLabels={activeFilterLabels}
+              aspect={aspect}
+              assets={assets}
+              filterSummary={filterSummary}
+              filterTagSuggestions={filterTagSuggestions}
+              galleryMetadataFields={galleryMetadataFields}
+              gridSize={gridSize}
+              isLoadingAssets={isLoadingAssets}
+              isSavingBatch={isSavingBatch}
+              layoutSummary={layoutSummary}
+              mediaType={mediaType}
+              mediaTypeLabel={mediaTypeLabel}
+              openControlMenu={openControlMenu}
+              ratingFilter={ratingFilter}
+              ratingFilterLabel={ratingFilterLabel}
+              selectedAssetCount={selectedAssetCount}
+              sort={sort}
+              sortDirection={sortDirection}
+              sortLabel={sortLabel}
+              sortSummary={sortSummary}
+              tagFilter={tagFilter}
+              tagFilterDraft={tagFilterDraft}
+              view={view}
+              onApplyTagFilter={applyTagFilter}
+              onClearGalleryMetadataFields={clearGalleryMetadataFields}
+              onClearLibraryFilters={clearLibraryFilters}
+              onClearSelectedAssets={clearSelectedAssets}
+              onClearTagFilter={clearTagFilter}
+              onHideFeedControls={() => setIsTopBarCollapsed(true)}
+              onResetGalleryMetadataFields={resetGalleryMetadataFields}
+              onSelectLoadedAssets={selectLoadedAssets}
+              onSetAspect={setAspect}
+              onSetGridSize={setGridSize}
+              onSetMediaType={setMediaType}
+              onSetOpenControlMenu={setOpenControlMenu}
+              onSetRatingFilter={setRatingFilter}
+              onSetSort={setSort}
+              onSetSortDirection={setSortDirection}
+              onSetTagFilterDraft={setTagFilterDraft}
+              onToggleGalleryMetadataField={toggleGalleryMetadataField}
+            />
+
+            {selectedAssetCount > 0 ? (
+              <BatchActionsBar
+                selectedCount={selectedAssetCount}
+                tagDraft={batchTagDraft}
+                tagSuggestions={batchTagSuggestions}
+                isSaving={isSavingBatch}
+                status={batchStatus}
+                error={batchError}
+                onClear={clearSelectedAssets}
+                onRate={(rating) => void saveBatchRating({ rating })}
+                onClearRating={() => void saveBatchRating({ rating: null })}
+                onFavorite={() => void saveBatchRating({ favorite: true })}
+                onUnfavorite={() => void saveBatchRating({ favorite: false })}
+                onTagDraftChange={setBatchTagDraft}
+                onAddTag={() => void saveBatchTags([batchTagDraft], "add")}
+                onReplaceTags={() =>
+                  void saveBatchTags([batchTagDraft], "replace")
+                }
+                onClearTags={() => void saveBatchTags([], "replace")}
+                onUseSuggestion={(tagName) =>
+                  void saveBatchTags([tagName], "add")
+                }
+              />
+            ) : null}
+
+            {assetError ? (
+              <div className="inline-error">{assetError}</div>
+            ) : null}
+
+            {view === "gallery" ? (
+              <GalleryGrid
+                assets={assets}
+                aspect={aspect}
+                metadataFields={galleryMetadataFields}
+                gridSize={gridSize}
+                isLoading={isLoadingAssets}
+                isLoadingMore={isLoadingMore}
+                hasMore={hasMoreAssets}
+                loadMoreRef={loadMoreRef}
+                measuredAspectRatios={measuredAspectRatios}
+                resetKey={listQueryKey}
+                savingRatingAssetIds={savingRatingAssetIds}
+                selectedAssetIds={selectedAssetIds}
+                onLoadMore={() => void handleLoadMore()}
+                onMediaDimensionsKnown={handleMediaDimensionsKnown}
+                onFavoriteAsset={(asset, favorite) =>
+                  void saveAssetRating(asset, { favorite })
+                }
+                onRateAsset={(asset, rating) =>
+                  void saveAssetRating(asset, { rating })
+                }
+                onSelectAsset={setSelectedAssetId}
+                onToggleSelection={toggleAssetSelection}
+              />
+            ) : (
+              <FeedPreview
+                assets={assets}
+                isLoading={isLoadingAssets}
+                isLoadingMore={isLoadingMore}
+                hasMore={hasMoreAssets}
+                loadMoreRef={loadMoreRef}
+                isFeedChromeHidden={isFeedChromeHidden}
+                isPlaybackPaused={selectedAssetId !== null}
+                syncedAssetId={selectedAssetId}
+                onLoadMore={() => void handleLoadMore()}
+                onFeedChromeHiddenChange={setFeedChromeVisibility}
+                onOpenAnnotations={setAnnotationAssetId}
+                onOpenAsset={openAssetFullscreen}
+              />
+            )}
+          </>
         )}
       </main>
 

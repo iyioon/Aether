@@ -119,7 +119,8 @@ export interface AssetListOptions {
   folderId: string;
   offset: number;
   limit: number;
-  sort: "newest" | "oldest" | "filename" | "rating" | "random";
+  sort: "date" | "filename" | "rating" | "random";
+  sortDirection?: "desc" | "asc";
   type: "all" | MediaType;
   recursive: boolean;
   search?: string;

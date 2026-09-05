@@ -106,8 +106,7 @@ export async function buildApp({
     secret: config.sessionSecret
   });
   await app.register(rateLimit, {
-    max: 200,
-    timeWindow: "1 minute"
+    global: false
   });
 
   app.addHook("onSend", async (request, reply, payload) => {

@@ -5,6 +5,7 @@ import {
   type AssetRecord,
   type MediaTypeFilter,
   type RatingFilter,
+  type SortDirection,
   type SortMode,
   type TagRecord,
   type TreeResponse
@@ -22,6 +23,7 @@ interface UseAssetListOptions {
   ratingFilter: RatingFilter;
   search: string;
   sort: SortMode;
+  sortDirection: SortDirection;
   tagFilter: string;
   tree: TreeResponse | null;
 }
@@ -32,6 +34,7 @@ export function useAssetList({
   ratingFilter,
   search,
   sort,
+  sortDirection,
   tagFilter,
   tree
 }: UseAssetListOptions) {
@@ -48,12 +51,13 @@ export function useAssetList({
       buildAssetListQueryKey({
         folderId,
         sort,
+        sortDirection,
         mediaType,
         search,
         tagFilter,
         ratingFilter
       }),
-    [folderId, sort, mediaType, search, tagFilter, ratingFilter]
+    [folderId, sort, sortDirection, mediaType, search, tagFilter, ratingFilter]
   );
   const listQueryKeyRef = useRef(listQueryKey);
   const hasMoreAssets = assets.length < totalAssets;
@@ -79,6 +83,7 @@ export function useAssetList({
       offset: 0,
       limit: ASSET_PAGE_LIMIT,
       sort,
+      order: sortDirection,
       type: mediaType,
       recursive: true,
       search,
@@ -111,6 +116,7 @@ export function useAssetList({
     tree,
     folderId,
     sort,
+    sortDirection,
     mediaType,
     search,
     tagFilter,
@@ -165,6 +171,7 @@ export function useAssetList({
         offset: assets.length,
         limit: ASSET_PAGE_LIMIT,
         sort,
+        order: sortDirection,
         type: mediaType,
         recursive: true,
         search,
@@ -202,6 +209,7 @@ export function useAssetList({
     ratingFilter,
     search,
     sort,
+    sortDirection,
     tagFilter,
     totalAssets
   ]);

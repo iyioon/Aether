@@ -1,4 +1,8 @@
 :root {
+  --aether-accent: #93b7a5;
+  --aether-accent-strong: #bfe1ce;
+  --aether-accent-rgb: 147, 183, 165;
+  --aether-accent-contrast: #0f1513;
   color: #eef2ee;
   background: #101214;
   font-family:
@@ -6,6 +10,18 @@
     sans-serif;
   font-synthesis: none;
   text-rendering: geometricPrecision;
+}
+
+:root[data-accent="mist"] {
+  --aether-accent: #9db8d2;
+  --aether-accent-strong: #d5e6f5;
+  --aether-accent-rgb: 157, 184, 210;
+}
+
+:root[data-accent="rose"] {
+  --aether-accent: #d6a5ad;
+  --aether-accent-strong: #f1cdd3;
+  --aether-accent-rgb: 214, 165, 173;
 }
 
 * {

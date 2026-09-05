@@ -2,6 +2,8 @@
 
 Aether reads environment variables from the shell, `.env`, and `.env.local`. Local files are intentionally ignored by Git.
 
+The in-app Settings page shows a sanitized summary of the active configuration. Server settings still come from environment variables and require a process restart when changed.
+
 ## Core Settings
 
 | Variable | Default | Description |
@@ -27,6 +29,8 @@ Aether reads environment variables from the shell, `.env`, and `.env.local`. Loc
 | `AETHER_LOGIN_MAX_ATTEMPTS` | `10` | Failed login attempts before lockout. |
 | `AETHER_LOGIN_WINDOW_MINUTES` | `15` | Failed login counting window. |
 | `AETHER_LOGIN_LOCKOUT_MINUTES` | `15` | Lockout duration. |
+
+The login throttle settings apply only to authentication attempts. They do not cap authenticated gallery browsing, thumbnail loading, or video streaming requests.
 
 Generate a password hash:
 

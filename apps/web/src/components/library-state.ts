@@ -1,6 +1,7 @@
 import type {
   MediaTypeFilter,
   RatingFilter,
+  SortDirection,
   SortMode
 } from "../api/client";
 
@@ -19,12 +20,13 @@ export const sizeOptions = ["Tiny", "Compact", "Medium", "Large", "Huge"] as con
 export type GridSize = (typeof sizeOptions)[number];
 
 export const sortValues: readonly SortMode[] = [
-  "newest",
-  "oldest",
+  "date",
   "filename",
   "rating",
   "random"
 ];
+
+export const sortDirectionValues: readonly SortDirection[] = ["desc", "asc"];
 
 export const mediaFilterValues: readonly MediaTypeFilter[] = [
   "all",
@@ -39,12 +41,17 @@ export const ratingFilterValues: readonly RatingFilter[] = [
   "unrated"
 ];
 
+export function defaultSortDirectionForSort(sort: SortMode): SortDirection {
+  return sort === "filename" ? "asc" : "desc";
+}
+
 export interface LibraryUrlState {
   folderId: string | null;
   view: ViewMode;
   gridSize: GridSize;
   aspect: AspectMode;
   sort: SortMode;
+  sortDirection: SortDirection;
   mediaType: MediaTypeFilter;
   ratingFilter: RatingFilter;
   search: string;
@@ -56,7 +63,8 @@ export const defaultLibraryState: LibraryUrlState = {
   view: "gallery",
   gridSize: "Medium",
   aspect: "Square",
-  sort: "newest",
+  sort: "date",
+  sortDirection: "desc",
   mediaType: "all",
   ratingFilter: "all",
   search: "",
@@ -91,6 +99,7 @@ export function writeLibraryStateToUrl(state: LibraryUrlState): void {
 
 export function parseLibraryStateSearch(search: string): LibraryUrlState {
   const params = new URLSearchParams(search);
+  const parsedSort = readSortParams(params);
 
   return {
     folderId: readTextParam(params, "folder", 160) || null,
@@ -107,7 +116,8 @@ export function parseLibraryStateSearch(search: string): LibraryUrlState {
       aspectOptions,
       defaultLibraryState.aspect
     ),
-    sort: readOptionParam(params, "sort", sortValues, defaultLibraryState.sort),
+    sort: parsedSort.sort,
+    sortDirection: parsedSort.sortDirection,
     mediaType: readOptionParam(
       params,
       "type",
@@ -148,6 +158,13 @@ export function buildLibraryStateSearch(state: LibraryUrlState): string {
     params.set("sort", state.sort);
   }
 
+  if (
+    state.sort !== "random" &&
+    state.sortDirection !== defaultSortDirectionForSort(state.sort)
+  ) {
+    params.set("order", state.sortDirection);
+  }
+
   if (state.mediaType !== defaultLibraryState.mediaType) {
     params.set("type", state.mediaType);
   }
@@ -169,6 +186,38 @@ export function buildLibraryStateSearch(state: LibraryUrlState): string {
 
 export function normalizeTagDraft(input: string): string {
   return input.normalize("NFKC").trim().replace(/\s+/g, " ");
+}
+
+function readSortParams(params: URLSearchParams): {
+  sort: SortMode;
+  sortDirection: SortDirection;
+} {
+  const rawSort = params.get("sort");
+
+  if (rawSort === "newest") {
+    return { sort: "date", sortDirection: "desc" };
+  }
+
+  if (rawSort === "oldest") {
+    return { sort: "date", sortDirection: "asc" };
+  }
+
+  const sort = readOptionParam(
+    params,
+    "sort",
+    sortValues,
+    defaultLibraryState.sort
+  );
+
+  return {
+    sort,
+    sortDirection: readOptionParam(
+      params,
+      "order",
+      sortDirectionValues,
+      defaultSortDirectionForSort(sort)
+    )
+  };
 }
 
 function readTextParam(

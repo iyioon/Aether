@@ -12,9 +12,11 @@ describe("app security foundation", () => {
   let app: FastifyInstance;
   let db: AetherDatabase;
   let configuredRootId: string;
+  let configuredCwd: string;
 
   beforeEach(async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "aether-app-"));
+    configuredCwd = cwd;
     await mkdir(path.join(cwd, "media"));
     const passwordHash = await hashPassword("correct horse battery staple");
     const config = await loadConfig(
@@ -55,6 +57,181 @@ describe("app security foundation", () => {
     );
     expect(health.headers["x-content-type-options"]).toBe("nosniff");
     expect(health.headers["x-frame-options"]).toBe("DENY");
+  });
+
+  it("keeps the login endpoint rate-limited", async () => {
+    let response = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: {}
+    });
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      response = await app.inject({
+        method: "POST",
+        url: "/api/auth/login",
+        payload: {}
+      });
+    }
+
+    expect(response.statusCode).toBe(429);
+  });
+
+  it("does not rate-limit authenticated media browsing", async () => {
+    const login = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: {
+        password: "correct horse battery staple"
+      }
+    });
+    const sessionCookie = login.cookies.find(
+      (entry) => entry.name === "aether_session"
+    );
+
+    if (!sessionCookie) {
+      throw new Error("Expected a session cookie.");
+    }
+
+    const cookies = {
+      aether_session: sessionCookie.value
+    };
+
+    for (let requestIndex = 0; requestIndex < 225; requestIndex += 1) {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/auth/me",
+        cookies
+      });
+
+      expect(response.statusCode).toBe(200);
+    }
+  });
+
+  it("normalizes asset sort fields and direction query parameters", async () => {
+    const login = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: {
+        password: "correct horse battery staple"
+      }
+    });
+    const sessionCookie = login.cookies.find(
+      (entry) => entry.name === "aether_session"
+    );
+
+    if (!sessionCookie) {
+      throw new Error("Expected a session cookie.");
+    }
+
+    const cookies = {
+      aether_session: sessionCookie.value
+    };
+    const tree = await app.inject({
+      method: "GET",
+      url: "/api/tree",
+      cookies
+    });
+    const rootFolderId = (tree.json() as { roots: Array<{ folderId: string }> })
+      .roots[0]?.folderId;
+
+    if (!rootFolderId) {
+      throw new Error("Expected a root folder id.");
+    }
+
+    const defaultFilename = await app.inject({
+      method: "GET",
+      url: `/api/folders/${rootFolderId}/assets?sort=filename`,
+      cookies
+    });
+    const ascendingDate = await app.inject({
+      method: "GET",
+      url: `/api/folders/${rootFolderId}/assets?sort=date&order=asc`,
+      cookies
+    });
+    const legacyOldest = await app.inject({
+      method: "GET",
+      url: `/api/folders/${rootFolderId}/assets?sort=oldest`,
+      cookies
+    });
+
+    expect(defaultFilename.statusCode).toBe(200);
+    expect(defaultFilename.json()).toMatchObject({
+      sort: "filename",
+      order: "asc"
+    });
+    expect(ascendingDate.statusCode).toBe(200);
+    expect(ascendingDate.json()).toMatchObject({
+      sort: "date",
+      order: "asc"
+    });
+    expect(legacyOldest.statusCode).toBe(200);
+    expect(legacyOldest.json()).toMatchObject({
+      sort: "date",
+      order: "asc"
+    });
+  });
+
+  it("publishes sanitized settings for authenticated sessions", async () => {
+    const anonymous = await app.inject({
+      method: "GET",
+      url: "/api/admin/settings"
+    });
+    expect(anonymous.statusCode).toBe(401);
+
+    const login = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: {
+        password: "correct horse battery staple"
+      }
+    });
+    const sessionCookie = login.cookies.find(
+      (entry) => entry.name === "aether_session"
+    );
+
+    const settings = await app.inject({
+      method: "GET",
+      url: "/api/admin/settings",
+      cookies: {
+        aether_session: sessionCookie?.value ?? ""
+      }
+    });
+
+    expect(settings.statusCode).toBe(200);
+    const body = settings.json();
+
+    expect(body).toMatchObject({
+      library: {
+        mediaRootCount: 1,
+        mediaRoots: [{ id: configuredRootId, label: "media" }],
+        watchEnabled: false,
+        watchDebounceMs: 2000
+      },
+      security: {
+        passwordConfigured: true,
+        cookieSecure: false,
+        trustProxy: false,
+        sessionTtlDays: 14,
+        loginMaxAttempts: 10,
+        loginWindowMinutes: 15,
+        loginLockoutMinutes: 15
+      },
+      ai: {
+        enabled: false,
+        provider: "disabled",
+        model: null,
+        timeoutMs: 45000
+      }
+    });
+    expect(Object.keys(body.library.mediaRoots[0])).toEqual(["id", "label"]);
+
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toContain("test-session-secret");
+    expect(serialized).not.toContain("passwordHash");
+    expect(serialized).not.toContain("sessionSecret");
+    expect(serialized).not.toContain("realPath");
+    expect(serialized).not.toContain(configuredCwd);
   });
 
   it("logs in, sets secure session boundaries, and serves protected placeholders", async () => {

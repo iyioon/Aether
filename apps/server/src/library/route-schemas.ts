@@ -4,8 +4,9 @@ export const AssetListQuery = z.object({
   offset: z.coerce.number().int().min(0).default(0),
   limit: z.coerce.number().int().min(1).max(250).default(80),
   sort: z
-    .enum(["newest", "oldest", "filename", "rating", "random"])
-    .default("newest"),
+    .enum(["date", "filename", "rating", "random", "newest", "oldest"])
+    .default("date"),
+  order: z.enum(["desc", "asc"]).optional(),
   type: z.enum(["all", "image", "video"]).default("all"),
   search: z.string().max(128).default(""),
   tag: z.string().max(64).default(""),

@@ -247,7 +247,10 @@ export function listAssets(
       FROM assets a
       LEFT JOIN ratings r ON r.asset_id = a.id
       WHERE ${whereClause}
-      ORDER BY ${orderClauseFor(options.sort)}
+      ORDER BY ${orderClauseFor(
+        options.sort,
+        options.sortDirection ?? defaultSortDirectionFor(options.sort)
+      )}
       LIMIT @limit OFFSET @offset`
     )
     .all(parameters) as AssetRow[];
@@ -403,19 +406,25 @@ export function updateAssetRatingsBatch(
   };
 }
 
-function orderClauseFor(sort: AssetListOptions["sort"]): string {
+function defaultSortDirectionFor(sort: AssetListOptions["sort"]): "desc" | "asc" {
+  return sort === "filename" ? "asc" : "desc";
+}
+
+function orderClauseFor(
+  sort: AssetListOptions["sort"],
+  sortDirection: NonNullable<AssetListOptions["sortDirection"]>
+): string {
+  const direction = sortDirection === "asc" ? "ASC" : "DESC";
   switch (sort) {
-    case "oldest":
-      return "a.mtime_ms ASC, a.name COLLATE NOCASE ASC";
     case "filename":
-      return "a.name COLLATE NOCASE ASC, a.mtime_ms DESC";
+      return `a.name COLLATE NOCASE ${direction}, a.mtime_ms DESC`;
     case "rating":
-      return "COALESCE(r.favorite, 0) DESC, COALESCE(r.rating, 0) DESC, a.mtime_ms DESC";
+      return `r.rating IS NULL ASC, r.rating ${direction}, COALESCE(r.favorite, 0) DESC, a.mtime_ms DESC`;
     case "random":
       return "RANDOM()";
-    case "newest":
+    case "date":
     default:
-      return "a.mtime_ms DESC, a.name COLLATE NOCASE ASC";
+      return `a.mtime_ms ${direction}, a.name COLLATE NOCASE ASC`;
   }
 }
 

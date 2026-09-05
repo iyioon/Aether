@@ -3,6 +3,7 @@ import type {
   AssetRecord,
   MediaTypeFilter,
   RatingFilter,
+  SortDirection,
   SortMode,
   TagRecord
 } from "../../api/client";
@@ -33,7 +34,9 @@ interface LibraryControlStripProps {
   ratingFilterLabel: string;
   selectedAssetCount: number;
   sort: SortMode;
+  sortDirection: SortDirection;
   sortLabel: string;
+  sortSummary: string;
   tagFilter: string;
   tagFilterDraft: string;
   view: ViewMode;
@@ -51,6 +54,7 @@ interface LibraryControlStripProps {
   onSetOpenControlMenu: (menu: ControlMenuId | null) => void;
   onSetRatingFilter: (ratingFilter: RatingFilter) => void;
   onSetSort: (sort: SortMode) => void;
+  onSetSortDirection: (sortDirection: SortDirection) => void;
   onSetTagFilterDraft: (value: string) => void;
   onToggleGalleryMetadataField: (field: GalleryMetadataField) => void;
 }
@@ -74,7 +78,9 @@ export function LibraryControlStrip({
   ratingFilterLabel,
   selectedAssetCount,
   sort,
+  sortDirection,
   sortLabel,
+  sortSummary,
   tagFilter,
   tagFilterDraft,
   view,
@@ -92,6 +98,7 @@ export function LibraryControlStrip({
   onSetOpenControlMenu,
   onSetRatingFilter,
   onSetSort,
+  onSetSortDirection,
   onSetTagFilterDraft,
   onToggleGalleryMetadataField
 }: LibraryControlStripProps) {
@@ -114,11 +121,14 @@ export function LibraryControlStrip({
       <SortControlMenu
         isOpen={openControlMenu === "sort"}
         sort={sort}
+        sortDirection={sortDirection}
         sortLabel={sortLabel}
+        sortSummary={sortSummary}
         onOpenChange={(nextIsOpen) =>
           onSetOpenControlMenu(nextIsOpen ? "sort" : null)
         }
         onSetSort={onSetSort}
+        onSetSortDirection={onSetSortDirection}
       />
 
       <LayoutControlMenu

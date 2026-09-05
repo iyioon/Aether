@@ -102,11 +102,13 @@ export async function registerLibraryRoutes(
       return reply.code(400).send({ error: "invalid_request" });
     }
 
+    const sort = normalizeAssetSort(query.data.sort, query.data.order);
     const result = listAssets(db, {
       folderId: params.data.folderId,
       offset: query.data.offset,
       limit: query.data.limit,
-      sort: query.data.sort,
+      sort: sort.mode,
+      sortDirection: sort.direction,
       type: query.data.type,
       recursive: query.data.recursive,
       search: query.data.search,
@@ -121,7 +123,8 @@ export async function registerLibraryRoutes(
     return {
       folderId: params.data.folderId,
       ...result,
-      sort: query.data.sort,
+      sort: sort.mode,
+      order: sort.direction,
       type: query.data.type,
       recursive: query.data.recursive,
       search: query.data.search,
@@ -464,6 +467,61 @@ export async function registerLibraryRoutes(
     provider: config.aiProvider,
     model: config.aiProvider === "ollama" ? config.ollamaVisionModel : null
   }));
+
+  app.get("/api/admin/settings", async () => ({
+    server: {
+      environment: process.env.NODE_ENV ?? "development",
+      version: process.env.npm_package_version ?? null
+    },
+    library: {
+      mediaRootCount: config.mediaRoots.length,
+      mediaRoots: config.mediaRoots.map((root) => ({
+        id: root.id,
+        label: root.label
+      })),
+      watchEnabled: config.watchEnabled,
+      watchDebounceMs: config.watchDebounceMs
+    },
+    security: {
+      passwordConfigured: Boolean(config.passwordHash),
+      cookieSecure: config.cookieSecure,
+      trustProxy: config.trustProxy,
+      sessionTtlDays: config.sessionTtlDays,
+      loginMaxAttempts: config.loginMaxAttempts,
+      loginWindowMinutes: Math.round(config.loginWindowMs / 60_000),
+      loginLockoutMinutes: Math.round(config.loginLockoutMs / 60_000)
+    },
+    ai: {
+      enabled: config.aiProvider !== "disabled",
+      provider: config.aiProvider,
+      model: config.aiProvider === "ollama" ? config.ollamaVisionModel : null,
+      timeoutMs: config.aiTimeoutMs
+    }
+  }));
+}
+
+function normalizeAssetSort(
+  mode: "date" | "filename" | "rating" | "random" | "newest" | "oldest",
+  direction: "desc" | "asc" | undefined
+): {
+  mode: "date" | "filename" | "rating" | "random";
+  direction: "desc" | "asc";
+} {
+  if (mode === "newest") {
+    return { mode: "date", direction: "desc" };
+  }
+
+  if (mode === "oldest") {
+    return { mode: "date", direction: "asc" };
+  }
+
+  return { mode, direction: direction ?? defaultAssetSortDirection(mode) };
+}
+
+function defaultAssetSortDirection(
+  mode: "date" | "filename" | "rating" | "random"
+): "desc" | "asc" {
+  return mode === "filename" ? "asc" : "desc";
 }
 
 async function streamAssetFile(

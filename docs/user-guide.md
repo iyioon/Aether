@@ -13,7 +13,7 @@ Aether reads source media in place. It stores library metadata, ratings, favorit
 
 The sidebar mirrors the configured folder roots. Folders can be expanded, collapsed, and selected without changing the original folder structure.
 
-The gallery view is the default browser. Use it when you want to scan many items quickly. Controls let you change sort order, grid density, tile aspect ratio, visible card metadata, media type, rating state, and tag filters.
+The gallery view is the default browser. Use it when you want to scan many items quickly. Controls let you choose the sort field and direction, grid density, tile aspect ratio, visible card metadata, media type, rating state, and tag filters.
 
 The feed view shows one item at a time in a vertical scroll flow. It uses the same filtered collection as the gallery, so search and filters carry across both views.
 
@@ -42,3 +42,9 @@ Search matches indexed filename and folder path text. CJK n-gram indexing suppor
 ## Downloads
 
 Downloads use authenticated asset routes. The browser never receives the source file's absolute filesystem path.
+
+## Settings
+
+Open Settings from the sidebar to adjust browser-local appearance preferences and browsing defaults such as view mode, sort field, sort direction, grid size, tile aspect ratio, visible card information, media filter, and rating filter. These controls use the same state as the gallery toolbar, so changes take effect immediately.
+
+Settings also shows read-only server, security, watcher, media root, and AI status. Sensitive values such as password hashes, session secrets, absolute paths, config directories, and cache directories are not sent to the browser.

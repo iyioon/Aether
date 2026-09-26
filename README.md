@@ -53,6 +53,14 @@ npm run dev
 
 Open `http://127.0.0.1:5173`, sign in, then use the scan button in the sidebar to index the configured folders.
 
+To access Aether temporarily from another device on the same trusted local network, start it in LAN mode:
+
+```bash
+npm run dev:lan
+```
+
+Open the network URL printed by Vite. This mode is intended for temporary local-network testing, not long-lived deployment.
+
 ## Docker
 
 ```bash

@@ -15,13 +15,15 @@ The sidebar mirrors the configured folder roots. Folders can be expanded, collap
 
 The gallery view is the default browser. Use it when you want to scan many items quickly. Controls let you choose the sort field and direction, grid density, tile aspect ratio, visible card metadata, media type, rating state, and tag filters.
 
-The feed view shows one item at a time in a vertical scroll flow. It uses the same filtered collection as the gallery, so search and filters carry across both views.
+The feed view shows one item at a time in a vertical scroll flow. It uses the same filtered collection as the gallery, so search and filters carry across both views. Static images appear immediately from a cached thumbnail, then crossfade to the original after the browser finishes decoding it. If the original format cannot be displayed, the thumbnail remains available as the fallback.
 
 ## Viewing Media
 
 Click a gallery item to open the fullscreen viewer. Use the previous and next controls to move through the current filtered collection. Videos support seeking when the browser and source format support it.
 
-In feed view, clicking the media hides or shows the browsing chrome. Use the expand control for the fullscreen viewer, and the info control for scores, favorites, and tags.
+In feed view, click or tap the media to hide or show the browsing chrome. Press and hold a video to pause it temporarily; playback resumes when the press ends. Use the bottom timeline to seek, the sound control to toggle audio, and the expand control to open the fullscreen viewer. Select the media title to open scores, favorites, and tags.
+
+Feed videos try the authenticated original stream first. If the browser cannot decode the source codec or container, Aether falls back to a generated browser-compatible preview. Videos begin muted so autoplay remains reliable after loading or refreshing the page.
 
 ## Scores, Favorites, And Tags
 

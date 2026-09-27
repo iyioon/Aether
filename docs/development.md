@@ -36,7 +36,7 @@ npm run test:e2e
 
 ## Browser Checks
 
-For UI changes, run the app locally and check both desktop and mobile-width layouts. Feed mode, fullscreen media sizing, toolbar overflow, and sidebar scrolling are the highest-risk areas.
+For UI changes, run the app locally and check both desktop and mobile-width layouts. Feed mode, progressive image replacement, video refresh/autoplay behavior, fullscreen media sizing, toolbar overflow, and sidebar scrolling are the highest-risk areas.
 
 ## E2E Requirements
 

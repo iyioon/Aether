@@ -50,9 +50,13 @@ The cache directory stores generated derivatives. It can be rebuilt from source 
 
 ## Media Strategy
 
-Gallery tiles avoid loading originals whenever possible. Images use cached WebP thumbnails. Videos use poster frames and short MP4 preview clips. Original videos are streamed through authenticated routes with HTTP range support for seeking.
+Gallery tiles avoid loading originals whenever possible. Images use cached WebP thumbnails, while videos use poster frames and short MP4 preview clips. Animated image formats switch to the authenticated original stream when a visible tile needs animation.
 
-Animated image formats use the original authenticated stream when a tile is visible so animation is preserved without loading every animated file in a large folder.
+The feed uses a progressive image path: it displays the cached thumbnail first, requests the authenticated original concurrently, waits for browser decoding, and then crossfades to the full-resolution image. A failed or unsupported original leaves the thumbnail in place.
+
+Feed videos request the original authenticated stream first and use HTTP range requests for full-duration seeking. If the browser cannot play the source, the client falls back to the cached browser-compatible preview. The poster remains visible until playback produces a frame, preventing an empty surface during startup.
+
+The fullscreen viewer uses authenticated originals and the same poster fallback for videos. Source filesystem paths are never exposed to the browser.
 
 ## Search
 

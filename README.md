@@ -9,12 +9,12 @@ It is built for a home server or trusted local network. Aether does not require 
 - Password-protected web interface with server-side sessions and CSRF protection.
 - Folder tree that mirrors the configured media roots.
 - Virtualized gallery grid for large folders, with size, aspect-ratio, and sort direction controls.
-- Vertical feed mode for one-item-at-a-time browsing.
+- Vertical feed mode with progressive full-resolution images, original video playback when browser-compatible, and timeline seeking.
 - Fullscreen viewer for images and videos.
 - Ratings, favorites, tags, tag suggestions, and batch annotation tools.
 - Filename/path search, including CJK substring matching for Korean and similar scripts.
 - Authenticated media streaming with HTTP range support for video seeking.
-- Lazy thumbnails, video posters, and short preview clips stored in a local cache.
+- Lazy thumbnails, video posters, and browser-compatible preview clips stored in a local cache.
 - Animated image support for GIF, animated WebP, AVIF, and APNG-style files.
 - Settings page for browser-local appearance preferences, library controls, and read-only server/security status.
 - Optional local Ollama vision tag suggestions, disabled by default.

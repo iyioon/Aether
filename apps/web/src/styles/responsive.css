@@ -1,6 +1,7 @@
 @media (prefers-reduced-motion: reduce) {
   .gallery-refresh-indicator::after,
   .gallery-empty-enter,
+  .gallery-card-skeleton::before,
   .media-image-loading,
   .media-video-loading,
   .gallery-skeleton-grid [data-slot="skeleton"] {

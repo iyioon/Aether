@@ -7,6 +7,7 @@
 - Changed feed videos to prefer the original authenticated stream, with poster-first startup and a browser-compatible preview fallback.
 - Fixed odd-dimension video preview generation and improved poster behavior during refresh and playback startup.
 - Unified shared button hover, active, and translucent overlay states across gallery, viewer, selection, and feed surfaces.
+- Polished gallery loading placeholders with restrained breathing and sweep motion, including reduced-motion support.
 - Improved narrow-screen path-bar layout so the sidebar trigger and library controls remain accessible.
 - Prepared public README and documentation set.
 - Added release metadata, security policy, contribution guide, and CI workflow.

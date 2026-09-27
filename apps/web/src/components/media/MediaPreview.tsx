@@ -61,6 +61,9 @@ export function MediaPreview({
   const [loadedImageSource, setLoadedImageSource] = useState<string | null>(
     null
   );
+  const [loadedThumbnailSource, setLoadedThumbnailSource] = useState<
+    string | null
+  >(null);
   const posterSource = thumbnailUrl(asset.id);
   const videoSource =
     asset.mediaType === "video"
@@ -137,6 +140,7 @@ export function MediaPreview({
     setVideoDuration(0);
     setVideoPosterStatus("loading");
     setLoadedImageSource(null);
+    setLoadedThumbnailSource(null);
   }, [asset.id, isAnimatedImage, tall]);
 
   useEffect(() => {
@@ -349,27 +353,61 @@ export function MediaPreview({
   }
 
   if (asset.mediaType === "image") {
+    const originalSource = mediaUrl(asset.id);
+    const isProgressiveImage = useOriginalImage && !originalImageFailed;
     const shouldUseOriginalImage =
-      (useOriginalImage && !originalImageFailed) ||
+      isProgressiveImage ||
       (isAnimatedImage && isVisible && !animatedImageFailed);
     const previewSource =
-      shouldUseOriginalImage ? mediaUrl(asset.id) : thumbnailUrl(asset.id);
+      shouldUseOriginalImage ? originalSource : thumbnailUrl(asset.id);
     const isImageReady = loadedImageSource === previewSource;
+    const isThumbnailReady =
+      isProgressiveImage && loadedThumbnailSource === posterSource;
 
     return (
       <span
         className={[
           "media-image-shell",
           tall ? "tall" : "",
+          isProgressiveImage ? "progressive" : "",
+          isThumbnailReady ? "thumbnail-ready" : "",
           isImageReady ? "ready" : ""
         ]
           .filter(Boolean)
           .join(" ")}
       >
         <span className="media-image-loading" aria-hidden="true" />
+        {isProgressiveImage ? (
+          <img
+            aria-hidden="true"
+            className={
+              tall
+                ? "media-image media-image-thumbnail tall"
+                : "media-image media-image-thumbnail"
+            }
+            src={posterSource}
+            alt=""
+            decoding="async"
+            fetchPriority={isActive ? "high" : "auto"}
+            loading={isActive ? "eager" : "lazy"}
+            onLoad={(event) => {
+              const image = event.currentTarget;
+              image
+                .decode()
+                .catch(() => undefined)
+                .then(() => setLoadedThumbnailSource(posterSource));
+            }}
+          />
+        ) : null}
         <img
           ref={imageRef}
-          className={tall ? "media-image tall" : "media-image"}
+          className={[
+            "media-image",
+            isProgressiveImage ? "media-image-original" : "",
+            tall ? "tall" : ""
+          ]
+            .filter(Boolean)
+            .join(" ")}
           src={previewSource}
           alt={asset.name}
           data-preview-source={
@@ -381,17 +419,25 @@ export function MediaPreview({
               : "lazy"
           }
           decoding="async"
+          fetchPriority={useOriginalImage && isActive ? "high" : "auto"}
           onLoad={(event) => {
-            setLoadedImageSource(previewSource);
-            onDimensionsKnown?.(
-              asset.id,
-              event.currentTarget.naturalWidth,
-              event.currentTarget.naturalHeight
-            );
+            const image = event.currentTarget;
+            image
+              .decode()
+              .catch(() => undefined)
+              .then(() => {
+                setLoadedImageSource(previewSource);
+                onDimensionsKnown?.(
+                  asset.id,
+                  image.naturalWidth,
+                  image.naturalHeight
+                );
+              });
           }}
           onError={() => {
             if (useOriginalImage && !originalImageFailed) {
               setOriginalImageFailed(true);
+              setAnimatedImageFailed(true);
               return;
             }
 

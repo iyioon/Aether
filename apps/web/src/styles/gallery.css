@@ -243,10 +243,25 @@
   transition: opacity 160ms ease;
 }
 
-.media-image-shell.ready .media-image {
+.media-image-shell.ready .media-image:not(.media-image-thumbnail),
+.media-image-shell.thumbnail-ready .media-image-thumbnail {
   opacity: 1;
 }
 
+.media-image-shell.progressive.ready .media-image-thumbnail {
+  opacity: 0;
+}
+
+.media-image-thumbnail {
+  transform: scale(1.01);
+  filter: blur(2px);
+}
+
+.media-image-original {
+  z-index: 1;
+}
+
+.media-image-shell.thumbnail-ready .media-image-loading,
 .media-image-shell.ready .media-image-loading {
   opacity: 0;
   animation: none;

@@ -112,7 +112,7 @@ export async function registerLibraryRoutes(
       type: query.data.type,
       recursive: query.data.recursive,
       search: query.data.search,
-      tag: query.data.tag,
+      tags: query.data.tag,
       ratingFilter: query.data.rating
     });
 
@@ -128,7 +128,7 @@ export async function registerLibraryRoutes(
       type: query.data.type,
       recursive: query.data.recursive,
       search: query.data.search,
-      tag: query.data.tag,
+      tags: query.data.tag,
       rating: query.data.rating
     };
   });
@@ -445,6 +445,7 @@ export async function registerLibraryRoutes(
       attempts: job.attempts,
       error: job.error,
       result: parseJobResult(job.result),
+      progress: job.progress,
       createdAt: job.created_at,
       updatedAt: job.updated_at
     }))

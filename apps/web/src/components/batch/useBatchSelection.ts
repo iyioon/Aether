@@ -30,6 +30,7 @@ export function useBatchSelection({
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(
     () => new Set()
   );
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [batchTagDraft, setBatchTagDraft] = useState("");
   const [batchError, setBatchError] = useState<string | null>(null);
   const [batchStatus, setBatchStatus] = useState<string | null>(null);
@@ -45,6 +46,7 @@ export function useBatchSelection({
   });
 
   useEffect(() => {
+    setIsSelectionMode(false);
     setSelectedAssetIds(new Set());
     setBatchError(null);
     setBatchStatus(null);
@@ -87,6 +89,7 @@ export function useBatchSelection({
   }
 
   function selectLoadedAssets() {
+    setIsSelectionMode(true);
     setBatchError(null);
     setBatchStatus(null);
     setSelectedAssetIds(new Set(assets.map((asset) => asset.id)));
@@ -161,6 +164,7 @@ export function useBatchSelection({
     batchTagDraft,
     batchTagSuggestions,
     clearSelectedAssets,
+    isSelectionMode,
     isSavingBatch,
     saveBatchRating,
     saveBatchTags,
@@ -168,6 +172,7 @@ export function useBatchSelection({
     selectedAssetCount,
     selectedAssetIds,
     setBatchTagDraft,
+    setIsSelectionMode,
     toggleAssetSelection
   };
 }

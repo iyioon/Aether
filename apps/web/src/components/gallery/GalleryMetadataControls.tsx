@@ -1,8 +1,17 @@
-import { Check } from "lucide-react";
 import {
   galleryMetadataOptions,
   type GalleryMetadataField
 } from "./gallery-metadata";
+import { MoreHorizontal } from "lucide-react";
+import { Button } from "../ui/button";
+import { Checkbox } from "../ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from "../ui/dropdown-menu";
+import { Label } from "../ui/label";
 
 interface GalleryMetadataControlsProps {
   fields: ReadonlySet<GalleryMetadataField>;
@@ -20,40 +29,46 @@ export function GalleryMetadataControls({
   const selectedCount = fields.size;
 
   return (
-    <div className="menu-section metadata-field-section">
-      <div className="menu-section-heading">
-        <div className="menu-section-title">Card info</div>
-        <small>{selectedCount ? `${selectedCount} shown` : "None"}</small>
+    <div className="mt-5 grid gap-3 border-t pt-4">
+      <div className="flex items-center justify-between gap-3">
+        <Label>Card info</Label>
+        <div className="flex items-center gap-1">
+          <small className="text-muted-foreground">
+            {selectedCount ? `${selectedCount} shown` : "None shown"}
+          </small>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                size="icon-sm"
+                variant="ghost"
+                aria-label="Card info options"
+              >
+                <MoreHorizontal />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={onReset}>
+                Restore defaults
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={onClear}>
+                Hide all
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
-      <div className="metadata-field-list">
+      <div className="grid grid-cols-2 gap-3">
         {galleryMetadataOptions.map((option) => (
-          <label
-            className={
-              fields.has(option.value)
-                ? "metadata-field-option active"
-                : "metadata-field-option"
-            }
-            key={option.value}
-          >
-            <input
-              type="checkbox"
+          <div className="flex items-center gap-2" key={option.value}>
+            <Checkbox
+              id={`metadata-${option.value}`}
               checked={fields.has(option.value)}
-              onChange={() => onToggle(option.value)}
+              onCheckedChange={() => onToggle(option.value)}
             />
-            <span className="metadata-checkbox" aria-hidden="true">
-              {fields.has(option.value) ? <Check size={13} /> : null}
-            </span>
-            <span>{option.label}</span>
-          </label>
+            <Label htmlFor={`metadata-${option.value}`}>{option.label}</Label>
+          </div>
         ))}
-      </div>
-      <div className="metadata-settings-actions">
-        <button type="button" onClick={onClear}>
-          None
-        </button>
-        <button type="button" onClick={onReset}>
-          Default
-        </button>
       </div>
     </div>
   );

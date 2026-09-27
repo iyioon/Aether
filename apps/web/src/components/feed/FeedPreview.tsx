@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -11,6 +12,10 @@ import {
 import { GalleryHorizontalEnd } from "lucide-react";
 import type { AssetRecord } from "../../api/client";
 import { useAutoLoadSentinel } from "../../hooks/useAutoLoadSentinel";
+import {
+  readSessionScrollPosition,
+  writeSessionScrollPosition
+} from "../scroll-restoration";
 import { FeedItem, type FeedSoundState } from "./FeedItem";
 import { FeedNavRail } from "./FeedNavRail";
 import {
@@ -35,12 +40,15 @@ interface FeedPreviewProps {
   assets: AssetRecord[];
   isLoading: boolean;
   isLoadingMore: boolean;
+  isContentReady: boolean;
   hasMore: boolean;
   loadMoreRef: MutableRefObject<HTMLDivElement | null>;
   isFeedChromeHidden: boolean;
   isPlaybackPaused: boolean;
+  scrollContextKey: string;
   syncedAssetId: string | null;
   onLoadMore: () => void;
+  onActiveAssetChange: (assetId: string) => void;
   onFeedChromeHiddenChange: (isHidden: boolean) => void;
   onOpenAnnotations: (assetId: string) => void;
   onOpenAsset: (assetId: string) => void;
@@ -50,12 +58,15 @@ export function FeedPreview({
   assets,
   isLoading,
   isLoadingMore,
+  isContentReady,
   hasMore,
   loadMoreRef,
   isFeedChromeHidden,
   isPlaybackPaused,
+  scrollContextKey,
   syncedAssetId,
   onLoadMore,
+  onActiveAssetChange,
   onFeedChromeHiddenChange,
   onOpenAnnotations,
   onOpenAsset
@@ -63,13 +74,26 @@ export function FeedPreview({
   const feedRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<Array<HTMLElement | null>>([]);
   const feedScrollFrameRef = useRef<number | null>(null);
+  const restoreFrameRef = useRef<number | null>(null);
+  const syncFrameRef = useRef<number | null>(null);
+  const latestScrollTopRef = useRef(0);
+  const latestActiveIndexRef = useRef(0);
+  const restoredContextRef = useRef<string | null>(null);
+  const isRestoringRef = useRef(false);
+  const contextKeyRef = useRef(scrollContextKey);
+  const assetsRef = useRef(assets);
+  const lastReportedAssetIdRef = useRef<string | null>(null);
+  const onActiveAssetChangeRef = useRef(onActiveAssetChange);
+  contextKeyRef.current = scrollContextKey;
+  assetsRef.current = assets;
+  onActiveAssetChangeRef.current = onActiveAssetChange;
   const wheelLockUntilRef = useRef(0);
   const touchStartRef = useRef<FeedTouchStart | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [isScrollPositionReady, setIsScrollPositionReady] = useState(false);
   const [isFeedMuted, setIsFeedMuted] = useState(false);
   const [isFeedAudioBlocked, setIsFeedAudioBlocked] = useState(false);
   const [audiblePlaybackRequest, setAudiblePlaybackRequest] = useState(0);
-  const firstAssetId = assets[0]?.id ?? "";
   const feedSoundState: FeedSoundState = isFeedAudioBlocked
     ? "blocked"
     : isFeedMuted
@@ -80,13 +104,138 @@ export function FeedPreview({
     itemRefs.current = itemRefs.current.slice(0, assets.length);
   }, [assets.length]);
 
-  useEffect(() => {
-    setActiveIndex(0);
-    feedRef.current?.scrollTo({ top: 0 });
-  }, [firstAssetId]);
+  useLayoutEffect(() => {
+    lastReportedAssetIdRef.current = null;
+    setIsScrollPositionReady(false);
+  }, [scrollContextKey]);
+
+  const saveFeedPosition = useCallback((indexOverride?: number) => {
+    if (
+      isRestoringRef.current ||
+      restoredContextRef.current !== contextKeyRef.current
+    ) {
+      return;
+    }
+
+    const feedElement = feedRef.current;
+    const currentAssets = assetsRef.current;
+    const index = Math.max(
+      0,
+      Math.min(
+        indexOverride ??
+          (feedElement
+            ? nearestFeedIndexFromScroll(feedElement, itemRefs.current)
+            : latestActiveIndexRef.current),
+        Math.max(0, currentAssets.length - 1)
+      )
+    );
+    const anchorId = currentAssets[index]?.id;
+
+    if (anchorId && lastReportedAssetIdRef.current !== anchorId) {
+      lastReportedAssetIdRef.current = anchorId;
+      onActiveAssetChangeRef.current(anchorId);
+    }
+
+    writeSessionScrollPosition("library-content", {
+      anchorId,
+      contextKey: contextKeyRef.current,
+      index,
+      scrollTop: feedElement?.scrollTop ?? latestScrollTopRef.current
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    const feedElement = feedRef.current;
+
+    if (
+      !feedElement ||
+      !isContentReady ||
+      assets.length === 0 ||
+      restoredContextRef.current === scrollContextKey
+    ) {
+      return;
+    }
+
+    const storedPosition = readSessionScrollPosition("library-content");
+    const syncedIndex = syncedAssetId
+      ? assets.findIndex((asset) => asset.id === syncedAssetId)
+      : -1;
+    let intendedIndex = Math.max(0, syncedIndex);
+
+    if (syncedIndex < 0 && storedPosition?.contextKey === scrollContextKey) {
+      const anchoredIndex = storedPosition.anchorId
+        ? assets.findIndex((asset) => asset.id === storedPosition.anchorId)
+        : -1;
+      intendedIndex =
+        anchoredIndex >= 0
+          ? anchoredIndex
+          : Math.max(0, storedPosition.index ?? 0);
+    }
+
+    if (intendedIndex >= assets.length && hasMore) {
+      if (!isLoadingMore) {
+        onLoadMore();
+      }
+      return;
+    }
+
+    restoredContextRef.current = scrollContextKey;
+    isRestoringRef.current = true;
+    let didCompleteRestoration = false;
+    const nextIndex = Math.max(
+      0,
+      Math.min(intendedIndex, assets.length - 1)
+    );
+    setActiveIndex(nextIndex);
+    latestActiveIndexRef.current = nextIndex;
+    const nextItem = itemRefs.current[nextIndex];
+    const nextScrollTop = nextItem
+      ? feedItemTop(feedElement, nextItem)
+      : nextIndex * feedElement.clientHeight;
+    latestScrollTopRef.current = nextScrollTop;
+    setScrollPositionImmediately(feedElement, nextScrollTop);
+
+    restoreFrameRef.current = window.requestAnimationFrame(() => {
+      restoreFrameRef.current = null;
+      isRestoringRef.current = false;
+      saveFeedPosition(nextIndex);
+      didCompleteRestoration = true;
+      setIsScrollPositionReady(true);
+    });
+
+    return () => {
+      if (restoreFrameRef.current !== null) {
+        window.cancelAnimationFrame(restoreFrameRef.current);
+        restoreFrameRef.current = null;
+      }
+      isRestoringRef.current = false;
+
+      if (
+        !didCompleteRestoration &&
+        restoredContextRef.current === scrollContextKey
+      ) {
+        restoredContextRef.current = null;
+      }
+    };
+  }, [
+    assets,
+    hasMore,
+    isContentReady,
+    isLoadingMore,
+    onLoadMore,
+    saveFeedPosition,
+    scrollContextKey,
+    syncedAssetId
+  ]);
 
   useEffect(() => {
-    if (!syncedAssetId) {
+    if (
+      !syncedAssetId ||
+      syncedAssetId === lastReportedAssetIdRef.current ||
+      !isContentReady ||
+      isRestoringRef.current ||
+      restoredContextRef.current !== scrollContextKey
+    ) {
       return;
     }
 
@@ -99,35 +248,76 @@ export function FeedPreview({
     const feedElement = feedRef.current;
     const syncedItem = itemRefs.current[syncedIndex];
     setActiveIndex(syncedIndex);
+    latestActiveIndexRef.current = syncedIndex;
+    lastReportedAssetIdRef.current = syncedAssetId;
 
     if (!feedElement || !syncedItem) {
       return;
     }
 
     const targetTop = feedItemTop(feedElement, syncedItem);
+    latestScrollTopRef.current = targetTop;
+    isRestoringRef.current = true;
 
-    if (Math.abs(feedElement.scrollTop - targetTop) <= 1) {
-      return;
+    writeSessionScrollPosition("library-content", {
+      anchorId: syncedAssetId,
+      contextKey: scrollContextKey,
+      index: syncedIndex,
+      scrollTop: targetTop
+    });
+
+    if (Math.abs(feedElement.scrollTop - targetTop) > 1) {
+      setScrollPositionImmediately(feedElement, targetTop);
     }
 
-    feedElement.scrollTo({ top: targetTop, behavior: "auto" });
-  }, [assets, syncedAssetId]);
+    syncFrameRef.current = window.requestAnimationFrame(() => {
+      syncFrameRef.current = null;
+      isRestoringRef.current = false;
+    });
 
-  useEffect(
+    return () => {
+      if (syncFrameRef.current !== null) {
+        window.cancelAnimationFrame(syncFrameRef.current);
+        syncFrameRef.current = null;
+      }
+
+      isRestoringRef.current = false;
+    };
+  }, [assets, isContentReady, scrollContextKey, syncedAssetId]);
+
+  useLayoutEffect(
     () => () => {
       if (feedScrollFrameRef.current !== null) {
         window.cancelAnimationFrame(feedScrollFrameRef.current);
       }
+      if (syncFrameRef.current !== null) {
+        window.cancelAnimationFrame(syncFrameRef.current);
+      }
+      saveFeedPosition();
     },
-    []
+    [saveFeedPosition]
   );
 
+  useEffect(() => {
+    const handlePageHide = () => saveFeedPosition();
+    window.addEventListener("pagehide", handlePageHide);
+    return () => window.removeEventListener("pagehide", handlePageHide);
+  }, [saveFeedPosition]);
+
   const syncActiveFeedIndex = useCallback(() => {
-    setActiveIndex(nearestFeedIndexFromScroll(feedRef.current, itemRefs.current));
-  }, []);
+    const nextIndex = nearestFeedIndexFromScroll(
+      feedRef.current,
+      itemRefs.current
+    );
+    setActiveIndex(nextIndex);
+    latestActiveIndexRef.current = nextIndex;
+    saveFeedPosition(nextIndex);
+  }, [saveFeedPosition]);
 
   const handleFeedScroll = useCallback(() => {
-    if (feedScrollFrameRef.current !== null) {
+    latestScrollTopRef.current = feedRef.current?.scrollTop ?? 0;
+
+    if (isRestoringRef.current || feedScrollFrameRef.current !== null) {
       return;
     }
 
@@ -152,12 +342,19 @@ export function FeedPreview({
         behavior: "smooth"
       });
       setActiveIndex(nextIndex);
+      latestActiveIndexRef.current = nextIndex;
+      const nextAssetId = assets[nextIndex]?.id;
+
+      if (nextAssetId) {
+        lastReportedAssetIdRef.current = nextAssetId;
+        onActiveAssetChangeRef.current(nextAssetId);
+      }
 
       if (hasMore && nextIndex >= assets.length - 2) {
         onLoadMore();
       }
     },
-    [assets.length, hasMore, onLoadMore]
+    [assets, hasMore, onLoadMore]
   );
 
   const toggleFeedChrome = useCallback(() => {
@@ -340,7 +537,7 @@ export function FeedPreview({
     targetRef: loadMoreRef
   });
 
-  if (isLoading) {
+  if (isLoading && assets.length === 0) {
     return (
       <section className="feed-shell" aria-label="Feed view">
         <div className="feed-view">
@@ -366,15 +563,31 @@ export function FeedPreview({
 
   return (
     <section
-      className="feed-shell"
+      className={[
+        "feed-shell",
+        !isScrollPositionReady ? "is-scroll-pending" : ""
+      ]
+        .filter(Boolean)
+        .join(" ")}
       aria-label="Feed view"
+      aria-busy={!isScrollPositionReady}
+      inert={!isScrollPositionReady}
       tabIndex={0}
       onKeyDown={handleFeedKeyDown}
       onTouchEnd={handleFeedTouchEnd}
       onTouchStart={handleFeedTouchStart}
       onWheel={handleFeedWheel}
     >
-      <div className="feed-view" ref={feedRef} onScroll={handleFeedScroll}>
+      <div
+        className={[
+          "feed-view",
+          !isScrollPositionReady ? "is-scroll-pending" : ""
+        ]
+          .filter(Boolean)
+          .join(" ")}
+        ref={feedRef}
+        onScroll={handleFeedScroll}
+      >
         {assets.map((asset, index) => (
           <FeedItem
             activeIndex={activeIndex}
@@ -421,4 +634,11 @@ export function FeedPreview({
       />
     </section>
   );
+}
+
+function setScrollPositionImmediately(element: HTMLElement, top: number) {
+  const previousScrollBehavior = element.style.scrollBehavior;
+  element.style.scrollBehavior = "auto";
+  element.scrollTop = top;
+  element.style.scrollBehavior = previousScrollBehavior;
 }

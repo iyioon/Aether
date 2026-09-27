@@ -5,6 +5,7 @@ import { formatBytes, formatDuration } from "../media/media-format";
 import type { GalleryMetadataField } from "./gallery-metadata";
 
 export const GALLERY_GRID_GAP = 12;
+const GALLERY_CARD_BORDER_WIDTH = 1;
 
 export function galleryMinTileWidth(gridSize: GridSize): number {
   switch (gridSize) {
@@ -53,30 +54,88 @@ export function estimateGalleryRowHeight({
   aspect,
   columnCount,
   containerWidth,
+  measuredAspectRatios,
   metadataFields,
-  minTileWidth
+  minTileWidth,
+  rowAssets
 }: {
   aspect: AspectMode;
   columnCount: number;
   containerWidth: number;
+  measuredAspectRatios?: Record<string, string>;
   metadataFields: ReadonlySet<GalleryMetadataField>;
   minTileWidth: number;
+  rowAssets?: readonly AssetRecord[];
 }): number {
   const width = Math.max(containerWidth, minTileWidth);
   const tileWidth =
     (width - GALLERY_GRID_GAP * Math.max(0, columnCount - 1)) / columnCount;
-  const mediaHeight = tileWidth / galleryAspectRatio(aspect);
+  const mediaWidth = Math.max(
+    0,
+    tileWidth - GALLERY_CARD_BORDER_WIDTH * 2
+  );
+  const mediaHeight =
+    aspect === "Original" && rowAssets?.length
+      ? Math.max(
+          ...rowAssets.map(
+            (asset) =>
+              mediaWidth /
+              mediaAspectRatio(asset, measuredAspectRatios?.[asset.id])
+          )
+        )
+      : mediaWidth / galleryAspectRatio(aspect);
+  const chromeHeight = rowAssets?.length
+    ? Math.max(
+        ...rowAssets.map((asset) =>
+          galleryTileChromeHeight(metadataFields, asset)
+        )
+      )
+    : galleryTileChromeHeight(metadataFields);
 
-  return mediaHeight + galleryTileChromeHeight(metadataFields);
+  return mediaHeight + chromeHeight + GALLERY_CARD_BORDER_WIDTH * 2;
+}
+
+function mediaAspectRatio(
+  asset: AssetRecord,
+  measuredAspectRatio?: string
+): number {
+  if (measuredAspectRatio) {
+    const parts = measuredAspectRatio.split("/");
+    const width = Number(parts[0]?.trim());
+    const height = Number(parts[1]?.trim());
+
+    if (
+      Number.isFinite(width) &&
+      Number.isFinite(height) &&
+      width > 0 &&
+      height > 0
+    ) {
+      return width / height;
+    }
+  }
+
+  if (
+    asset.width &&
+    asset.height &&
+    asset.width > 0 &&
+    asset.height > 0
+  ) {
+    return asset.width / asset.height;
+  }
+
+  return galleryAspectRatio("Original");
 }
 
 export function galleryTileChromeHeight(
-  fields: ReadonlySet<GalleryMetadataField>
+  fields: ReadonlySet<GalleryMetadataField>,
+  asset?: AssetRecord
 ): number {
   const hasTitle = fields.has("title");
   const hasSecondaryMetadata = fields.has("mediaType") || fields.has("size");
   const hasCuration =
-    fields.has("rating") || fields.has("favorite") || fields.has("tags");
+    fields.has("rating") ||
+    fields.has("favorite") ||
+    (fields.has("tags") && (asset === undefined || asset.tags.length > 0));
   const visibleSectionCount = [hasTitle, hasSecondaryMetadata, hasCuration]
     .filter(Boolean).length;
 
@@ -88,7 +147,7 @@ export function galleryTileChromeHeight(
     19 +
     (hasTitle ? 16 : 0) +
     (hasSecondaryMetadata ? 15 : 0) +
-    (hasCuration ? 30 : 0) +
+    (hasCuration ? 28 : 0) +
     Math.max(0, visibleSectionCount - 1) * 6
   );
 }

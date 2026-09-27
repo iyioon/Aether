@@ -1,13 +1,16 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
-  type MutableRefObject
+  type CSSProperties,
+  type MutableRefObject,
+  type UIEvent as ReactUIEvent
 } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Check, Download, SlidersHorizontal } from "lucide-react";
+import { Download, SlidersHorizontal } from "lucide-react";
 import type { AssetRecord } from "../../api/client";
 import { useAutoLoadSentinel } from "../../hooks/useAutoLoadSentinel";
 import type { AspectMode, GridSize } from "../library-state";
@@ -15,15 +18,25 @@ import { GalleryCardCuration } from "../GalleryCardCuration";
 import { MediaPreview } from "../media/MediaPreview";
 import { downloadUrl } from "../media/media-urls";
 import {
+  findScrollAnchorItem,
+  readSessionScrollPosition,
+  writeSessionScrollPosition
+} from "../scroll-restoration";
+import {
   chunkAssetsIntoRows,
   estimateGalleryRowHeight,
+  galleryAspectRatio,
   galleryColumnCount,
   galleryMinTileWidth,
   gallerySecondaryMetadata,
+  galleryTileChromeHeight,
   GALLERY_GRID_GAP,
   mediaTileStyle
 } from "./gallery-layout";
 import type { GalleryMetadataField } from "./gallery-metadata";
+import { Button } from "../ui/button";
+import { Card } from "../ui/card";
+import { Skeleton } from "../ui/skeleton";
 
 interface GalleryGridProps {
   assets: AssetRecord[];
@@ -33,15 +46,19 @@ interface GalleryGridProps {
   hasMore: boolean;
   isLoading: boolean;
   isLoadingMore: boolean;
+  isContentReady: boolean;
+  isSelectionMode: boolean;
   loadMoreRef: MutableRefObject<HTMLDivElement | null>;
   measuredAspectRatios: Record<string, string>;
-  resetKey: string;
+  scrollContextKey: string;
+  syncedAssetId: string | null;
   savingRatingAssetIds: ReadonlySet<string>;
   selectedAssetIds: ReadonlySet<string>;
   onLoadMore: () => void;
+  onActiveAssetChange: (assetId: string) => void;
   onFavoriteAsset: (asset: AssetRecord, favorite: boolean) => void;
   onMediaDimensionsKnown: (assetId: string, width: number, height: number) => void;
-  onRateAsset: (asset: AssetRecord, rating: number | null) => void;
+  onScoreAsset: (asset: AssetRecord, score: number | null) => void;
   onSelectAsset: (assetId: string) => void;
   onToggleSelection: (assetId: string) => void;
 }
@@ -54,20 +71,40 @@ export function GalleryGrid({
   hasMore,
   isLoading,
   isLoadingMore,
+  isContentReady,
+  isSelectionMode,
   loadMoreRef,
   measuredAspectRatios,
-  resetKey,
+  scrollContextKey,
+  syncedAssetId,
   savingRatingAssetIds,
   selectedAssetIds,
   onLoadMore,
+  onActiveAssetChange,
   onFavoriteAsset,
   onMediaDimensionsKnown,
-  onRateAsset,
+  onScoreAsset,
   onSelectAsset,
   onToggleSelection
 }: GalleryGridProps) {
   const scrollParentRef = useRef<HTMLDivElement | null>(null);
+  const loadingLayerRef = useRef<HTMLDivElement | null>(null);
+  const scrollFrameRef = useRef<number | null>(null);
+  const restoreFrameRef = useRef<number | null>(null);
+  const syncFrameRef = useRef<number | null>(null);
+  const latestScrollTopRef = useRef(0);
+  const restoredContextRef = useRef<string | null>(null);
+  const isRestoringRef = useRef(false);
+  const contextKeyRef = useRef(scrollContextKey);
+  const assetsRef = useRef(assets);
+  const columnCountRef = useRef(1);
+  const lastReportedAnchorIdRef = useRef<string | null>(null);
+  const onActiveAssetChangeRef = useRef(onActiveAssetChange);
+  contextKeyRef.current = scrollContextKey;
+  assetsRef.current = assets;
+  onActiveAssetChangeRef.current = onActiveAssetChange;
   const [containerWidth, setContainerWidth] = useState(0);
+  const [isScrollPositionReady, setIsScrollPositionReady] = useState(false);
   const minTileWidth = galleryMinTileWidth(gridSize);
   const columnCount = galleryColumnCount(containerWidth, minTileWidth);
   const rows = useMemo(
@@ -75,15 +112,25 @@ export function GalleryGrid({
     [assets, columnCount]
   );
   const estimateRowSize = useCallback(
-    () =>
+    (index: number) =>
       estimateGalleryRowHeight({
         aspect,
         columnCount,
         containerWidth,
+        measuredAspectRatios,
         metadataFields,
-        minTileWidth
+        minTileWidth,
+        rowAssets: rows[index]
       }),
-    [aspect, columnCount, containerWidth, metadataFields, minTileWidth]
+    [
+      aspect,
+      columnCount,
+      containerWidth,
+      measuredAspectRatios,
+      metadataFields,
+      minTileWidth,
+      rows
+    ]
   );
   const rowVirtualizer = useVirtualizer({
     count: rows.length,
@@ -93,8 +140,11 @@ export function GalleryGrid({
     gap: GALLERY_GRID_GAP,
     overscan: 7
   });
+  const rowVirtualizerRef = useRef(rowVirtualizer);
+  rowVirtualizerRef.current = rowVirtualizer;
+  columnCountRef.current = columnCount;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const observedElement = scrollParentRef.current;
 
     if (!observedElement) {
@@ -104,7 +154,11 @@ export function GalleryGrid({
     const element: HTMLDivElement = observedElement;
 
     function updateWidth() {
-      setContainerWidth(element.clientWidth);
+      const styles = window.getComputedStyle(element);
+      const horizontalPadding =
+        (Number.parseFloat(styles.paddingLeft) || 0) +
+        (Number.parseFloat(styles.paddingRight) || 0);
+      setContainerWidth(Math.max(0, element.clientWidth - horizontalPadding));
     }
 
     updateWidth();
@@ -125,10 +179,319 @@ export function GalleryGrid({
     };
   }, []);
 
+  useLayoutEffect(() => {
+    lastReportedAnchorIdRef.current = null;
+    setIsScrollPositionReady(false);
+  }, [scrollContextKey]);
+
+  const saveScrollPosition = useCallback(() => {
+    if (
+      isRestoringRef.current ||
+      restoredContextRef.current !== contextKeyRef.current
+    ) {
+      return;
+    }
+
+    const scrollElement = scrollParentRef.current;
+    const scrollTop = scrollElement?.scrollTop ?? latestScrollTopRef.current;
+    const virtualRows = rowVirtualizerRef.current.getVirtualItems();
+    const anchorRow = findScrollAnchorItem(virtualRows, scrollTop);
+    const anchorIndex = anchorRow
+      ? anchorRow.index * columnCountRef.current
+      : 0;
+    const currentAssets = assetsRef.current;
+    const anchorId = currentAssets[anchorIndex]?.id;
+
+    if (anchorId && lastReportedAnchorIdRef.current !== anchorId) {
+      lastReportedAnchorIdRef.current = anchorId;
+      onActiveAssetChangeRef.current(anchorId);
+    }
+
+    writeSessionScrollPosition("library-content", {
+      anchorId,
+      anchorOffset: anchorRow ? scrollTop - anchorRow.start : 0,
+      anchorSize: anchorRow?.size,
+      contextKey: contextKeyRef.current,
+      index: anchorIndex,
+      scrollTop
+    });
+  }, []);
+
+  const handleScroll = useCallback((event: ReactUIEvent<HTMLElement>) => {
+    latestScrollTopRef.current = event.currentTarget.scrollTop;
+
+    if (isRestoringRef.current || scrollFrameRef.current !== null) {
+      return;
+    }
+
+    scrollFrameRef.current = window.requestAnimationFrame(() => {
+      scrollFrameRef.current = null;
+      saveScrollPosition();
+    });
+  }, [saveScrollPosition]);
+
+  useLayoutEffect(() => {
+    const scrollElement = scrollParentRef.current;
+
+    if (
+      !scrollElement ||
+      !isContentReady ||
+      assets.length === 0 ||
+      containerWidth === 0 ||
+      restoredContextRef.current === scrollContextKey
+    ) {
+      return;
+    }
+
+    const storedPosition = readSessionScrollPosition("library-content");
+    const shouldRestore = storedPosition?.contextKey === scrollContextKey;
+    const syncedIndex = syncedAssetId
+      ? assets.findIndex((asset) => asset.id === syncedAssetId)
+      : -1;
+    const anchoredIndex =
+      shouldRestore && storedPosition.anchorId
+        ? assets.findIndex((asset) => asset.id === storedPosition.anchorId)
+        : -1;
+    const intendedIndex =
+      syncedIndex >= 0
+        ? syncedIndex
+        : shouldRestore
+          ? anchoredIndex >= 0
+            ? anchoredIndex
+            : storedPosition.index ?? 0
+          : 0;
+
+    if (intendedIndex >= assets.length && hasMore) {
+      if (!isLoadingMore) {
+        onLoadMore();
+      }
+      return;
+    }
+
+    restoredContextRef.current = scrollContextKey;
+    isRestoringRef.current = true;
+    let didCompleteRestoration = false;
+    const assetIndex = Math.max(0, Math.min(intendedIndex, assets.length - 1));
+    const rowIndex = Math.floor(assetIndex / Math.max(1, columnCount));
+    const isSyncedTarget = syncedIndex >= 0;
+    const shouldRestoreAnchor = shouldRestore && !isSyncedTarget;
+    const anchorOffset = shouldRestoreAnchor
+      ? storedPosition.anchorOffset ?? 0
+      : 0;
+    const fallbackTop = shouldRestoreAnchor
+      ? storedPosition.scrollTop
+      : 0;
+    const rowOffset = rowVirtualizer.getOffsetForIndex(rowIndex, "start")?.[0];
+    const requestedScrollTop =
+      rowOffset === undefined ? fallbackTop : rowOffset + anchorOffset;
+    const previousScrollTop = scrollElement.scrollTop;
+    scrollElement.scrollTop = Math.max(0, requestedScrollTop);
+    const restoredScrollTop = scrollElement.scrollTop;
+    loadingLayerRef.current?.style.setProperty(
+      "--gallery-loading-compensation",
+      `${restoredScrollTop - previousScrollTop}px`
+    );
+    latestScrollTopRef.current = restoredScrollTop;
+    let lastObservedScrollTop = restoredScrollTop;
+    let stableFrameCount = 0;
+    let observedFrameCount = 0;
+
+    const finishWhenMeasurementsSettle = () => {
+      const currentScrollTop = scrollElement.scrollTop;
+      loadingLayerRef.current?.style.setProperty(
+        "--gallery-loading-compensation",
+        `${currentScrollTop - previousScrollTop}px`
+      );
+
+      if (Math.abs(currentScrollTop - lastObservedScrollTop) <= 0.5) {
+        stableFrameCount += 1;
+      } else {
+        stableFrameCount = 0;
+      }
+
+      lastObservedScrollTop = currentScrollTop;
+      latestScrollTopRef.current = currentScrollTop;
+      observedFrameCount += 1;
+
+      if (stableFrameCount < 2 && observedFrameCount < 8) {
+        restoreFrameRef.current = window.requestAnimationFrame(
+          finishWhenMeasurementsSettle
+        );
+        return;
+      }
+
+      restoreFrameRef.current = null;
+      isRestoringRef.current = false;
+      if (isSyncedTarget && syncedAssetId) {
+        writeSessionScrollPosition("library-content", {
+          anchorId: syncedAssetId,
+          anchorOffset: 0,
+          anchorSize: rowVirtualizer
+            .getVirtualItems()
+            .find((row) => row.index === rowIndex)?.size,
+          contextKey: scrollContextKey,
+          index: assetIndex,
+          scrollTop: currentScrollTop
+        });
+      } else {
+        saveScrollPosition();
+      }
+      didCompleteRestoration = true;
+      setIsScrollPositionReady(true);
+    };
+
+    restoreFrameRef.current = window.requestAnimationFrame(
+      finishWhenMeasurementsSettle
+    );
+
+    return () => {
+      if (restoreFrameRef.current !== null) {
+        window.cancelAnimationFrame(restoreFrameRef.current);
+        restoreFrameRef.current = null;
+      }
+      isRestoringRef.current = false;
+
+      if (
+        !didCompleteRestoration &&
+        restoredContextRef.current === scrollContextKey
+      ) {
+        restoredContextRef.current = null;
+      }
+    };
+  }, [
+    assets,
+    columnCount,
+    containerWidth,
+    hasMore,
+    isContentReady,
+    isLoadingMore,
+    onLoadMore,
+    rowVirtualizer,
+    saveScrollPosition,
+    scrollContextKey,
+    syncedAssetId
+  ]);
+
+  useLayoutEffect(() => {
+    if (
+      !syncedAssetId ||
+      syncedAssetId === lastReportedAnchorIdRef.current ||
+      !isContentReady ||
+      isRestoringRef.current ||
+      restoredContextRef.current !== scrollContextKey
+    ) {
+      return;
+    }
+
+    const assetIndex = assets.findIndex((asset) => asset.id === syncedAssetId);
+
+    if (assetIndex < 0) {
+      return;
+    }
+
+    const scrollElement = scrollParentRef.current;
+
+    if (!scrollElement) {
+      return;
+    }
+
+    const rowIndex = Math.floor(assetIndex / Math.max(1, columnCount));
+    const rowOffset = rowVirtualizer.getOffsetForIndex(rowIndex, "start")?.[0];
+
+    if (rowOffset === undefined) {
+      return;
+    }
+
+    const reduceMotion =
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    isRestoringRef.current = true;
+    lastReportedAnchorIdRef.current = syncedAssetId;
+    writeSessionScrollPosition("library-content", {
+      anchorId: syncedAssetId,
+      anchorOffset: 0,
+      anchorSize: rowVirtualizer
+        .getVirtualItems()
+        .find((row) => row.index === rowIndex)?.size,
+      contextKey: scrollContextKey,
+      index: assetIndex,
+      scrollTop: rowOffset
+    });
+    scrollElement.scrollTo({
+      top: rowOffset,
+      behavior: reduceMotion ? "auto" : "smooth"
+    });
+
+    let stableFrameCount = 0;
+    let frameCount = 0;
+
+    const finishSmoothSync = () => {
+      const currentScrollTop = scrollElement.scrollTop;
+      latestScrollTopRef.current = currentScrollTop;
+
+      if (Math.abs(currentScrollTop - rowOffset) <= 1) {
+        stableFrameCount += 1;
+      } else {
+        stableFrameCount = 0;
+      }
+
+      frameCount += 1;
+
+      if (stableFrameCount < 2 && frameCount < 60) {
+        syncFrameRef.current = window.requestAnimationFrame(finishSmoothSync);
+        return;
+      }
+
+      syncFrameRef.current = null;
+      isRestoringRef.current = false;
+      writeSessionScrollPosition("library-content", {
+        anchorId: syncedAssetId,
+        anchorOffset: 0,
+        anchorSize: rowVirtualizer
+          .getVirtualItems()
+          .find((row) => row.index === rowIndex)?.size,
+        contextKey: scrollContextKey,
+        index: assetIndex,
+        scrollTop: currentScrollTop
+      });
+    };
+
+    syncFrameRef.current = window.requestAnimationFrame(finishSmoothSync);
+
+    return () => {
+      if (syncFrameRef.current !== null) {
+        window.cancelAnimationFrame(syncFrameRef.current);
+        syncFrameRef.current = null;
+      }
+
+      isRestoringRef.current = false;
+    };
+  }, [
+    assets,
+    columnCount,
+    isContentReady,
+    rowVirtualizer,
+    scrollContextKey,
+    syncedAssetId
+  ]);
+
+  useLayoutEffect(
+    () => () => {
+      if (scrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(scrollFrameRef.current);
+      }
+      if (syncFrameRef.current !== null) {
+        window.cancelAnimationFrame(syncFrameRef.current);
+      }
+      saveScrollPosition();
+    },
+    [saveScrollPosition]
+  );
+
   useEffect(() => {
-    scrollParentRef.current?.scrollTo({ top: 0 });
-    rowVirtualizer.scrollToOffset(0);
-  }, [aspect, gridSize, metadataFields, resetKey]);
+    window.addEventListener("pagehide", saveScrollPosition);
+    return () => window.removeEventListener("pagehide", saveScrollPosition);
+  }, [saveScrollPosition]);
 
   useAutoLoadSentinel({
     enabled: hasMore && !isLoading && !isLoadingMore,
@@ -138,25 +501,150 @@ export function GalleryGrid({
     targetRef: loadMoreRef
   });
 
-  if (isLoading) {
+  const isInitialLoading = isLoading && assets.length === 0;
+  const isRefreshing = isLoading && assets.length > 0;
+  const showInitialSkeletonLayer =
+    isInitialLoading || (assets.length > 0 && !isScrollPositionReady);
+  const skeletonHasTitle = metadataFields.has("title");
+  const skeletonHasSecondaryMetadata =
+    metadataFields.has("mediaType") || metadataFields.has("size");
+  const skeletonHasCuration =
+    metadataFields.has("rating") ||
+    metadataFields.has("favorite") ||
+    metadataFields.has("tags");
+  const skeletonHasCardInfo =
+    skeletonHasTitle || skeletonHasSecondaryMetadata || skeletonHasCuration;
+  const storedSkeletonPosition = showInitialSkeletonLayer
+    ? readSessionScrollPosition("library-content")
+    : null;
+  const shouldPositionSkeleton =
+    storedSkeletonPosition?.contextKey === scrollContextKey;
+  const skeletonScrollTop = shouldPositionSkeleton
+    ? storedSkeletonPosition.scrollTop
+    : 0;
+  const skeletonAnchorOffset = shouldPositionSkeleton
+    ? storedSkeletonPosition.anchorOffset ?? 0
+    : 0;
+  const skeletonSavedRowHeight = shouldPositionSkeleton
+    ? storedSkeletonPosition.anchorSize
+    : undefined;
+  const skeletonRowStart = Math.max(
+    0,
+    skeletonScrollTop - skeletonAnchorOffset
+  );
+  const skeletonContainerWidth =
+    containerWidth > 0
+      ? containerWidth
+      : typeof window === "undefined"
+        ? minTileWidth
+        : window.innerWidth;
+  const skeletonColumnCount = galleryColumnCount(
+    skeletonContainerWidth,
+    minTileWidth
+  );
+  const skeletonTileWidth =
+    (skeletonContainerWidth -
+      GALLERY_GRID_GAP * Math.max(0, skeletonColumnCount - 1)) /
+    skeletonColumnCount;
+  const skeletonRowHeight =
+    (skeletonSavedRowHeight ??
+      skeletonTileWidth / galleryAspectRatio(aspect) +
+        galleryTileChromeHeight(metadataFields)) +
+    GALLERY_GRID_GAP;
+  const skeletonViewportHeight =
+    typeof window === "undefined" ? 900 : window.innerHeight;
+  const skeletonRowCount = Math.max(
+    3,
+    Math.ceil(
+      (skeletonViewportHeight + skeletonAnchorOffset) /
+        Math.max(1, skeletonRowHeight)
+    ) + 2
+  );
+  const skeletonItemCount = Math.max(
+    18,
+    skeletonColumnCount * skeletonRowCount
+  );
+
+  useLayoutEffect(() => {
+    if (!isInitialLoading || skeletonScrollTop <= 0) {
+      return;
+    }
+
+    const scrollElement = scrollParentRef.current;
+
+    if (!scrollElement) {
+      return;
+    }
+
+    latestScrollTopRef.current = skeletonScrollTop;
+    scrollElement.scrollTo({ top: skeletonScrollTop, behavior: "auto" });
+  }, [isInitialLoading, skeletonScrollTop]);
+
+  const initialSkeletonLayer = showInitialSkeletonLayer ? (
+    <div
+      className={[
+        "gallery-loading-layer",
+        !isInitialLoading ? "is-overlay" : ""
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      aria-hidden="true"
+      ref={loadingLayerRef}
+    >
+      {skeletonRowStart > 0 ? (
+        <div
+          className="gallery-skeleton-offset"
+          style={{ height: skeletonRowStart }}
+        />
+      ) : null}
+      <div
+        className={[
+          "gallery-grid gallery-skeleton-grid",
+          skeletonSavedRowHeight ? "has-saved-row-height" : ""
+        ]
+          .filter(Boolean)
+          .join(" ")}
+        data-size={gridSize}
+        data-aspect={aspect}
+        style={
+          skeletonSavedRowHeight
+            ? ({
+                "--gallery-skeleton-row-height": `${skeletonSavedRowHeight}px`
+              } as CSSProperties)
+            : undefined
+        }
+      >
+        {Array.from({ length: skeletonItemCount }).map((_, index) => (
+          <Card className="media-tile gap-0 py-0" key={index}>
+            <Skeleton className="gallery-card-skeleton rounded-none" />
+            {skeletonHasCardInfo ? (
+              <div className="tile-info">
+                <GalleryMetadataSkeleton
+                  hasCuration={skeletonHasCuration}
+                  hasSecondaryMetadata={skeletonHasSecondaryMetadata}
+                  hasTitle={skeletonHasTitle}
+                />
+              </div>
+            ) : null}
+          </Card>
+        ))}
+      </div>
+    </div>
+  ) : null;
+
+  if (isInitialLoading) {
     return (
       <section
         className="gallery-viewport"
         ref={scrollParentRef}
         aria-label="Gallery view"
+        aria-busy="true"
+        onScroll={handleScroll}
       >
-        <div className="gallery-grid" data-size={gridSize} data-aspect={aspect}>
-          {Array.from({ length: 18 }).map((_, index) => (
-            <article className="media-tile" key={index}>
-              <div className="media-skeleton" />
-              <div className="tile-info">
-                <div className="tile-meta">
-                  <span>Loading</span>
-                </div>
-              </div>
-            </article>
-          ))}
-        </div>
+        {initialSkeletonLayer}
+        <span className="sr-only" role="status">
+          Loading gallery
+        </span>
       </section>
     );
   }
@@ -167,8 +655,9 @@ export function GalleryGrid({
         className="gallery-viewport"
         ref={scrollParentRef}
         aria-label="Gallery view"
+        onScroll={handleScroll}
       >
-        <div className="empty-library">
+        <div className="empty-library gallery-empty-enter">
           <SlidersHorizontal size={22} />
           <strong>No indexed media in this folder</strong>
           <span>Run a scan after adding images or videos to the local media root.</span>
@@ -182,10 +671,27 @@ export function GalleryGrid({
       className="gallery-viewport"
       ref={scrollParentRef}
       aria-label="Gallery view"
+      aria-busy={isRefreshing || !isScrollPositionReady}
+      onScroll={handleScroll}
     >
+      {isRefreshing ? (
+        <div
+          className="gallery-refresh-indicator"
+          role="progressbar"
+          aria-label="Updating gallery"
+        />
+      ) : null}
+      {initialSkeletonLayer}
       <div
-        className="virtual-gallery"
+        className={[
+          "virtual-gallery gallery-content",
+          !isScrollPositionReady ? "is-scroll-pending" : "",
+          isRefreshing ? "is-refreshing" : ""
+        ]
+          .filter(Boolean)
+          .join(" ")}
         data-aspect={aspect}
+        inert={isRefreshing || !isScrollPositionReady}
         style={{ height: rowVirtualizer.getTotalSize() }}
       >
         {rowVirtualizer.getVirtualItems().map((virtualRow) => {
@@ -226,27 +732,37 @@ export function GalleryGrid({
                 const hasCardInfo =
                   hasTitle || hasSecondaryMetadata || hasCuration;
                 const isSavingRating = savingRatingAssetIds.has(asset.id);
+                const tileStyle = mediaTileStyle(
+                  asset,
+                  aspect,
+                  measuredAspectRatios
+                );
 
                 return (
-                  <article
-                    className={isSelected ? "media-tile selected" : "media-tile"}
+                  <Card
+                    className={[
+                      "media-tile gap-0 py-0",
+                      isSelectionMode ? "selection-mode" : "",
+                      isSelected ? "selected" : ""
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
                     key={asset.id}
-                    style={mediaTileStyle(asset, aspect, measuredAspectRatios)}
+                    style={tileStyle}
                   >
-                    <label className="tile-select" title="Select media">
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        aria-label={`Select ${asset.name}`}
-                        onChange={() => onToggleSelection(asset.id)}
+                    {isSelectionMode ? (
+                      <button
+                        className="tile-selection-surface"
+                        type="button"
+                        aria-label={`${isSelected ? "Deselect" : "Select"} ${asset.name}`}
+                        aria-pressed={isSelected}
+                        onClick={() => onToggleSelection(asset.id)}
                       />
-                      <span className="tile-select-box" aria-hidden="true">
-                        {isSelected ? <Check size={13} /> : null}
-                      </span>
-                    </label>
+                    ) : null}
                     <button
                       className="media-preview-button"
                       type="button"
+                      disabled={isSelectionMode}
                       onClick={() => onSelectAsset(asset.id)}
                     >
                       <MediaPreview
@@ -258,6 +774,8 @@ export function GalleryGrid({
                       className="icon-link tile-download"
                       href={downloadUrl(asset.id)}
                       aria-label="Download media"
+                      aria-disabled={isSelectionMode || undefined}
+                      tabIndex={isSelectionMode ? -1 : undefined}
                       title="Download"
                     >
                       <Download size={15} />
@@ -279,18 +797,19 @@ export function GalleryGrid({
                         {hasCuration ? (
                           <GalleryCardCuration
                             asset={asset}
-                            disabled={isSavingRating}
+                            disabled={isSelectionMode || isSavingRating}
                             hiddenTagCount={hiddenTagCount}
+                            isBusy={isSavingRating}
                             showFavorite={showFavoriteControl}
                             showRating={showRatingControl}
                             tags={tagBadges}
                             onFavoriteChange={onFavoriteAsset}
-                            onRatingChange={onRateAsset}
+                            onScoreChange={onScoreAsset}
                           />
                         ) : null}
                       </div>
                     ) : null}
-                  </article>
+                  </Card>
                 );
               })}
             </div>
@@ -299,16 +818,44 @@ export function GalleryGrid({
       </div>
       {hasMore ? (
         <div className="load-more-row" ref={loadMoreRef}>
-          <button
-            className="ghost-action"
+          <Button
             type="button"
+            variant="outline"
             disabled={isLoadingMore}
             onClick={onLoadMore}
           >
             {isLoadingMore ? "Loading" : "Load more"}
-          </button>
+          </Button>
         </div>
       ) : null}
     </section>
+  );
+}
+
+function GalleryMetadataSkeleton({
+  hasCuration,
+  hasSecondaryMetadata,
+  hasTitle
+}: {
+  hasCuration: boolean;
+  hasSecondaryMetadata: boolean;
+  hasTitle: boolean;
+}) {
+  return (
+    <>
+      {hasTitle ? <Skeleton className="h-4 w-3/5" /> : null}
+      {hasSecondaryMetadata ? (
+        <div className="flex h-[15px] items-center gap-2">
+          <Skeleton className="h-3 w-1/4" />
+          <Skeleton className="h-3 w-1/5" />
+        </div>
+      ) : null}
+      {hasCuration ? (
+        <div className="flex h-7 items-center gap-2">
+          <Skeleton className="h-6 w-20 rounded-full" />
+          <Skeleton className="h-6 w-6 rounded-full" />
+        </div>
+      ) : null}
+    </>
   );
 }

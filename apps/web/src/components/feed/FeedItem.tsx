@@ -2,7 +2,7 @@ import { Maximize2, Volume2, VolumeX } from "lucide-react";
 import type { MutableRefObject } from "react";
 import type { AssetRecord } from "../../api/client";
 import { MediaPreview } from "../media/MediaPreview";
-import { IconButton } from "../ui/IconButton";
+import { IconButton } from "../IconButton";
 
 export type FeedSoundState = "blocked" | "muted" | "on";
 
@@ -94,10 +94,10 @@ export function FeedItem({
           {asset.mediaType === "video" ? (
             <IconButton
               aria-pressed={feedSoundState === "on"}
-              className="feed-sound-action"
               data-audio-state={feedSoundState}
               icon={feedSoundState === "on" ? Volume2 : VolumeX}
               iconSize={17}
+              variant={feedSoundState === "on" ? "secondary" : "outline"}
               label={
                 feedSoundState === "on" ? "Mute feed sound" : "Enable feed sound"
               }
@@ -112,7 +112,6 @@ export function FeedItem({
             />
           ) : null}
           <IconButton
-            className="feed-expand-action"
             icon={Maximize2}
             iconSize={17}
             label={`Open ${asset.name} fullscreen`}

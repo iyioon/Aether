@@ -81,7 +81,7 @@ export interface AssetListResponse {
   type: MediaTypeFilter;
   recursive: boolean;
   search: string;
-  tag: string;
+  tags: string[];
   rating: RatingFilter;
 }
 
@@ -102,8 +102,17 @@ export interface ScanJob {
   attempts: number;
   error: string | null;
   result: unknown;
+  progress: ScanProgress | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ScanProgress {
+  phase: "discovering" | "scanning" | "finalizing";
+  processed: number;
+  total: number | null;
+  percent: number | null;
+  currentPath: string | null;
 }
 
 export interface LibraryWatchStatus {
@@ -187,7 +196,7 @@ export async function getAssets(options: {
   type?: MediaTypeFilter;
   recursive?: boolean;
   search?: string;
-  tag?: string;
+  tags?: string[];
   rating?: RatingFilter;
 }): Promise<AssetListResponse> {
   const sort = options.sort ?? "date";
@@ -199,9 +208,12 @@ export async function getAssets(options: {
     type: options.type ?? "all",
     recursive: String(options.recursive ?? true),
     search: options.search ?? "",
-    tag: options.tag ?? "",
     rating: options.rating ?? "all"
   });
+
+  for (const tag of options.tags ?? []) {
+    params.append("tag", tag);
+  }
 
   return request<AssetListResponse>(
     `/api/folders/${encodeURIComponent(options.folderId)}/assets?${params}`

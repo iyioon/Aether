@@ -8,7 +8,10 @@ import type {
 } from "../../api/client";
 import {
   defaultSortDirectionForSort,
+  MAX_TAG_FILTER_LENGTH,
+  MAX_TAG_FILTERS,
   normalizeTagDraft,
+  normalizeTagIdentity,
   writeLibraryStateToUrl,
   type AspectMode,
   type GridSize,
@@ -52,8 +55,8 @@ export function useLibraryControls({
   );
   const [searchDraft, setSearchDraft] = useState(initialState.search);
   const [search, setSearch] = useState(initialState.search);
-  const [tagFilterDraft, setTagFilterDraft] = useState(initialState.tag);
-  const [tagFilter, setTagFilter] = useState(initialState.tag);
+  const [tagFilterDraft, setTagFilterDraft] = useState("");
+  const [tagFilters, setTagFilters] = useState(initialState.tags);
   const filterTagSuggestions = useTagSuggestions({ query: tagFilterDraft });
 
   useEffect(() => {
@@ -81,7 +84,7 @@ export function useLibraryControls({
       mediaType,
       ratingFilter,
       search,
-      tag: tagFilter
+      tags: tagFilters
     });
   }, [
     aspect,
@@ -92,7 +95,7 @@ export function useLibraryControls({
     selectedFolderId,
     sort,
     sortDirection,
-    tagFilter,
+    tagFilters,
     tree,
     view
   ]);
@@ -129,25 +132,38 @@ export function useLibraryControls({
     activeFilterLabels.push(ratingFilterLabel);
   }
 
-  if (tagFilter) {
-    activeFilterLabels.push(`#${tagFilter}`);
+  for (const tag of tagFilters) {
+    activeFilterLabels.push(`#${tag}`);
   }
 
-  function applyTagFilter(rawTagName: string) {
-    const nextTagFilter = normalizeTagDraft(rawTagName);
-    setTagFilter(nextTagFilter);
-    setTagFilterDraft(nextTagFilter);
-  }
+  function addTagFilter(rawTagName: string) {
+    const nextTagFilter = normalizeTagDraft(rawTagName).slice(
+      0,
+      MAX_TAG_FILTER_LENGTH
+    );
+    const normalizedTag = normalizeTagIdentity(nextTagFilter);
 
-  function clearTagFilter() {
-    setTagFilter("");
+    if (
+      !nextTagFilter ||
+      tagFilters.length >= MAX_TAG_FILTERS ||
+      tagFilters.some((tag) => normalizeTagIdentity(tag) === normalizedTag)
+    ) {
+      return;
+    }
+
+    setTagFilters((current) => [...current, nextTagFilter]);
     setTagFilterDraft("");
   }
 
-  function clearLibraryFilters() {
-    setMediaType("all");
-    setRatingFilter("all");
-    clearTagFilter();
+  function removeTagFilter(tagToRemove: string) {
+    setTagFilters((current) =>
+      current.filter((tag) => tag !== tagToRemove)
+    );
+  }
+
+  function clearTagFilters() {
+    setTagFilters([]);
+    setTagFilterDraft("");
   }
 
   function selectSort(nextSort: SortMode) {
@@ -156,11 +172,9 @@ export function useLibraryControls({
   }
 
   return {
-    activeFilterLabels,
-    applyTagFilter,
+    addTagFilter,
     aspect,
-    clearLibraryFilters,
-    clearTagFilter,
+    clearTagFilters,
     filterSummary: activeFilterLabels.length
       ? activeFilterLabels.join(" · ")
       : "All media",
@@ -172,6 +186,7 @@ export function useLibraryControls({
     openControlMenu,
     ratingFilter,
     ratingFilterLabel,
+    removeTagFilter,
     search,
     searchDraft,
     selectedLabel,
@@ -190,7 +205,7 @@ export function useLibraryControls({
     sortDirectionLabel,
     sortLabel,
     sortSummary: sort === "random" ? sortLabel : `${sortLabel} · ${sortDirectionLabel}`,
-    tagFilter,
+    tagFilters,
     tagFilterDraft,
     view
   };

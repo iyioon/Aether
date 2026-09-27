@@ -1,4 +1,4 @@
-import { Check, Grid3X3 } from "lucide-react";
+import { Grid3X3 } from "lucide-react";
 import {
   aspectOptions,
   sizeOptions,
@@ -7,6 +7,8 @@ import {
 } from "../library-state";
 import { GalleryMetadataControls } from "../gallery/GalleryMetadataControls";
 import type { GalleryMetadataField } from "../gallery/gallery-metadata";
+import { Label } from "../ui/label";
+import { RadioGroup, RadioGroupItem } from "../ui/radio-group";
 import { ToolbarMenu } from "./ToolbarMenu";
 
 interface LayoutControlMenuProps {
@@ -46,59 +48,43 @@ export function LayoutControlMenu({
       valueLabel={layoutSummary}
       onOpenChange={onOpenChange}
     >
-      <div className="menu-section">
-        <div className="menu-section-heading">
-          <div className="menu-section-title">Grid size</div>
-          <small>{gridSize}</small>
+      <div className="mt-4 grid gap-3">
+        <div className="flex items-center justify-between gap-3">
+          <Label>Grid size</Label>
+          <small className="text-muted-foreground">{gridSize}</small>
         </div>
-        <div
-          className="menu-choice-grid grid-size-choice-grid"
-          role="radiogroup"
+        <RadioGroup
+          className="gap-3"
           aria-label="Grid size"
+          value={gridSize}
+          onValueChange={(value) => onSetGridSize(value as GridSize)}
         >
           {sizeOptions.map((option) => (
-            <button
-              className={gridSize === option ? "menu-choice active" : "menu-choice"}
-              type="button"
-              key={option}
-              role="radio"
-              aria-checked={gridSize === option}
-              onClick={() => onSetGridSize(option)}
-            >
-              <span>{option}</span>
-              <span className="menu-check" aria-hidden="true">
-                {gridSize === option ? <Check size={13} /> : null}
-              </span>
-            </button>
+            <div className="flex items-center gap-3" key={option}>
+              <RadioGroupItem id={`grid-${option}`} value={option} />
+              <Label htmlFor={`grid-${option}`}>{option}</Label>
+            </div>
           ))}
-        </div>
+        </RadioGroup>
       </div>
-      <div className="menu-section">
-        <div className="menu-section-heading">
-          <div className="menu-section-title">Aspect ratio</div>
-          <small>{aspect}</small>
+      <div className="mt-5 grid gap-3 border-t pt-4">
+        <div className="flex items-center justify-between gap-3">
+          <Label>Aspect ratio</Label>
+          <small className="text-muted-foreground">{aspect}</small>
         </div>
-        <div
-          className="menu-choice-grid aspect-choice-grid"
-          role="radiogroup"
+        <RadioGroup
+          className="gap-3"
           aria-label="Aspect ratio"
+          value={aspect}
+          onValueChange={(value) => onSetAspect(value as AspectMode)}
         >
           {aspectOptions.map((option) => (
-            <button
-              className={aspect === option ? "menu-choice active" : "menu-choice"}
-              type="button"
-              key={option}
-              role="radio"
-              aria-checked={aspect === option}
-              onClick={() => onSetAspect(option)}
-            >
-              <span>{option}</span>
-              <span className="menu-check" aria-hidden="true">
-                {aspect === option ? <Check size={13} /> : null}
-              </span>
-            </button>
+            <div className="flex items-center gap-3" key={option}>
+              <RadioGroupItem id={`aspect-${option}`} value={option} />
+              <Label htmlFor={`aspect-${option}`}>{option}</Label>
+            </div>
           ))}
-        </div>
+        </RadioGroup>
       </div>
       <GalleryMetadataControls
         fields={galleryMetadataFields}

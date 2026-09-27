@@ -1,12 +1,18 @@
-import { useRef } from "react";
-import { X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   AiStatus,
   AssetRecord,
   TagRecord
 } from "../../api/client";
-import { useDialogFocusTrap } from "../../hooks/useDialogFocusTrap";
-import { IconButton } from "../ui/IconButton";
+import { useIsMobile } from "../../hooks/use-mobile";
+import { panelExitDurationMs } from "../../lib/motion";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle
+} from "../ui/sheet";
 import { AssetAnnotationPanel } from "./AssetAnnotationPanel";
 import { mediaDetailLine } from "./media-format";
 
@@ -27,55 +33,74 @@ export function MediaAnnotationDrawer({
   onAssetUpdated,
   onAssetTagsUpdated
 }: MediaAnnotationDrawerProps) {
-  const drawerRef = useRef<HTMLElement | null>(null);
-  useDialogFocusTrap(drawerRef, onClose);
+  const isMobile = useIsMobile();
+  const [isOpen, setIsOpen] = useState(true);
+  const closeTimerRef = useRef<number | null>(null);
+  const isClosingRef = useRef(false);
+  const onCloseRef = useRef(onClose);
+
+  onCloseRef.current = onClose;
+
+  const requestClose = useCallback(() => {
+    if (isClosingRef.current) {
+      return;
+    }
+
+    isClosingRef.current = true;
+    setIsOpen(false);
+    closeTimerRef.current = window.setTimeout(() => {
+      closeTimerRef.current = null;
+      onCloseRef.current();
+    }, panelExitDurationMs());
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (closeTimerRef.current !== null) {
+        window.clearTimeout(closeTimerRef.current);
+      }
+    },
+    []
+  );
 
   return (
-    <div
-      className={
-        isAboveViewer
-          ? "feed-drawer-layer viewer-drawer-layer"
-          : "feed-drawer-layer"
-      }
+    <Sheet
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open) {
+          requestClose();
+        }
+      }}
     >
-      <button
-        className="feed-drawer-scrim"
-        type="button"
-        aria-label="Close details"
-        onClick={onClose}
-      />
-      <section
-        className="feed-annotation-drawer"
-        ref={drawerRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="media-annotation-title"
-        tabIndex={-1}
+      <SheetContent
+        className={[
+          "media-info-sheet overflow-y-auto",
+          isMobile
+            ? "max-h-[85dvh] rounded-t-xl pb-[calc(1rem+env(safe-area-inset-bottom))]"
+            : "sm:max-w-md",
+          isAboveViewer ? "z-[60]" : ""
+        ]
+          .filter(Boolean)
+          .join(" ")}
+        side={isMobile ? "bottom" : "right"}
       >
-        <div className="feed-drawer-grip" aria-hidden="true" />
-        <header className="feed-drawer-header">
-          <div>
-            <span>{asset.mediaType}</span>
-            <h2 id="media-annotation-title" title={asset.name}>
-              {asset.name}
-            </h2>
-            <p>{mediaDetailLine(asset)}</p>
-          </div>
-          <IconButton
-            className="feed-drawer-close"
-            icon={X}
-            iconSize={18}
-            label="Close details"
-            onClick={onClose}
+        <SheetHeader>
+          <SheetTitle className="truncate pr-8" title={asset.name}>
+            {asset.name}
+          </SheetTitle>
+          <SheetDescription>
+            {asset.mediaType} · {mediaDetailLine(asset)}
+          </SheetDescription>
+        </SheetHeader>
+        <div className="px-4 pb-4">
+          <AssetAnnotationPanel
+            aiStatus={aiStatus}
+            asset={asset}
+            onAssetTagsUpdated={onAssetTagsUpdated}
+            onAssetUpdated={onAssetUpdated}
           />
-        </header>
-        <AssetAnnotationPanel
-          aiStatus={aiStatus}
-          asset={asset}
-          onAssetTagsUpdated={onAssetTagsUpdated}
-          onAssetUpdated={onAssetUpdated}
-        />
-      </section>
-    </div>
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 }

@@ -11,6 +11,7 @@ import {
   listFolders
 } from "../src/library/repository.js";
 import { scanLibrary } from "../src/library/scanner.js";
+import type { ScanProgress } from "../src/library/scanner.js";
 
 describe("library scanner", () => {
   let cwd: string;
@@ -98,6 +99,36 @@ describe("library scanner", () => {
     expect(assets?.items.find((asset) => asset.name === "photo.JPG")).toMatchObject({
       width: 32,
       height: 24
+    });
+  });
+
+  it("reports discovery, determinate scanning, and finalizing progress", async () => {
+    const mediaDir = path.join(cwd, "media", "2026", "seoul");
+    await writeFile(path.join(mediaDir, "photo.jpg"), "fake image");
+    const updates: ScanProgress[] = [];
+
+    await scanLibrary(db, config.mediaRoots, (progress) => {
+      updates.push({ ...progress });
+    });
+
+    expect(updates[0]).toMatchObject({
+      phase: "discovering",
+      percent: null,
+      total: null
+    });
+    expect(updates).toContainEqual(
+      expect.objectContaining({
+        phase: "scanning",
+        processed: 0,
+        total: 3,
+        percent: 0
+      })
+    );
+    expect(updates.at(-1)).toMatchObject({
+      phase: "finalizing",
+      processed: 3,
+      total: 3,
+      percent: 100
     });
   });
 

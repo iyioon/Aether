@@ -1,53 +1,46 @@
-import { ChevronUp } from "lucide-react";
 import type {
-  AssetRecord,
   MediaTypeFilter,
   RatingFilter,
   SortDirection,
   SortMode,
   TagRecord
 } from "../../api/client";
-import type { AspectMode, GridSize, ViewMode } from "../library-state";
+import { Check, MousePointer2 } from "lucide-react";
+import type { AspectMode, GridSize } from "../library-state";
 import type { GalleryMetadataField } from "../gallery/gallery-metadata";
-import { ActionsControlMenu } from "./ActionsControlMenu";
+import { Button } from "../ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import { FiltersControlMenu } from "./FiltersControlMenu";
 import { LayoutControlMenu } from "./LayoutControlMenu";
 import { SortControlMenu } from "./SortControlMenu";
 import type { ControlMenuId } from "./library-control-options";
 
 interface LibraryControlStripProps {
-  actionSummary: string;
-  activeFilterLabels: string[];
   aspect: AspectMode;
-  assets: AssetRecord[];
   filterSummary: string;
   filterTagSuggestions: TagRecord[];
   galleryMetadataFields: ReadonlySet<GalleryMetadataField>;
   gridSize: GridSize;
-  isLoadingAssets: boolean;
-  isSavingBatch: boolean;
+  isSelectionMode: boolean;
+  loadedAssetCount: number;
   layoutSummary: string;
   mediaType: MediaTypeFilter;
   mediaTypeLabel: string;
   openControlMenu: ControlMenuId | null;
   ratingFilter: RatingFilter;
   ratingFilterLabel: string;
-  selectedAssetCount: number;
   sort: SortMode;
   sortDirection: SortDirection;
   sortLabel: string;
   sortSummary: string;
-  tagFilter: string;
+  tagFilters: string[];
   tagFilterDraft: string;
-  view: ViewMode;
-  onApplyTagFilter: (tagName: string) => void;
+  onAddTagFilter: (tagName: string) => void;
   onClearGalleryMetadataFields: () => void;
-  onClearLibraryFilters: () => void;
-  onClearSelectedAssets: () => void;
-  onClearTagFilter: () => void;
-  onHideFeedControls: () => void;
+  onClearTagFilters: () => void;
+  onRemoveTagFilter: (tagName: string) => void;
   onResetGalleryMetadataFields: () => void;
-  onSelectLoadedAssets: () => void;
+  onSetSelectionMode: (isSelectionMode: boolean) => void;
   onSetAspect: (aspect: AspectMode) => void;
   onSetGridSize: (gridSize: GridSize) => void;
   onSetMediaType: (mediaType: MediaTypeFilter) => void;
@@ -60,38 +53,31 @@ interface LibraryControlStripProps {
 }
 
 export function LibraryControlStrip({
-  actionSummary,
-  activeFilterLabels,
   aspect,
-  assets,
   filterSummary,
   filterTagSuggestions,
   galleryMetadataFields,
   gridSize,
-  isLoadingAssets,
-  isSavingBatch,
+  isSelectionMode,
+  loadedAssetCount,
   layoutSummary,
   mediaType,
   mediaTypeLabel,
   openControlMenu,
   ratingFilter,
   ratingFilterLabel,
-  selectedAssetCount,
   sort,
   sortDirection,
   sortLabel,
   sortSummary,
-  tagFilter,
+  tagFilters,
   tagFilterDraft,
-  view,
-  onApplyTagFilter,
+  onAddTagFilter,
   onClearGalleryMetadataFields,
-  onClearLibraryFilters,
-  onClearSelectedAssets,
-  onClearTagFilter,
-  onHideFeedControls,
+  onClearTagFilters,
+  onRemoveTagFilter,
   onResetGalleryMetadataFields,
-  onSelectLoadedAssets,
+  onSetSelectionMode,
   onSetAspect,
   onSetGridSize,
   onSetMediaType,
@@ -104,20 +90,6 @@ export function LibraryControlStrip({
 }: LibraryControlStripProps) {
   return (
     <section className="control-strip" aria-label="Library controls">
-      {view === "feed" ? (
-        <button
-          className="ghost-action mobile-feed-collapse-control"
-          type="button"
-          aria-label="Hide feed controls"
-          title="Hide controls"
-          aria-expanded="true"
-          onClick={onHideFeedControls}
-        >
-          <ChevronUp size={16} />
-          <span>Hide</span>
-        </button>
-      ) : null}
-
       <SortControlMenu
         isOpen={openControlMenu === "sort"}
         sort={sort}
@@ -148,7 +120,6 @@ export function LibraryControlStrip({
       />
 
       <FiltersControlMenu
-        activeFilterLabels={activeFilterLabels}
         filterSummary={filterSummary}
         filterTagSuggestions={filterTagSuggestions}
         isOpen={openControlMenu === "filters"}
@@ -156,34 +127,38 @@ export function LibraryControlStrip({
         mediaTypeLabel={mediaTypeLabel}
         ratingFilter={ratingFilter}
         ratingFilterLabel={ratingFilterLabel}
-        tagFilter={tagFilter}
+        tagFilters={tagFilters}
         tagFilterDraft={tagFilterDraft}
-        onApplyTagFilter={onApplyTagFilter}
-        onClearLibraryFilters={onClearLibraryFilters}
-        onClearTagFilter={onClearTagFilter}
+        onAddTagFilter={onAddTagFilter}
+        onClearTagFilters={onClearTagFilters}
         onOpenChange={(nextIsOpen) =>
           onSetOpenControlMenu(nextIsOpen ? "filters" : null)
         }
         onSetMediaType={onSetMediaType}
-        onSetOpenControlMenu={onSetOpenControlMenu}
         onSetRatingFilter={onSetRatingFilter}
         onSetTagFilterDraft={onSetTagFilterDraft}
+        onRemoveTagFilter={onRemoveTagFilter}
       />
 
-      <ActionsControlMenu
-        actionSummary={actionSummary}
-        assets={assets}
-        isLoadingAssets={isLoadingAssets}
-        isOpen={openControlMenu === "actions"}
-        isSavingBatch={isSavingBatch}
-        selectedAssetCount={selectedAssetCount}
-        onClearSelectedAssets={onClearSelectedAssets}
-        onOpenChange={(nextIsOpen) =>
-          onSetOpenControlMenu(nextIsOpen ? "actions" : null)
-        }
-        onSelectLoadedAssets={onSelectLoadedAssets}
-        onSetOpenControlMenu={onSetOpenControlMenu}
-      />
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            className="control-menu-trigger"
+            type="button"
+            size="icon"
+            variant={isSelectionMode ? "secondary" : "outline"}
+            aria-label={isSelectionMode ? "Exit selection mode" : "Select media"}
+            aria-pressed={isSelectionMode}
+            disabled={loadedAssetCount === 0}
+            onClick={() => onSetSelectionMode(!isSelectionMode)}
+          >
+            {isSelectionMode ? <Check /> : <MousePointer2 />}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">
+          {isSelectionMode ? "Exit selection mode" : "Select media"}
+        </TooltipContent>
+      </Tooltip>
     </section>
   );
 }

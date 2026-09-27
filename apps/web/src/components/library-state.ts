@@ -41,6 +41,9 @@ export const ratingFilterValues: readonly RatingFilter[] = [
   "unrated"
 ];
 
+export const MAX_TAG_FILTERS = 20;
+export const MAX_TAG_FILTER_LENGTH = 48;
+
 export function defaultSortDirectionForSort(sort: SortMode): SortDirection {
   return sort === "filename" ? "asc" : "desc";
 }
@@ -55,7 +58,7 @@ export interface LibraryUrlState {
   mediaType: MediaTypeFilter;
   ratingFilter: RatingFilter;
   search: string;
-  tag: string;
+  tags: string[];
 }
 
 export const defaultLibraryState: LibraryUrlState = {
@@ -68,7 +71,7 @@ export const defaultLibraryState: LibraryUrlState = {
   mediaType: "all",
   ratingFilter: "all",
   search: "",
-  tag: ""
+  tags: []
 };
 
 export function readLibraryStateFromUrl(): LibraryUrlState {
@@ -131,7 +134,7 @@ export function parseLibraryStateSearch(search: string): LibraryUrlState {
       defaultLibraryState.ratingFilter
     ),
     search: readTextParam(params, "q", 160),
-    tag: normalizeTagDraft(readTextParam(params, "tag", 48))
+    tags: readTagParams(params)
   };
 }
 
@@ -177,8 +180,8 @@ export function buildLibraryStateSearch(state: LibraryUrlState): string {
     params.set("q", state.search);
   }
 
-  if (state.tag) {
-    params.set("tag", state.tag);
+  for (const tag of state.tags) {
+    params.append("tag", tag);
   }
 
   return params.toString();
@@ -186,6 +189,33 @@ export function buildLibraryStateSearch(state: LibraryUrlState): string {
 
 export function normalizeTagDraft(input: string): string {
   return input.normalize("NFKC").trim().replace(/\s+/g, " ");
+}
+
+export function normalizeTagIdentity(input: string): string {
+  return normalizeTagDraft(input).toLocaleLowerCase("en-US");
+}
+
+function readTagParams(params: URLSearchParams): string[] {
+  const tags: string[] = [];
+  const normalizedTags = new Set<string>();
+
+  for (const rawTag of params.getAll("tag")) {
+    const tag = normalizeTagDraft(rawTag).slice(0, MAX_TAG_FILTER_LENGTH);
+    const normalizedTag = normalizeTagIdentity(tag);
+
+    if (!tag || normalizedTags.has(normalizedTag)) {
+      continue;
+    }
+
+    normalizedTags.add(normalizedTag);
+    tags.push(tag);
+
+    if (tags.length === MAX_TAG_FILTERS) {
+      break;
+    }
+  }
+
+  return tags;
 }
 
 function readSortParams(params: URLSearchParams): {

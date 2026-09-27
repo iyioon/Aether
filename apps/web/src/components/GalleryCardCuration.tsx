@@ -1,27 +1,31 @@
-import { Heart } from "lucide-react";
 import type { AssetRecord, TagRecord } from "../api/client";
-import { RatingSlider } from "./RatingSlider";
+import {
+  MediaFavoriteButton,
+  MediaScoreControl
+} from "./MediaCurationControls";
 
 interface GalleryCardCurationProps {
   asset: AssetRecord;
   disabled: boolean;
   hiddenTagCount: number;
+  isBusy?: boolean;
   showFavorite: boolean;
   showRating: boolean;
   tags: TagRecord[];
   onFavoriteChange: (asset: AssetRecord, favorite: boolean) => void;
-  onRatingChange: (asset: AssetRecord, rating: number | null) => void;
+  onScoreChange: (asset: AssetRecord, score: number | null) => void;
 }
 
 export function GalleryCardCuration({
   asset,
   disabled,
   hiddenTagCount,
+  isBusy = false,
   showFavorite,
   showRating,
   tags,
   onFavoriteChange,
-  onRatingChange
+  onScoreChange
 }: GalleryCardCurationProps) {
   const hasTags = tags.length > 0 || hiddenTagCount > 0;
 
@@ -30,41 +34,23 @@ export function GalleryCardCuration({
   }
 
   return (
-    <div className="tile-curation-row" aria-busy={disabled || undefined}>
+    <div className="tile-curation-row" aria-busy={isBusy || undefined}>
       {showRating ? (
-        <RatingSlider
-          className="tile-rating-slider"
-          density="compact"
+        <MediaScoreControl
           disabled={disabled}
-          label={`Rating for ${asset.name}`}
-          value={asset.rating}
-          onClear={() => onRatingChange(asset, null)}
-          onCommit={(rating) => onRatingChange(asset, rating)}
+          mediaName={asset.name}
+          score={asset.rating}
+          onChange={(score) => onScoreChange(asset, score)}
         />
       ) : null}
 
       {showFavorite ? (
-        <button
-          className={
-            asset.favorite
-              ? "tile-favorite-control active"
-              : "tile-favorite-control"
-          }
-          type="button"
-          aria-label={
-            asset.favorite
-              ? `Remove ${asset.name} from favorites`
-              : `Add ${asset.name} to favorites`
-          }
-          aria-pressed={asset.favorite}
+        <MediaFavoriteButton
           disabled={disabled}
-          title={asset.favorite ? "Favorite" : "Add favorite"}
-          onClick={() => onFavoriteChange(asset, !asset.favorite)}
-        >
-          <span className="tile-favorite-glyph" aria-hidden="true">
-            <Heart size={15} strokeWidth={2.1} />
-          </span>
-        </button>
+          favorite={asset.favorite}
+          mediaName={asset.name}
+          onChange={(favorite) => onFavoriteChange(asset, favorite)}
+        />
       ) : null}
 
       {tags.map((tag) => (

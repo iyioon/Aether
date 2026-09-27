@@ -11,7 +11,7 @@ export interface AssetListQueryKeyInput {
   sortDirection: SortDirection;
   mediaType: MediaTypeFilter;
   search: string;
-  tagFilter: string;
+  tagFilters: string[];
   ratingFilter: RatingFilter;
 }
 
@@ -23,6 +23,15 @@ export interface LoadMoreState {
   totalCount: number;
 }
 
+export interface AssetListPendingState {
+  folderId: string | null;
+  hasTree: boolean;
+  isLoadingAssets: boolean;
+  isLoadingTree: boolean;
+  listQueryKey: string;
+  loadedQueryKey: string | null;
+}
+
 export function buildAssetListQueryKey(input: AssetListQueryKeyInput): string {
   return [
     input.folderId ?? "",
@@ -30,7 +39,7 @@ export function buildAssetListQueryKey(input: AssetListQueryKeyInput): string {
     input.sortDirection,
     input.mediaType,
     input.search,
-    input.tagFilter,
+    input.tagFilters.join("\u001e"),
     input.ratingFilter
   ].join("\u001f");
 }
@@ -40,4 +49,14 @@ export function canRequestMoreAssets(state: LoadMoreState): boolean {
     !state.isLoadingMore &&
     !state.isRequestInFlight &&
     state.loadedCount < state.totalCount;
+}
+
+export function isAssetListPending(state: AssetListPendingState): boolean {
+  return (
+    state.isLoadingTree ||
+    state.isLoadingAssets ||
+    (state.hasTree &&
+      Boolean(state.folderId) &&
+      state.loadedQueryKey !== state.listQueryKey)
+  );
 }

@@ -1,5 +1,7 @@
 import type { CSSProperties, ReactNode } from "react";
-import { Check, type LucideIcon } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import { Button } from "../ui/button";
+import { Checkbox } from "../ui/checkbox";
 import type { AppearanceAccentOption } from "./useAppearanceSettings";
 
 export function ChoiceGroup({
@@ -14,7 +16,9 @@ export function ChoiceGroup({
   return (
     <div className="settings-field-group">
       <div className="settings-field-heading">
-        <span>{label}</span>
+        <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          {label}
+        </span>
       </div>
       <div
         className={`settings-choice-grid settings-choice-grid-${columns}`}
@@ -37,24 +41,18 @@ export function SwatchChoice({
   onClick: () => void;
 }) {
   return (
-    <button
-      className={
-        active
-          ? "settings-choice settings-choice-with-swatch active"
-          : "settings-choice settings-choice-with-swatch"
-      }
+    <Button
+      className="justify-start"
       style={{ "--settings-swatch": option.color } as CSSProperties}
       type="button"
       role="radio"
       aria-checked={active}
       onClick={onClick}
+      variant={active ? "secondary" : "outline"}
     >
       <span className="settings-swatch" aria-hidden="true" />
-      <span>
-        <strong>{option.label}</strong>
-      </span>
-      <CheckMark active={active} />
-    </button>
+      <strong className="truncate text-sm font-medium">{option.label}</strong>
+    </Button>
   );
 }
 
@@ -68,22 +66,16 @@ export function TextChoice({
   onClick: () => void;
 }) {
   return (
-    <button
-      className={
-        active
-          ? "settings-choice settings-choice-text-only active"
-          : "settings-choice settings-choice-text-only"
-      }
+    <Button
+      className="justify-start"
       type="button"
       role="radio"
       aria-checked={active}
       onClick={onClick}
+      variant={active ? "secondary" : "outline"}
     >
-      <span>
-        <strong>{label}</strong>
-      </span>
-      <CheckMark active={active} />
-    </button>
+      <strong className="truncate text-sm font-medium">{label}</strong>
+    </Button>
   );
 }
 
@@ -99,25 +91,17 @@ export function IconChoice({
   onClick: () => void;
 }) {
   return (
-    <button
-      className={
-        active
-          ? "settings-choice settings-choice-with-icon active"
-          : "settings-choice settings-choice-with-icon"
-      }
+    <Button
+      className="justify-start"
       type="button"
       role="radio"
       aria-checked={active}
       onClick={onClick}
+      variant={active ? "secondary" : "outline"}
     >
-      <span className="settings-choice-icon" aria-hidden="true">
-        <Icon size={15} />
-      </span>
-      <span>
-        <strong>{label}</strong>
-      </span>
-      <CheckMark active={active} />
-    </button>
+      <Icon />
+      <strong className="truncate text-sm font-medium">{label}</strong>
+    </Button>
   );
 }
 
@@ -131,24 +115,9 @@ export function CheckboxChoice({
   onChange: () => void;
 }) {
   return (
-    <label
-      className={
-        active ? "settings-checkbox-option active" : "settings-checkbox-option"
-      }
-    >
-      <input type="checkbox" checked={active} onChange={onChange} />
-      <span className="settings-checkbox" aria-hidden="true">
-        {active ? <Check size={13} /> : null}
-      </span>
-      <span>{label}</span>
+    <label className="flex items-center gap-2">
+      <Checkbox checked={active} onCheckedChange={onChange} />
+      <span className="truncate text-sm font-medium">{label}</span>
     </label>
-  );
-}
-
-export function CheckMark({ active }: { active: boolean }) {
-  return (
-    <span className="settings-choice-check" aria-hidden="true">
-      {active ? <Check size={13} /> : null}
-    </span>
   );
 }

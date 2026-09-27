@@ -13,7 +13,7 @@ export const galleryMetadataOptions: Array<{
   { label: "Title", value: "title" },
   { label: "Type", value: "mediaType" },
   { label: "Size", value: "size" },
-  { label: "Rating", value: "rating" },
+  { label: "Score", value: "rating" },
   { label: "Tags", value: "tags" },
   { label: "Heart", value: "favorite" }
 ];

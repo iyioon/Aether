@@ -8,6 +8,7 @@ import {
   startScan,
   type AiStatus,
   type LibraryWatchStatus,
+  type ScanProgress,
   type TreeResponse
 } from "../../api/client";
 import type { FolderScanState } from "../folders/folder-tree-types";
@@ -25,11 +26,13 @@ export function useLibraryTree({ initialFolderId }: UseLibraryTreeOptions) {
   const [error, setError] = useState<string | null>(null);
   const [isLoadingTree, setIsLoadingTree] = useState(true);
   const [scanState, setScanState] = useState<FolderScanState>("idle");
+  const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
   const [watchStatus, setWatchStatus] = useState<LibraryWatchStatus | null>(
     null
   );
   const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
   const observedScanJobIdRef = useRef<string | null>(null);
+  const scanPollAbortRef = useRef<AbortController | null>(null);
 
   const applyTreeResponse = useCallback((response: TreeResponse) => {
     const knownFolderIds = new Set([
@@ -51,22 +54,75 @@ export function useLibraryTree({ initialFolderId }: UseLibraryTreeOptions) {
     return response;
   }, [applyTreeResponse]);
 
-  const waitForScan = useCallback(async (jobId: string) => {
-    for (let attempt = 0; attempt < 80; attempt += 1) {
-      await sleep(500);
-      const { jobs } = await getScanJobs();
-      const job = jobs.find((entry) => entry.id === jobId);
+  const waitForScan = useCallback(
+    async (jobId: string, signal: AbortSignal) => {
+      while (!signal.aborted) {
+        await sleep(500);
 
-      if (!job || job.status === "running") {
-        continue;
+        if (signal.aborted) {
+          return false;
+        }
+
+        let jobs: Awaited<ReturnType<typeof getScanJobs>>["jobs"];
+        try {
+          ({ jobs } = await getScanJobs());
+        } catch {
+          continue;
+        }
+        const job = jobs.find((entry) => entry.id === jobId);
+
+        if (!job || job.status === "running") {
+          if (job?.progress) {
+            setScanProgress(job.progress);
+          }
+          continue;
+        }
+
+        setScanState(job.status);
+        setScanProgress(null);
+        return true;
       }
 
-      setScanState(job.status);
-      return;
-    }
+      return false;
+    },
+    []
+  );
 
-    setScanState("running");
-  }, []);
+  const observeScanJob = useCallback(
+    async (jobId: string) => {
+      scanPollAbortRef.current?.abort();
+      const controller = new AbortController();
+      scanPollAbortRef.current = controller;
+
+      try {
+        const reachedTerminalState = await waitForScan(jobId, controller.signal);
+
+        if (reachedTerminalState && !controller.signal.aborted) {
+          await refreshTree();
+        }
+      } catch (caught) {
+        if (!controller.signal.aborted) {
+          setError(
+            caught instanceof ApiError
+              ? caught.code
+              : "Unable to refresh the library after scanning."
+          );
+        }
+      } finally {
+        if (scanPollAbortRef.current === controller) {
+          scanPollAbortRef.current = null;
+        }
+      }
+    },
+    [refreshTree, waitForScan]
+  );
+
+  useEffect(
+    () => () => {
+      scanPollAbortRef.current?.abort();
+    },
+    []
+  );
 
   useEffect(() => {
     let active = true;
@@ -103,7 +159,13 @@ export function useLibraryTree({ initialFolderId }: UseLibraryTreeOptions) {
         }
 
         setWatchStatus(nextWatchStatus);
-        observedScanJobIdRef.current = scanJobs.jobs[0]?.id ?? null;
+        const latestScanJob = scanJobs.jobs[0];
+        observedScanJobIdRef.current = latestScanJob?.id ?? null;
+        if (latestScanJob?.status === "running") {
+          setScanState("running");
+          setScanProgress(latestScanJob.progress);
+          void observeScanJob(latestScanJob.id);
+        }
         setAiStatus(nextAiStatus);
       })
       .catch(() => undefined);
@@ -111,7 +173,7 @@ export function useLibraryTree({ initialFolderId }: UseLibraryTreeOptions) {
     return () => {
       active = false;
     };
-  }, [applyTreeResponse]);
+  }, [applyTreeResponse, observeScanJob]);
 
   useEffect(() => {
     if (!watchStatus?.enabled) {
@@ -134,6 +196,7 @@ export function useLibraryTree({ initialFolderId }: UseLibraryTreeOptions) {
           }
 
           if (latestJob.status === "running") {
+            setScanProgress(latestJob.progress);
             setScanState((current) =>
               current === "starting" ? current : "running"
             );
@@ -143,6 +206,7 @@ export function useLibraryTree({ initialFolderId }: UseLibraryTreeOptions) {
           if (latestJob.id !== observedScanJobIdRef.current) {
             observedScanJobIdRef.current = latestJob.id;
             setScanState(latestJob.status);
+            setScanProgress(null);
             const nextTree = await getTree();
 
             if (active) {
@@ -161,23 +225,25 @@ export function useLibraryTree({ initialFolderId }: UseLibraryTreeOptions) {
 
   const handleScan = useCallback(async () => {
     setScanState("starting");
+    setScanProgress(null);
 
     try {
       const scan = await startScan();
       observedScanJobIdRef.current = scan.jobId;
       setScanState(scan.status === "running" ? "running" : "idle");
-      await waitForScan(scan.jobId);
-      await refreshTree();
+      await observeScanJob(scan.jobId);
     } catch {
       setScanState("failed");
+      setScanProgress(null);
     }
-  }, [refreshTree, waitForScan]);
+  }, [observeScanJob]);
 
   return {
     aiStatus,
     error,
     handleScan,
     isLoadingTree,
+    scanProgress,
     scanState,
     selectedFolderId,
     setSelectedFolderId,

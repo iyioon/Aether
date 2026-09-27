@@ -1,11 +1,12 @@
 import type { TreeResponse } from "../../api/client";
-import type { FolderTreeItem } from "./folder-tree-types";
+import type { FolderSortMode, FolderTreeItem } from "./folder-tree-types";
 
 type RootTreeNode = TreeResponse["roots"][number];
 type FolderTreeNode = TreeResponse["folders"][number];
 
 export function buildFolderChildrenByParentId(
-  tree: TreeResponse | null
+  tree: TreeResponse | null,
+  sortMode: FolderSortMode = "name-asc"
 ): Map<string, FolderTreeNode[]> {
   const childrenByParentId = new Map<string, FolderTreeNode[]>();
 
@@ -24,7 +25,7 @@ export function buildFolderChildrenByParentId(
   }
 
   for (const siblings of childrenByParentId.values()) {
-    siblings.sort((left, right) => left.label.localeCompare(right.label));
+    siblings.sort(folderComparator(sortMode));
   }
 
   return childrenByParentId;
@@ -39,19 +40,44 @@ export function buildFolderById(
 export function buildVisibleFolderItems({
   tree,
   folderChildrenByParentId,
-  expandedFolderIds
+  expandedFolderIds,
+  sortMode = "name-asc"
 }: {
   tree: TreeResponse;
   folderChildrenByParentId: Map<string, FolderTreeNode[]>;
   expandedFolderIds: ReadonlySet<string>;
+  sortMode?: FolderSortMode;
 }): FolderTreeItem[] {
   const items: FolderTreeItem[] = [];
 
-  for (const root of tree.roots) {
+  for (const root of [...tree.roots].sort(folderComparator(sortMode))) {
     appendRootTreeItem(root, items, folderChildrenByParentId, expandedFolderIds);
   }
 
   return items;
+}
+
+function folderComparator<T extends { assetCount: number; label: string }>(
+  sortMode: FolderSortMode
+): (left: T, right: T) => number {
+  return (left, right) => {
+    const nameOrder = left.label.localeCompare(right.label, undefined, {
+      numeric: true,
+      sensitivity: "base"
+    });
+
+    switch (sortMode) {
+      case "name-desc":
+        return -nameOrder;
+      case "items-desc":
+        return right.assetCount - left.assetCount || nameOrder;
+      case "items-asc":
+        return left.assetCount - right.assetCount || nameOrder;
+      case "name-asc":
+      default:
+        return nameOrder;
+    }
+  };
 }
 
 export function getExpandableFolderIds(

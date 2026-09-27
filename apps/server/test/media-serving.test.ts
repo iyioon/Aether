@@ -230,6 +230,20 @@ describe("media serving", () => {
     expect(updatedAsset?.height).toBe(36);
     expect(updatedAsset?.durationMs).toBeGreaterThan(0);
     expect(updatedAsset?.codec).toBeTruthy();
+
+    const derivative = getDerivative(
+      db,
+      stableId(
+        "derivative",
+        asset.id,
+        "poster",
+        "v2",
+        "128",
+        String(asset.mtimeMs)
+      )
+    );
+    expect(derivative?.status).toBe("ready");
+    expect(derivative?.path).toContain("v2-");
   });
 
   it("generates cached video previews and supports byte ranges", async () => {
@@ -255,7 +269,7 @@ describe("media serving", () => {
         "derivative",
         asset.id,
         "preview",
-        "v2",
+        "v3",
         "320",
         "2",
         String(asset.mtimeMs)
@@ -264,7 +278,7 @@ describe("media serving", () => {
     expect(derivative?.status).toBe("ready");
     expect(derivative?.width).toBe(320);
     expect(derivative?.height).toBe(2);
-    expect(derivative?.path).toContain("v2-");
+    expect(derivative?.path).toContain("v3-");
     expect(derivative?.path ? await hasAudioStream(derivative.path) : false).toBe(
       true
     );

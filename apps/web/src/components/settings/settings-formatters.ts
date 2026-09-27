@@ -12,7 +12,7 @@ export function accentLabel(
   value: AppearanceAccent,
   options: AppearanceAccentOption[]
 ): string {
-  return options.find((option) => option.value === value)?.label ?? "Sage";
+  return options.find((option) => option.value === value)?.label ?? "Graphite";
 }
 
 export function boolLabel(value: boolean | undefined): string {

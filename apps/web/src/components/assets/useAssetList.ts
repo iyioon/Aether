@@ -24,7 +24,7 @@ interface UseAssetListOptions {
   search: string;
   sort: SortMode;
   sortDirection: SortDirection;
-  tagFilter: string;
+  tagFilters: string[];
   tree: TreeResponse | null;
 }
 
@@ -35,7 +35,7 @@ export function useAssetList({
   search,
   sort,
   sortDirection,
-  tagFilter,
+  tagFilters,
   tree
 }: UseAssetListOptions) {
   const [assets, setAssets] = useState<AssetRecord[]>([]);
@@ -43,6 +43,7 @@ export function useAssetList({
   const [assetError, setAssetError] = useState<string | null>(null);
   const [isLoadingAssets, setIsLoadingAssets] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [loadedQueryKey, setLoadedQueryKey] = useState<string | null>(null);
   const [assetReloadToken, setAssetReloadToken] = useState(0);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const loadMoreInFlightRef = useRef(false);
@@ -54,10 +55,10 @@ export function useAssetList({
         sortDirection,
         mediaType,
         search,
-        tagFilter,
+        tagFilters,
         ratingFilter
       }),
-    [folderId, sort, sortDirection, mediaType, search, tagFilter, ratingFilter]
+    [folderId, sort, sortDirection, mediaType, search, tagFilters, ratingFilter]
   );
   const listQueryKeyRef = useRef(listQueryKey);
   const hasMoreAssets = assets.length < totalAssets;
@@ -70,13 +71,16 @@ export function useAssetList({
     if (!tree || !folderId) {
       setAssets([]);
       setTotalAssets(0);
+      setLoadedQueryKey(null);
       return;
     }
 
     let active = true;
+    const requestQueryKey = listQueryKey;
     setIsLoadingAssets(true);
     setIsLoadingMore(false);
     setAssetError(null);
+    setLoadedQueryKey(null);
 
     getAssets({
       folderId,
@@ -87,13 +91,14 @@ export function useAssetList({
       type: mediaType,
       recursive: true,
       search,
-      tag: tagFilter,
+      tags: tagFilters,
       rating: ratingFilter
     })
       .then((response) => {
         if (active) {
           setAssets(response.items);
           setTotalAssets(response.page.total);
+          setLoadedQueryKey(requestQueryKey);
         }
       })
       .catch((caught) => {
@@ -119,7 +124,7 @@ export function useAssetList({
     sortDirection,
     mediaType,
     search,
-    tagFilter,
+    tagFilters,
     ratingFilter,
     assetReloadToken
   ]);
@@ -175,7 +180,7 @@ export function useAssetList({
         type: mediaType,
         recursive: true,
         search,
-        tag: tagFilter,
+        tags: tagFilters,
         rating: ratingFilter
       });
 
@@ -210,7 +215,7 @@ export function useAssetList({
     search,
     sort,
     sortDirection,
-    tagFilter,
+    tagFilters,
     totalAssets
   ]);
 
@@ -222,6 +227,7 @@ export function useAssetList({
     isLoadingAssets,
     isLoadingMore,
     listQueryKey,
+    loadedQueryKey,
     loadMoreRef,
     mergeUpdatedAssets,
     reloadAssets,

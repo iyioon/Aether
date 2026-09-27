@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Heart, Plus, Sparkles, X } from "lucide-react";
+import { Plus, ScanSearch, Sparkles, X } from "lucide-react";
 import {
   ApiError,
   getAiAssetTagSuggestions,
@@ -14,8 +14,14 @@ import {
   type TagSuggestion
 } from "../../api/client";
 import { normalizeTagDraft } from "../library-state";
-import { RatingSlider } from "../RatingSlider";
+import {
+  MediaFavoriteButton,
+  MediaScoreControl
+} from "../MediaCurationControls";
 import { uniqueTagNames } from "../tags/tag-utils";
+import { Button } from "../ui/button";
+import { Input } from "../ui/input";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 
 interface AssetAnnotationPanelProps {
   aiStatus: AiStatus | null;
@@ -194,96 +200,112 @@ export function AssetAnnotationPanel({
   return (
     <section className="annotation-panel" aria-label="Media annotations">
       <div className="annotation-row">
-        <span className="annotation-label">Rating</span>
-        <div className="rating-controls">
-          <RatingSlider
-            className="annotation-rating-slider"
+        <span className="annotation-label">Score</span>
+        <div className="annotation-curation-controls">
+          <MediaScoreControl
             disabled={isSavingRating}
-            label={`Rating for ${asset.name}`}
-            value={asset.rating}
-            onClear={() => void saveRating({ rating: null })}
-            onCommit={(rating) => void saveRating({ rating })}
+            mediaName={asset.name}
+            score={asset.rating}
+            onChange={(rating) => void saveRating({ rating })}
+          />
+          <MediaFavoriteButton
+            disabled={isSavingRating}
+            favorite={asset.favorite}
+            mediaName={asset.name}
+            onChange={(favorite) => void saveRating({ favorite })}
           />
         </div>
-        <button
-          className={asset.favorite ? "favorite-button active" : "favorite-button"}
-          type="button"
-          aria-label="Favorite"
-          title="Favorite"
-          aria-pressed={asset.favorite}
-          disabled={isSavingRating}
-          onClick={() => void saveRating({ favorite: !asset.favorite })}
-        >
-          <span className="favorite-button-glyph" aria-hidden="true">
-            <Heart size={18} strokeWidth={2.1} />
-          </span>
-        </button>
       </div>
 
       <div className="tag-editor">
         <div className="tag-editor-heading">
           <span className="annotation-label">Tags</span>
-          <div className="tag-editor-actions">
-            <button
-              className="suggest-tags-button"
-              type="button"
-              disabled={isLoadingSmartTags || isSavingTags}
-              onClick={() => void loadSmartTagSuggestions()}
-            >
-              <Sparkles size={14} />
-              <span>{isLoadingSmartTags ? "Suggesting" : "Suggest tags"}</span>
-            </button>
+          <div className="tag-editor-heading-actions">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="icon-xs"
+                  type="button"
+                  variant="ghost"
+                  aria-label={
+                    isLoadingSmartTags ? "Suggesting tags" : "Suggest tags"
+                  }
+                  disabled={isLoadingSmartTags || isSavingTags}
+                  onClick={() => void loadSmartTagSuggestions()}
+                >
+                  <Sparkles />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Suggest tags</TooltipContent>
+            </Tooltip>
             {aiStatus?.enabled ? (
-              <button
-                className="suggest-tags-button"
-                type="button"
-                disabled={isLoadingAiTags || isSavingTags}
-                onClick={() => void loadAiTagSuggestions()}
-              >
-                <Sparkles size={14} />
-                <span>{isLoadingAiTags ? "Analyzing" : "Vision tags"}</span>
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="icon-xs"
+                    type="button"
+                    variant="ghost"
+                    aria-label={
+                      isLoadingAiTags
+                        ? "Analyzing image for tags"
+                        : "Analyze image for tags"
+                    }
+                    disabled={isLoadingAiTags || isSavingTags}
+                    onClick={() => void loadAiTagSuggestions()}
+                  >
+                    <ScanSearch />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Analyze image for tags</TooltipContent>
+              </Tooltip>
             ) : null}
           </div>
         </div>
-        <div className="tag-chip-list">
-          {tags.map((tag) => (
-            <span className="tag-chip" key={tag.id}>
-              {tag.displayName}
-              <button
-                type="button"
-                aria-label={`Remove ${tag.displayName}`}
-                disabled={isSavingTags}
-                onClick={() => removeTag(tag.id)}
-              >
-                <X size={13} />
-              </button>
-            </span>
-          ))}
-          <div className="tag-input-wrap">
-            <input
-              value={tagInput}
-              maxLength={48}
-              placeholder="Add tag"
-              disabled={isSavingTags}
-              onChange={(event) => setTagInput(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  addTag(tagInput);
-                }
-              }}
-            />
-            <button
-              type="button"
-              aria-label="Add tag"
-              title="Add tag"
-              disabled={isSavingTags || !tagInput.trim()}
-              onClick={() => addTag(tagInput)}
-            >
-              <Plus size={15} />
-            </button>
+        {tags.length > 0 ? (
+          <div className="tag-chip-list">
+            {tags.map((tag) => (
+              <span className="tag-chip" key={tag.id}>
+                {tag.displayName}
+                <Button
+                  size="icon-xs"
+                  type="button"
+                  variant="ghost"
+                  aria-label={`Remove ${tag.displayName}`}
+                  disabled={isSavingTags}
+                  onClick={() => removeTag(tag.id)}
+                >
+                  <X size={13} />
+                </Button>
+              </span>
+            ))}
           </div>
+        ) : null}
+
+        <div className="tag-entry-row">
+          <Input
+            value={tagInput}
+            maxLength={48}
+            placeholder="Add a tag"
+            disabled={isSavingTags}
+            onChange={(event) => setTagInput(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                addTag(tagInput);
+              }
+            }}
+          />
+          <Button
+            size="icon-sm"
+            type="button"
+            variant="outline"
+            aria-label="Add tag"
+            title="Add tag"
+            disabled={isSavingTags || !tagInput.trim()}
+            onClick={() => addTag(tagInput)}
+          >
+            <Plus size={15} />
+          </Button>
         </div>
 
         {smartTagSuggestions.length ? (
@@ -292,8 +314,10 @@ export function AssetAnnotationPanel({
             aria-label="Suggested tags"
           >
             {smartTagSuggestions.map((suggestion) => (
-              <button
+              <Button
+                size="sm"
                 type="button"
+                variant="outline"
                 key={suggestion.normalizedName}
                 title={`${suggestion.reason}; confidence ${Math.round(
                   suggestion.confidence * 100
@@ -303,7 +327,7 @@ export function AssetAnnotationPanel({
               >
                 <Sparkles size={13} />
                 {suggestion.displayName}
-              </button>
+              </Button>
             ))}
           </div>
         ) : null}
@@ -311,14 +335,16 @@ export function AssetAnnotationPanel({
         {tagSuggestions.length ? (
           <div className="tag-suggestions">
             {tagSuggestions.map((tag) => (
-              <button
+              <Button
+                size="sm"
                 type="button"
+                variant="outline"
                 key={tag.id}
                 disabled={isSavingTags}
                 onClick={() => addTag(tag.displayName)}
               >
                 {tag.displayName}
-              </button>
+              </Button>
             ))}
           </div>
         ) : null}

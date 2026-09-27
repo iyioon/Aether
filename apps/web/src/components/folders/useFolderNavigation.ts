@@ -2,11 +2,16 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent
 } from "react";
 import type { TreeResponse } from "../../api/client";
 import { setsEqual } from "../app/app-helpers";
+import {
+  readFolderNavigationState,
+  writeFolderNavigationState
+} from "../sidebar/sidebar-state";
 import { folderTreeItemDomId } from "./folder-tree-dom";
 import {
   buildFolderById,
@@ -15,7 +20,7 @@ import {
   folderAncestorIds,
   getExpandableFolderIds
 } from "./folder-tree-model";
-import type { FolderTreeItem } from "./folder-tree-types";
+import type { FolderSortMode, FolderTreeItem } from "./folder-tree-types";
 
 interface UseFolderNavigationOptions {
   selectedFolderId: string | null;
@@ -28,12 +33,19 @@ export function useFolderNavigation({
   tree,
   onSelectFolder
 }: UseFolderNavigationOptions) {
+  const [initialNavigationState] =
+    useState(readFolderNavigationState);
   const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(
-    () => new Set()
+    () => new Set(initialNavigationState?.expandedFolderIds ?? [])
   );
+  const [folderSortMode, setFolderSortMode] =
+    useState<FolderSortMode>(
+      initialNavigationState?.folderSortMode ?? "name-asc"
+    );
+  const hasInitializedExpansionRef = useRef(initialNavigationState !== null);
   const folderChildrenByParentId = useMemo(
-    () => buildFolderChildrenByParentId(tree),
-    [tree]
+    () => buildFolderChildrenByParentId(tree, folderSortMode),
+    [folderSortMode, tree]
   );
   const folderById = useMemo(() => buildFolderById(tree), [tree]);
   const visibleFolderItems = useMemo(
@@ -42,10 +54,11 @@ export function useFolderNavigation({
         ? buildVisibleFolderItems({
             tree,
             folderChildrenByParentId,
-            expandedFolderIds
+            expandedFolderIds,
+            sortMode: folderSortMode
           })
         : [],
-    [expandedFolderIds, folderChildrenByParentId, tree]
+    [expandedFolderIds, folderChildrenByParentId, folderSortMode, tree]
   );
   const expandableFolderIds = useMemo(
     () => getExpandableFolderIds(tree, folderChildrenByParentId),
@@ -71,10 +84,17 @@ export function useFolderNavigation({
     setExpandedFolderIds((current) => {
       const next = new Set(current);
 
-      if (current.size === 0) {
+      for (const folderId of next) {
+        if (!expandableFolderIds.has(folderId)) {
+          next.delete(folderId);
+        }
+      }
+
+      if (!hasInitializedExpansionRef.current) {
         for (const root of tree.roots) {
           next.add(root.folderId);
         }
+        hasInitializedExpansionRef.current = true;
       }
 
       for (const ancestorId of folderAncestorIds(selectedFolderId, folderById)) {
@@ -83,7 +103,18 @@ export function useFolderNavigation({
 
       return setsEqual(current, next) ? current : next;
     });
-  }, [folderById, selectedFolderId, tree]);
+  }, [expandableFolderIds, folderById, selectedFolderId, tree]);
+
+  useEffect(() => {
+    if (!tree) {
+      return;
+    }
+
+    writeFolderNavigationState({
+      expandedFolderIds: [...expandedFolderIds],
+      folderSortMode
+    });
+  }, [expandedFolderIds, folderSortMode, tree]);
 
   const toggleFolderExpansion = useCallback(
     (folderId: string) => {
@@ -213,7 +244,9 @@ export function useFolderNavigation({
     expandedFolderCount,
     expandedFolderIds,
     expandAllFolders,
+    folderSortMode,
     handleFolderTreeKeyDown,
+    setFolderSortMode,
     treeTabStopId,
     toggleFolderExpansion,
     visibleFolderItems

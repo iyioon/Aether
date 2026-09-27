@@ -79,6 +79,40 @@ describe("annotations", () => {
     expect(updated.favorite).toBe(true);
   });
 
+  it("stores unbounded non-negative media scores", async () => {
+    const asset = await createIndexedAsset("scored-photo.jpg");
+    const auth = await login();
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/api/assets/${asset.id}/rating`,
+      cookies: auth.cookies,
+      headers: {
+        "x-csrf-token": auth.csrfToken
+      },
+      payload: {
+        rating: 125
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().asset.rating).toBe(125);
+
+    const invalid = await app.inject({
+      method: "PATCH",
+      url: `/api/assets/${asset.id}/rating`,
+      cookies: auth.cookies,
+      headers: {
+        "x-csrf-token": auth.csrfToken
+      },
+      payload: {
+        rating: -1
+      }
+    });
+
+    expect(invalid.statusCode).toBe(400);
+  });
+
   it("sets tags, deduplicates normalized names, and suggests by prefix", async () => {
     const asset = await createIndexedAsset("photo.jpg");
     const auth = await login();
@@ -278,7 +312,18 @@ describe("annotations", () => {
         "x-csrf-token": auth.csrfToken
       },
       payload: {
-        tags: ["Family"]
+        tags: ["Family", "Travel"]
+      }
+    });
+    await app.inject({
+      method: "PUT",
+      url: `/api/assets/${skyline.id}/tags`,
+      cookies: auth.cookies,
+      headers: {
+        "x-csrf-token": auth.csrfToken
+      },
+      payload: {
+        tags: ["Travel"]
       }
     });
 
@@ -287,6 +332,13 @@ describe("annotations", () => {
 
     const tag = await listedAssetIds(folderId, auth.cookies, "tag=family");
     expect(tag).toEqual([familyPhoto.id]);
+
+    const multipleTags = await listedAssetIds(
+      folderId,
+      auth.cookies,
+      "tag=family&tag=travel"
+    );
+    expect(multipleTags).toEqual([familyPhoto.id]);
 
     const favorites = await listedAssetIds(
       folderId,

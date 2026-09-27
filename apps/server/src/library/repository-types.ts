@@ -124,7 +124,7 @@ export interface AssetListOptions {
   type: "all" | MediaType;
   recursive: boolean;
   search?: string;
-  tag?: string;
+  tags?: string[];
   ratingFilter?: "all" | "favorites" | "rated" | "unrated";
 }
 

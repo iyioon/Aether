@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   buildAssetListQueryKey,
-  canRequestMoreAssets
+  canRequestMoreAssets,
+  isAssetListPending
 } from "./gallery-loading";
 
 describe("gallery loading helpers", () => {
@@ -58,7 +59,7 @@ describe("gallery loading helpers", () => {
       sortDirection: "desc",
       mediaType: "all",
       search: "",
-      tagFilter: "",
+      tagFilters: [],
       ratingFilter: "all"
     });
 
@@ -68,10 +69,43 @@ describe("gallery loading helpers", () => {
       sortDirection: "asc",
       mediaType: "image",
       search: "sky",
-      tagFilter: "travel",
+      tagFilters: ["travel", "family"],
       ratingFilter: "favorites"
     });
 
     expect(filteredKey).not.toBe(baseKey);
+  });
+
+  it("stays pending until the tree and current asset query are ready", () => {
+    const readyState = {
+      folderId: "folder-1",
+      hasTree: true,
+      isLoadingAssets: false,
+      isLoadingTree: false,
+      listQueryKey: "current-query",
+      loadedQueryKey: "current-query"
+    };
+
+    expect(isAssetListPending(readyState)).toBe(false);
+    expect(isAssetListPending({ ...readyState, isLoadingTree: true })).toBe(true);
+    expect(isAssetListPending({ ...readyState, isLoadingAssets: true })).toBe(
+      true
+    );
+    expect(
+      isAssetListPending({ ...readyState, loadedQueryKey: "previous-query" })
+    ).toBe(true);
+  });
+
+  it("allows an empty state after an empty or unavailable tree resolves", () => {
+    expect(
+      isAssetListPending({
+        folderId: null,
+        hasTree: false,
+        isLoadingAssets: false,
+        isLoadingTree: false,
+        listQueryKey: "",
+        loadedQueryKey: null
+      })
+    ).toBe(false);
   });
 });

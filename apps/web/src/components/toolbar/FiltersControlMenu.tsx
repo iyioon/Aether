@@ -1,9 +1,19 @@
-import { Check, SlidersHorizontal, Tags, X } from "lucide-react";
+import { useRef } from "react";
+import { Plus, SlidersHorizontal, Tags, X } from "lucide-react";
 import type {
   MediaTypeFilter,
   RatingFilter,
   TagRecord
 } from "../../api/client";
+import { Button } from "../ui/button";
+import { Input } from "../ui/input";
+import { Label } from "../ui/label";
+import { RadioGroup, RadioGroupItem } from "../ui/radio-group";
+import {
+  MAX_TAG_FILTER_LENGTH,
+  MAX_TAG_FILTERS,
+  normalizeTagIdentity
+} from "../library-state";
 import { ToolbarMenu } from "./ToolbarMenu";
 import {
   mediaFilters,
@@ -11,7 +21,6 @@ import {
 } from "./library-control-options";
 
 interface FiltersControlMenuProps {
-  activeFilterLabels: string[];
   filterSummary: string;
   filterTagSuggestions: TagRecord[];
   isOpen: boolean;
@@ -19,20 +28,18 @@ interface FiltersControlMenuProps {
   mediaTypeLabel: string;
   ratingFilter: RatingFilter;
   ratingFilterLabel: string;
-  tagFilter: string;
+  tagFilters: string[];
   tagFilterDraft: string;
-  onApplyTagFilter: (tagName: string) => void;
-  onClearLibraryFilters: () => void;
-  onClearTagFilter: () => void;
+  onAddTagFilter: (tagName: string) => void;
+  onClearTagFilters: () => void;
   onOpenChange: (isOpen: boolean) => void;
   onSetMediaType: (mediaType: MediaTypeFilter) => void;
-  onSetOpenControlMenu: (menu: null) => void;
+  onRemoveTagFilter: (tagName: string) => void;
   onSetRatingFilter: (ratingFilter: RatingFilter) => void;
   onSetTagFilterDraft: (value: string) => void;
 }
 
 export function FiltersControlMenu({
-  activeFilterLabels,
   filterSummary,
   filterTagSuggestions,
   isOpen,
@@ -40,20 +47,35 @@ export function FiltersControlMenu({
   mediaTypeLabel,
   ratingFilter,
   ratingFilterLabel,
-  tagFilter,
+  tagFilters,
   tagFilterDraft,
-  onApplyTagFilter,
-  onClearLibraryFilters,
-  onClearTagFilter,
+  onAddTagFilter,
+  onClearTagFilters,
   onOpenChange,
   onSetMediaType,
-  onSetOpenControlMenu,
+  onRemoveTagFilter,
   onSetRatingFilter,
   onSetTagFilterDraft
 }: FiltersControlMenuProps) {
-  function applyTagFilterAndClose(tagName: string) {
-    onApplyTagFilter(tagName);
-    onSetOpenControlMenu(null);
+  const tagInputRef = useRef<HTMLInputElement>(null);
+  const normalizedSelectedTags = new Set(
+    tagFilters.map(normalizeTagIdentity)
+  );
+  const normalizedDraft = normalizeTagIdentity(tagFilterDraft);
+  const isAtTagLimit = tagFilters.length >= MAX_TAG_FILTERS;
+  const canAddTag =
+    Boolean(normalizedDraft) &&
+    !isAtTagLimit &&
+    !normalizedSelectedTags.has(normalizedDraft);
+  const availableSuggestions = isAtTagLimit
+    ? []
+    : filterTagSuggestions.filter(
+        (tag) => !normalizedSelectedTags.has(normalizeTagIdentity(tag.displayName))
+      );
+
+  function addTagFilter(tagName: string) {
+    onAddTagFilter(tagName);
+    tagInputRef.current?.focus();
   }
 
   return (
@@ -67,207 +89,152 @@ export function FiltersControlMenu({
       valueLabel={filterSummary}
       onOpenChange={onOpenChange}
     >
-      {activeFilterLabels.length ? (
-        <div className="menu-section active-filter-section">
-          <div className="menu-section-heading">
-            <div className="menu-section-title">Active</div>
-            <small>{activeFilterLabels.length}</small>
-          </div>
-          <div className="active-filter-summary" aria-label="Active filters">
-            {mediaType !== "all" ? (
-              <button
-                type="button"
-                className="active-filter-token"
-                aria-label={`Clear ${mediaTypeLabel} filter`}
-                onClick={() => onSetMediaType("all")}
-              >
-                <span>{mediaTypeLabel}</span>
-                <X size={13} />
-              </button>
-            ) : null}
-            {ratingFilter !== "all" ? (
-              <button
-                type="button"
-                className="active-filter-token"
-                aria-label={`Clear ${ratingFilterLabel} filter`}
-                onClick={() => onSetRatingFilter("all")}
-              >
-                <span>{ratingFilterLabel}</span>
-                <X size={13} />
-              </button>
-            ) : null}
-            {tagFilter ? (
-              <button
-                type="button"
-                className="active-filter-token"
-                aria-label={`Clear tag filter ${tagFilter}`}
-                onClick={onClearTagFilter}
-              >
-                <span>#{tagFilter}</span>
-                <X size={13} />
-              </button>
-            ) : null}
-          </div>
+      <div className="mt-5 grid gap-3 border-t pt-4">
+        <div className="flex items-center justify-between gap-3">
+          <Label>Media</Label>
+          <small className="text-muted-foreground">{mediaTypeLabel}</small>
         </div>
-      ) : null}
-
-      <div className="menu-section">
-        <div className="menu-section-heading">
-          <div className="menu-section-title">Media</div>
-          <small>{mediaTypeLabel}</small>
-        </div>
-        <div
-          className="filter-option-list"
-          role="radiogroup"
+        <RadioGroup
+          className="gap-3"
           aria-label="Media filters"
+          value={mediaType}
+          onValueChange={(value) => onSetMediaType(value as MediaTypeFilter)}
         >
           {mediaFilters.map((filter) => {
             const Icon = filter.icon;
             return (
-              <button
-                type="button"
-                role="radio"
-                aria-checked={mediaType === filter.value}
-                className={
-                  mediaType === filter.value
-                    ? "filter-option active"
-                    : "filter-option"
-                }
-                key={filter.value}
-                onClick={() => onSetMediaType(filter.value)}
-              >
-                <span className="filter-option-leading">
-                  <span className="filter-option-icon" aria-hidden="true">
-                    <Icon size={14} />
-                  </span>
-                  <span className="filter-option-label">{filter.label}</span>
-                </span>
-                <span className="filter-option-state" aria-hidden="true">
-                  {mediaType === filter.value ? <Check size={13} /> : null}
-                </span>
-              </button>
+              <div className="flex items-center gap-3" key={filter.value}>
+                <RadioGroupItem id={`media-${filter.value}`} value={filter.value} />
+                <Label className="flex items-center gap-2" htmlFor={`media-${filter.value}`}>
+                  <Icon className="size-4" />
+                  {filter.label}
+                </Label>
+              </div>
             );
           })}
-        </div>
+        </RadioGroup>
       </div>
 
-      <div className="menu-section">
-        <div className="menu-section-heading">
-          <div className="menu-section-title">Rating</div>
-          <small>{ratingFilterLabel}</small>
+      <div className="mt-5 grid gap-3 border-t pt-4">
+        <div className="flex items-center justify-between gap-3">
+          <Label>Rating</Label>
+          <small className="text-muted-foreground">{ratingFilterLabel}</small>
         </div>
-        <div
-          className="filter-option-list"
-          role="radiogroup"
+        <RadioGroup
+          className="gap-3"
           aria-label="Rating filters"
+          value={ratingFilter}
+          onValueChange={(value) =>
+            onSetRatingFilter(value as RatingFilter)
+          }
         >
           {ratingFilters.map((filter) => {
             const Icon = filter.icon;
             return (
-              <button
-                type="button"
-                role="radio"
-                aria-checked={ratingFilter === filter.value}
-                className={
-                  ratingFilter === filter.value
-                    ? "filter-option active"
-                    : "filter-option"
-                }
-                key={filter.value}
-                onClick={() => onSetRatingFilter(filter.value)}
-              >
-                <span className="filter-option-leading">
-                  <span className="filter-option-icon" aria-hidden="true">
-                    <Icon size={14} />
-                  </span>
-                  <span className="filter-option-label">{filter.label}</span>
-                </span>
-                <span className="filter-option-state" aria-hidden="true">
-                  {ratingFilter === filter.value ? <Check size={13} /> : null}
-                </span>
-              </button>
+              <div className="flex items-center gap-3" key={filter.value}>
+                <RadioGroupItem id={`rating-${filter.value}`} value={filter.value} />
+                <Label className="flex items-center gap-2" htmlFor={`rating-${filter.value}`}>
+                  <Icon className="size-4" />
+                  {filter.label}
+                </Label>
+              </div>
             );
           })}
-        </div>
+        </RadioGroup>
       </div>
 
-      <div className="menu-section tag-filter-section">
-        <div className="menu-section-heading">
-          <div className="menu-section-title">Tag</div>
-          <small>{tagFilter ? `#${tagFilter}` : "Any tag"}</small>
+      <div className="mt-5 grid gap-3 border-t pt-4">
+        <div className="flex items-center justify-between gap-3">
+          <Label htmlFor="library-tag-filter-input">Tags</Label>
+          <div className="flex items-center gap-2">
+            <small className="text-muted-foreground">
+              {tagFilters.length
+                ? `${tagFilters.length} selected · Match all`
+                : "Any tag"}
+            </small>
+            {tagFilters.length ? (
+              <Button
+                type="button"
+                size="xs"
+                variant="ghost"
+                onClick={onClearTagFilters}
+              >
+                Clear
+              </Button>
+            ) : null}
+          </div>
         </div>
-        {tagFilter ? (
-          <button
-            type="button"
-            className="active-filter-token selected-tag-token"
-            aria-label={`Clear tag filter ${tagFilter}`}
-            onClick={onClearTagFilter}
-          >
-            <span>#{tagFilter}</span>
-            <X size={13} />
-          </button>
-        ) : null}
-        <div className="tag-filter-control menu-field">
-          <label htmlFor="library-tag-filter-input">Find tag</label>
-          <div className="filter-input-wrap">
-            <Tags size={15} />
-            <input
+        <div className="grid gap-2">
+          {tagFilters.length ? (
+            <div className="flex flex-wrap gap-1.5" aria-label="Selected tags">
+              {tagFilters.map((tag) => (
+                <Button
+                  className="h-7 gap-1 rounded-full px-2 text-xs"
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  aria-label={`Remove ${tag} tag filter`}
+                  key={tag}
+                  onClick={() => onRemoveTagFilter(tag)}
+                >
+                  #{tag}
+                  <X />
+                </Button>
+              ))}
+            </div>
+          ) : null}
+          <div className="relative">
+            <Tags className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              className="pr-10 pl-9 text-sm font-normal"
               id="library-tag-filter-input"
+              ref={tagInputRef}
               value={tagFilterDraft}
-              placeholder="Any tag"
-              maxLength={48}
+              placeholder={isAtTagLimit ? "Tag limit reached" : "Type a tag"}
+              maxLength={MAX_TAG_FILTER_LENGTH}
+              disabled={isAtTagLimit}
               onChange={(event) => onSetTagFilterDraft(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   event.preventDefault();
-                  applyTagFilterAndClose(tagFilterDraft);
+                  if (canAddTag) {
+                    addTagFilter(tagFilterDraft);
+                  }
                 }
               }}
             />
-            {tagFilter ? (
-              <button
-                type="button"
-                aria-label="Clear tag filter"
-                title="Clear tag filter"
-                onClick={onClearTagFilter}
-              >
-                <X size={14} />
-              </button>
-            ) : null}
+            <Button
+              type="button"
+              className="absolute top-1/2 right-1 -translate-y-1/2"
+              size="icon-sm"
+              variant="ghost"
+              aria-label="Add tag filter"
+              disabled={!canAddTag}
+              onClick={() => addTagFilter(tagFilterDraft)}
+            >
+              <Plus />
+            </Button>
           </div>
-          {filterTagSuggestions.length ? (
-            <div className="filter-suggestions">
-              {filterTagSuggestions.map((tag) => (
-                <button
+          {availableSuggestions.length ? (
+            <div className="grid gap-1">
+              {availableSuggestions.map((tag) => (
+                <Button
+                  className="justify-start"
                   type="button"
+                  variant="ghost"
+                  size="sm"
                   key={tag.id}
-                  onClick={() => applyTagFilterAndClose(tag.displayName)}
+                  onClick={() => addTagFilter(tag.displayName)}
                 >
+                  <Plus />
                   {tag.displayName}
-                </button>
+                </Button>
               ))}
             </div>
           ) : null}
         </div>
       </div>
 
-      <div className="control-menu-footer">
-        <button
-          className="menu-secondary-action"
-          type="button"
-          disabled={!activeFilterLabels.length}
-          onClick={onClearLibraryFilters}
-        >
-          Clear all
-        </button>
-        <button
-          className="menu-primary-action"
-          type="button"
-          onClick={() => onSetOpenControlMenu(null)}
-        >
-          Done
-        </button>
-      </div>
     </ToolbarMenu>
   );
 }

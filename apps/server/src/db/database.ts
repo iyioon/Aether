@@ -231,6 +231,29 @@ const migrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_ratings_sort
         ON ratings(favorite, rating);
     `
+  },
+  {
+    version: 8,
+    name: "unbounded_media_score",
+    sql: `
+      CREATE TABLE ratings_next (
+        asset_id TEXT PRIMARY KEY REFERENCES assets(id) ON DELETE CASCADE,
+        rating INTEGER CHECK(rating >= 0),
+        favorite INTEGER NOT NULL DEFAULT 0 CHECK(favorite IN (0, 1)),
+        updated_at TEXT NOT NULL
+      );
+
+      INSERT INTO ratings_next (asset_id, rating, favorite, updated_at)
+      SELECT asset_id, rating, favorite, updated_at
+      FROM ratings;
+
+      DROP TABLE ratings;
+
+      ALTER TABLE ratings_next RENAME TO ratings;
+
+      CREATE INDEX IF NOT EXISTS idx_ratings_sort
+        ON ratings(favorite, rating);
+    `
   }
 ];
 

@@ -185,18 +185,25 @@ export function listAssets(
     );
   }
 
-  const tagFilter = normalizeTagSearch(options.tag ?? "");
-  if (tagFilter) {
-    parameters.tagFilter = tagFilter;
+  const tagFilters = [
+    ...new Set(
+      (options.tags ?? [])
+        .map((tag) => normalizeTagSearch(tag))
+        .filter(Boolean)
+    )
+  ];
+  tagFilters.forEach((tagFilter, index) => {
+    const parameterName = `tagFilter${index}`;
+    parameters[parameterName] = tagFilter;
     filters.push(
       `EXISTS (
          SELECT 1
          FROM asset_tags at
          JOIN tags t ON t.id = at.tag_id
-         WHERE at.asset_id = a.id AND t.normalized_name = @tagFilter
+         WHERE at.asset_id = a.id AND t.normalized_name = @${parameterName}
        )`
     );
-  }
+  });
 
   switch (options.ratingFilter ?? "all") {
     case "favorites":

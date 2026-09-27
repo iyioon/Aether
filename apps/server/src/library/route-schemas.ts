@@ -1,5 +1,16 @@
 import { z } from "zod";
 
+const TagListQuery = z.preprocess(
+  (value) => {
+    if (value === undefined) {
+      return [];
+    }
+
+    return Array.isArray(value) ? value : [value];
+  },
+  z.array(z.string().max(64)).max(20)
+);
+
 export const AssetListQuery = z.object({
   offset: z.coerce.number().int().min(0).default(0),
   limit: z.coerce.number().int().min(1).max(250).default(80),
@@ -9,7 +20,7 @@ export const AssetListQuery = z.object({
   order: z.enum(["desc", "asc"]).optional(),
   type: z.enum(["all", "image", "video"]).default("all"),
   search: z.string().max(128).default(""),
-  tag: z.string().max(64).default(""),
+  tag: TagListQuery,
   rating: z.enum(["all", "favorites", "rated", "unrated"]).default("all"),
   recursive: z
     .enum(["true", "false"])
@@ -42,7 +53,7 @@ export const VideoPreviewQuery = z.object({
 
 export const RatingBody = z
   .object({
-    rating: z.number().int().min(0).max(10).nullable().optional(),
+    rating: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).nullable().optional(),
     favorite: z.boolean().optional()
   })
   .refine((data) => data.rating !== undefined || data.favorite !== undefined);
@@ -56,7 +67,7 @@ const BatchAssetIds = z.array(z.string().min(1).max(256)).min(1).max(500);
 export const BatchRatingBody = z
   .object({
     assetIds: BatchAssetIds,
-    rating: z.number().int().min(0).max(10).nullable().optional(),
+    rating: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).nullable().optional(),
     favorite: z.boolean().optional()
   })
   .refine((data) => data.rating !== undefined || data.favorite !== undefined);

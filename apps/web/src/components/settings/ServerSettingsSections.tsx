@@ -1,9 +1,4 @@
-import {
-  Clock3,
-  LockKeyhole,
-  ServerCog,
-  Sparkles
-} from "lucide-react";
+import { LockKeyhole, ServerCog, Sparkles } from "lucide-react";
 import type { SettingsSummary } from "../../api/client";
 import { boolLabel } from "./settings-formatters";
 import { SettingsSection } from "./SettingsSection";
@@ -60,7 +55,10 @@ export function ServerStatusSettingsSection({
       {settings?.library.mediaRoots.length ? (
         <div className="settings-root-list" aria-label="Media roots">
           {settings.library.mediaRoots.map((root) => (
-            <span className="settings-pill" key={root.id}>
+            <span
+              className="settings-pill font-mono text-xs font-medium"
+              key={root.id}
+            >
               {root.label}
             </span>
           ))}
@@ -84,16 +82,6 @@ export function AiSettingsSection({ settings }: ServerSettingsSectionsProps) {
           ["Timeout", settings ? `${settings.ai.timeoutMs} ms` : "-"]
         ]}
       />
-    </SettingsSection>
-  );
-}
-
-export function RuntimeSettingsSection() {
-  return (
-    <SettingsSection icon={Clock3} title="Runtime" value="Read-only">
-      <p className="settings-note">
-        Server configuration is managed through environment variables.
-      </p>
     </SettingsSection>
   );
 }

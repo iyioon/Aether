@@ -2,13 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   buildLibraryStateSearch,
   defaultLibraryState,
+  MAX_TAG_FILTERS,
   parseLibraryStateSearch
 } from "./library-state";
 
 describe("library state URL helpers", () => {
   it("restores valid library controls from query parameters", () => {
     const state = parseLibraryStateSearch(
-      "?folder=root-folder&view=feed&size=large&aspect=portrait&sort=rating&order=asc&type=video&rating=favorites&q=%20night%20sky%20&tag=%20Family%20%20Trip%20"
+      "?folder=root-folder&view=feed&size=large&aspect=portrait&sort=rating&order=asc&type=video&rating=favorites&q=%20night%20sky%20&tag=%20Family%20%20Trip%20&tag=Friends&tag=family%20trip"
     );
 
     expect(state).toEqual({
@@ -21,7 +22,7 @@ describe("library state URL helpers", () => {
       mediaType: "video",
       ratingFilter: "favorites",
       search: "night sky",
-      tag: "Family Trip"
+      tags: ["Family Trip", "Friends"]
     });
   });
 
@@ -54,7 +55,7 @@ describe("library state URL helpers", () => {
       sort: "rating",
       sortDirection: "asc",
       search: "city sky",
-      tag: "travel"
+      tags: ["travel", "family"]
     });
     const params = new URLSearchParams(search);
 
@@ -65,7 +66,7 @@ describe("library state URL helpers", () => {
     expect(params.get("sort")).toBe("rating");
     expect(params.get("order")).toBe("asc");
     expect(params.get("q")).toBe("city sky");
-    expect(params.get("tag")).toBe("travel");
+    expect(params.getAll("tag")).toEqual(["travel", "family"]);
     expect(search).not.toContain("password");
     expect(search).not.toContain("session");
     expect(search).not.toContain("csrf");
@@ -81,5 +82,20 @@ describe("library state URL helpers", () => {
 
     expect(params.get("sort")).toBe("random");
     expect(params.has("order")).toBe(false);
+  });
+
+  it("limits repeated tag filters and deduplicates them case-insensitively", () => {
+    const params = new URLSearchParams();
+
+    for (let index = 0; index < MAX_TAG_FILTERS + 5; index += 1) {
+      params.append("tag", `Tag ${index}`);
+    }
+    params.append("tag", "tag 0");
+
+    const state = parseLibraryStateSearch(`?${params.toString()}`);
+
+    expect(state.tags).toHaveLength(MAX_TAG_FILTERS);
+    expect(state.tags[0]).toBe("Tag 0");
+    expect(state.tags.at(-1)).toBe(`Tag ${MAX_TAG_FILTERS - 1}`);
   });
 });

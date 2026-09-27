@@ -1,5 +1,15 @@
-import { useEffect, useRef, type ReactNode } from "react";
-import { ChevronDown, type LucideIcon } from "lucide-react";
+import type { ReactNode } from "react";
+import type { LucideIcon } from "lucide-react";
+import { Button } from "../ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverDescription,
+  PopoverHeader,
+  PopoverTitle,
+  PopoverTrigger
+} from "../ui/popover";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 
 interface ToolbarMenuProps {
   align?: "start" | "end";
@@ -24,97 +34,48 @@ export function ToolbarMenu({
   valueLabel,
   onOpenChange
 }: ToolbarMenuProps) {
-  const menuRef = useRef<HTMLDetailsElement | null>(null);
   const panelId = `control-menu-${menuId}`;
-
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-
-    function closeOnPointerDown(event: PointerEvent) {
-      const target = event.target;
-
-      if (target instanceof Node && menuRef.current?.contains(target)) {
-        return;
-      }
-
-      onOpenChange(false);
-    }
-
-    function closeOnFocusOutside(event: FocusEvent) {
-      const target = event.target;
-
-      if (target instanceof Node && menuRef.current?.contains(target)) {
-        return;
-      }
-
-      onOpenChange(false);
-    }
-
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        onOpenChange(false);
-      }
-    }
-
-    document.addEventListener("pointerdown", closeOnPointerDown, true);
-    document.addEventListener("focusin", closeOnFocusOutside);
-    window.addEventListener("keydown", closeOnEscape);
-
-    return () => {
-      document.removeEventListener("pointerdown", closeOnPointerDown, true);
-      document.removeEventListener("focusin", closeOnFocusOutside);
-      window.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [isOpen, onOpenChange]);
-
   return (
-    <details
-      className={[
-        "control-menu",
-        align === "end" ? "align-end" : "",
-        className
-      ]
-        .filter(Boolean)
-        .join(" ")}
-      open={isOpen}
-      ref={menuRef}
+    <div
+      className={["control-menu", className].filter(Boolean).join(" ")}
+      data-state={isOpen ? "open" : "closed"}
     >
-      <summary
-        className="control-menu-trigger"
-        aria-label={`${label}: ${valueLabel}`}
-        aria-controls={panelId}
-        aria-expanded={isOpen}
-        onClick={(event) => {
-          event.preventDefault();
-          onOpenChange(!isOpen);
-        }}
-      >
-        <Icon size={15} />
-        <span className="control-menu-text">
-          <span className="control-menu-label">{label}</span>
-          <small className="control-menu-value">{valueLabel}</small>
-        </span>
-        <ChevronDown size={14} className="control-menu-chevron" />
-      </summary>
-      <div
-        className="control-menu-panel"
-        id={panelId}
-        role="group"
-        aria-label={label}
-      >
-        <div className="control-menu-panel-header">
-          <span className="control-menu-panel-icon" aria-hidden="true">
-            <Icon size={16} />
-          </span>
-          <span className="control-menu-panel-title">
-            <strong>{label}</strong>
-            <small>{valueLabel}</small>
-          </span>
-        </div>
-        {children}
-      </div>
-    </details>
+      <Tooltip>
+        <Popover open={isOpen} onOpenChange={onOpenChange}>
+          <TooltipTrigger asChild>
+            <PopoverTrigger asChild>
+              <Button
+                className="control-menu-trigger"
+                type="button"
+                size="icon"
+                variant="outline"
+                aria-label={`${label}: ${valueLabel}`}
+                aria-controls={panelId}
+                aria-expanded={isOpen}
+              >
+                <Icon />
+              </Button>
+            </PopoverTrigger>
+          </TooltipTrigger>
+          <PopoverContent
+            align={align}
+            className="max-h-[70vh] w-80 overflow-y-auto"
+            collisionPadding={12}
+            id={panelId}
+            sideOffset={8}
+            aria-label={label}
+          >
+            <PopoverHeader>
+              <PopoverTitle>{label}</PopoverTitle>
+              <PopoverDescription>{valueLabel}</PopoverDescription>
+            </PopoverHeader>
+            {children}
+          </PopoverContent>
+        </Popover>
+        <TooltipContent side="bottom">
+          {label}: {valueLabel}
+        </TooltipContent>
+      </Tooltip>
+    </div>
   );
 }

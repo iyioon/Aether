@@ -1,3 +1,9 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+@import "./theme.css";
 @import "./foundation.css";
 @import "./app-layout.css";
 @import "./menus.css";
@@ -7,3 +13,5 @@
 @import "./viewer-drawer.css";
 @import "./settings.css";
 @import "./responsive.css";
+
+@custom-variant dark (&:is(.dark *));

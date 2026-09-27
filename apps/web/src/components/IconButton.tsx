@@ -1,8 +1,9 @@
-import type { ButtonHTMLAttributes } from "react";
+import type { ComponentProps } from "react";
 import type { LucideIcon } from "lucide-react";
+import { Button } from "./ui/button";
 
 export interface IconButtonProps
-  extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children"> {
+  extends Omit<ComponentProps<typeof Button>, "children"> {
   icon: LucideIcon;
   iconClassName?: string;
   label: string;
@@ -15,21 +16,23 @@ export function IconButton({
   iconClassName,
   iconSize = 18,
   label,
+  size = "icon",
   title,
   type = "button",
+  variant = "outline",
   ...buttonProps
 }: IconButtonProps) {
-  const classNames = ["icon-button", className].filter(Boolean).join(" ");
-
   return (
-    <button
+    <Button
       {...buttonProps}
       aria-label={label}
-      className={classNames}
+      className={className}
       title={title ?? label}
       type={type}
+      size={size}
+      variant={variant}
     >
       <Icon className={iconClassName} size={iconSize} />
-    </button>
+    </Button>
   );
 }

@@ -51,7 +51,8 @@ interface VideoMetadata {
 const POSTER_TIMEOUT_MS = 20_000;
 const PREVIEW_TIMEOUT_MS = 45_000;
 const PROBE_TIMEOUT_MS = 10_000;
-const VIDEO_PREVIEW_CACHE_VERSION = "v2";
+const VIDEO_POSTER_CACHE_VERSION = "v2";
+const VIDEO_PREVIEW_CACHE_VERSION = "v3";
 
 const pendingPosterJobs = new Map<string, Promise<ThumbnailFile>>();
 const pendingPreviewJobs = new Map<string, Promise<VideoPreviewFile>>();
@@ -76,6 +77,7 @@ export async function ensureVideoPoster({
     "derivative",
     file.asset.id,
     "poster",
+    VIDEO_POSTER_CACHE_VERSION,
     String(size),
     String(file.mtimeMs)
   );
@@ -195,14 +197,11 @@ async function generateVideoPoster({
 
   try {
     const metadata = await probeVideoMetadata(file);
-    const seekSeconds = posterSeekSeconds(metadata.durationMs);
-    const seekArgs = seekSeconds > 0 ? ["-ss", seekSeconds.toFixed(3)] : [];
 
     await runMediaCommand("ffmpeg", [
       "-hide_banner",
       "-loglevel",
       "error",
-      ...seekArgs,
       "-i",
       file.sourcePath,
       "-map",
@@ -281,14 +280,11 @@ async function generateVideoPreview({
 
   try {
     const metadata = await probeVideoMetadata(file);
-    const seekSeconds = previewSeekSeconds(metadata.durationMs, durationSeconds);
-    const seekArgs = seekSeconds > 0 ? ["-ss", seekSeconds.toFixed(3)] : [];
 
     await runMediaCommand("ffmpeg", [
       "-hide_banner",
       "-loglevel",
       "error",
-      ...seekArgs,
       "-i",
       file.sourcePath,
       "-map",
@@ -440,7 +436,12 @@ function posterPathFor(
   mtimeMs: number,
   size: number
 ): string {
-  return path.join(cacheDir, "posters", assetId, `${mtimeMs}-${size}.jpg`);
+  return path.join(
+    cacheDir,
+    "posters",
+    assetId,
+    `${VIDEO_POSTER_CACHE_VERSION}-${mtimeMs}-${size}.jpg`
+  );
 }
 
 function previewPathFor(
@@ -456,25 +457,6 @@ function previewPathFor(
     assetId,
     `${VIDEO_PREVIEW_CACHE_VERSION}-${mtimeMs}-${size}-${durationSeconds}.mp4`
   );
-}
-
-function posterSeekSeconds(durationMs: number | null): number {
-  if (!durationMs || durationMs <= 3000) {
-    return 0;
-  }
-
-  return Math.min(durationMs / 4000, 3);
-}
-
-function previewSeekSeconds(
-  durationMs: number | null,
-  durationSeconds: number
-): number {
-  if (!durationMs || durationMs <= (durationSeconds + 1) * 1000) {
-    return 0;
-  }
-
-  return Math.min(durationMs * 0.08 / 1000, 30);
 }
 
 function evenPreviewSize(size: number): number {

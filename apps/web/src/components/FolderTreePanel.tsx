@@ -1,33 +1,57 @@
-import type {
-  CSSProperties,
-  KeyboardEvent as ReactKeyboardEvent
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent
 } from "react";
 import {
-  CheckCircle2,
+  ArrowDownAZ,
+  ArrowDownWideNarrow,
+  ArrowUpAZ,
+  ArrowUpNarrowWide,
   ChevronDown,
   ChevronRight,
   ChevronUp,
   Folder,
   FolderOpen,
-  RefreshCw,
-  Rows3,
-  type LucideIcon
+  RefreshCw
 } from "lucide-react";
-import type { LibraryWatchStatus } from "../api/client";
+import type { LibraryWatchStatus, ScanProgress } from "../api/client";
 import { folderTreeItemDomId } from "./folders/folder-tree-dom";
 import type {
   FolderScanState,
+  FolderSortMode,
   FolderTreeItem
 } from "./folders/folder-tree-types";
-import { IconButton } from "./ui/IconButton";
+import { Button } from "./ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from "./ui/dropdown-menu";
+import { Progress } from "./ui/progress";
+import { Skeleton } from "./ui/skeleton";
+import {
+  readSessionScrollPosition,
+  writeSessionScrollPosition
+} from "./scroll-restoration";
 
 interface FolderTreePanelProps {
   error: string | null;
   expandableFolderIds: ReadonlySet<string>;
   expandedFolderCount: number;
   expandedFolderIds: ReadonlySet<string>;
+  folderSortMode: FolderSortMode;
   isLoadingTree: boolean;
   items: FolderTreeItem[];
+  scanProgress: ScanProgress | null;
   scanState: FolderScanState;
   selectedFolderId: string | null;
   treeTabStopId: string | null;
@@ -38,16 +62,10 @@ interface FolderTreePanelProps {
     event: ReactKeyboardEvent<HTMLElement>,
     item: FolderTreeItem
   ) => void;
+  onFolderSortChange: (sortMode: FolderSortMode) => void;
   onScan: () => void;
   onSelectFolder: (folderId: string) => void;
   onToggleFolderExpansion: (folderId: string) => void;
-}
-
-interface FolderActionButtonProps {
-  disabled: boolean;
-  icon: LucideIcon;
-  label: string;
-  onClick: () => void;
 }
 
 interface FolderTreeRowProps {
@@ -68,8 +86,10 @@ export function FolderTreePanel({
   expandableFolderIds,
   expandedFolderCount,
   expandedFolderIds,
+  folderSortMode,
   isLoadingTree,
   items,
+  scanProgress,
   scanState,
   selectedFolderId,
   treeTabStopId,
@@ -77,56 +97,184 @@ export function FolderTreePanel({
   onCollapseAll,
   onExpandAll,
   onFolderKeyDown,
+  onFolderSortChange,
   onScan,
   onSelectFolder,
   onToggleFolderExpansion
 }: FolderTreePanelProps) {
+  const isScanInProgress =
+    scanState === "starting" || scanState === "running";
+  const treeListRef = useRef<HTMLDivElement | null>(null);
+  const scrollFrameRef = useRef<number | null>(null);
+  const latestScrollTopRef = useRef(0);
+  const hasRestoredScrollRef = useRef(false);
+
+  const saveTreeScrollPosition = useCallback(() => {
+    const treeList = treeListRef.current;
+
+    writeSessionScrollPosition("folder-tree", {
+      contextKey: "library",
+      scrollTop: treeList?.scrollTop ?? latestScrollTopRef.current
+    });
+  }, []);
+
+  const handleTreeScroll = useCallback(() => {
+    latestScrollTopRef.current = treeListRef.current?.scrollTop ?? 0;
+
+    if (scrollFrameRef.current !== null) {
+      return;
+    }
+
+    scrollFrameRef.current = window.requestAnimationFrame(() => {
+      scrollFrameRef.current = null;
+      saveTreeScrollPosition();
+    });
+  }, [saveTreeScrollPosition]);
+
+  useLayoutEffect(() => {
+    const treeList = treeListRef.current;
+
+    if (!treeList || hasRestoredScrollRef.current) {
+      return;
+    }
+
+    hasRestoredScrollRef.current = true;
+    const storedPosition = readSessionScrollPosition("folder-tree");
+    if (storedPosition?.contextKey === "library") {
+      latestScrollTopRef.current = storedPosition.scrollTop;
+      treeList.scrollTop = storedPosition.scrollTop;
+    }
+  }, [isLoadingTree, items.length]);
+
+  useLayoutEffect(() => {
+    const treeList = treeListRef.current;
+
+    if (!treeList || !selectedFolderId) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      const selectedItem = document.getElementById(
+        folderTreeItemDomId(selectedFolderId)
+      );
+
+      if (!selectedItem || !treeList.contains(selectedItem)) {
+        return;
+      }
+
+      const listBounds = treeList.getBoundingClientRect();
+      const itemBounds = selectedItem.getBoundingClientRect();
+      if (itemBounds.top < listBounds.top || itemBounds.bottom > listBounds.bottom) {
+        selectedItem.scrollIntoView({ block: "nearest", behavior: "auto" });
+      }
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [items, selectedFolderId]);
+
+  useEffect(
+    () => () => {
+      if (scrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(scrollFrameRef.current);
+      }
+      saveTreeScrollPosition();
+    },
+    [saveTreeScrollPosition]
+  );
+
+  useEffect(() => {
+    window.addEventListener("pagehide", saveTreeScrollPosition);
+    return () =>
+      window.removeEventListener("pagehide", saveTreeScrollPosition);
+  }, [saveTreeScrollPosition]);
+
   return (
     <nav className="tree-panel" aria-label="Media folders">
       <div className="panel-heading">
-        <span>Folders</span>
-        <div className="panel-actions" aria-label="Folder tree actions">
-          <div
-            className="folder-disclosure-group"
-            role="group"
-            aria-label="Folder expansion"
-          >
-            <FolderActionButton
-              disabled={
-                expandableFolderIds.size === 0 ||
-                expandedFolderCount === expandableFolderIds.size
-              }
-              icon={ChevronDown}
-              label="Expand all folders"
-              onClick={onExpandAll}
-            />
-            <FolderActionButton
-              disabled={expandedFolderCount === 0}
-              icon={ChevronUp}
-              label="Collapse all folders"
-              onClick={onCollapseAll}
-            />
-          </div>
-          <IconButton
-            className="folder-refresh"
-            disabled={scanState === "starting" || scanState === "running"}
-            icon={RefreshCw}
-            iconClassName={
-              scanState === "starting" || scanState === "running"
-                ? "spin-icon"
-                : undefined
-            }
-            iconSize={17}
-            label="Scan library"
+        <div className="panel-heading-title">
+          <Button
+            aria-label={isScanInProgress ? "Scanning library" : "Scan library"}
+            disabled={isScanInProgress}
+            size="icon-sm"
+            title={isScanInProgress ? "Scanning library" : "Scan library"}
+            variant="outline"
             onClick={onScan}
-          />
+          >
+            <RefreshCw className={isScanInProgress ? "spin-icon" : undefined} />
+          </Button>
+          <span>Folders</span>
+        </div>
+        <div className="panel-actions" aria-label="Folder tree actions">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                aria-label="Sort and organize folders"
+                size="sm"
+                variant="ghost"
+              >
+                <FolderSortIcon sortMode={folderSortMode} />
+                <span>{folderSortLabel(folderSortMode)}</span>
+                <ChevronDown className="folder-sort-chevron" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuLabel>Sort folders</DropdownMenuLabel>
+              <DropdownMenuRadioGroup
+                value={folderSortMode}
+                onValueChange={(value) =>
+                  onFolderSortChange(value as FolderSortMode)
+                }
+              >
+                <DropdownMenuRadioItem value="name-asc">
+                  <ArrowDownAZ />
+                  Name, A–Z
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="name-desc">
+                  <ArrowUpAZ />
+                  Name, Z–A
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="items-desc">
+                  <ArrowDownWideNarrow />
+                  Most items
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="items-asc">
+                  <ArrowUpNarrowWide />
+                  Fewest items
+                </DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                disabled={
+                  expandableFolderIds.size === 0 ||
+                  expandedFolderCount === expandableFolderIds.size
+                }
+                onSelect={onExpandAll}
+              >
+                <ChevronDown />
+                Expand all
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={expandedFolderCount === 0}
+                onSelect={onCollapseAll}
+              >
+                <ChevronUp />
+                Collapse all
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
       {isLoadingTree ? (
         <div className="empty-tree">Loading library.</div>
       ) : items.length ? (
-        <div className="tree-list" role="tree" aria-label="Media folders">
+        <div
+          className="tree-list"
+          ref={treeListRef}
+          role="tree"
+          aria-label="Media folders"
+          onScroll={handleTreeScroll}
+        >
           {items.map((item) => (
             <FolderTreeRow
               expandedFolderIds={expandedFolderIds}
@@ -146,49 +294,36 @@ export function FolderTreePanel({
         </div>
       )}
 
-      {scanState !== "idle" ? (
-        <div className={`scan-state ${scanState}`}>
-          {scanState === "completed" ? <CheckCircle2 size={15} /> : null}
-          <span>{scanLabel(scanState)}</span>
+      {isScanInProgress ? (
+        <div className={`scan-state scan-progress-state ${scanState}`}>
+          <div className="scan-progress-label">
+            <span>{scanProgressLabel(scanState, scanProgress)}</span>
+            {scanProgress?.percent !== null &&
+            scanProgress?.percent !== undefined ? (
+              <span>{scanProgress.percent}%</span>
+            ) : null}
+          </div>
+          {scanProgress?.percent == null ? (
+            <Skeleton
+              aria-label="Preparing library scan"
+              className="scan-progress-bar"
+              role="progressbar"
+            />
+          ) : (
+            <Progress
+              aria-label="Library scan progress"
+              className="scan-progress-bar"
+              value={scanProgress.percent}
+            />
+          )}
         </div>
       ) : null}
-      {watchStatus?.enabled &&
-      (scanState === "idle" || watchStatus.lastError) ? (
-        <div
-          className={`scan-state ${
-            watchStatus.lastError ? "failed" : "watching"
-          }`}
-        >
-          {!watchStatus.lastError ? <CheckCircle2 size={15} /> : null}
-          <span>
-            {watchStatus.lastError
-              ? "Watcher issue"
-              : `Watching ${watchStatus.watchedDirectories} folders`}
-          </span>
+      {watchStatus?.lastError ? (
+        <div className="scan-state failed">
+          <span>Watcher issue</span>
         </div>
       ) : null}
     </nav>
-  );
-}
-
-function FolderActionButton({
-  disabled,
-  icon: Icon,
-  label,
-  onClick
-}: FolderActionButtonProps) {
-  return (
-    <button
-      className="folder-action"
-      type="button"
-      aria-label={label}
-      title={label}
-      disabled={disabled}
-      onClick={onClick}
-    >
-      <Icon size={14} />
-      <span>{label}</span>
-    </button>
   );
 }
 
@@ -225,7 +360,7 @@ function FolderTreeRow({
       tabIndex={treeTabStopId === item.id ? 0 : -1}
       style={
         {
-          "--tree-indent": `${item.depth * 14}px`
+          "--tree-indent": `${item.depth * 8}px`
         } as CSSProperties
       }
       title={item.label}
@@ -250,9 +385,7 @@ function FolderTreeRow({
         <span className="tree-disclosure-spacer" aria-hidden="true" />
       )}
       <span className="tree-folder-icon" aria-hidden="true">
-        {item.depth === 0 ? (
-          <Rows3 size={15} />
-        ) : isExpanded ? (
+        {isExpanded ? (
           <FolderOpen size={15} />
         ) : (
           <Folder size={15} />
@@ -262,6 +395,34 @@ function FolderTreeRow({
       <small className="tree-count">{item.assetCount}</small>
     </div>
   );
+}
+
+function FolderSortIcon({ sortMode }: { sortMode: FolderSortMode }) {
+  switch (sortMode) {
+    case "name-desc":
+      return <ArrowUpAZ />;
+    case "items-desc":
+      return <ArrowDownWideNarrow />;
+    case "items-asc":
+      return <ArrowUpNarrowWide />;
+    case "name-asc":
+    default:
+      return <ArrowDownAZ />;
+  }
+}
+
+function folderSortLabel(sortMode: FolderSortMode): string {
+  switch (sortMode) {
+    case "name-desc":
+      return "Z–A";
+    case "items-desc":
+      return "Most";
+    case "items-asc":
+      return "Fewest";
+    case "name-asc":
+    default:
+      return "A–Z";
+  }
 }
 
 function scanLabel(state: FolderScanState): string {
@@ -278,4 +439,20 @@ function scanLabel(state: FolderScanState): string {
     default:
       return "";
   }
+}
+
+function scanProgressLabel(
+  state: FolderScanState,
+  progress: ScanProgress | null
+): string {
+  if (state === "starting" || progress?.phase === "discovering") {
+    return "Preparing scan";
+  }
+  if (progress?.phase === "finalizing") {
+    return "Finishing scan";
+  }
+  if (progress?.total !== null && progress?.total !== undefined) {
+    return `Scanning ${progress.processed} of ${progress.total}`;
+  }
+  return scanLabel(state);
 }

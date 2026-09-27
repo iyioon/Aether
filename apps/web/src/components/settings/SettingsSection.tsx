@@ -1,5 +1,12 @@
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle
+} from "../ui/card";
 
 export function SettingsSection({
   children,
@@ -13,17 +20,17 @@ export function SettingsSection({
   value: string;
 }) {
   return (
-    <section className="settings-card">
-      <div className="settings-card-header">
-        <span className="settings-card-icon" aria-hidden="true">
-          <Icon size={17} />
-        </span>
-        <div>
-          <h2>{title}</h2>
-          <p>{value}</p>
+    <Card className="settings-card">
+      <CardHeader>
+        <div className="flex items-start gap-3">
+          <Icon className="mt-0.5 size-5 text-muted-foreground" />
+          <div>
+            <CardTitle>{title}</CardTitle>
+            <CardDescription>{value}</CardDescription>
+          </div>
         </div>
-      </div>
-      <div className="settings-card-body">{children}</div>
-    </section>
+      </CardHeader>
+      <CardContent className="grid gap-6">{children}</CardContent>
+    </Card>
   );
 }

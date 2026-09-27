@@ -4,6 +4,7 @@ import type { AssetRecord } from "../../api/client";
 import { mediaUrl, thumbnailUrl, videoPreviewUrl } from "./media-urls";
 
 const ANIMATED_IMAGE_EXTENSIONS = new Set([".gif", ".webp", ".avif", ".apng"]);
+type VideoPosterStatus = "loading" | "ready" | "error";
 
 interface MediaPreviewProps {
   asset: AssetRecord;
@@ -36,8 +37,15 @@ export function MediaPreview({
   const [hasError, setHasError] = useState(false);
   const [animatedImageFailed, setAnimatedImageFailed] = useState(false);
   const [videoPreviewFailed, setVideoPreviewFailed] = useState(false);
+  const [videoPlaybackFailed, setVideoPlaybackFailed] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
   const [isVideoReady, setIsVideoReady] = useState(false);
+  const [videoPosterStatus, setVideoPosterStatus] =
+    useState<VideoPosterStatus>("loading");
+  const [loadedImageSource, setLoadedImageSource] = useState<string | null>(
+    null
+  );
+  const posterSource = thumbnailUrl(asset.id);
   const videoSource =
     asset.mediaType === "video"
       ? videoPreviewFailed
@@ -89,8 +97,11 @@ export function MediaPreview({
     setHasError(false);
     setAnimatedImageFailed(false);
     setVideoPreviewFailed(false);
+    setVideoPlaybackFailed(false);
     setIsVisible(false);
     setIsVideoReady(false);
+    setVideoPosterStatus("loading");
+    setLoadedImageSource(null);
   }, [asset.id, isAnimatedImage, tall]);
 
   useEffect(() => {
@@ -183,7 +194,12 @@ export function MediaPreview({
     }
   }, [asset.mediaType, shouldLoadVideo]);
 
-  if (hasError) {
+  if (
+    hasError ||
+    (asset.mediaType === "video" &&
+      videoPlaybackFailed &&
+      videoPosterStatus === "error")
+  ) {
     return (
       <div className={tall ? "media-placeholder tall" : "media-placeholder"}>
         {asset.mediaType === "video" ? <Video size={30} /> : <Image size={30} />}
@@ -196,36 +212,49 @@ export function MediaPreview({
       isAnimatedImage && isVisible && !animatedImageFailed
         ? mediaUrl(asset.id)
         : thumbnailUrl(asset.id);
+    const isImageReady = loadedImageSource === previewSource;
 
     return (
-      <img
-        ref={imageRef}
-        className={tall ? "media-image tall" : "media-image"}
-        src={previewSource}
-        alt={asset.name}
-        data-preview-source={
-          isAnimatedImage && isVisible && !animatedImageFailed
-            ? "original"
-            : "thumbnail"
-        }
-        loading={isAnimatedImage && isVisible ? "eager" : "lazy"}
-        decoding="async"
-        onLoad={(event) => {
-          onDimensionsKnown?.(
-            asset.id,
-            event.currentTarget.naturalWidth,
-            event.currentTarget.naturalHeight
-          );
-        }}
-        onError={() => {
-          if (isAnimatedImage && isVisible && !animatedImageFailed) {
-            setAnimatedImageFailed(true);
-            return;
+      <span
+        className={[
+          "media-image-shell",
+          tall ? "tall" : "",
+          isImageReady ? "ready" : ""
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
+        <span className="media-image-loading" aria-hidden="true" />
+        <img
+          ref={imageRef}
+          className={tall ? "media-image tall" : "media-image"}
+          src={previewSource}
+          alt={asset.name}
+          data-preview-source={
+            isAnimatedImage && isVisible && !animatedImageFailed
+              ? "original"
+              : "thumbnail"
           }
+          loading={isAnimatedImage && isVisible ? "eager" : "lazy"}
+          decoding="async"
+          onLoad={(event) => {
+            setLoadedImageSource(previewSource);
+            onDimensionsKnown?.(
+              asset.id,
+              event.currentTarget.naturalWidth,
+              event.currentTarget.naturalHeight
+            );
+          }}
+          onError={() => {
+            if (isAnimatedImage && isVisible && !animatedImageFailed) {
+              setAnimatedImageFailed(true);
+              return;
+            }
 
-          setHasError(true);
-        }}
-      />
+            setHasError(true);
+          }}
+        />
+      </span>
     );
   }
 
@@ -234,24 +263,29 @@ export function MediaPreview({
       className={[
         "media-video-shell",
         tall ? "tall" : "",
-        isVideoReady ? "ready" : ""
+        videoPosterStatus === "ready" ? "poster-ready" : "",
+        videoPosterStatus === "error" ? "poster-error" : "",
+        isVideoReady && videoPosterStatus !== "loading" ? "ready" : ""
       ]
         .filter(Boolean)
         .join(" ")}
     >
+      <span className="media-video-loading" aria-hidden="true" />
       <img
         className="media-video-poster"
-        src={thumbnailUrl(asset.id)}
+        src={posterSource}
         alt=""
         aria-hidden="true"
         loading={preloadPreview ? "eager" : "lazy"}
         decoding="async"
+        onLoad={() => setVideoPosterStatus("ready")}
+        onError={() => setVideoPosterStatus("error")}
       />
       <video
         ref={videoRef}
         className={tall ? "media-video tall" : "media-video"}
         src={shouldLoadVideo ? videoSource : undefined}
-        poster={thumbnailUrl(asset.id)}
+        poster={posterSource}
         data-preview-source={
           shouldLoadVideo
             ? videoPreviewFailed
@@ -265,6 +299,7 @@ export function MediaPreview({
         preload={
           shouldLoadVideo ? (preloadPreview ? "auto" : "metadata") : "none"
         }
+        onLoadStart={() => setIsVideoReady(false)}
         onLoadedMetadata={(event) => {
           onDimensionsKnown?.(
             asset.id,
@@ -294,7 +329,7 @@ export function MediaPreview({
             return;
           }
 
-          setHasError(true);
+          setVideoPlaybackFailed(true);
         }}
       />
     </span>

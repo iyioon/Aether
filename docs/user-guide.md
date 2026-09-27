@@ -21,19 +21,19 @@ The feed view shows one item at a time in a vertical scroll flow. It uses the sa
 
 Click a gallery item to open the fullscreen viewer. Use the previous and next controls to move through the current filtered collection. Videos support seeking when the browser and source format support it.
 
-In feed view, clicking the media hides or shows the browsing chrome. Use the expand control for the fullscreen viewer, and the info control for ratings, favorites, and tags.
+In feed view, clicking the media hides or shows the browsing chrome. Use the expand control for the fullscreen viewer, and the info control for scores, favorites, and tags.
 
-## Ratings, Favorites, And Tags
+## Scores, Favorites, And Tags
 
-Aether uses a 0-10 rating scale. You can rate or clear ratings from gallery cards, the feed information drawer, and the fullscreen viewer.
+Aether stores a non-negative media score with no upper limit. On a gallery card, use the up-arrow button to increase its score. Hover or focus the score control to reveal the decrement action; reducing a score from one clears it back to zero.
 
-Favorites are stored separately from rating. Use them for quick filtering regardless of score.
+Favorites are stored separately from score. Use them for quick filtering regardless of score.
 
 Tags are normalized for matching while preserving a readable display value. Suggestions come from existing tags, filenames, folders, and optionally local vision suggestions when configured.
 
 ## Batch Editing
 
-Select multiple gallery items to apply the same rating, favorite state, or tag operation. Batch changes are transactional on the server: if the request fails validation, no partial annotation write is kept.
+Select multiple gallery items to apply the same score, favorite state, or tag operation. Batch changes are transactional on the server: if the request fails validation, no partial annotation write is kept.
 
 ## Search
 

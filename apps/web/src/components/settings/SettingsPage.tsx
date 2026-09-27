@@ -1,153 +1,129 @@
-import { ArrowLeft, RefreshCw } from "lucide-react";
-import type {
-  MediaTypeFilter,
-  RatingFilter,
-  SettingsSummary,
-  SortDirection,
-  SortMode
-} from "../../api/client";
-import type { AspectMode, GridSize, ViewMode } from "../library-state";
-import type { GalleryMetadataField } from "../gallery/gallery-metadata";
-import { IconButton } from "../ui/IconButton";
+import { Palette, RefreshCw, ServerCog } from "lucide-react";
+import type { SettingsSummary } from "../../api/client";
+import { Button } from "../ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { AppearanceSettingsSection } from "./AppearanceSettingsSection";
-import { BrowsingSettingsSection } from "./BrowsingSettingsSection";
-import { FilterSettingsSection } from "./FilterSettingsSection";
-import { LayoutSettingsSection } from "./LayoutSettingsSection";
 import {
   AiSettingsSection,
-  RuntimeSettingsSection,
   SecuritySettingsSection,
   ServerStatusSettingsSection
 } from "./ServerSettingsSections";
 import type {
   AppearanceAccent,
-  AppearanceAccentOption
+  AppearanceAccentOption,
+  AppearanceTheme,
+  AppearanceThemeOption
 } from "./useAppearanceSettings";
 
 interface SettingsPageProps {
   accent: AppearanceAccent;
   accentOptions: AppearanceAccentOption[];
-  aspect: AspectMode;
-  galleryMetadataFields: ReadonlySet<GalleryMetadataField>;
-  gridSize: GridSize;
+  customAccent: string;
   isLoading: boolean;
-  mediaType: MediaTypeFilter;
-  ratingFilter: RatingFilter;
   settings: SettingsSummary | null;
   settingsError: string | null;
-  sort: SortMode;
-  sortDirection: SortDirection;
-  sortSummary: string;
-  view: ViewMode;
-  onBack: () => void;
-  onClearGalleryMetadataFields: () => void;
+  theme: AppearanceTheme;
+  themeOptions: AppearanceThemeOption[];
   onRefreshSettings: () => void;
-  onResetGalleryMetadataFields: () => void;
   onSetAccent: (accent: AppearanceAccent) => void;
-  onSetAspect: (aspect: AspectMode) => void;
-  onSetGridSize: (gridSize: GridSize) => void;
-  onSetMediaType: (mediaType: MediaTypeFilter) => void;
-  onSetRatingFilter: (ratingFilter: RatingFilter) => void;
-  onSetSort: (sort: SortMode) => void;
-  onSetSortDirection: (sortDirection: SortDirection) => void;
-  onSetView: (view: ViewMode) => void;
-  onToggleGalleryMetadataField: (field: GalleryMetadataField) => void;
+  onSetCustomAccent: (color: string) => void;
+  onSetTheme: (theme: AppearanceTheme) => void;
 }
 
 export function SettingsPage({
   accent,
   accentOptions,
-  aspect,
-  galleryMetadataFields,
-  gridSize,
+  customAccent,
   isLoading,
-  mediaType,
-  ratingFilter,
   settings,
   settingsError,
-  sort,
-  sortDirection,
-  sortSummary,
-  view,
-  onBack,
-  onClearGalleryMetadataFields,
+  theme,
+  themeOptions,
   onRefreshSettings,
-  onResetGalleryMetadataFields,
   onSetAccent,
-  onSetAspect,
-  onSetGridSize,
-  onSetMediaType,
-  onSetRatingFilter,
-  onSetSort,
-  onSetSortDirection,
-  onSetView,
-  onToggleGalleryMetadataField
+  onSetCustomAccent,
+  onSetTheme
 }: SettingsPageProps) {
   return (
     <section className="settings-page" aria-label="Settings">
-      <div className="settings-header">
-        <IconButton
-          className="settings-back"
-          icon={ArrowLeft}
-          label="Back to library"
-          onClick={onBack}
-        />
-        <div className="settings-heading">
-          <h1>Settings</h1>
-          <p>Library preferences and server configuration</p>
-        </div>
-        <button
-          className="settings-refresh ghost-action"
-          type="button"
-          onClick={onRefreshSettings}
-          disabled={isLoading}
-        >
-          <RefreshCw size={16} />
-          <span>{isLoading ? "Refreshing" : "Refresh"}</span>
-        </button>
-      </div>
+      <div className="settings-shell">
+        <header className="settings-header">
+          <div className="settings-heading">
+            <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+              Settings
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Personalize Aether and inspect its server configuration.
+            </p>
+          </div>
+        </header>
 
-      {settingsError ? (
-        <div className="settings-error" role="alert">
-          {settingsError}
-        </div>
-      ) : null}
+        <Tabs defaultValue="appearance">
+          <TabsList className="settings-tabs-list grid w-full grid-cols-2">
+            <TabsTrigger value="appearance">
+              <Palette />
+              Appearance
+            </TabsTrigger>
+            <TabsTrigger value="server">
+              <ServerCog />
+              Server
+            </TabsTrigger>
+          </TabsList>
 
-      <div className="settings-grid">
-        <AppearanceSettingsSection
-          accent={accent}
-          accentOptions={accentOptions}
-          onSetAccent={onSetAccent}
-        />
-        <BrowsingSettingsSection
-          sort={sort}
-          sortDirection={sortDirection}
-          sortSummary={sortSummary}
-          view={view}
-          onSetSort={onSetSort}
-          onSetSortDirection={onSetSortDirection}
-          onSetView={onSetView}
-        />
-        <LayoutSettingsSection
-          aspect={aspect}
-          galleryMetadataFields={galleryMetadataFields}
-          gridSize={gridSize}
-          onClearGalleryMetadataFields={onClearGalleryMetadataFields}
-          onResetGalleryMetadataFields={onResetGalleryMetadataFields}
-          onSetAspect={onSetAspect}
-          onSetGridSize={onSetGridSize}
-          onToggleGalleryMetadataField={onToggleGalleryMetadataField}
-        />
-        <FilterSettingsSection
-          mediaType={mediaType}
-          ratingFilter={ratingFilter}
-          onSetMediaType={onSetMediaType}
-          onSetRatingFilter={onSetRatingFilter}
-        />
-        <SecuritySettingsSection settings={settings} />
-        <ServerStatusSettingsSection settings={settings} />
-        <AiSettingsSection settings={settings} />
-        <RuntimeSettingsSection />
+          <TabsContent className="settings-tab-panel" value="appearance">
+            <div className="settings-tab-intro">
+              <p className="text-sm text-muted-foreground">
+                Theme and accent preferences are saved in this browser.
+              </p>
+            </div>
+            <div className="settings-grid settings-grid-single">
+              <AppearanceSettingsSection
+                accent={accent}
+                accentOptions={accentOptions}
+                customAccent={customAccent}
+                onSetAccent={onSetAccent}
+                onSetCustomAccent={onSetCustomAccent}
+                onSetTheme={onSetTheme}
+                theme={theme}
+                themeOptions={themeOptions}
+              />
+            </div>
+          </TabsContent>
+
+          <TabsContent className="settings-tab-panel" value="server">
+            <div className="settings-tab-intro">
+              <p className="text-sm text-muted-foreground">
+                Read-only values reported by the running Aether server.
+              </p>
+              <Button
+                disabled={isLoading}
+                size="sm"
+                type="button"
+                variant="outline"
+                onClick={onRefreshSettings}
+              >
+                <RefreshCw className={isLoading ? "animate-spin" : undefined} />
+                {isLoading ? "Refreshing" : "Refresh"}
+              </Button>
+            </div>
+
+            {settingsError ? (
+              <div className="settings-error text-sm text-destructive" role="alert">
+                {settingsError}
+              </div>
+            ) : null}
+
+            <div className="settings-grid">
+              <SecuritySettingsSection settings={settings} />
+              <ServerStatusSettingsSection settings={settings} />
+              <AiSettingsSection settings={settings} />
+            </div>
+
+            <p className="settings-runtime-note text-sm text-muted-foreground">
+              Change server settings through environment variables, then restart Aether.
+            </p>
+          </TabsContent>
+        </Tabs>
       </div>
     </section>
   );

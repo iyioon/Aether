@@ -16,7 +16,7 @@ import type {
   SortMode
 } from "../../api/client";
 
-export type ControlMenuId = "sort" | "layout" | "filters" | "actions";
+export type ControlMenuId = "sort" | "layout" | "filters";
 
 export const sortOptions: Array<{ label: string; value: SortMode }> = [
   { label: "Date", value: "date" },

@@ -32,6 +32,14 @@ export interface ScanJobSummary {
   status: "running" | "completed" | "failed";
 }
 
+export interface ScanProgress {
+  phase: "discovering" | "scanning" | "finalizing";
+  processed: number;
+  total: number | null;
+  percent: number | null;
+  currentPath: string | null;
+}
+
 export interface StartScanOptions {
   queueIfRunning?: boolean;
 }
@@ -43,6 +51,24 @@ interface ScanCounters {
   errors: number;
   removedAssets: number;
   removedFolders: number;
+}
+
+interface DiscoveredEntry {
+  name: string;
+  relativePath: string;
+  kind: "directory" | "file" | "symlink" | "other";
+  hidden: boolean;
+  child: DiscoveredDirectory | null;
+}
+
+interface DiscoveredDirectory {
+  entries: DiscoveredEntry[];
+  readFailed: boolean;
+}
+
+interface DiscoveredRoot {
+  root: MediaRootConfig;
+  directory: DiscoveredDirectory;
 }
 
 interface JobRow {
@@ -61,6 +87,7 @@ export class LibraryScanner {
   private running: Promise<ScanResult> | null = null;
   private runningJobId: string | null = null;
   private rerunRequested = false;
+  private progress: ScanProgress | null = null;
 
   constructor(
     private readonly db: AetherDatabase,
@@ -93,7 +120,10 @@ export class LibraryScanner {
       .run(jobId, now, now);
 
     this.runningJobId = jobId;
-    this.running = scanLibrary(this.db, this.roots)
+    this.progress = createScanProgress("discovering");
+    this.running = scanLibrary(this.db, this.roots, (progress) => {
+      this.progress = progress;
+    })
       .then((result) => {
         this.db
           .prepare(
@@ -119,6 +149,7 @@ export class LibraryScanner {
         const shouldRerun = this.rerunRequested;
         this.running = null;
         this.runningJobId = null;
+        this.progress = null;
         this.rerunRequested = false;
 
         if (shouldRerun) {
@@ -134,8 +165,8 @@ export class LibraryScanner {
     };
   }
 
-  listJobs(limit = 10): JobRow[] {
-    return this.db
+  listJobs(limit = 10): Array<JobRow & { progress: ScanProgress | null }> {
+    const jobs = this.db
       .prepare(
         `SELECT id, type, status, priority, attempts, error, result, created_at, updated_at
          FROM jobs
@@ -144,12 +175,18 @@ export class LibraryScanner {
          LIMIT ?`
       )
       .all(limit) as JobRow[];
+
+    return jobs.map((job) => ({
+      ...job,
+      progress: job.id === this.runningJobId ? this.progress : null
+    }));
   }
 }
 
 export async function scanLibrary(
   db: AetherDatabase,
-  roots: MediaRootConfig[]
+  roots: MediaRootConfig[],
+  onProgress?: (progress: ScanProgress) => void
 ): Promise<ScanResult> {
   const startedAt = new Date().toISOString();
   const counters: ScanCounters = {
@@ -163,14 +200,62 @@ export async function scanLibrary(
 
   syncConfiguredRoots(db, roots, startedAt);
 
+  onProgress?.(createScanProgress("discovering"));
+  const discoveredRoots: DiscoveredRoot[] = [];
+  let totalEntries = 0;
   for (const root of roots) {
+    const directory = await discoverDirectory(root.realPath, "");
+    discoveredRoots.push({ root, directory });
+    totalEntries += countDiscoveredEntries(directory);
+  }
+
+  let processedEntries = 0;
+  onProgress?.({
+    phase: "scanning",
+    processed: 0,
+    total: totalEntries,
+    percent: totalEntries === 0 ? 100 : 0,
+    currentPath: null
+  });
+
+  const reportEntryProcessed = (currentPath: string) => {
+    processedEntries += 1;
+    onProgress?.({
+      phase: "scanning",
+      processed: processedEntries,
+      total: totalEntries,
+      percent:
+        totalEntries === 0
+          ? 100
+          : Math.min(99, Math.round((processedEntries / totalEntries) * 100)),
+      currentPath
+    });
+  };
+
+  for (const { root, directory } of discoveredRoots) {
     const rootFolderId = folderIdFor(root.id, "");
-    await scanDirectory(db, root, "", rootFolderId, startedAt, counters);
+    await scanDiscoveredDirectory(
+      db,
+      root,
+      directory,
+      rootFolderId,
+      startedAt,
+      counters,
+      reportEntryProcessed
+    );
     const removed = removeUnseenRootEntries(db, root.id, startedAt);
     counters.removedAssets += removed.removedAssets;
     counters.removedFolders += removed.removedFolders;
     refreshFolderAssetCounts(db, root.id);
   }
+
+  onProgress?.({
+    phase: "finalizing",
+    processed: processedEntries,
+    total: totalEntries,
+    percent: 100,
+    currentPath: null
+  });
 
   return {
     roots: roots.length,
@@ -180,38 +265,35 @@ export async function scanLibrary(
   };
 }
 
-async function scanDirectory(
+async function scanDiscoveredDirectory(
   db: AetherDatabase,
   root: MediaRootConfig,
-  relativeDirectory: string,
+  directory: DiscoveredDirectory,
   folderId: string,
   seenAt: string,
-  counters: ScanCounters
+  counters: ScanCounters,
+  onEntryProcessed?: (currentPath: string) => void
 ): Promise<void> {
-  const absoluteDirectory = path.join(root.realPath, relativeDirectory);
-  const entries = await readdir(absoluteDirectory, { withFileTypes: true }).catch(
-    () => {
-      counters.errors += 1;
-      return [];
-    }
-  );
+  if (directory.readFailed) {
+    counters.errors += 1;
+  }
 
-  entries.sort((left, right) => left.name.localeCompare(right.name));
+  for (const entry of directory.entries) {
+    const { relativePath } = entry;
 
-  for (const entry of entries) {
-    if (entry.name.startsWith(".")) {
+    if (entry.hidden) {
       counters.skipped += 1;
+      onEntryProcessed?.(relativePath);
       continue;
     }
 
-    if (entry.isSymbolicLink()) {
+    if (entry.kind === "symlink") {
       counters.skipped += 1;
+      onEntryProcessed?.(relativePath);
       continue;
     }
 
-    const relativePath = toRelativeMediaPath(relativeDirectory, entry.name);
-
-    if (entry.isDirectory()) {
+    if (entry.kind === "directory") {
       const childFolderId = upsertFolder(db, {
         rootId: root.id,
         parentId: folderId,
@@ -220,12 +302,22 @@ async function scanDirectory(
         seenAt
       });
       counters.folders += 1;
-      await scanDirectory(db, root, relativePath, childFolderId, seenAt, counters);
+      onEntryProcessed?.(relativePath);
+      await scanDiscoveredDirectory(
+        db,
+        root,
+        entry.child ?? { entries: [], readFailed: true },
+        childFolderId,
+        seenAt,
+        counters,
+        onEntryProcessed
+      );
       continue;
     }
 
-    if (!entry.isFile()) {
+    if (entry.kind !== "file") {
       counters.skipped += 1;
+      onEntryProcessed?.(relativePath);
       continue;
     }
 
@@ -234,6 +326,7 @@ async function scanDirectory(
 
     if (!mediaInfo) {
       counters.skipped += 1;
+      onEntryProcessed?.(relativePath);
       continue;
     }
 
@@ -242,6 +335,7 @@ async function scanDirectory(
 
     if (!fileStat?.isFile()) {
       counters.errors += 1;
+      onEntryProcessed?.(relativePath);
       continue;
     }
 
@@ -268,7 +362,73 @@ async function scanDirectory(
     }
 
     counters.assets += 1;
+    onEntryProcessed?.(relativePath);
   }
+}
+
+async function discoverDirectory(
+  absoluteDirectory: string,
+  relativeDirectory: string
+): Promise<DiscoveredDirectory> {
+  const entries = await readdir(absoluteDirectory, { withFileTypes: true }).catch(
+    () => null
+  );
+
+  if (!entries) {
+    return { entries: [], readFailed: true };
+  }
+
+  entries.sort((left, right) => left.name.localeCompare(right.name));
+  const discoveredEntries: DiscoveredEntry[] = [];
+
+  for (const entry of entries) {
+    const relativePath = toRelativeMediaPath(relativeDirectory, entry.name);
+    const hidden = entry.name.startsWith(".");
+    const kind = entry.isSymbolicLink()
+      ? "symlink"
+      : entry.isDirectory()
+        ? "directory"
+        : entry.isFile()
+          ? "file"
+          : "other";
+    const child =
+      kind === "directory" && !hidden
+        ? await discoverDirectory(
+            path.join(absoluteDirectory, entry.name),
+            relativePath
+          )
+        : null;
+
+    discoveredEntries.push({
+      name: entry.name,
+      relativePath,
+      kind,
+      hidden,
+      child
+    });
+  }
+
+  return { entries: discoveredEntries, readFailed: false };
+}
+
+function countDiscoveredEntries(directory: DiscoveredDirectory): number {
+  return directory.entries.reduce(
+    (count, entry) =>
+      count + 1 + (entry.child ? countDiscoveredEntries(entry.child) : 0),
+    0
+  );
+}
+
+function createScanProgress(
+  phase: ScanProgress["phase"]
+): ScanProgress {
+  return {
+    phase,
+    processed: 0,
+    total: null,
+    percent: null,
+    currentPath: null
+  };
 }
 
 async function readImageDimensions(

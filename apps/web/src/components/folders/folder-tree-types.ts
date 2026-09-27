@@ -5,6 +5,12 @@ export type FolderScanState =
   | "completed"
   | "failed";
 
+export type FolderSortMode =
+  | "name-asc"
+  | "name-desc"
+  | "items-desc"
+  | "items-asc";
+
 export interface FolderTreeItem {
   id: string;
   parentId: string | null;

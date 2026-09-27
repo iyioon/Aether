@@ -1,5 +1,7 @@
-import { Check, Rows3 } from "lucide-react";
+import { Rows3 } from "lucide-react";
 import type { SortDirection, SortMode } from "../../api/client";
+import { Label } from "../ui/label";
+import { RadioGroup, RadioGroupItem } from "../ui/radio-group";
 import { ToolbarMenu } from "./ToolbarMenu";
 import { sortDirectionOptions, sortOptions } from "./library-control-options";
 
@@ -33,72 +35,50 @@ export function SortControlMenu({
       valueLabel={sortSummary}
       onOpenChange={onOpenChange}
     >
-      <div className="menu-section">
-        <div className="menu-section-title">Sort by</div>
-        <div
-          className="menu-option-list"
-          role="radiogroup"
+      <div className="mt-4 grid gap-3">
+        <Label>Sort by</Label>
+        <RadioGroup
+          className="gap-3"
           aria-label="Sort by"
+          value={sort}
+          onValueChange={(value) => onSetSort(value as SortMode)}
         >
           {sortOptions.map((option) => (
-            <button
-              className={sort === option.value ? "menu-option active" : "menu-option"}
-              type="button"
-              key={option.value}
-              role="radio"
-              aria-checked={sort === option.value}
-              onClick={() => onSetSort(option.value)}
-            >
-              <span>{option.label}</span>
-              <span className="menu-check" aria-hidden="true">
-                {sort === option.value ? <Check size={13} /> : null}
-              </span>
-            </button>
+            <div className="flex items-center gap-3" key={option.value}>
+              <RadioGroupItem id={`sort-${option.value}`} value={option.value} />
+              <Label htmlFor={`sort-${option.value}`}>{option.label}</Label>
+            </div>
           ))}
-        </div>
+        </RadioGroup>
       </div>
 
       {sort !== "random" ? (
-        <div className="menu-section">
-          <div className="menu-section-heading">
-            <div className="menu-section-title">Direction</div>
-            <small>{sortLabel}</small>
+        <div className="mt-5 grid gap-3 border-t pt-4">
+          <div className="flex items-center justify-between gap-3">
+            <Label>Direction</Label>
+            <small className="text-muted-foreground">{sortLabel}</small>
           </div>
-          <div
-            className="menu-choice-grid sort-direction-choice-grid"
-            role="radiogroup"
+          <RadioGroup
+            className="gap-3"
             aria-label="Sort direction"
+            value={sortDirection}
+            onValueChange={(value) =>
+              onSetSortDirection(value as SortDirection)
+            }
           >
             {sortDirectionOptions.map((option) => {
               const Icon = option.icon;
-              const isActive = sortDirection === option.value;
-
               return (
-                <button
-                  className={
-                    isActive
-                      ? "menu-choice menu-choice-with-icon active"
-                      : "menu-choice menu-choice-with-icon"
-                  }
-                  type="button"
-                  key={option.value}
-                  role="radio"
-                  aria-checked={isActive}
-                  onClick={() => onSetSortDirection(option.value)}
-                >
-                  <span className="menu-choice-leading">
-                    <span className="menu-choice-icon" aria-hidden="true">
-                      <Icon size={14} />
-                    </span>
-                    <span>{option.label}</span>
-                  </span>
-                  <span className="menu-check" aria-hidden="true">
-                    {isActive ? <Check size={13} /> : null}
-                  </span>
-                </button>
+                <div className="flex items-center gap-3" key={option.value}>
+                  <RadioGroupItem id={`direction-${option.value}`} value={option.value} />
+                  <Label className="flex items-center gap-2" htmlFor={`direction-${option.value}`}>
+                    <Icon className="size-4" />
+                    {option.label}
+                  </Label>
+                </div>
               );
             })}
-          </div>
+          </RadioGroup>
         </div>
       ) : null}
     </ToolbarMenu>

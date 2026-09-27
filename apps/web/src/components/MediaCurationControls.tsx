@@ -73,11 +73,7 @@ export function MediaFavoriteButton({
 }: MediaFavoriteButtonProps) {
   return (
     <Button
-      className={
-        favorite
-          ? "size-7 text-destructive hover:text-destructive [&_svg]:fill-current"
-          : "size-7"
-      }
+      className="favorite-button size-7"
       type="button"
       size="icon-xs"
       variant="ghost"

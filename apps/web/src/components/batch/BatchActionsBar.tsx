@@ -248,11 +248,7 @@ export function BatchActionsBar({
                     </Button>
                   </div>
                   <Button
-                    className={
-                      batchFavoriteValue
-                        ? "text-destructive hover:text-destructive [&_svg]:fill-current"
-                        : ""
-                    }
+                    className="favorite-button"
                     type="button"
                     size="icon-sm"
                     variant="ghost"

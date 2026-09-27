@@ -183,3 +183,19 @@ button:disabled {
   border-color: rgba(var(--aether-accent-rgb), 0.56);
   background: rgba(var(--aether-accent-rgb), 0.32);
 }
+
+:root .aether-button.favorite-button[aria-pressed="true"] {
+  color: var(--destructive);
+  border-color: rgba(var(--aether-destructive-rgb), 0.38);
+  background: rgba(var(--aether-destructive-rgb), 0.12);
+}
+
+:root .aether-button.favorite-button[aria-pressed="true"]:hover:not(:disabled) {
+  color: var(--destructive);
+  border-color: rgba(var(--aether-destructive-rgb), 0.52);
+  background: rgba(var(--aether-destructive-rgb), 0.18);
+}
+
+:root .aether-button.favorite-button[aria-pressed="true"] svg {
+  fill: currentColor;
+}

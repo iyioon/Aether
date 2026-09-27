@@ -1,4 +1,5 @@
 import { ChevronDown, ChevronUp } from "lucide-react";
+import { IconButton } from "../IconButton";
 
 interface FeedNavRailProps {
   activeIndex: number;
@@ -17,26 +18,26 @@ export function FeedNavRail({
 }: FeedNavRailProps) {
   return (
     <div className="feed-nav-rail" aria-label="Feed navigation">
-      <button
-        className="feed-nav-button"
-        type="button"
-        aria-label="Previous feed item"
+      <IconButton
+        className="media-overlay-button feed-nav-button"
+        icon={ChevronUp}
+        iconSize={18}
+        label="Previous feed item"
+        size="icon-lg"
         title="Previous"
         disabled={activeIndex <= 0}
         onClick={onPrevious}
-      >
-        <ChevronUp size={20} />
-      </button>
-      <button
-        className="feed-nav-button"
-        type="button"
-        aria-label="Next feed item"
+      />
+      <IconButton
+        className="media-overlay-button feed-nav-button"
+        icon={ChevronDown}
+        iconSize={18}
+        label="Next feed item"
+        size="icon-lg"
         title="Next"
         disabled={activeIndex >= assetCount - 1 && !hasMore}
         onClick={onNext}
-      >
-        <ChevronDown size={20} />
-      </button>
+      />
     </div>
   );
 }

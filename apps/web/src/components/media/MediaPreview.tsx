@@ -4,6 +4,7 @@ import type { AssetRecord } from "../../api/client";
 import { mediaUrl, thumbnailUrl, videoPreviewUrl } from "./media-urls";
 
 const ANIMATED_IMAGE_EXTENSIONS = new Set([".gif", ".webp", ".avif", ".apng"]);
+const VIDEO_HOLD_DELAY_MS = 320;
 type VideoPosterStatus = "loading" | "ready" | "error";
 
 interface MediaPreviewProps {
@@ -14,9 +15,13 @@ interface MediaPreviewProps {
   onAudibleAutoplayBlocked?: () => void;
   onAudiblePlaybackStarted?: () => void;
   onDimensionsKnown?: (assetId: string, width: number, height: number) => void;
+  onVideoPress?: () => void;
   playbackPaused?: boolean;
   preloadPreview?: boolean;
+  showVideoTimeline?: boolean;
   tall?: boolean;
+  useOriginalImage?: boolean;
+  useOriginalVideo?: boolean;
 }
 
 export function MediaPreview({
@@ -27,19 +32,30 @@ export function MediaPreview({
   onAudibleAutoplayBlocked,
   onAudiblePlaybackStarted,
   onDimensionsKnown,
+  onVideoPress,
   playbackPaused = false,
   preloadPreview = false,
-  tall = false
+  showVideoTimeline = false,
+  tall = false,
+  useOriginalImage = false,
+  useOriginalVideo = false
 }: MediaPreviewProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
+  const holdTimerRef = useRef<number | null>(null);
+  const holdTriggeredRef = useRef(false);
   const isAnimatedImage = isAnimatedImagePreview(asset);
   const [hasError, setHasError] = useState(false);
   const [animatedImageFailed, setAnimatedImageFailed] = useState(false);
+  const [originalImageFailed, setOriginalImageFailed] = useState(false);
+  const [originalVideoFailed, setOriginalVideoFailed] = useState(false);
   const [videoPreviewFailed, setVideoPreviewFailed] = useState(false);
   const [videoPlaybackFailed, setVideoPlaybackFailed] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
   const [isVideoReady, setIsVideoReady] = useState(false);
+  const [isVideoHoldPaused, setIsVideoHoldPaused] = useState(false);
+  const [videoCurrentTime, setVideoCurrentTime] = useState(0);
+  const [videoDuration, setVideoDuration] = useState(0);
   const [videoPosterStatus, setVideoPosterStatus] =
     useState<VideoPosterStatus>("loading");
   const [loadedImageSource, setLoadedImageSource] = useState<string | null>(
@@ -48,15 +64,28 @@ export function MediaPreview({
   const posterSource = thumbnailUrl(asset.id);
   const videoSource =
     asset.mediaType === "video"
-      ? videoPreviewFailed
-        ? mediaUrl(asset.id)
-        : videoPreviewUrl(asset.id, tall ? 720 : 480)
+      ? useOriginalVideo
+        ? originalVideoFailed
+          ? videoPreviewUrl(asset.id, tall ? 720 : 480)
+          : mediaUrl(asset.id)
+        : videoPreviewFailed
+          ? mediaUrl(asset.id)
+          : videoPreviewUrl(asset.id, tall ? 720 : 480)
       : "";
+  const isVideoPlaybackVisible =
+    isVisible || (showVideoTimeline && isActive);
   const shouldLoadVideo =
-    asset.mediaType === "video" && (isVisible || preloadPreview);
+    asset.mediaType === "video" &&
+    (isVideoPlaybackVisible || preloadPreview);
 
   const playVisibleVideo = useCallback(() => {
-    if (asset.mediaType !== "video" || !isActive || !isVisible || playbackPaused) {
+    if (
+      asset.mediaType !== "video" ||
+      !isActive ||
+      !isVideoPlaybackVisible ||
+      playbackPaused ||
+      isVideoHoldPaused
+    ) {
       return;
     }
 
@@ -86,7 +115,8 @@ export function MediaPreview({
   }, [
     asset.mediaType,
     isActive,
-    isVisible,
+    isVideoHoldPaused,
+    isVideoPlaybackVisible,
     muted,
     onAudibleAutoplayBlocked,
     onAudiblePlaybackStarted,
@@ -96,13 +126,33 @@ export function MediaPreview({
   useEffect(() => {
     setHasError(false);
     setAnimatedImageFailed(false);
+    setOriginalImageFailed(false);
+    setOriginalVideoFailed(false);
     setVideoPreviewFailed(false);
     setVideoPlaybackFailed(false);
     setIsVisible(false);
     setIsVideoReady(false);
+    setIsVideoHoldPaused(false);
+    setVideoCurrentTime(0);
+    setVideoDuration(0);
     setVideoPosterStatus("loading");
     setLoadedImageSource(null);
   }, [asset.id, isAnimatedImage, tall]);
+
+  useEffect(() => {
+    if (!isActive) {
+      setIsVideoHoldPaused(false);
+    }
+  }, [isActive]);
+
+  useEffect(
+    () => () => {
+      if (holdTimerRef.current !== null) {
+        window.clearTimeout(holdTimerRef.current);
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     if (asset.mediaType !== "video" && !isAnimatedImage) {
@@ -158,7 +208,7 @@ export function MediaPreview({
       return;
     }
 
-    if (isActive && isVisible && !playbackPaused) {
+    if (isActive && isVideoPlaybackVisible && !playbackPaused) {
       playVisibleVideo();
     } else {
       video.pause();
@@ -167,7 +217,7 @@ export function MediaPreview({
     asset.id,
     asset.mediaType,
     isActive,
-    isVisible,
+    isVideoPlaybackVisible,
     playbackPaused,
     playVisibleVideo
   ]);
@@ -179,6 +229,97 @@ export function MediaPreview({
 
     playVisibleVideo();
   }, [asset.mediaType, audiblePlaybackRequest, playVisibleVideo]);
+
+  const startVideoHold = useCallback(() => {
+    const video = videoRef.current;
+
+    if (!video) {
+      return;
+    }
+
+    holdTriggeredRef.current = false;
+    holdTimerRef.current = window.setTimeout(() => {
+      holdTimerRef.current = null;
+      holdTriggeredRef.current = true;
+      video.pause();
+      setIsVideoHoldPaused(true);
+    }, VIDEO_HOLD_DELAY_MS);
+  }, []);
+
+  const resumeVideoAfterHold = useCallback(() => {
+    const video = videoRef.current;
+
+    if (!video || !isActive || !isVideoPlaybackVisible || playbackPaused) {
+      return;
+    }
+
+    video.muted = muted;
+    video
+      .play()
+      .then(() => {
+        if (!muted && !video.muted) {
+          onAudiblePlaybackStarted?.();
+        }
+      })
+      .catch(() => {
+        if (muted) {
+          return;
+        }
+
+        video.muted = true;
+        onAudibleAutoplayBlocked?.();
+        video.play().catch(() => undefined);
+      });
+  }, [
+    isActive,
+    isVideoPlaybackVisible,
+    muted,
+    onAudibleAutoplayBlocked,
+    onAudiblePlaybackStarted,
+    playbackPaused
+  ]);
+
+  const finishVideoHold = useCallback(() => {
+    if (holdTimerRef.current !== null) {
+      window.clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+
+    if (!holdTriggeredRef.current) {
+      onVideoPress?.();
+      return;
+    }
+
+    holdTriggeredRef.current = false;
+    setIsVideoHoldPaused(false);
+    resumeVideoAfterHold();
+  }, [onVideoPress, resumeVideoAfterHold]);
+
+  const cancelVideoHold = useCallback(() => {
+    if (holdTimerRef.current !== null) {
+      window.clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+
+    if (!holdTriggeredRef.current) {
+      return;
+    }
+
+    holdTriggeredRef.current = false;
+    setIsVideoHoldPaused(false);
+    resumeVideoAfterHold();
+  }, [resumeVideoAfterHold]);
+
+  const seekVideo = useCallback((time: number) => {
+    const video = videoRef.current;
+
+    if (!video || !Number.isFinite(time)) {
+      return;
+    }
+
+    video.currentTime = time;
+    setVideoCurrentTime(time);
+  }, []);
 
   useEffect(() => {
     if (asset.mediaType !== "video" || !preloadPreview || isVisible) {
@@ -208,10 +349,11 @@ export function MediaPreview({
   }
 
   if (asset.mediaType === "image") {
+    const shouldUseOriginalImage =
+      (useOriginalImage && !originalImageFailed) ||
+      (isAnimatedImage && isVisible && !animatedImageFailed);
     const previewSource =
-      isAnimatedImage && isVisible && !animatedImageFailed
-        ? mediaUrl(asset.id)
-        : thumbnailUrl(asset.id);
+      shouldUseOriginalImage ? mediaUrl(asset.id) : thumbnailUrl(asset.id);
     const isImageReady = loadedImageSource === previewSource;
 
     return (
@@ -231,11 +373,13 @@ export function MediaPreview({
           src={previewSource}
           alt={asset.name}
           data-preview-source={
-            isAnimatedImage && isVisible && !animatedImageFailed
-              ? "original"
-              : "thumbnail"
+            shouldUseOriginalImage ? "original" : "thumbnail"
           }
-          loading={isAnimatedImage && isVisible ? "eager" : "lazy"}
+          loading={
+            (useOriginalImage && isActive) || (isAnimatedImage && isVisible)
+              ? "eager"
+              : "lazy"
+          }
           decoding="async"
           onLoad={(event) => {
             setLoadedImageSource(previewSource);
@@ -246,6 +390,11 @@ export function MediaPreview({
             );
           }}
           onError={() => {
+            if (useOriginalImage && !originalImageFailed) {
+              setOriginalImageFailed(true);
+              return;
+            }
+
             if (isAnimatedImage && isVisible && !animatedImageFailed) {
               setAnimatedImageFailed(true);
               return;
@@ -265,7 +414,7 @@ export function MediaPreview({
         tall ? "tall" : "",
         videoPosterStatus === "ready" ? "poster-ready" : "",
         videoPosterStatus === "error" ? "poster-error" : "",
-        isVideoReady && videoPosterStatus !== "loading" ? "ready" : ""
+        isVideoReady ? "ready" : ""
       ]
         .filter(Boolean)
         .join(" ")}
@@ -276,7 +425,8 @@ export function MediaPreview({
         src={posterSource}
         alt=""
         aria-hidden="true"
-        loading={preloadPreview ? "eager" : "lazy"}
+        loading={tall || preloadPreview ? "eager" : "lazy"}
+        fetchPriority={isActive ? "high" : "auto"}
         decoding="async"
         onLoad={() => setVideoPosterStatus("ready")}
         onError={() => setVideoPosterStatus("error")}
@@ -288,9 +438,13 @@ export function MediaPreview({
         poster={posterSource}
         data-preview-source={
           shouldLoadVideo
-            ? videoPreviewFailed
-              ? "original"
-              : "preview"
+            ? useOriginalVideo
+              ? originalVideoFailed
+                ? "preview-fallback"
+                : "original"
+              : videoPreviewFailed
+                ? "original"
+                : "preview"
             : "poster"
         }
         muted={muted}
@@ -301,6 +455,12 @@ export function MediaPreview({
         }
         onLoadStart={() => setIsVideoReady(false)}
         onLoadedMetadata={(event) => {
+          setVideoDuration(
+            Number.isFinite(event.currentTarget.duration)
+              ? event.currentTarget.duration
+              : 0
+          );
+          setVideoCurrentTime(event.currentTarget.currentTime);
           onDimensionsKnown?.(
             asset.id,
             event.currentTarget.videoWidth,
@@ -308,23 +468,28 @@ export function MediaPreview({
           );
         }}
         onLoadedData={() => {
-          setIsVideoReady(true);
-
-          if (isVisible && !playbackPaused) {
+          if (isVideoPlaybackVisible && !playbackPaused) {
             playVisibleVideo();
           }
         }}
         onCanPlay={() => {
-          setIsVideoReady(true);
-
-          if (isVisible && !playbackPaused) {
+          if (isVideoPlaybackVisible && !playbackPaused) {
             playVisibleVideo();
           }
+        }}
+        onPlaying={() => setIsVideoReady(true)}
+        onTimeUpdate={(event) => {
+          setVideoCurrentTime(event.currentTarget.currentTime);
         }}
         onError={() => {
           setIsVideoReady(false);
 
-          if (!videoPreviewFailed) {
+          if (useOriginalVideo && !originalVideoFailed) {
+            setOriginalVideoFailed(true);
+            return;
+          }
+
+          if (!useOriginalVideo && !videoPreviewFailed) {
             setVideoPreviewFailed(true);
             return;
           }
@@ -332,8 +497,69 @@ export function MediaPreview({
           setVideoPlaybackFailed(true);
         }}
       />
+      {showVideoTimeline ? (
+        <>
+          <button
+            className="media-video-playback-toggle"
+            type="button"
+            aria-label={`Toggle controls for ${asset.name}; press and hold to pause`}
+            onClick={(event) => {
+              event.stopPropagation();
+
+              if (event.detail === 0) {
+                onVideoPress?.();
+              }
+            }}
+            onPointerDown={(event) => {
+              event.stopPropagation();
+              event.currentTarget.setPointerCapture(event.pointerId);
+              startVideoHold();
+            }}
+            onPointerUp={(event) => {
+              event.stopPropagation();
+              finishVideoHold();
+            }}
+            onPointerCancel={cancelVideoHold}
+          />
+          <span className="media-video-progress-track" aria-hidden="true">
+            <span
+              style={{
+                width: `${
+                  videoDuration > 0
+                    ? (videoCurrentTime / videoDuration) * 100
+                    : 0
+                }%`
+              }}
+            />
+          </span>
+          <input
+            className="media-video-timeline"
+            type="range"
+            min="0"
+            max={videoDuration || 1}
+            step="0.01"
+            value={Math.min(videoCurrentTime, videoDuration || 1)}
+            aria-label={`Seek ${asset.name}`}
+            aria-valuetext={`${formatVideoTime(videoCurrentTime)} of ${formatVideoTime(videoDuration)}`}
+            onChange={(event) => seekVideo(event.currentTarget.valueAsNumber)}
+            onClick={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
+          />
+        </>
+      ) : null}
     </span>
   );
+}
+
+function formatVideoTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) {
+    return "0:00";
+  }
+
+  const roundedSeconds = Math.floor(seconds);
+  const minutes = Math.floor(roundedSeconds / 60);
+  const remainingSeconds = roundedSeconds % 60;
+  return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
 }
 
 function isAnimatedImagePreview(asset: AssetRecord): boolean {

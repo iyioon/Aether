@@ -7,19 +7,24 @@ test("supports login, scan, batch annotation, fullscreen, and feed", async ({
 }) => {
   await page.goto("/");
 
-  await expect(page.getByRole("heading", { name: "Aether" })).toBeVisible();
-  await page.getByLabel("Password").fill(password);
+  await expect(page.getByText("Aether", { exact: true })).toBeVisible();
+  await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Enter" }).click();
 
-  await expect(page.getByRole("heading", { name: "media" })).toBeVisible();
+  await expect(
+    page.getByRole("navigation", { name: "Media folders" })
+  ).toBeVisible();
   await page.getByRole("button", { name: "Scan library" }).click();
 
   await expect(page.getByText("Scan complete")).toBeVisible({
     timeout: 15_000
   });
-  await expect(page.getByText("7 items indexed")).toBeVisible({
-    timeout: 15_000
-  });
+  await expect(
+    page.getByRole("treeitem", { name: "media, 5 items" })
+  ).toBeVisible({ timeout: 15_000 });
+  await expect(
+    page.getByRole("treeitem", { name: "Trips, 2 items" })
+  ).toBeVisible();
   await page.getByRole("button", { name: "Settings" }).click();
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
   await page.getByRole("radio", { name: "Mist" }).click();
@@ -31,15 +36,13 @@ test("supports login, scan, batch annotation, fullscreen, and feed", async ({
       )
     )
     .toBe(true);
+  await page.getByRole("tab", { name: "Server" }).click();
   await expect(page.getByText("Password protected")).toBeVisible();
   await expect(page.getByText("test-session-secret")).toHaveCount(0);
-  await page.getByRole("button", { name: "Back to library" }).click();
-  await expect(page.getByRole("heading", { name: "media" })).toBeVisible();
-  const tripsFolder = page.getByRole("treeitem", { name: /Trips/ });
-  await expect(tripsFolder).toBeVisible();
-  await page.getByRole("button", { name: "Collapse all folders" }).click();
-  await expect(tripsFolder).toHaveCount(0);
-  await page.getByRole("button", { name: "Expand all folders" }).click();
+  await page.getByRole("button", { name: "Library", exact: true }).click();
+  await expect(
+    page.getByRole("navigation", { name: "Media folders" })
+  ).toBeVisible();
   await expect(page.getByRole("treeitem", { name: /Trips/ })).toBeVisible();
   const gifPreview = page.getByRole("img", { name: "loop-memory.gif" });
   await expect(gifPreview).toBeVisible();
@@ -58,53 +61,60 @@ test("supports login, scan, batch annotation, fullscreen, and feed", async ({
   await expect(avifPreview).toHaveAttribute("data-preview-source", "original");
   await expect(avifPreview).toHaveAttribute("src", /\/api\/assets\/.+\/media/);
 
-  await page.getByLabel("Select family-photo.png").check();
-  await page.getByLabel("Select beach-walk.png").check();
+  await page.getByRole("button", { name: "Select media" }).click();
+  await page.getByRole("button", { name: "Select family-photo.png" }).click();
+  await page.getByRole("button", { name: "Select beach-walk.png" }).click();
 
-  const batchActions = page.getByRole("region", {
-    name: "Selected media actions"
-  });
+  const batchActions = page.locator('[aria-label="Selected media actions"]');
   await expect(batchActions).toContainText(/2\s*items selected/);
 
-  const batchRatingSlider = page.getByRole("slider", {
-    name: "Set rating for selected media"
-  });
-  await batchRatingSlider.focus();
-  await page.keyboard.press("ArrowLeft");
-  await expect(batchActions).toContainText("2 items updated.");
+  await batchActions
+    .getByRole("button", { name: "Increase score to 1" })
+    .click();
+  await batchActions
+    .getByRole("region", { name: "Score and favorite" })
+    .getByRole("button", { name: "Apply", exact: true })
+    .click();
+  await expect(page.getByText("2 items updated.")).toBeVisible();
 
-  await page.getByPlaceholder("Tag selection").fill("Trip");
-  await page.getByRole("button", { name: "Add tag to selected media" }).click();
-  await expect(batchActions).toContainText("Trip added to 2 items.");
+  await batchActions.getByRole("textbox", { name: "Tag name" }).fill("Trip");
+  await batchActions
+    .getByRole("form", { name: "Tag selected media" })
+    .getByRole("button", { name: "Apply", exact: true })
+    .click();
+  await expect(page.getByText("Trip added to 2 items.")).toBeVisible();
 
-  await page.getByRole("button", { name: "Clear selection" }).click();
+  await batchActions.getByRole("button", { name: "Done selecting" }).click();
   await expect(batchActions).toHaveCount(0);
 
-  await page.locator(".filters-control summary").click();
-  await page.getByLabel("Find tag").fill("Trip");
+  await page.getByRole("button", { name: /^Filters:/ }).click();
+  await page.getByRole("textbox", { name: "Tags" }).fill("Trip");
   await page.keyboard.press("Enter");
-  await expect(page.getByText("2 items indexed")).toBeVisible();
+  const filteredGallery = page.getByRole("region", { name: "Gallery view" });
+  await expect(
+    filteredGallery.getByRole("img", { name: "family-photo.png" })
+  ).toBeVisible();
+  await expect(
+    filteredGallery.getByRole("img", { name: "beach-walk.png" })
+  ).toBeVisible();
+  await expect(
+    filteredGallery.getByRole("img", { name: "city-night.png" })
+  ).toHaveCount(0);
 
   await page.getByRole("img", { name: "family-photo.png" }).click();
-  const viewer = page.getByRole("dialog", {
-    exact: true,
-    name: "family-photo.png viewer"
-  });
+  const viewer = page.locator(".viewer-dialog");
   await expect(viewer).toBeVisible();
   await viewer
     .getByRole("button", { name: "Show info for family-photo.png" })
     .click();
 
-  const details = page.getByRole("dialog", {
-    exact: true,
-    name: "family-photo.png"
-  });
+  const details = page.locator(".media-info-sheet");
   await expect(details).toBeVisible();
   await details.getByRole("button", { name: "Suggest tags" }).click();
   await expect(details.getByRole("button", { name: /Family/ })).toBeVisible();
   await details.getByRole("button", { name: /Family/ }).click();
   await expect(details).toContainText("Family");
-  await details.getByRole("button", { name: "Close details" }).click();
+  await details.getByRole("button", { name: "Close" }).click();
   await expect(details).toHaveCount(0);
   await page.keyboard.press("Escape");
   await expect(viewer).toHaveCount(0);
@@ -113,6 +123,9 @@ test("supports login, scan, batch annotation, fullscreen, and feed", async ({
   const feed = page.getByRole("region", { name: "Feed view" });
   await expect(feed).toBeVisible();
   await expect(page.getByText("family-photo.png")).toBeVisible();
+  const feedImage = feed.getByRole("img", { name: "family-photo.png" });
+  await expect(feedImage).toHaveAttribute("data-preview-source", "original");
+  await expect(feedImage).toHaveAttribute("src", /\/api\/assets\/.+\/media/);
 
   const feedScroller = page.locator(".feed-view");
   await feedScroller.evaluate((element) => element.scrollTo({ top: 0 }));
@@ -142,34 +155,39 @@ test("collapses the desktop sidebar without breaking the mobile drawer", async (
 }) => {
   await page.goto("/");
 
-  await page.getByLabel("Password").fill(password);
+  await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Enter" }).click();
-  await expect(page.getByRole("heading", { name: "media" })).toBeVisible();
+  await expect(
+    page.getByRole("navigation", { name: "Media folders" })
+  ).toBeVisible();
 
-  await page.getByRole("button", { name: "Collapse sidebar" }).click();
+  const sidebarToggle = page.getByRole("button", { name: "Toggle Sidebar" });
+  await sidebarToggle.click();
 
-  await expect(page.locator(".app-shell")).toHaveClass(/sidebar-collapsed/);
-  await expect(page.locator(".library-sidebar")).toHaveCSS("display", "none");
+  await expect(
+    page.locator('[data-slot="sidebar"][data-state="collapsed"]')
+  ).toBeVisible();
+  await expect(page.locator("#library-sidebar")).toHaveCSS(
+    "left",
+    /-\d+px/
+  );
 
-  const expandButton = page.getByRole("button", { name: "Expand sidebar" });
-  const heading = page.locator(".view-heading");
-  await expect(expandButton).toBeVisible();
-  await expect(heading.getByRole("heading", { name: "media" })).toBeVisible();
+  const breadcrumb = page.locator(".library-path-navigation nav");
+  await expect(sidebarToggle).toBeVisible();
+  await expect(breadcrumb.getByText("media", { exact: true })).toBeVisible();
 
-  const expandBox = await expandButton.boundingBox();
-  const headingBox = await heading.boundingBox();
-  expect(expandBox).not.toBeNull();
-  expect(headingBox).not.toBeNull();
-  expect(expandBox!.x).toBeLessThan(headingBox!.x);
+  const toggleBox = await sidebarToggle.boundingBox();
+  const breadcrumbBox = await breadcrumb.boundingBox();
+  expect(toggleBox).not.toBeNull();
+  expect(breadcrumbBox).not.toBeNull();
+  expect(toggleBox!.x).toBeLessThan(breadcrumbBox!.x);
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(expandButton).toBeHidden();
+  await expect(sidebarToggle).toBeVisible();
+  await sidebarToggle.click();
 
-  const mobileToggle = page.getByRole("button", { name: "Open folders" }).first();
-  await expect(mobileToggle).toBeVisible();
-  await mobileToggle.click();
-
-  await expect(page.locator(".app-shell")).toHaveClass(/sidebar-open/);
-  await expect(page.locator(".library-sidebar")).toHaveCSS("display", "grid");
-  await expect(page.locator(".mobile-sidebar-close")).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Sidebar" })).toBeVisible();
+  await expect(
+    page.getByRole("navigation", { name: "Media folders" })
+  ).toBeVisible();
 });

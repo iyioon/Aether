@@ -33,6 +33,7 @@ export function FeedCollapsedTopbar({
         </small>
       </button>
       <IconButton
+        className="media-overlay-button feed-floating-action"
         aria-expanded="false"
         icon={SlidersHorizontal}
         label="Show controls"
@@ -40,6 +41,7 @@ export function FeedCollapsedTopbar({
         onClick={onOpenControls}
       />
       <IconButton
+        className="media-overlay-button feed-floating-action"
         icon={Grid3X3}
         label="Gallery view"
         onClick={() => onSwitchView("gallery")}

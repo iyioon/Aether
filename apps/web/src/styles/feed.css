@@ -55,22 +55,8 @@
   transform: translateY(-50%);
 }
 
-.feed-nav-button {
-  display: grid;
-  width: 42px;
-  height: 42px;
-  place-items: center;
-  color: var(--foreground);
-  border: 1px solid rgba(var(--aether-foreground-rgb), 0.14);
-  border-radius: 8px;
-  background: rgba(var(--aether-background-rgb), 0.72);
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.28);
-  backdrop-filter: blur(10px);
-}
-
-.feed-nav-button:disabled {
-  cursor: default;
-  opacity: 0.32;
+.feed-nav-button:active:not(:disabled) {
+  background: rgba(3, 4, 4, 0.76);
 }
 
 .feed-item {
@@ -129,6 +115,115 @@
   aspect-ratio: auto;
 }
 
+.feed-frame .media-video-playback-toggle {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  padding: 0;
+  color: #fff;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  place-items: center;
+}
+
+.feed-frame .media-video-playback-toggle:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.82);
+  outline-offset: -4px;
+}
+
+.feed-frame .media-video-timeline {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 5;
+  width: 100%;
+  height: 18px;
+  margin: 0;
+  padding: 7px 0 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  cursor: pointer;
+  appearance: none;
+}
+
+.feed-frame .media-video-progress-track {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 4;
+  height: 2px;
+  overflow: hidden;
+  pointer-events: none;
+  background: rgba(255, 255, 255, 0.38);
+}
+
+.feed-frame .media-video-progress-track > span {
+  display: block;
+  height: 100%;
+  background: var(--aether-accent-strong);
+}
+
+.feed-frame .media-video-timeline::-webkit-slider-runnable-track {
+  height: 2px;
+  background: transparent;
+}
+
+.feed-frame .media-video-timeline::-moz-range-track {
+  height: 2px;
+  background: transparent;
+}
+
+.feed-frame .media-video-timeline::-moz-range-progress {
+  height: 2px;
+  background: transparent;
+}
+
+.feed-frame .media-video-timeline::-webkit-slider-thumb {
+  width: 10px;
+  height: 10px;
+  margin-top: -4px;
+  border: 0;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.45);
+  opacity: 0;
+  transform: scale(0.7);
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+  appearance: none;
+}
+
+.feed-frame .media-video-timeline::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border: 0;
+  border-radius: 50%;
+  background: #fff;
+  opacity: 0;
+}
+
+.feed-frame .media-video-timeline:hover::-webkit-slider-thumb,
+.feed-frame .media-video-timeline:focus-visible::-webkit-slider-thumb {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.feed-frame .media-video-timeline:hover::-moz-range-thumb,
+.feed-frame .media-video-timeline:focus-visible::-moz-range-thumb {
+  opacity: 1;
+}
+
+.feed-frame .media-video-timeline:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.82);
+  outline-offset: -2px;
+}
+
 .feed-meta {
   position: absolute;
   right: 0;
@@ -180,6 +275,7 @@
   text-align: left;
   cursor: pointer;
   pointer-events: auto;
+  transition: color 160ms ease;
   appearance: none;
 }
 
@@ -232,33 +328,9 @@
   pointer-events: none;
 }
 
-.feed-frame .media-preview-button:focus-visible,
-.feed-actions .icon-button:focus-visible {
+.feed-frame .media-preview-button:focus-visible {
   outline: 2px solid rgba(var(--aether-accent-rgb), 0.58);
   outline-offset: -3px;
-}
-
-.feed-actions .icon-link,
-.feed-actions .icon-button {
-  width: 46px;
-  height: 46px;
-  color: var(--foreground);
-  border-color: rgba(var(--aether-foreground-rgb), 0.18);
-  border-radius: 50%;
-  background: rgba(var(--aether-background-rgb), 0.72);
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.32);
-  backdrop-filter: blur(10px);
-}
-
-.feed-actions .icon-button:hover {
-  border-color: rgba(var(--aether-accent-rgb), 0.34);
-  background: rgba(var(--aether-accent-rgb), 0.16);
-}
-
-.feed-actions .feed-sound-action[aria-pressed="true"] {
-  color: var(--aether-accent-strong);
-  border-color: rgba(var(--aether-accent-rgb), 0.34);
-  background: rgba(var(--aether-accent-rgb), 0.16);
 }
 
 .feed-actions .feed-sound-action[data-audio-state="blocked"] {

@@ -254,7 +254,7 @@ describe("media serving", () => {
 
     const response = await app.inject({
       method: "GET",
-      url: `/api/assets/${asset.id}/preview?size=320&duration=2`,
+      url: `/api/assets/${asset.id}/preview?size=720&duration=2`,
       cookies
     });
 
@@ -270,13 +270,13 @@ describe("media serving", () => {
         asset.id,
         "preview",
         "v3",
-        "320",
+        "720",
         "2",
         String(asset.mtimeMs)
       )
     );
     expect(derivative?.status).toBe("ready");
-    expect(derivative?.width).toBe(320);
+    expect(derivative?.width).toBe(720);
     expect(derivative?.height).toBe(2);
     expect(derivative?.path).toContain("v3-");
     expect(derivative?.path ? await hasAudioStream(derivative.path) : false).toBe(
@@ -285,7 +285,7 @@ describe("media serving", () => {
 
     const partial = await app.inject({
       method: "GET",
-      url: `/api/assets/${asset.id}/preview?size=320&duration=2`,
+      url: `/api/assets/${asset.id}/preview?size=720&duration=2`,
       cookies,
       headers: {
         range: "bytes=0-15"

@@ -361,33 +361,32 @@ export function MediaViewer({
           className="viewer-actions viewer-chrome"
           aria-label="Viewer controls"
         >
-          <Button size="icon" variant="secondary" asChild>
+          <Button className="media-overlay-button" size="icon" variant="outline" asChild>
             <a
               href={downloadUrl(asset.id)}
               aria-label={`Download ${asset.name}`}
-              title="Download"
             >
               <Download />
             </a>
           </Button>
           <Button
+            className="media-overlay-button"
             size="icon"
             type="button"
-            variant="secondary"
+            variant="outline"
             aria-label={`Show info for ${asset.name}`}
             aria-pressed={isInfoOpen}
-            title="Info"
             onClick={onToggleInfo}
           >
             <Info />
           </Button>
           <DialogClose asChild>
             <Button
+              className="media-overlay-button"
               size="icon"
               type="button"
-              variant="secondary"
+              variant="outline"
               aria-label="Close viewer"
-              title="Close"
             >
               <X />
             </Button>
@@ -396,10 +395,10 @@ export function MediaViewer({
 
         {hasPrevious ? (
           <Button
-            className="viewer-nav viewer-nav-previous viewer-chrome"
+            className="media-overlay-button viewer-nav viewer-nav-previous viewer-chrome"
             size="icon"
             type="button"
-            variant="secondary"
+            variant="outline"
             aria-label="Previous media"
             onClick={() => navigateAndPlayViewerVideo(-1)}
           >
@@ -502,10 +501,10 @@ export function MediaViewer({
 
         {hasNext ? (
           <Button
-            className="viewer-nav viewer-nav-next viewer-chrome"
+            className="media-overlay-button viewer-nav viewer-nav-next viewer-chrome"
             size="icon"
             type="button"
-            variant="secondary"
+            variant="outline"
             aria-label="Next media"
             onClick={() => navigateAndPlayViewerVideo(1)}
           >

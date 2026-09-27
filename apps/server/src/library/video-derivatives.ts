@@ -294,7 +294,7 @@ async function generateVideoPreview({
       "-t",
       String(durationSeconds),
       "-vf",
-      `scale=${size}:${size}:force_original_aspect_ratio=decrease,format=yuv420p`,
+      `scale=${size}:${size}:force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p`,
       "-c:v",
       "libx264",
       "-preset",

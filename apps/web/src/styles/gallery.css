@@ -270,7 +270,7 @@
 
 .media-video-poster {
   background: #18181b;
-  opacity: 0;
+  opacity: 1;
   transition: opacity 160ms ease;
 }
 
@@ -287,6 +287,10 @@
 
 .media-video-shell.poster-ready .media-video-poster {
   opacity: 1;
+}
+
+.media-video-shell.ready .media-video-poster {
+  opacity: 0;
 }
 
 .media-video-shell.poster-ready .media-video-loading,

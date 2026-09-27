@@ -91,7 +91,7 @@ export function FeedPreview({
   const touchStartRef = useRef<FeedTouchStart | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [isScrollPositionReady, setIsScrollPositionReady] = useState(false);
-  const [isFeedMuted, setIsFeedMuted] = useState(false);
+  const [isFeedMuted, setIsFeedMuted] = useState(true);
   const [isFeedAudioBlocked, setIsFeedAudioBlocked] = useState(false);
   const [audiblePlaybackRequest, setAudiblePlaybackRequest] = useState(0);
   const feedSoundState: FeedSoundState = isFeedAudioBlocked

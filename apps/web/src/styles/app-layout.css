@@ -537,18 +537,14 @@
   pointer-events: auto;
 }
 
-.feed-floating-action.icon-button,
 .feed-collapsed-title {
   height: 40px;
   min-height: 40px;
-  border-color: rgba(var(--aether-foreground-rgb), 0.16);
-  background: rgba(var(--aether-background-rgb), 0.58);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
-  backdrop-filter: blur(12px);
-}
-
-.feed-floating-action.icon-button {
-  width: 40px;
+  color: rgba(255, 255, 255, 0.9);
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(3, 4, 4, 0.42);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(12px) saturate(1.15);
 }
 
 .feed-collapsed-title {

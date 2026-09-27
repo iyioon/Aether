@@ -128,3 +128,58 @@ button:disabled {
   border-radius: 6px;
   background: rgba(var(--aether-overlay-rgb), 0.05);
 }
+
+/* Shared translucent button states adapt to the surface beneath them. */
+.aether-button[data-variant="outline"] {
+  color: var(--foreground);
+  border-color: rgba(var(--aether-foreground-rgb), 0.14);
+  background: rgba(var(--aether-background-rgb), 0.58);
+  backdrop-filter: blur(10px) saturate(1.08);
+}
+
+.aether-button[data-variant="outline"]:hover:not(:disabled) {
+  border-color: rgba(var(--aether-foreground-rgb), 0.24);
+  background: rgba(var(--aether-foreground-rgb), 0.1);
+}
+
+.aether-button[data-variant="ghost"]:hover:not(:disabled) {
+  background: rgba(var(--aether-foreground-rgb), 0.09);
+}
+
+.media-overlay-button.media-overlay-button {
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0;
+  color: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(3, 4, 4, 0.48);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
+  transition:
+    color 160ms ease,
+    border-color 160ms ease,
+    background-color 160ms ease,
+    box-shadow 160ms ease;
+  backdrop-filter: blur(12px) saturate(1.12);
+}
+
+.media-overlay-button.media-overlay-button:hover:not(:disabled) {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.34);
+  background: rgba(3, 4, 4, 0.68);
+}
+
+.aether-button[data-variant="secondary"],
+.aether-button[aria-pressed="true"] {
+  color: var(--foreground);
+  border: 1px solid rgba(var(--aether-accent-rgb), 0.42);
+  background: rgba(var(--aether-accent-rgb), 0.22);
+  backdrop-filter: blur(10px) saturate(1.08);
+}
+
+.aether-button[data-variant="secondary"]:hover:not(:disabled),
+.aether-button[aria-pressed="true"]:hover:not(:disabled) {
+  border-color: rgba(var(--aether-accent-rgb), 0.56);
+  background: rgba(var(--aether-accent-rgb), 0.32);
+}

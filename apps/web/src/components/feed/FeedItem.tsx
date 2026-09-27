@@ -54,29 +54,51 @@ export function FeedItem({
       ref={(node) => onRegisterItem(index, node)}
     >
       <div className="feed-frame">
-        <button
-          className="media-preview-button"
-          type="button"
-          aria-label={`${
-            isFeedChromeHidden ? "Show" : "Hide"
-          } feed controls and details`}
-          title={isFeedChromeHidden ? "Show details" : "Hide details"}
-          onClick={onToggleFeedChrome}
-        >
-          <MediaPreview
-            asset={asset}
-            audiblePlaybackRequest={
-              index === activeIndex ? audiblePlaybackRequest : 0
-            }
-            isActive={index === activeIndex}
-            muted={isFeedMuted}
-            onAudibleAutoplayBlocked={onAudibleAutoplayBlocked}
-            onAudiblePlaybackStarted={onAudiblePlaybackStarted}
-            playbackPaused={isPlaybackPaused}
-            preloadPreview={preloadPreview}
-            tall
-          />
-        </button>
+        {asset.mediaType === "video" ? (
+          <div className="media-preview-button">
+            <MediaPreview
+              asset={asset}
+              audiblePlaybackRequest={
+                index === activeIndex ? audiblePlaybackRequest : 0
+              }
+              isActive={index === activeIndex}
+              muted={isFeedMuted}
+              onAudibleAutoplayBlocked={onAudibleAutoplayBlocked}
+              onAudiblePlaybackStarted={onAudiblePlaybackStarted}
+              onVideoPress={onToggleFeedChrome}
+              playbackPaused={isPlaybackPaused}
+              preloadPreview={preloadPreview}
+              showVideoTimeline
+              tall
+              useOriginalVideo
+            />
+          </div>
+        ) : (
+          <button
+            className="media-preview-button"
+            type="button"
+            aria-label={`${
+              isFeedChromeHidden ? "Show" : "Hide"
+            } feed controls and details`}
+            title={isFeedChromeHidden ? "Show details" : "Hide details"}
+            onClick={onToggleFeedChrome}
+          >
+            <MediaPreview
+              asset={asset}
+              audiblePlaybackRequest={
+                index === activeIndex ? audiblePlaybackRequest : 0
+              }
+              isActive={index === activeIndex}
+              muted={isFeedMuted}
+              onAudibleAutoplayBlocked={onAudibleAutoplayBlocked}
+              onAudiblePlaybackStarted={onAudiblePlaybackStarted}
+              playbackPaused={isPlaybackPaused}
+              preloadPreview={preloadPreview}
+              tall
+              useOriginalImage
+            />
+          </button>
+        )}
         <div className="feed-meta">
           <button
             className="feed-meta-button"
@@ -94,6 +116,7 @@ export function FeedItem({
           {asset.mediaType === "video" ? (
             <IconButton
               aria-pressed={feedSoundState === "on"}
+              className="media-overlay-button feed-sound-action"
               data-audio-state={feedSoundState}
               icon={feedSoundState === "on" ? Volume2 : VolumeX}
               iconSize={17}
@@ -112,6 +135,7 @@ export function FeedItem({
             />
           ) : null}
           <IconButton
+            className="media-overlay-button"
             icon={Maximize2}
             iconSize={17}
             label={`Open ${asset.name} fullscreen`}

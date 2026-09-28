@@ -17,6 +17,8 @@ The gallery view is the default browser. Use it when you want to scan many items
 
 The feed view shows one item at a time in a vertical scroll flow. It uses the same filtered collection as the gallery, so search and filters carry across both views. Static images appear immediately from a cached thumbnail, then crossfade to the original after the browser finishes decoding it. If the original format cannot be displayed, the thumbnail remains available as the fallback.
 
+The comparison view presents two items from the same filtered collection. Choose the item that should rank higher, or skip a pair when there is no useful preference. The left and right arrow keys choose the corresponding item on a keyboard. The most recent choice can be undone, and choosing the same pair again replaces the earlier active preference rather than counting twice.
+
 ## Viewing Media
 
 Click a gallery item to open the fullscreen viewer. Use the previous and next controls to move through the current filtered collection. Videos support seeking when the browser and source format support it.
@@ -28,6 +30,8 @@ Feed videos try the authenticated original stream first. If the browser cannot d
 ## Scores, Favorites, And Tags
 
 Aether stores a non-negative media score with no upper limit. On a gallery card, use the up-arrow button to increase its score. Hover or focus the score control to reveal the decrement action; reducing a score from one clears it back to zero.
+
+Pairwise choices are fitted into a relative score using the active comparison graph. The comparison workspace gives priority to items with less evidence and to close matchups, so rankings improve without requiring every possible pair. Direct score adjustments are retained as a separate manual offset.
 
 Favorites are stored separately from score. Use them for quick filtering regardless of score.
 

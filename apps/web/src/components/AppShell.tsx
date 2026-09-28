@@ -6,6 +6,7 @@ import { useAssetList } from "./assets/useAssetList";
 import { readLibraryStateFromUrl, type ViewMode } from "./library-state";
 import { BatchActionsBar } from "./batch/BatchActionsBar";
 import { useBatchSelection } from "./batch/useBatchSelection";
+import { ComparisonView } from "./compare/ComparisonView";
 import { FeedPreview } from "./feed/FeedPreview";
 import { useFolderNavigation } from "./folders/useFolderNavigation";
 import { GalleryGrid } from "./gallery/GalleryGrid";
@@ -85,6 +86,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
   const { handleMediaDimensionsKnown, measuredAspectRatios } =
     useMeasuredAspectRatios();
   const [isFeedChromeHidden, setIsFeedChromeHidden] = useState(false);
+  const rankingChangedRef = useRef(false);
   const activeMediaAnchorIdRef = useRef<string | null>(null);
   const [syncedMediaAnchorId, setSyncedMediaAnchorId] = useState<string | null>(
     null
@@ -287,6 +289,10 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     setOpenControlMenu(null);
     setAnnotationAssetId(null);
     setIsFeedChromeHidden(false);
+    if (view === "compare" && nextView !== "compare" && rankingChangedRef.current) {
+      rankingChangedRef.current = false;
+      reloadAssets();
+    }
   }
 
   function openAnchoredAsset(assetId: string) {
@@ -366,6 +372,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
       sortSummary={sortSummary}
       tagFilters={tagFilters}
       tagFilterDraft={tagFilterDraft}
+      view={view}
       onAddTagFilter={addTagFilter}
       onClearGalleryMetadataFields={clearGalleryMetadataFields}
       onClearTagFilters={clearTagFilters}
@@ -440,7 +447,9 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
             ? "view-settings"
             : view === "feed"
               ? "view-feed"
-              : "view-gallery",
+              : view === "compare"
+                ? "view-compare"
+                : "view-gallery",
           activePage === "library" && view === "feed" && isFeedChromeHidden
             ? "feed-chrome-hidden"
             : ""
@@ -518,7 +527,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
                 onSelectAsset={openAnchoredAsset}
                 onToggleSelection={toggleAssetSelection}
               />
-            ) : (
+            ) : view === "feed" ? (
               <FeedPreview
                 assets={assets}
                 isLoading={isAssetContentPending}
@@ -542,6 +551,18 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
                 onScoreAsset={(asset, score) =>
                   void saveAssetRating(asset, { rating: score })
                 }
+              />
+            ) : (
+              <ComparisonView
+                folderId={selectedFolderId}
+                mediaType={mediaType}
+                ratingFilter={ratingFilter}
+                search={search}
+                tagFilters={tagFilters}
+                onAssetsUpdated={mergeUpdatedAssets}
+                onRankingChanged={() => {
+                  rankingChangedRef.current = true;
+                }}
               />
             )}
           </>

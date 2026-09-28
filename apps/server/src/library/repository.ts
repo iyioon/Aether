@@ -29,6 +29,12 @@ export {
   suggestTags,
   updateAssetTagsBatch
 } from "./repository-tags.js";
+export {
+  ComparisonConflictError,
+  getNextComparisonPair,
+  recordComparisonDecision,
+  undoComparisonDecision
+} from "./repository-comparisons.js";
 import type {
   AssetListOptions,
   AssetPage,
@@ -45,12 +51,17 @@ export type {
   AssetListOptions,
   AssetMediaMetadataInput,
   AssetPage,
+  AssetRankingRecord,
   AssetRecord,
   AssetSourceRecord,
   BatchRatingUpdateInput,
   BatchRatingUpdateResult,
   BatchTagUpdateInput,
   BatchTagUpdateResult,
+  ComparisonDecisionInput,
+  ComparisonDecisionResult,
+  ComparisonPairResult,
+  ComparisonUndoResult,
   DerivativeRecord,
   FolderRecord,
   RatingUpdateInput,
@@ -60,6 +71,9 @@ export type {
   UpsertFolderInput
 } from "./repository-types.js";
 import { assetSearchQuery, searchNgramText } from "./search-text.js";
+
+const EFFECTIVE_RATING_SQL =
+  "CASE WHEN ar.asset_id IS NOT NULL THEN MAX(0, ar.score + ar.manual_offset) ELSE r.rating END";
 
 export function assetIdFor(rootId: string, relativePath: string): string {
   return stableId("asset", rootId, relativePath);
@@ -210,10 +224,10 @@ export function listAssets(
       filters.push("COALESCE(r.favorite, 0) = 1");
       break;
     case "rated":
-      filters.push("r.rating IS NOT NULL");
+      filters.push(`${EFFECTIVE_RATING_SQL} IS NOT NULL`);
       break;
     case "unrated":
-      filters.push("r.rating IS NULL");
+      filters.push(`${EFFECTIVE_RATING_SQL} IS NULL`);
       break;
     case "all":
     default:
@@ -227,6 +241,7 @@ export function listAssets(
         `SELECT COUNT(*) AS total
          FROM assets a
          LEFT JOIN ratings r ON r.asset_id = a.id
+         LEFT JOIN asset_rankings ar ON ar.asset_id = a.id
          WHERE ${whereClause}`
       )
       .get(parameters) as { total: number }
@@ -249,10 +264,17 @@ export function listAssets(
         a.codec,
         a.status,
         a.error,
-        r.rating,
+        ${EFFECTIVE_RATING_SQL} AS rating,
+        ar.skill AS ranking_skill,
+        CASE WHEN ar.asset_id IS NOT NULL
+          THEN MAX(0, ar.score + ar.manual_offset)
+          ELSE NULL
+        END AS ranking_score,
+        ar.comparison_count AS ranking_comparison_count,
         COALESCE(r.favorite, 0) AS favorite
       FROM assets a
       LEFT JOIN ratings r ON r.asset_id = a.id
+      LEFT JOIN asset_rankings ar ON ar.asset_id = a.id
       WHERE ${whereClause}
       ORDER BY ${orderClauseFor(
         options.sort,
@@ -290,10 +312,17 @@ export function getAsset(db: AetherDatabase, assetId: string): AssetRecord | nul
         a.codec,
         a.status,
         a.error,
-        r.rating,
+        ${EFFECTIVE_RATING_SQL} AS rating,
+        ar.skill AS ranking_skill,
+        CASE WHEN ar.asset_id IS NOT NULL
+          THEN MAX(0, ar.score + ar.manual_offset)
+          ELSE NULL
+        END AS ranking_score,
+        ar.comparison_count AS ranking_comparison_count,
         COALESCE(r.favorite, 0) AS favorite
       FROM assets a
       LEFT JOIN ratings r ON r.asset_id = a.id
+      LEFT JOIN asset_rankings ar ON ar.asset_id = a.id
       WHERE a.id = ?`
     )
     .get(assetId) as AssetRow | undefined;
@@ -325,11 +354,18 @@ export function getAssetSource(
         a.codec,
         a.status,
         a.error,
-        r.rating,
+        ${EFFECTIVE_RATING_SQL} AS rating,
+        ar.skill AS ranking_skill,
+        CASE WHEN ar.asset_id IS NOT NULL
+          THEN MAX(0, ar.score + ar.manual_offset)
+          ELSE NULL
+        END AS ranking_score,
+        ar.comparison_count AS ranking_comparison_count,
         COALESCE(r.favorite, 0) AS favorite
       FROM assets a
       JOIN roots ON roots.id = a.root_id
       LEFT JOIN ratings r ON r.asset_id = a.id
+      LEFT JOIN asset_rankings ar ON ar.asset_id = a.id
       WHERE a.id = ?`
     )
     .get(assetId) as AssetRow | undefined;
@@ -360,8 +396,14 @@ export function updateAssetRating(
     .get(input.assetId) as
     | { rating: number | null; favorite: number }
     | undefined;
-  const rating =
-    input.rating !== undefined ? input.rating : current?.rating ?? null;
+  const ranking = db
+    .prepare("SELECT score FROM asset_rankings WHERE asset_id = ?")
+    .get(input.assetId) as { score: number } | undefined;
+  const rating = ranking
+    ? current?.rating ?? null
+    : input.rating !== undefined
+      ? input.rating
+      : current?.rating ?? null;
   const favorite =
     input.favorite !== undefined ? input.favorite : current?.favorite === 1;
 
@@ -378,6 +420,18 @@ export function updateAssetRating(
     favorite: favorite ? 1 : 0,
     updatedAt: input.updatedAt
   });
+
+  if (ranking && input.rating !== undefined) {
+    db.prepare(`
+      UPDATE asset_rankings
+      SET manual_offset = @manualOffset, updated_at = @updatedAt
+      WHERE asset_id = @assetId
+    `).run({
+      assetId: input.assetId,
+      manualOffset: input.rating === null ? 0 : input.rating - ranking.score,
+      updatedAt: input.updatedAt
+    });
+  }
 
   return getAsset(db, input.assetId);
 }
@@ -426,7 +480,7 @@ function orderClauseFor(
     case "filename":
       return `a.name COLLATE NOCASE ${direction}, a.mtime_ms DESC`;
     case "rating":
-      return `r.rating IS NULL ASC, r.rating ${direction}, COALESCE(r.favorite, 0) DESC, a.mtime_ms DESC`;
+      return `${EFFECTIVE_RATING_SQL} IS NULL ASC, ${EFFECTIVE_RATING_SQL} ${direction}, COALESCE(r.favorite, 0) DESC, a.mtime_ms DESC`;
     case "random":
       return "RANDOM()";
     case "date":

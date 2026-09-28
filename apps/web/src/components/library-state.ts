@@ -5,7 +5,7 @@ import type {
   SortMode
 } from "../api/client";
 
-export const viewOptions = ["gallery", "feed"] as const;
+export const viewOptions = ["gallery", "feed", "compare"] as const;
 export type ViewMode = (typeof viewOptions)[number];
 
 export const aspectOptions = [

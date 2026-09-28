@@ -10,6 +10,7 @@ It is built for a home server or trusted local network. Aether does not require 
 - Folder tree that mirrors the configured media roots.
 - Virtualized gallery grid for large folders, with size, aspect-ratio, and sort direction controls.
 - Vertical feed mode with progressive full-resolution images, original video playback when browser-compatible, and timeline seeking.
+- Pairwise comparison workspace with reversible choices and statistically derived media scores.
 - Fullscreen viewer for images and videos.
 - Ratings, favorites, tags, tag suggestions, and batch annotation tools.
 - Filename/path search, including CJK substring matching for Korean and similar scripts.

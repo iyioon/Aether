@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added a dedicated comparison workspace with responsive pair cards, keyboard choices, skips, undo, coverage feedback, and filtered candidate selection.
+- Added reversible pairwise decision history and regularized Bradley–Terry ranking projections that feed into media scores without discarding manual score adjustments.
+
 - Refined the vertical feed with minimal overlay controls, consistent navigation and action styling, press-and-hold video pause, and a bottom-edge seek timeline.
 - Added thumbnail-first progressive loading that crossfades feed images to their decoded full-resolution originals.
 - Changed feed videos to prefer the original authenticated stream, with poster-first startup and a browser-compatible preview fallback.

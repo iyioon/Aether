@@ -25,8 +25,15 @@ export interface AssetRecord {
   status: string;
   error: string | null;
   rating: number | null;
+  ranking: AssetRankingRecord | null;
   favorite: boolean;
   tags: TagRecord[];
+}
+
+export interface AssetRankingRecord {
+  skill: number;
+  score: number;
+  comparisonCount: number;
 }
 
 export interface AssetSourceRecord extends AssetRecord {
@@ -178,7 +185,39 @@ export interface AssetRow {
   status: string;
   error: string | null;
   rating: number | null;
+  ranking_skill: number | null;
+  ranking_score: number | null;
+  ranking_comparison_count: number | null;
   favorite: number;
+}
+
+export interface ComparisonDecisionInput {
+  leftAssetId: string;
+  rightAssetId: string;
+  winnerAssetId: string;
+  createdAt: string;
+}
+
+export interface ComparisonDecisionResult {
+  eventId: string;
+  assetIds: [string, string];
+  replacedDecision: boolean;
+}
+
+export interface ComparisonUndoResult {
+  eventId: string;
+  assetIds: [string, string];
+  restoredDecision: boolean;
+}
+
+export interface ComparisonPairResult {
+  leftAssetId: string;
+  rightAssetId: string;
+  progress: {
+    candidateCount: number;
+    rankedCount: number;
+    decidedPairCount: number;
+  };
 }
 
 export interface DerivativeRow {

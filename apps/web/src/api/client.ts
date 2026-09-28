@@ -43,6 +43,11 @@ export interface AssetRecord {
   status: string;
   error: string | null;
   rating: number | null;
+  ranking: {
+    skill: number;
+    score: number;
+    comparisonCount: number;
+  } | null;
   favorite: boolean;
   tags: TagRecord[];
 }
@@ -93,6 +98,24 @@ export interface BatchRatingResponse {
 export interface BatchTagsResponse {
   tags: TagRecord[];
   updated: number;
+}
+
+export interface ComparisonPairResponse {
+  left: AssetRecord;
+  right: AssetRecord;
+  progress: {
+    candidateCount: number;
+    rankedCount: number;
+    decidedPairCount: number;
+  };
+}
+
+export interface ComparisonDecisionResponse {
+  eventId: string;
+  assetIds: [string, string];
+  assets: AssetRecord[];
+  replacedDecision?: boolean;
+  restoredDecision?: boolean;
 }
 
 export interface ScanJob {
@@ -217,6 +240,54 @@ export async function getAssets(options: {
 
   return request<AssetListResponse>(
     `/api/folders/${encodeURIComponent(options.folderId)}/assets?${params}`
+  );
+}
+
+export async function getNextComparisonPair(options: {
+  folderId: string;
+  type?: MediaTypeFilter;
+  recursive?: boolean;
+  search?: string;
+  tags?: string[];
+  rating?: RatingFilter;
+  excludeAssetIds?: string[];
+}): Promise<ComparisonPairResponse> {
+  const params = new URLSearchParams({
+    type: options.type ?? "all",
+    recursive: String(options.recursive ?? true),
+    search: options.search ?? "",
+    rating: options.rating ?? "all"
+  });
+
+  for (const tag of options.tags ?? []) {
+    params.append("tag", tag);
+  }
+  for (const assetId of options.excludeAssetIds ?? []) {
+    params.append("exclude", assetId);
+  }
+
+  return request<ComparisonPairResponse>(
+    `/api/folders/${encodeURIComponent(options.folderId)}/comparisons/next?${params}`
+  );
+}
+
+export async function recordComparison(input: {
+  leftAssetId: string;
+  rightAssetId: string;
+  winnerAssetId: string;
+}): Promise<ComparisonDecisionResponse> {
+  return request<ComparisonDecisionResponse>("/api/comparisons", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export async function undoComparison(
+  eventId: string
+): Promise<ComparisonDecisionResponse> {
+  return request<ComparisonDecisionResponse>(
+    `/api/comparisons/${encodeURIComponent(eventId)}/undo`,
+    { method: "POST" }
   );
 }
 

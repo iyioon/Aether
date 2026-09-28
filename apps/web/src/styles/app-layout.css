@@ -124,6 +124,26 @@
   margin-inline: 2px;
 }
 
+.library-view-switcher {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 2px);
+  background: color-mix(in srgb, var(--muted) 66%, transparent);
+}
+
+.library-view-switcher [data-slot="button"] {
+  width: 34px;
+  height: 34px;
+  border-color: transparent;
+}
+
+.library-view-switcher [data-slot="button"][data-active="true"] {
+  box-shadow: 0 1px 4px rgba(var(--aether-foreground-rgb), 0.1);
+}
+
 .brand-block,
 .tree-row,
 .ghost-action,

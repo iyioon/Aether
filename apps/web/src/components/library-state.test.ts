@@ -37,6 +37,15 @@ describe("library state URL helpers", () => {
     });
   });
 
+  it("round-trips the comparison workspace as a first-class library view", () => {
+    const parsed = parseLibraryStateSearch("?folder=root-folder&view=compare");
+
+    expect(parsed.view).toBe("compare");
+    expect(
+      new URLSearchParams(buildLibraryStateSearch(parsed)).get("view")
+    ).toBe("compare");
+  });
+
   it("falls back to safe defaults for invalid enum values", () => {
     const state = parseLibraryStateSearch(
       "?folder=&view=timeline&size=oversized&aspect=panorama&sort=path&order=sideways&type=audio&rating=private"

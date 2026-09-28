@@ -1,5 +1,10 @@
 import { Fragment, useEffect, useRef, type ReactNode } from "react";
-import { GalleryHorizontalEnd, Grid3X3, Search } from "lucide-react";
+import {
+  GalleryHorizontalEnd,
+  GitCompareArrows,
+  Grid3X3,
+  Search
+} from "lucide-react";
 import type { TreeResponse } from "../../api/client";
 import type { ViewMode } from "../library-state";
 import {
@@ -159,19 +164,26 @@ export function LibraryPathBar({
               orientation="vertical"
             />
           ) : null}
-          <Button
-            aria-label={
-              view === "gallery"
-                ? "Switch to feed view"
-                : "Switch to gallery view"
-            }
-            size="icon"
-            title={view === "gallery" ? "Feed view" : "Gallery view"}
-            variant="outline"
-            onClick={() => onSwitchView(view === "gallery" ? "feed" : "gallery")}
-          >
-            {view === "gallery" ? <GalleryHorizontalEnd /> : <Grid3X3 />}
-          </Button>
+          <div className="library-view-switcher" role="group" aria-label="Library view">
+            {([
+              ["gallery", "Gallery view", Grid3X3],
+              ["feed", "Feed view", GalleryHorizontalEnd],
+              ["compare", "Compare and rank", GitCompareArrows]
+            ] as const).map(([viewOption, label, Icon]) => (
+              <Button
+                aria-label={label}
+                aria-pressed={view === viewOption}
+                data-active={view === viewOption ? "true" : "false"}
+                key={viewOption}
+                size="icon"
+                title={label}
+                variant={view === viewOption ? "secondary" : "ghost"}
+                onClick={() => onSwitchView(viewOption)}
+              >
+                <Icon />
+              </Button>
+            ))}
+          </div>
         </div>
       ) : null}
     </header>

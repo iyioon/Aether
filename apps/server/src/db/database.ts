@@ -254,6 +254,56 @@ const migrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_ratings_sort
         ON ratings(favorite, rating);
     `
+  },
+  {
+    version: 9,
+    name: "pairwise_media_rankings",
+    sql: `
+      CREATE TABLE comparison_events (
+        id TEXT PRIMARY KEY,
+        event_type TEXT NOT NULL CHECK(event_type IN ('decision', 'undo')),
+        asset_low_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+        asset_high_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+        winner_id TEXT REFERENCES assets(id) ON DELETE CASCADE,
+        previous_event_id TEXT REFERENCES comparison_events(id) ON DELETE SET NULL,
+        target_event_id TEXT REFERENCES comparison_events(id) ON DELETE SET NULL,
+        created_at TEXT NOT NULL,
+        CHECK(asset_low_id < asset_high_id),
+        CHECK(
+          (event_type = 'decision' AND winner_id IN (asset_low_id, asset_high_id)) OR
+          (event_type = 'undo' AND winner_id IS NULL AND target_event_id IS NOT NULL)
+        )
+      );
+
+      CREATE INDEX idx_comparison_events_pair
+        ON comparison_events(asset_low_id, asset_high_id, created_at);
+
+      CREATE TABLE pair_preferences (
+        asset_low_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+        asset_high_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+        winner_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+        event_id TEXT NOT NULL REFERENCES comparison_events(id) ON DELETE CASCADE,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY(asset_low_id, asset_high_id),
+        CHECK(asset_low_id < asset_high_id),
+        CHECK(winner_id IN (asset_low_id, asset_high_id))
+      );
+
+      CREATE INDEX idx_pair_preferences_winner
+        ON pair_preferences(winner_id);
+
+      CREATE TABLE asset_rankings (
+        asset_id TEXT PRIMARY KEY REFERENCES assets(id) ON DELETE CASCADE,
+        skill REAL NOT NULL DEFAULT 0,
+        score INTEGER NOT NULL DEFAULT 50 CHECK(score >= 0),
+        manual_offset INTEGER NOT NULL DEFAULT 0,
+        comparison_count INTEGER NOT NULL DEFAULT 0 CHECK(comparison_count >= 0),
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX idx_asset_rankings_score
+        ON asset_rankings(score DESC, comparison_count DESC);
+    `
   }
 ];
 

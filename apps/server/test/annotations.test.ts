@@ -460,6 +460,101 @@ describe("annotations", () => {
     expect(firstAsset().rating).toBeNull();
   });
 
+  it("records reversible pair decisions and projects them into media scores", async () => {
+    await writeFile(path.join(cwd, "media", "first.jpg"), "first");
+    await writeFile(path.join(cwd, "media", "second.jpg"), "second");
+    await scanLibrary(db, config.mediaRoots);
+    const folderId = folderIdFor(config.mediaRoots[0]!.id, "");
+    const auth = await login();
+    const pairResponse = await app.inject({
+      method: "GET",
+      url: `/api/folders/${folderId}/comparisons/next`,
+      cookies: auth.cookies
+    });
+
+    expect(pairResponse.statusCode).toBe(200);
+    const pair = pairResponse.json() as {
+      left: { id: string };
+      right: { id: string };
+      progress: { candidateCount: number };
+    };
+    expect(pair.progress.candidateCount).toBe(2);
+
+    const firstDecision = await app.inject({
+      method: "POST",
+      url: "/api/comparisons",
+      cookies: auth.cookies,
+      headers: { "x-csrf-token": auth.csrfToken },
+      payload: {
+        leftAssetId: pair.left.id,
+        rightAssetId: pair.right.id,
+        winnerAssetId: pair.left.id
+      }
+    });
+
+    expect(firstDecision.statusCode).toBe(200);
+    expect(firstDecision.json().replacedDecision).toBe(false);
+    const firstAssets = firstDecision.json().assets as Array<{
+      id: string;
+      rating: number;
+      ranking: { comparisonCount: number };
+    }>;
+    expect(firstAssets.find((asset) => asset.id === pair.left.id)!.rating).toBeGreaterThan(
+      firstAssets.find((asset) => asset.id === pair.right.id)!.rating
+    );
+    expect(firstAssets.every((asset) => asset.ranking.comparisonCount === 1)).toBe(
+      true
+    );
+
+    const changedDecision = await app.inject({
+      method: "POST",
+      url: "/api/comparisons",
+      cookies: auth.cookies,
+      headers: { "x-csrf-token": auth.csrfToken },
+      payload: {
+        leftAssetId: pair.left.id,
+        rightAssetId: pair.right.id,
+        winnerAssetId: pair.right.id
+      }
+    });
+
+    expect(changedDecision.statusCode).toBe(200);
+    expect(changedDecision.json().replacedDecision).toBe(true);
+    const changedAssets = changedDecision.json().assets as Array<{
+      id: string;
+      rating: number;
+    }>;
+    expect(
+      changedAssets.find((asset) => asset.id === pair.right.id)!.rating
+    ).toBeGreaterThan(
+      changedAssets.find((asset) => asset.id === pair.left.id)!.rating
+    );
+
+    const undo = await app.inject({
+      method: "POST",
+      url: `/api/comparisons/${changedDecision.json().eventId}/undo`,
+      cookies: auth.cookies,
+      headers: { "x-csrf-token": auth.csrfToken }
+    });
+
+    expect(undo.statusCode).toBe(200);
+    expect(undo.json().restoredDecision).toBe(true);
+    const restoredAssets = undo.json().assets as Array<{
+      id: string;
+      rating: number;
+    }>;
+    expect(
+      restoredAssets.find((asset) => asset.id === pair.left.id)!.rating
+    ).toBeGreaterThan(
+      restoredAssets.find((asset) => asset.id === pair.right.id)!.rating
+    );
+    expect(
+      (db.prepare("SELECT COUNT(*) AS total FROM comparison_events").get() as {
+        total: number;
+      }).total
+    ).toBe(3);
+  });
+
   async function createIndexedAsset(name: string) {
     await writeFile(path.join(cwd, "media", name), "media-bytes");
     await scanLibrary(db, config.mediaRoots);

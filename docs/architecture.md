@@ -39,12 +39,19 @@ The web app is organized around reusable UI surfaces:
 - `folders`: folder tree model, DOM helpers, and navigation hooks.
 - `gallery`: virtualized grid, metadata display, sizing, and aspect-ratio behavior.
 - `feed`: vertical feed item rendering and navigation.
+- `compare`: pairwise ranking session state and responsive comparison UI.
 - `media`: preview rendering, fullscreen viewer, annotation drawer, and media actions.
 - `batch`: multi-select annotation actions.
 
 ## Data Storage
 
-SQLite stores indexed folders, assets, derivatives, tags, ratings, sessions, login attempts, and search text. Source media remains in the configured folders and is not copied into the database.
+SQLite stores indexed folders, assets, derivatives, tags, ratings, pairwise ranking history, sessions, login attempts, and search text. Source media remains in the configured folders and is not copied into the database.
+
+## Pairwise Ranking
+
+Ranking uses a regularized Bradley–Terry model over the current winner for each unordered asset pair. Every choice and undo is appended to `comparison_events`, while `pair_preferences` materializes the active decision for efficient refitting. Changing a choice replaces that pair's active preference instead of counting both opinions; undo restores its previous decision.
+
+`asset_rankings` stores fitted skill, a display score, comparison coverage, and a manual adjustment. Direct score edits therefore remain separate from the statistical projection. Pair selection favors under-compared assets and similarly skilled opponents, avoids the immediately previous pair when possible, and reserves some random exploration to prevent a narrow comparison loop.
 
 The cache directory stores generated derivatives. It can be rebuilt from source media, but keeping it improves startup and browsing performance after a reinstall.
 

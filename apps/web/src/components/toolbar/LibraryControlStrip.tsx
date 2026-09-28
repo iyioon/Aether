@@ -6,7 +6,7 @@ import type {
   TagRecord
 } from "../../api/client";
 import { Check, MousePointer2 } from "lucide-react";
-import type { AspectMode, GridSize } from "../library-state";
+import type { AspectMode, GridSize, ViewMode } from "../library-state";
 import type { GalleryMetadataField } from "../gallery/gallery-metadata";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
@@ -35,6 +35,7 @@ interface LibraryControlStripProps {
   sortSummary: string;
   tagFilters: string[];
   tagFilterDraft: string;
+  view: ViewMode;
   onAddTagFilter: (tagName: string) => void;
   onClearGalleryMetadataFields: () => void;
   onClearTagFilters: () => void;
@@ -72,6 +73,7 @@ export function LibraryControlStrip({
   sortSummary,
   tagFilters,
   tagFilterDraft,
+  view,
   onAddTagFilter,
   onClearGalleryMetadataFields,
   onClearTagFilters,
@@ -90,34 +92,38 @@ export function LibraryControlStrip({
 }: LibraryControlStripProps) {
   return (
     <section className="control-strip" aria-label="Library controls">
-      <SortControlMenu
-        isOpen={openControlMenu === "sort"}
-        sort={sort}
-        sortDirection={sortDirection}
-        sortLabel={sortLabel}
-        sortSummary={sortSummary}
-        onOpenChange={(nextIsOpen) =>
-          onSetOpenControlMenu(nextIsOpen ? "sort" : null)
-        }
-        onSetSort={onSetSort}
-        onSetSortDirection={onSetSortDirection}
-      />
+      {view !== "compare" ? (
+        <>
+          <SortControlMenu
+            isOpen={openControlMenu === "sort"}
+            sort={sort}
+            sortDirection={sortDirection}
+            sortLabel={sortLabel}
+            sortSummary={sortSummary}
+            onOpenChange={(nextIsOpen) =>
+              onSetOpenControlMenu(nextIsOpen ? "sort" : null)
+            }
+            onSetSort={onSetSort}
+            onSetSortDirection={onSetSortDirection}
+          />
 
-      <LayoutControlMenu
-        aspect={aspect}
-        galleryMetadataFields={galleryMetadataFields}
-        gridSize={gridSize}
-        isOpen={openControlMenu === "layout"}
-        layoutSummary={layoutSummary}
-        onClearGalleryMetadataFields={onClearGalleryMetadataFields}
-        onOpenChange={(nextIsOpen) =>
-          onSetOpenControlMenu(nextIsOpen ? "layout" : null)
-        }
-        onResetGalleryMetadataFields={onResetGalleryMetadataFields}
-        onSetAspect={onSetAspect}
-        onSetGridSize={onSetGridSize}
-        onToggleGalleryMetadataField={onToggleGalleryMetadataField}
-      />
+          <LayoutControlMenu
+            aspect={aspect}
+            galleryMetadataFields={galleryMetadataFields}
+            gridSize={gridSize}
+            isOpen={openControlMenu === "layout"}
+            layoutSummary={layoutSummary}
+            onClearGalleryMetadataFields={onClearGalleryMetadataFields}
+            onOpenChange={(nextIsOpen) =>
+              onSetOpenControlMenu(nextIsOpen ? "layout" : null)
+            }
+            onResetGalleryMetadataFields={onResetGalleryMetadataFields}
+            onSetAspect={onSetAspect}
+            onSetGridSize={onSetGridSize}
+            onToggleGalleryMetadataField={onToggleGalleryMetadataField}
+          />
+        </>
+      ) : null}
 
       <FiltersControlMenu
         filterSummary={filterSummary}
@@ -140,7 +146,7 @@ export function LibraryControlStrip({
         onRemoveTagFilter={onRemoveTagFilter}
       />
 
-      <Tooltip>
+      {view !== "compare" ? <Tooltip>
         <TooltipTrigger asChild>
           <Button
             className="control-menu-trigger"
@@ -158,7 +164,7 @@ export function LibraryControlStrip({
         <TooltipContent side="bottom">
           {isSelectionMode ? "Exit selection mode" : "Select media"}
         </TooltipContent>
-      </Tooltip>
+      </Tooltip> : null}
     </section>
   );
 }

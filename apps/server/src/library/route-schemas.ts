@@ -36,6 +36,40 @@ export const FolderParams = z.object({
   folderId: z.string().min(1).max(256)
 });
 
+export const ComparisonEventParams = z.object({
+  eventId: z.uuid()
+});
+
+export const ComparisonPairQuery = AssetListQuery.pick({
+  type: true,
+  search: true,
+  tag: true,
+  rating: true,
+  recursive: true
+}).extend({
+  exclude: z.preprocess(
+    (value) => {
+      if (value === undefined) {
+        return [];
+      }
+
+      return Array.isArray(value) ? value : [value];
+    },
+    z.array(z.string().min(1).max(256)).max(2)
+  )
+});
+
+export const ComparisonDecisionBody = z
+  .object({
+    leftAssetId: z.string().min(1).max(256),
+    rightAssetId: z.string().min(1).max(256),
+    winnerAssetId: z.string().min(1).max(256)
+  })
+  .refine((data) => data.leftAssetId !== data.rightAssetId)
+  .refine((data) =>
+    [data.leftAssetId, data.rightAssetId].includes(data.winnerAssetId)
+  );
+
 export const ThumbnailQuery = z.object({
   size: z.coerce.number().int().min(96).max(1600).default(640)
 });

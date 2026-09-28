@@ -51,12 +51,84 @@
   z-index: 3;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  align-items: center;
+  gap: 10px;
   transform: translateY(-50%);
+}
+
+.feed-nav-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.feed-nav-separator {
+  width: 28px;
+  background: rgba(var(--aether-foreground-rgb), 0.16);
+}
+
+.feed-curation-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.feed-score-control {
+  color: var(--foreground);
+  border-color: rgba(var(--aether-foreground-rgb), 0.16);
+  background: rgba(var(--aether-background-rgb), 0.7);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(12px) saturate(1.12);
+}
+
+.feed-score-control.score-control:focus-within {
+  outline-color: rgba(var(--aether-foreground-rgb), 0.72);
+}
+
+.feed-score-control .aether-button {
+  color: inherit;
+  background: transparent;
+}
+
+.feed-score-control .aether-button:hover:not(:disabled) {
+  background: rgba(var(--aether-foreground-rgb), 0.1);
+}
+
+.feed-score-control .feed-score-decrement {
+  border-top: 1px solid rgba(var(--aether-foreground-rgb), 0.12);
 }
 
 .feed-nav-button:active:not(:disabled) {
   background: rgba(3, 4, 4, 0.76);
+}
+
+:root:not(.dark) .feed-nav-button.media-overlay-button {
+  color: rgba(var(--aether-foreground-rgb), 0.78);
+  border-color: rgba(var(--aether-foreground-rgb), 0.14);
+  background: rgba(var(--aether-background-rgb), 0.78);
+  box-shadow: 0 8px 22px rgba(var(--aether-foreground-rgb), 0.1);
+}
+
+:root:not(.dark) .feed-nav-button.media-overlay-button:hover:not(:disabled) {
+  color: var(--foreground);
+  border-color: rgba(var(--aether-foreground-rgb), 0.24);
+  background: rgba(var(--aether-background-rgb), 0.92);
+  box-shadow: 0 10px 26px rgba(var(--aether-foreground-rgb), 0.13);
+}
+
+:root:not(.dark) .feed-nav-button.media-overlay-button:active:not(:disabled) {
+  background: rgba(var(--aether-foreground-rgb), 0.12);
+  box-shadow: 0 5px 14px rgba(var(--aether-foreground-rgb), 0.1);
+}
+
+:root:not(.dark) .feed-nav-button.media-overlay-button:disabled {
+  opacity: 0.42;
+  box-shadow: none;
+}
+
+:root:not(.dark) .feed-nav-button.media-overlay-button:focus-visible {
+  outline-color: rgba(var(--aether-foreground-rgb), 0.68);
 }
 
 .feed-item {
@@ -107,6 +179,40 @@
   grid-area: 1 / 1;
   height: 100%;
   aspect-ratio: auto;
+}
+
+.feed-frame .media-skeleton {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background:
+    radial-gradient(
+      circle at 28% 16%,
+      rgba(var(--aether-accent-rgb), 0.075),
+      transparent 42%
+    ),
+    linear-gradient(
+      155deg,
+      rgba(var(--aether-overlay-rgb), 0.06),
+      rgba(var(--aether-overlay-rgb), 0.018)
+    );
+  animation: none;
+}
+
+.feed-frame .media-skeleton::before {
+  position: absolute;
+  inset: -15% -85%;
+  z-index: -1;
+  content: "";
+  background: linear-gradient(
+    108deg,
+    transparent 42%,
+    rgba(var(--aether-foreground-rgb), 0.07) 50%,
+    transparent 58%
+  );
+  transform: translate3d(-34%, 0, 0);
+  animation: gallery-skeleton-sweep 2.4s cubic-bezier(0.4, 0, 0.2, 1)
+    infinite;
 }
 
 .feed-frame .media-image,
@@ -194,8 +300,8 @@
   opacity: 0;
   transform: scale(0.7);
   transition:
-    opacity 120ms ease,
-    transform 120ms ease;
+    opacity var(--aether-motion-fast) ease,
+    transform var(--aether-motion-fast) ease;
   appearance: none;
 }
 
@@ -245,8 +351,8 @@
   opacity: 1;
   transform: translateY(0);
   transition:
-    opacity 160ms ease,
-    transform 160ms ease;
+    opacity var(--aether-motion-fast) ease,
+    transform var(--aether-motion-fast) ease;
 }
 
 .feed-item.details-hidden .feed-meta {
@@ -275,7 +381,7 @@
   text-align: left;
   cursor: pointer;
   pointer-events: auto;
-  transition: color 160ms ease;
+  transition: color var(--aether-motion-fast) ease;
   appearance: none;
 }
 
@@ -298,7 +404,7 @@
 .feed-meta-button:focus-visible {
   border-radius: 4px;
   outline: 2px solid rgba(var(--aether-accent-rgb), 0.58);
-  outline-offset: 3px;
+  outline-offset: -2px;
 }
 
 .feed-meta span {
@@ -318,8 +424,8 @@
   opacity: 1;
   transform: translateY(0);
   transition:
-    opacity 160ms ease,
-    transform 160ms ease;
+    opacity var(--aether-motion-fast) ease,
+    transform var(--aether-motion-fast) ease;
 }
 
 .feed-item.details-hidden .feed-actions {

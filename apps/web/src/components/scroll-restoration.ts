@@ -43,6 +43,30 @@ export function findScrollAnchorItem<T extends ScrollAnchorItem>(
   return precedingItem ?? items[0];
 }
 
+export function scaleScrollAnchorOffset(
+  anchorOffset: number | undefined,
+  previousAnchorSize: number | undefined,
+  nextAnchorSize: number
+): number {
+  const safeOffset =
+    typeof anchorOffset === "number" && Number.isFinite(anchorOffset)
+      ? Math.max(0, anchorOffset)
+      : 0;
+
+  if (
+    typeof previousAnchorSize !== "number" ||
+    !Number.isFinite(previousAnchorSize) ||
+    previousAnchorSize <= 0 ||
+    !Number.isFinite(nextAnchorSize) ||
+    nextAnchorSize <= 0
+  ) {
+    return safeOffset;
+  }
+
+  const rowProgress = Math.min(1, safeOffset / previousAnchorSize);
+  return rowProgress * nextAnchorSize;
+}
+
 export function readSessionScrollPosition(
   surface: ScrollSurface
 ): SessionScrollPosition | null {

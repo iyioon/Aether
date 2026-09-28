@@ -1,3 +1,10 @@
+.gallery-shell {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 .gallery-viewport {
   position: relative;
   flex: 1 1 auto;
@@ -8,6 +15,35 @@
   padding: 4px 2px 18px 0;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+}
+
+.gallery-scroll-top {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  z-index: 14;
+  border: 1px solid rgba(var(--aether-foreground-rgb), 0.12);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--card) 84%, transparent);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(8px) scale(0.96);
+  backdrop-filter: blur(14px);
+  transition:
+    opacity var(--aether-motion-fast) ease,
+    transform var(--aether-motion-fast) ease,
+    background-color var(--aether-motion-fast) ease;
+}
+
+.gallery-scroll-top[data-visible="true"] {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0) scale(1);
+}
+
+.library-main.has-selection .gallery-scroll-top {
+  bottom: calc(min(52dvh, 440px) + 18px);
 }
 
 .gallery-refresh-indicator {
@@ -33,8 +69,8 @@
 
 .gallery-content {
   transition:
-    opacity 160ms ease,
-    filter 160ms ease;
+    opacity var(--aether-motion-fast) ease,
+    filter var(--aether-motion-fast) ease;
 }
 
 .gallery-content.is-scroll-pending {
@@ -111,50 +147,11 @@
   box-shadow: none;
 }
 
-.gallery-skeleton-grid [data-slot="skeleton"] {
-  background: rgba(var(--aether-foreground-rgb), 0.07);
-  animation: gallery-skeleton-breathe 1.8s ease-in-out infinite alternate;
-}
-
-.gallery-skeleton-grid .gallery-card-skeleton {
-  position: relative;
-  isolation: isolate;
-  overflow: hidden;
-  background:
-    radial-gradient(
-      circle at 24% 12%,
-      rgba(var(--aether-accent-rgb), 0.08),
-      transparent 48%
-    ),
-    linear-gradient(
-      145deg,
-      rgba(var(--aether-overlay-rgb), 0.065),
-      rgba(var(--aether-overlay-rgb), 0.025)
-    );
-  animation: none;
-}
-
-.gallery-skeleton-grid .gallery-card-skeleton::before {
-  position: absolute;
-  inset: -20% -65%;
-  z-index: -1;
-  content: "";
-  background: linear-gradient(
-    108deg,
-    transparent 40%,
-    rgba(var(--aether-foreground-rgb), 0.075) 50%,
-    transparent 60%
-  );
-  transform: translate3d(-36%, 0, 0);
-  animation: gallery-skeleton-sweep 2.1s cubic-bezier(0.4, 0, 0.2, 1)
-    infinite;
-}
-
 .media-tile {
   position: relative;
   min-width: 0;
   overflow: hidden;
-  transition: opacity 160ms ease;
+  transition: opacity var(--aether-motion-fast) ease;
 }
 
 .media-tile.selection-mode:not(.selected) {
@@ -200,7 +197,7 @@
   border: 0;
   background: transparent;
   cursor: pointer;
-  transition: background-color 150ms ease;
+  transition: background-color var(--aether-motion-fast) ease;
 }
 
 .tile-selection-surface:hover {
@@ -235,7 +232,6 @@
 }
 
 .media-skeleton,
-.gallery-card-skeleton,
 .media-image-loading,
 .media-video-loading {
   background:
@@ -269,7 +265,7 @@
 .media-image {
   object-position: center;
   opacity: 0;
-  transition: opacity 160ms ease;
+  transition: opacity var(--aether-motion-fast) ease;
 }
 
 .media-image-shell {
@@ -285,7 +281,7 @@
   width: 100%;
   height: 100%;
   opacity: 1;
-  transition: opacity 160ms ease;
+  transition: opacity var(--aether-motion-fast) ease;
 }
 
 .media-image-shell.ready .media-image:not(.media-image-thumbnail),
@@ -325,20 +321,20 @@
   width: 100%;
   height: 100%;
   opacity: 1;
-  transition: opacity 160ms ease;
+  transition: opacity var(--aether-motion-fast) ease;
 }
 
 .media-video-poster {
   background: #18181b;
   opacity: 1;
-  transition: opacity 160ms ease;
+  transition: opacity var(--aether-motion-fast) ease;
 }
 
 .media-video {
   background: transparent;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 140ms ease;
+  transition: opacity var(--aether-motion-fast) ease;
 }
 
 .media-video-shell.ready .media-video {
@@ -442,16 +438,6 @@
   }
 }
 
-@keyframes gallery-skeleton-breathe {
-  from {
-    opacity: 0.55;
-  }
-
-  to {
-    opacity: 0.9;
-  }
-}
-
 @keyframes gallery-skeleton-sweep {
   55%,
   100% {
@@ -523,8 +509,8 @@
     pointer-events: none;
     transform: translateY(-2px) scale(0.96);
     transition:
-      opacity 140ms ease,
-      transform 140ms ease;
+      opacity var(--aether-motion-fast) ease,
+      transform var(--aether-motion-fast) ease;
   }
 
   .media-tile:hover .icon-link.tile-download,

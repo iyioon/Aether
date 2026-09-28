@@ -153,9 +153,10 @@
 }
 
 .settings-custom-color input:focus-visible {
-  outline: none;
-  border-color: rgba(var(--aether-accent-rgb), 0.62);
-  box-shadow: 0 0 0 2px rgba(var(--aether-accent-rgb), 0.14);
+  border-color: transparent;
+  outline: 2px solid rgba(var(--aether-accent-rgb), 0.72);
+  outline-offset: -2px;
+  box-shadow: none;
 }
 
 .settings-inline-actions {
@@ -210,9 +211,10 @@
 }
 
 .sidebar-action:focus-visible {
-  outline: none;
-  border-color: rgba(var(--aether-accent-rgb), 0.62);
-  box-shadow: 0 0 0 2px rgba(var(--aether-accent-rgb), 0.14);
+  border-color: transparent;
+  outline: 2px solid rgba(var(--aether-accent-rgb), 0.72);
+  outline-offset: -2px;
+  box-shadow: none;
 }
 
 @media (max-width: 1180px) {
@@ -305,7 +307,6 @@
 :root[data-accent] .brand-logo,
 :root[data-accent] .login-brand-logo {
   border-color: rgba(var(--aether-accent-rgb), 0.34);
-  background: rgba(var(--aether-accent-rgb), 0.1);
 }
 
 :root[data-accent] .tree-row:focus-visible,

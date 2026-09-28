@@ -13,6 +13,10 @@ import { GalleryHorizontalEnd } from "lucide-react";
 import type { AssetRecord } from "../../api/client";
 import { useAutoLoadSentinel } from "../../hooks/useAutoLoadSentinel";
 import {
+  feedKeyboardCommand,
+  hasShortcutModifier
+} from "../../lib/keyboard";
+import {
   readSessionScrollPosition,
   writeSessionScrollPosition
 } from "../scroll-restoration";
@@ -45,6 +49,7 @@ interface FeedPreviewProps {
   loadMoreRef: MutableRefObject<HTMLDivElement | null>;
   isFeedChromeHidden: boolean;
   isPlaybackPaused: boolean;
+  savingRatingAssetIds: Set<string>;
   scrollContextKey: string;
   syncedAssetId: string | null;
   onLoadMore: () => void;
@@ -52,6 +57,8 @@ interface FeedPreviewProps {
   onFeedChromeHiddenChange: (isHidden: boolean) => void;
   onOpenAnnotations: (assetId: string) => void;
   onOpenAsset: (assetId: string) => void;
+  onFavoriteAsset: (asset: AssetRecord, favorite: boolean) => void;
+  onScoreAsset: (asset: AssetRecord, score: number | null) => void;
 }
 
 export function FeedPreview({
@@ -63,13 +70,16 @@ export function FeedPreview({
   loadMoreRef,
   isFeedChromeHidden,
   isPlaybackPaused,
+  savingRatingAssetIds,
   scrollContextKey,
   syncedAssetId,
   onLoadMore,
   onActiveAssetChange,
   onFeedChromeHiddenChange,
   onOpenAnnotations,
-  onOpenAsset
+  onOpenAsset,
+  onFavoriteAsset,
+  onScoreAsset
 }: FeedPreviewProps) {
   const feedRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<Array<HTMLElement | null>>([]);
@@ -92,6 +102,8 @@ export function FeedPreview({
   const [activeIndex, setActiveIndex] = useState(0);
   const [isScrollPositionReady, setIsScrollPositionReady] = useState(false);
   const [isFeedMuted, setIsFeedMuted] = useState(true);
+  const [isKeyboardPlaybackPaused, setIsKeyboardPlaybackPaused] =
+    useState(false);
   const [isFeedAudioBlocked, setIsFeedAudioBlocked] = useState(false);
   const [audiblePlaybackRequest, setAudiblePlaybackRequest] = useState(0);
   const feedSoundState: FeedSoundState = isFeedAudioBlocked
@@ -99,6 +111,10 @@ export function FeedPreview({
     : isFeedMuted
       ? "muted"
       : "on";
+
+  useEffect(() => {
+    setIsKeyboardPlaybackPaused(false);
+  }, [activeIndex, scrollContextKey]);
 
   useEffect(() => {
     itemRefs.current = itemRefs.current.slice(0, assets.length);
@@ -420,9 +436,45 @@ export function FeedPreview({
     [scrollToFeedItem]
   );
 
+  const toggleActiveFeedPlayback = useCallback(
+    (index: number) => {
+      const activeAsset = assets[index];
+      const activeVideo = itemRefs.current[index]?.querySelector<HTMLVideoElement>(
+        "video"
+      );
+
+      if (activeAsset?.mediaType !== "video" || !activeVideo) {
+        return;
+      }
+
+      if (!activeVideo.paused) {
+        activeVideo.pause();
+        setIsKeyboardPlaybackPaused(true);
+        return;
+      }
+
+      setIsKeyboardPlaybackPaused(false);
+      activeVideo.play().catch(() => {
+        setIsKeyboardPlaybackPaused(true);
+      });
+    },
+    [assets]
+  );
+
   const handleFeedKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLElement>) => {
-      if (isInteractiveTarget(event.target)) {
+      if (
+        event.defaultPrevented ||
+        event.nativeEvent.isComposing ||
+        hasShortcutModifier(event.nativeEvent) ||
+        isInteractiveTarget(event.target)
+      ) {
+        return;
+      }
+
+      const command = feedKeyboardCommand(event.key);
+
+      if (!command || (event.repeat && ["open", "toggle-playback"].includes(command))) {
         return;
       }
 
@@ -431,31 +483,41 @@ export function FeedPreview({
         itemRefs.current
       );
 
-      switch (event.key) {
-        case "ArrowDown":
-        case "PageDown":
-        case " ":
+      switch (command) {
+        case "next":
           event.preventDefault();
           scrollToFeedItem(currentIndex + 1);
           break;
-        case "ArrowUp":
-        case "PageUp":
+        case "previous":
           event.preventDefault();
           scrollToFeedItem(currentIndex - 1);
           break;
-        case "Home":
+        case "first":
           event.preventDefault();
           scrollToFeedItem(0);
           break;
-        case "End":
+        case "last":
           event.preventDefault();
           scrollToFeedItem(assets.length - 1);
           break;
-        default:
+        case "open": {
+          const activeAsset = assets[currentIndex];
+
+          if (!activeAsset) {
+            break;
+          }
+
+          event.preventDefault();
+          onOpenAsset(activeAsset.id);
+          break;
+        }
+        case "toggle-playback":
+          event.preventDefault();
+          toggleActiveFeedPlayback(currentIndex);
           break;
       }
     },
-    [assets.length, scrollToFeedItem]
+    [assets, onOpenAsset, scrollToFeedItem, toggleActiveFeedPlayback]
   );
 
   const handleFeedWheel = useCallback(
@@ -561,6 +623,12 @@ export function FeedPreview({
     );
   }
 
+  const activeAsset = assets[activeIndex] ?? assets[0];
+
+  if (!activeAsset) {
+    return null;
+  }
+
   return (
     <section
       className={[
@@ -570,6 +638,7 @@ export function FeedPreview({
         .filter(Boolean)
         .join(" ")}
       aria-label="Feed view"
+      aria-keyshortcuts="ArrowUp ArrowDown PageUp PageDown Home End Enter Space"
       aria-busy={!isScrollPositionReady}
       inert={!isScrollPositionReady}
       tabIndex={0}
@@ -597,7 +666,10 @@ export function FeedPreview({
             index={index}
             isFeedChromeHidden={isFeedChromeHidden}
             isFeedMuted={isFeedMuted}
-            isPlaybackPaused={isPlaybackPaused}
+            isPlaybackPaused={
+              isPlaybackPaused ||
+              (index === activeIndex && isKeyboardPlaybackPaused)
+            }
             key={asset.id}
             loadMoreRef={loadMoreRef}
             preloadPreview={
@@ -619,8 +691,13 @@ export function FeedPreview({
       </div>
       <FeedNavRail
         activeIndex={activeIndex}
+        activeFavorite={activeAsset.favorite}
+        activeMediaName={activeAsset.name}
+        activeRating={activeAsset.rating}
         assetCount={assets.length}
         hasMore={hasMore}
+        isRatingSaving={savingRatingAssetIds.has(activeAsset.id)}
+        onFavoriteChange={(favorite) => onFavoriteAsset(activeAsset, favorite)}
         onNext={() =>
           scrollToFeedItem(
             nearestFeedIndexFromScroll(feedRef.current, itemRefs.current) + 1
@@ -631,6 +708,7 @@ export function FeedPreview({
             nearestFeedIndexFromScroll(feedRef.current, itemRefs.current) - 1
           )
         }
+        onRatingChange={(rating) => onScoreAsset(activeAsset, rating)}
       />
     </section>
   );

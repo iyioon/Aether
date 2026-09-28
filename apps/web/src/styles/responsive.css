@@ -1,7 +1,7 @@
 @media (prefers-reduced-motion: reduce) {
   .gallery-refresh-indicator::after,
   .gallery-empty-enter,
-  .gallery-card-skeleton::before,
+  .feed-frame .media-skeleton::before,
   .media-image-loading,
   .media-video-loading,
   .gallery-skeleton-grid [data-slot="skeleton"] {
@@ -20,6 +20,7 @@
   .control-menu-chevron,
   .folder-sort-button,
   .folder-scan-button,
+  .favorite-button svg,
   .tree-row,
   .sidebar-footer-action,
   .tree-disclosure,
@@ -34,6 +35,7 @@
   .media-video,
   .tile-download,
   .tile-selection-surface,
+  .gallery-scroll-top,
   .metadata-field-list label,
   .filter-option,
   .filter-option-icon,
@@ -77,6 +79,10 @@
 }
 
 @media (max-width: 760px), (max-width: 920px) and (hover: none) and (pointer: coarse) {
+  .library-inset.feed-chrome-hidden > .library-path-bar {
+    display: none;
+  }
+
   .library-path-bar {
     height: 52px;
     padding-inline: 10px;
@@ -341,6 +347,15 @@
     padding-bottom: calc(12px + env(safe-area-inset-bottom));
   }
 
+  .gallery-scroll-top {
+    right: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+
+  .library-main.has-selection .gallery-scroll-top {
+    bottom: calc(min(52dvh, 440px) + 12px);
+  }
+
   .tile-info {
     gap: 5px;
     padding: 8px 9px 9px;
@@ -452,41 +467,6 @@
     overflow: hidden;
     white-space: nowrap;
     clip-path: inset(50%);
-  }
-
-  .library-main.view-feed.topbar-collapsed .library-toolbar,
-  .library-main.view-feed.topbar-collapsed .control-strip {
-    display: none;
-  }
-
-  .library-main.view-feed.topbar-collapsed .feed-shell {
-    flex: 1 1 100%;
-    height: 100%;
-  }
-
-  .library-main.view-feed.topbar-collapsed .feed-collapsed-topbar {
-    position: absolute;
-    top: calc(10px + env(safe-area-inset-top));
-    right: 10px;
-    left: 10px;
-    z-index: 8;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 40px 40px;
-    gap: 8px;
-    pointer-events: none;
-  }
-
-  .feed-collapsed-topbar > * {
-    pointer-events: auto;
-  }
-
-  .feed-collapsed-title {
-    height: 40px;
-    min-height: 40px;
-    border-color: rgba(var(--aether-foreground-rgb), 0.16);
-    background: rgba(var(--aether-background-rgb), 0.58);
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
-    backdrop-filter: blur(12px);
   }
 
   .library-main.view-feed .batch-actions-bar,

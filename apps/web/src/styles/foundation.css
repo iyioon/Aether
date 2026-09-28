@@ -72,15 +72,16 @@ button:disabled {
   object-fit: contain;
   border: 1px solid rgba(var(--aether-accent-rgb), 0.26);
   border-radius: 50%;
-  background: rgba(var(--aether-accent-rgb), 0.08);
+  background: transparent;
 }
 
 .login-brand-logo {
   width: 44px;
   height: 44px;
-  padding: 5px;
-  border-color: rgba(var(--aether-accent-rgb), 0.34);
-  background: rgba(var(--aether-accent-rgb), 0.1);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  filter: grayscale(1);
 }
 
 .control-strip > label > span,
@@ -157,10 +158,10 @@ button:disabled {
   background: rgba(3, 4, 4, 0.48);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
   transition:
-    color 160ms ease,
-    border-color 160ms ease,
-    background-color 160ms ease,
-    box-shadow 160ms ease;
+    color var(--aether-motion-fast) ease,
+    border-color var(--aether-motion-fast) ease,
+    background-color var(--aether-motion-fast) ease,
+    box-shadow var(--aether-motion-fast) ease;
   backdrop-filter: blur(12px) saturate(1.12);
 }
 
@@ -173,29 +174,95 @@ button:disabled {
 .aether-button[data-variant="secondary"],
 .aether-button[aria-pressed="true"] {
   color: var(--foreground);
-  border: 1px solid rgba(var(--aether-accent-rgb), 0.42);
-  background: rgba(var(--aether-accent-rgb), 0.22);
+  border: 1px solid var(--aether-active-border);
+  background: var(--aether-active-background);
   backdrop-filter: blur(10px) saturate(1.08);
 }
 
 .aether-button[data-variant="secondary"]:hover:not(:disabled),
 .aether-button[aria-pressed="true"]:hover:not(:disabled) {
-  border-color: rgba(var(--aether-accent-rgb), 0.56);
-  background: rgba(var(--aether-accent-rgb), 0.32);
+  border-color: var(--aether-active-border-hover);
+  background: var(--aether-active-background-hover);
 }
 
-:root .aether-button.favorite-button[aria-pressed="true"] {
+.aether-button.favorite-button {
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+}
+
+.aether-button.favorite-button svg {
+  transition:
+    color var(--aether-motion-fast) ease,
+    fill var(--aether-motion-fast) ease,
+    transform var(--aether-motion-fast) ease;
+}
+
+.aether-button.favorite-button:hover:not(:disabled) svg {
+  transform: scale(1.06);
+}
+
+.aether-button.favorite-button:active:not(:disabled) svg {
+  transform: scale(0.94);
+}
+
+:root[data-accent] .aether-button.favorite-button[aria-pressed="true"] {
   color: var(--destructive);
-  border-color: rgba(var(--aether-destructive-rgb), 0.38);
-  background: rgba(var(--aether-destructive-rgb), 0.12);
+  border: 1px solid var(--border);
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
 }
 
-:root .aether-button.favorite-button[aria-pressed="true"]:hover:not(:disabled) {
+:root[data-accent] .aether-button.favorite-button:hover:not(:disabled),
+:root[data-accent]
+  .aether-button.favorite-button[aria-pressed="true"]:hover:not(:disabled) {
   color: var(--destructive);
-  border-color: rgba(var(--aether-destructive-rgb), 0.52);
-  background: rgba(var(--aether-destructive-rgb), 0.18);
+  border: 1px solid var(--border);
+  background: transparent;
+  box-shadow: none;
 }
 
-:root .aether-button.favorite-button[aria-pressed="true"] svg {
+:root[data-accent] .aether-button.favorite-button[aria-pressed="true"] svg {
   fill: currentColor;
+}
+
+/* One inset focus treatment avoids doubled or clipped focus borders. */
+:is(
+  .aether-button,
+  .icon-button,
+  .score-control,
+  [data-slot="input"],
+  [data-slot="tabs-trigger"],
+  [data-slot="radio-group-item"],
+  [data-slot="select-trigger"],
+  [data-slot="checkbox"],
+  [data-slot="badge"],
+  [data-slot="sidebar-group-label"],
+  [data-slot="sidebar-group-action"],
+  [data-slot="sidebar-menu-button"],
+  [data-slot="sidebar-menu-action"],
+  [data-slot="sidebar-menu-sub-button"]
+):focus-visible,
+.score-control:focus-within {
+  border-color: transparent;
+  outline: 2px solid color-mix(in srgb, var(--ring) 78%, transparent);
+  outline-offset: -2px;
+  box-shadow: none;
+}
+
+:is(
+  .aether-button[data-variant="destructive"],
+  [aria-invalid="true"]
+):focus-visible {
+  outline-color: var(--destructive);
+}
+
+.media-overlay-button.media-overlay-button:focus-visible {
+  outline-color: rgba(255, 255, 255, 0.88);
+}
+
+.score-control .aether-button:focus-visible {
+  border-color: transparent;
+  outline: none;
+  box-shadow: none;
 }

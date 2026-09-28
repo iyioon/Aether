@@ -9,6 +9,8 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 import {
+  ArrowDown,
+  ArrowUp,
   ChevronLeft,
   ChevronRight,
   Download,
@@ -17,6 +19,14 @@ import {
   X
 } from "lucide-react";
 import type { AssetRecord } from "../../api/client";
+import {
+  hasShortcutModifier,
+  isDirectionalKeyboardTarget,
+  isEditableKeyboardTarget,
+  isKeyboardActivationTarget,
+  ratingAfterKeyboardAdjustment,
+  viewerKeyboardCommand
+} from "../../lib/keyboard";
 import { panelExitDurationMs } from "../../lib/motion";
 import { Button } from "../ui/button";
 import {
@@ -33,6 +43,7 @@ interface MediaViewerProps {
   hasPrevious: boolean;
   isInfoOpen: boolean;
   onClose: () => void;
+  onRatingChange: (rating: number | null) => void;
   onToggleInfo: () => void;
   onNext: () => void;
   onPrevious: () => void;
@@ -53,7 +64,17 @@ interface ViewerPosterState {
   status: "ready" | "error";
 }
 
+interface ViewerRatingFeedback {
+  assetId: string;
+  direction: -1 | 1;
+  id: number;
+  isExiting: boolean;
+  score: number;
+}
+
 const CONTROL_HIDE_DELAY_MS = 1_800;
+const RATING_FEEDBACK_IDLE_MS = 750;
+const RATING_FEEDBACK_EXIT_MS = 150;
 const SWIPE_DISTANCE_PX = 56;
 
 export function MediaViewer({
@@ -62,6 +83,7 @@ export function MediaViewer({
   hasPrevious,
   isInfoOpen,
   onClose,
+  onRatingChange,
   onToggleInfo,
   onNext,
   onPrevious
@@ -70,8 +92,12 @@ export function MediaViewer({
   const viewerVideoRef = useRef<HTMLVideoElement | null>(null);
   const controlsTimerRef = useRef<number | null>(null);
   const closeTimerRef = useRef<number | null>(null);
+  const displayedRatingRef = useRef<number | null>(asset.rating);
   const isClosingRef = useRef(false);
   const onCloseRef = useRef(onClose);
+  const ratingFeedbackIdRef = useRef(0);
+  const ratingFeedbackRemovalTimerRef = useRef<number | null>(null);
+  const ratingFeedbackTimerRef = useRef<number | null>(null);
   const touchStartRef = useRef<ViewerTouchStart | null>(null);
   const [isOpen, setIsOpen] = useState(true);
   const [controlsVisible, setControlsVisible] = useState(true);
@@ -88,6 +114,9 @@ export function MediaViewer({
     useState<ViewerStageSize | null>(null);
   const [viewerVideoSize, setViewerVideoSize] =
     useState<ViewerStageSize | null>(null);
+  const [keyboardAnnouncement, setKeyboardAnnouncement] = useState("");
+  const [ratingFeedback, setRatingFeedback] =
+    useState<ViewerRatingFeedback | null>(null);
   const storedMediaSize = useMemo<ViewerStageSize | null>(() => {
     if (!asset.width || !asset.height || asset.width <= 0 || asset.height <= 0) {
       return null;
@@ -151,6 +180,97 @@ export function MediaViewer({
   const playViewerVideo = useCallback(() => {
     viewerVideoRef.current?.play().catch(() => undefined);
   }, []);
+
+  const toggleViewerVideoPlayback = useCallback(() => {
+    const video = viewerVideoRef.current;
+
+    if (!video) {
+      return;
+    }
+
+    revealControls();
+
+    if (!video.paused) {
+      video.pause();
+      setKeyboardAnnouncement("Video paused");
+      return;
+    }
+
+    video
+      .play()
+      .then(() => setKeyboardAnnouncement("Video playing"))
+      .catch(() => setKeyboardAnnouncement("Video could not be played"));
+  }, [revealControls]);
+
+  const toggleViewerSound = useCallback(() => {
+    const video = viewerVideoRef.current;
+
+    if (!video) {
+      return;
+    }
+
+    video.muted = !video.muted;
+
+    if (!video.muted && video.volume === 0) {
+      video.volume = 1;
+    }
+
+    revealControls();
+    setKeyboardAnnouncement(video.muted ? "Sound muted" : "Sound on");
+  }, [revealControls]);
+
+  const adjustViewerRating = useCallback(
+    (direction: -1 | 1) => {
+      const currentScore = displayedRatingRef.current ?? 0;
+      const nextRating = ratingAfterKeyboardAdjustment(
+        displayedRatingRef.current,
+        direction
+      );
+      const nextScore = nextRating ?? 0;
+
+      ratingFeedbackIdRef.current += 1;
+      setRatingFeedback({
+        assetId: asset.id,
+        direction,
+        id: ratingFeedbackIdRef.current,
+        isExiting: false,
+        score: nextScore
+      });
+
+      if (ratingFeedbackTimerRef.current !== null) {
+        window.clearTimeout(ratingFeedbackTimerRef.current);
+      }
+      if (ratingFeedbackRemovalTimerRef.current !== null) {
+        window.clearTimeout(ratingFeedbackRemovalTimerRef.current);
+        ratingFeedbackRemovalTimerRef.current = null;
+      }
+
+      ratingFeedbackTimerRef.current = window.setTimeout(() => {
+        ratingFeedbackTimerRef.current = null;
+        setRatingFeedback((current) =>
+          current?.assetId === asset.id
+            ? { ...current, isExiting: true }
+            : current
+        );
+        ratingFeedbackRemovalTimerRef.current = window.setTimeout(() => {
+          ratingFeedbackRemovalTimerRef.current = null;
+          setRatingFeedback(null);
+        }, RATING_FEEDBACK_EXIT_MS);
+      }, RATING_FEEDBACK_IDLE_MS);
+
+      if (nextScore === currentScore) {
+        setKeyboardAnnouncement("Score is already 0");
+        return;
+      }
+
+      displayedRatingRef.current = nextRating;
+      setKeyboardAnnouncement(
+        `Score ${direction > 0 ? "increased" : "decreased"} to ${nextScore}`
+      );
+      onRatingChange(nextRating);
+    },
+    [asset.id, onRatingChange]
+  );
 
   const navigateAndPlayViewerVideo = useCallback(
     (direction: -1 | 1) => {
@@ -260,6 +380,22 @@ export function MediaViewer({
   }, [asset.id]);
 
   useEffect(() => {
+    displayedRatingRef.current = asset.rating;
+  }, [asset.id, asset.rating]);
+
+  useEffect(
+    () => () => {
+      if (ratingFeedbackTimerRef.current !== null) {
+        window.clearTimeout(ratingFeedbackTimerRef.current);
+      }
+      if (ratingFeedbackRemovalTimerRef.current !== null) {
+        window.clearTimeout(ratingFeedbackRemovalTimerRef.current);
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
     if (asset.mediaType !== "video") {
       return;
     }
@@ -270,22 +406,83 @@ export function MediaViewer({
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
-      if (isInfoOpen || isEditableTarget(event.target)) {
+      if (
+        isInfoOpen ||
+        event.defaultPrevented ||
+        event.isComposing ||
+        hasShortcutModifier(event) ||
+        isEditableKeyboardTarget(event.target)
+      ) {
         return;
       }
 
-      if (event.key === "ArrowRight" && hasNext) {
-        event.preventDefault();
-        navigateAndPlayViewerVideo(1);
-      } else if (event.key === "ArrowLeft" && hasPrevious) {
-        event.preventDefault();
-        navigateAndPlayViewerVideo(-1);
+      const command = viewerKeyboardCommand(event.key);
+
+      if (!command || (event.repeat && !["next", "previous"].includes(command))) {
+        return;
+      }
+
+      switch (command) {
+        case "increase-rating":
+        case "decrease-rating":
+          if (isDirectionalKeyboardTarget(event.target)) {
+            return;
+          }
+          event.preventDefault();
+          adjustViewerRating(command === "increase-rating" ? 1 : -1);
+          break;
+        case "next":
+          if (!hasNext || isDirectionalKeyboardTarget(event.target)) {
+            return;
+          }
+          event.preventDefault();
+          navigateAndPlayViewerVideo(1);
+          break;
+        case "previous":
+          if (!hasPrevious || isDirectionalKeyboardTarget(event.target)) {
+            return;
+          }
+          event.preventDefault();
+          navigateAndPlayViewerVideo(-1);
+          break;
+        case "toggle-playback":
+          if (
+            asset.mediaType !== "video" ||
+            isKeyboardActivationTarget(event.target)
+          ) {
+            return;
+          }
+          event.preventDefault();
+          toggleViewerVideoPlayback();
+          break;
+        case "toggle-sound":
+          if (asset.mediaType !== "video") {
+            return;
+          }
+          event.preventDefault();
+          toggleViewerSound();
+          break;
+        case "details":
+          event.preventDefault();
+          setKeyboardAnnouncement("Details opened");
+          onToggleInfo();
+          break;
       }
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [hasNext, hasPrevious, isInfoOpen, navigateAndPlayViewerVideo]);
+  }, [
+    adjustViewerRating,
+    asset.mediaType,
+    hasNext,
+    hasPrevious,
+    isInfoOpen,
+    navigateAndPlayViewerVideo,
+    onToggleInfo,
+    toggleViewerSound,
+    toggleViewerVideoPlayback
+  ]);
 
   function handleTouchStart(event: ReactTouchEvent<HTMLDivElement>) {
     revealControls();
@@ -341,10 +538,15 @@ export function MediaViewer({
         ].join(" ")}
         showCloseButton={false}
         aria-describedby={undefined}
+        aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight Space M I Escape"
         onEscapeKeyDown={(event) => {
           if (isInfoOpen) {
             event.preventDefault();
+            return;
           }
+
+          event.preventDefault();
+          requestClose();
         }}
         onOpenAutoFocus={(event) => {
           event.preventDefault();
@@ -512,8 +714,37 @@ export function MediaViewer({
           </Button>
         ) : null}
 
+        {ratingFeedback?.assetId === asset.id ? (
+          <div
+            className={[
+              "viewer-rating-feedback",
+              ratingFeedback.direction > 0
+                ? "is-increasing"
+                : "is-decreasing",
+              ratingFeedback.isExiting ? "is-exiting" : ""
+            ]
+              .filter(Boolean)
+              .join(" ")}
+            aria-hidden="true"
+          >
+            <span
+              className="viewer-rating-arrow"
+              key={`direction-${ratingFeedback.direction}`}
+            >
+              {ratingFeedback.direction > 0 ? <ArrowUp /> : <ArrowDown />}
+            </span>
+            <span>Score</span>
+            <strong key={`score-${ratingFeedback.id}`}>
+              {ratingFeedback.score}
+            </strong>
+          </div>
+        ) : null}
+
         <span className="sr-only" aria-live="polite">
           Viewing {asset.name}
+        </span>
+        <span className="sr-only" aria-live="polite">
+          {keyboardAnnouncement}
         </span>
       </DialogContent>
     </Dialog>
@@ -550,13 +781,6 @@ function mediaViewerFrameStyle(
     width: `${Math.max(1, Math.floor(frameWidth))}px`,
     height: `${Math.max(1, Math.floor(frameHeight))}px`
   };
-}
-
-function isEditableTarget(target: EventTarget | null): boolean {
-  return (
-    target instanceof HTMLElement &&
-    Boolean(target.closest("input, textarea, select, [contenteditable='true']"))
-  );
 }
 
 function isInteractiveTarget(target: EventTarget | null): boolean {

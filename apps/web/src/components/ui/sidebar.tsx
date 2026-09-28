@@ -262,6 +262,7 @@ function SidebarTrigger({
 
   return (
     <Button
+      aria-keyshortcuts="Control+B Meta+B"
       data-sidebar="trigger"
       data-slot="sidebar-trigger"
       variant="ghost"

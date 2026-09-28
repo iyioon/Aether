@@ -99,7 +99,7 @@ export function LibrarySidebar({
     <Sidebar collapsible="offcanvas" id="library-sidebar">
       <SidebarHeader className="p-4 pb-2">
         <div className="flex h-12 items-center gap-2 px-2">
-          <BrandMark />
+          <BrandMark className="sidebar-brand-logo" />
           <span className="flex min-w-0 flex-col gap-0.5 leading-none">
             <strong className="truncate font-semibold">Aether</strong>
             <span className="truncate text-xs text-muted-foreground">

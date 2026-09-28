@@ -1,16 +1,6 @@
 import { ApiError, type AssetRecord } from "../../api/client";
 import { selectedMediaLabel } from "../media/media-format";
 
-export function shouldCollapseFeedControlsByDefault(): boolean {
-  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
-    return false;
-  }
-
-  return window.matchMedia(
-    "(max-width: 760px), (max-width: 920px) and (hover: none) and (pointer: coarse)"
-  ).matches;
-}
-
 export function setsEqual<T>(left: ReadonlySet<T>, right: ReadonlySet<T>): boolean {
   if (left.size !== right.size) {
     return false;

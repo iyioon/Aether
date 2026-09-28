@@ -10,7 +10,7 @@ import {
   type UIEvent as ReactUIEvent
 } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Download, SlidersHorizontal } from "lucide-react";
+import { ArrowUp, Download, SlidersHorizontal } from "lucide-react";
 import type { AssetRecord } from "../../api/client";
 import { useAutoLoadSentinel } from "../../hooks/useAutoLoadSentinel";
 import type { AspectMode, GridSize } from "../library-state";
@@ -20,6 +20,7 @@ import { downloadUrl } from "../media/media-urls";
 import {
   findScrollAnchorItem,
   readSessionScrollPosition,
+  scaleScrollAnchorOffset,
   writeSessionScrollPosition
 } from "../scroll-restoration";
 import {
@@ -34,9 +35,9 @@ import {
   mediaTileStyle
 } from "./gallery-layout";
 import type { GalleryMetadataField } from "./gallery-metadata";
+import { GalleryCardSkeleton } from "./GalleryCardSkeleton";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
-import { Skeleton } from "../ui/skeleton";
 
 interface GalleryGridProps {
   assets: AssetRecord[];
@@ -92,6 +93,7 @@ export function GalleryGrid({
   const scrollFrameRef = useRef<number | null>(null);
   const restoreFrameRef = useRef<number | null>(null);
   const syncFrameRef = useRef<number | null>(null);
+  const layoutFrameRef = useRef<number | null>(null);
   const latestScrollTopRef = useRef(0);
   const restoredContextRef = useRef<string | null>(null);
   const isRestoringRef = useRef(false);
@@ -99,14 +101,23 @@ export function GalleryGrid({
   const assetsRef = useRef(assets);
   const columnCountRef = useRef(1);
   const lastReportedAnchorIdRef = useRef<string | null>(null);
+  const layoutSignatureRef = useRef<string | null>(null);
+  const scrollTopVisibleRef = useRef(false);
   const onActiveAssetChangeRef = useRef(onActiveAssetChange);
   contextKeyRef.current = scrollContextKey;
   assetsRef.current = assets;
   onActiveAssetChangeRef.current = onActiveAssetChange;
   const [containerWidth, setContainerWidth] = useState(0);
   const [isScrollPositionReady, setIsScrollPositionReady] = useState(false);
+  const [isScrollTopVisible, setIsScrollTopVisible] = useState(false);
   const minTileWidth = galleryMinTileWidth(gridSize);
   const columnCount = galleryColumnCount(containerWidth, minTileWidth);
+  const layoutSignature = [
+    gridSize,
+    aspect,
+    columnCount,
+    ...Array.from(metadataFields).sort()
+  ].join(":");
   const rows = useMemo(
     () => chunkAssetsIntoRows(assets, columnCount),
     [assets, columnCount]
@@ -181,6 +192,8 @@ export function GalleryGrid({
 
   useLayoutEffect(() => {
     lastReportedAnchorIdRef.current = null;
+    scrollTopVisibleRef.current = false;
+    setIsScrollTopVisible(false);
     setIsScrollPositionReady(false);
   }, [scrollContextKey]);
 
@@ -218,7 +231,16 @@ export function GalleryGrid({
   }, []);
 
   const handleScroll = useCallback((event: ReactUIEvent<HTMLElement>) => {
-    latestScrollTopRef.current = event.currentTarget.scrollTop;
+    const scrollElement = event.currentTarget;
+    const scrollTop = scrollElement.scrollTop;
+    const shouldShowScrollTop =
+      scrollTop > Math.max(320, scrollElement.clientHeight * 0.65);
+    latestScrollTopRef.current = scrollTop;
+
+    if (scrollTopVisibleRef.current !== shouldShowScrollTop) {
+      scrollTopVisibleRef.current = shouldShowScrollTop;
+      setIsScrollTopVisible(shouldShowScrollTop);
+    }
 
     if (isRestoringRef.current || scrollFrameRef.current !== null) {
       return;
@@ -229,6 +251,23 @@ export function GalleryGrid({
       saveScrollPosition();
     });
   }, [saveScrollPosition]);
+
+  const scrollToTop = useCallback(() => {
+    const scrollElement = scrollParentRef.current;
+
+    if (!scrollElement) {
+      return;
+    }
+
+    const prefersReducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)"
+    ).matches;
+    scrollElement.scrollTo({
+      top: 0,
+      behavior: prefersReducedMotion ? "auto" : "smooth"
+    });
+    scrollElement.focus({ preventScroll: true });
+  }, []);
 
   useLayoutEffect(() => {
     const scrollElement = scrollParentRef.current;
@@ -373,6 +412,123 @@ export function GalleryGrid({
   ]);
 
   useLayoutEffect(() => {
+    const previousLayoutSignature = layoutSignatureRef.current;
+    layoutSignatureRef.current = layoutSignature;
+
+    if (
+      previousLayoutSignature === null ||
+      previousLayoutSignature === layoutSignature ||
+      !isContentReady ||
+      !isScrollPositionReady ||
+      restoredContextRef.current !== scrollContextKey
+    ) {
+      return;
+    }
+
+    const scrollElement = scrollParentRef.current;
+    const storedPosition = readSessionScrollPosition("library-content");
+
+    if (
+      !scrollElement ||
+      storedPosition?.contextKey !== scrollContextKey
+    ) {
+      return;
+    }
+
+    const anchorIndex = storedPosition.anchorId
+      ? assets.findIndex((asset) => asset.id === storedPosition.anchorId)
+      : storedPosition.index ?? -1;
+
+    if (anchorIndex < 0 || anchorIndex >= assets.length) {
+      return;
+    }
+
+    if (scrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(scrollFrameRef.current);
+      scrollFrameRef.current = null;
+    }
+    if (syncFrameRef.current !== null) {
+      window.cancelAnimationFrame(syncFrameRef.current);
+      syncFrameRef.current = null;
+    }
+    if (layoutFrameRef.current !== null) {
+      window.cancelAnimationFrame(layoutFrameRef.current);
+      layoutFrameRef.current = null;
+    }
+
+    const anchorAsset = assets[anchorIndex];
+    const rowIndex = Math.floor(anchorIndex / Math.max(1, columnCount));
+    const expectedLayoutSignature = layoutSignature;
+    isRestoringRef.current = true;
+
+    const positionAnchor = (preferMeasuredSize: boolean) => {
+      const rowOffset = rowVirtualizer.getOffsetForIndex(
+        rowIndex,
+        "start"
+      )?.[0];
+
+      if (rowOffset === undefined) {
+        return false;
+      }
+
+      const measuredRowSize = preferMeasuredSize
+        ? rowVirtualizer
+            .getVirtualItems()
+            .find((row) => row.index === rowIndex)?.size
+        : undefined;
+      const nextAnchorSize =
+        measuredRowSize ?? Math.max(1, estimateRowSize(rowIndex));
+      const nextAnchorOffset = scaleScrollAnchorOffset(
+        storedPosition.anchorOffset,
+        storedPosition.anchorSize,
+        nextAnchorSize
+      );
+      const nextScrollTop = Math.max(0, rowOffset + nextAnchorOffset);
+
+      scrollElement.scrollTop = nextScrollTop;
+      latestScrollTopRef.current = scrollElement.scrollTop;
+      lastReportedAnchorIdRef.current = anchorAsset?.id ?? null;
+      writeSessionScrollPosition("library-content", {
+        anchorId: anchorAsset?.id,
+        anchorOffset: nextAnchorOffset,
+        anchorSize: nextAnchorSize,
+        contextKey: scrollContextKey,
+        index: anchorIndex,
+        scrollTop: scrollElement.scrollTop
+      });
+      return true;
+    };
+
+    if (!positionAnchor(false)) {
+      isRestoringRef.current = false;
+      return;
+    }
+
+    layoutFrameRef.current = window.requestAnimationFrame(() => {
+      layoutFrameRef.current = null;
+
+      if (
+        layoutSignatureRef.current !== expectedLayoutSignature ||
+        contextKeyRef.current !== scrollContextKey
+      ) {
+        return;
+      }
+
+      positionAnchor(true);
+      isRestoringRef.current = false;
+    });
+  }, [
+    assets,
+    columnCount,
+    estimateRowSize,
+    isContentReady,
+    isScrollPositionReady,
+    layoutSignature,
+    rowVirtualizer,
+    scrollContextKey
+  ]);
+
+  useLayoutEffect(() => {
     if (
       !syncedAssetId ||
       syncedAssetId === lastReportedAnchorIdRef.current ||
@@ -483,6 +639,9 @@ export function GalleryGrid({
       if (syncFrameRef.current !== null) {
         window.cancelAnimationFrame(syncFrameRef.current);
       }
+      if (layoutFrameRef.current !== null) {
+        window.cancelAnimationFrame(layoutFrameRef.current);
+      }
       saveScrollPosition();
     },
     [saveScrollPosition]
@@ -512,8 +671,6 @@ export function GalleryGrid({
     metadataFields.has("rating") ||
     metadataFields.has("favorite") ||
     metadataFields.has("tags");
-  const skeletonHasCardInfo =
-    skeletonHasTitle || skeletonHasSecondaryMetadata || skeletonHasCuration;
   const storedSkeletonPosition = showInitialSkeletonLayer
     ? readSessionScrollPosition("library-content")
     : null;
@@ -615,18 +772,12 @@ export function GalleryGrid({
         }
       >
         {Array.from({ length: skeletonItemCount }).map((_, index) => (
-          <Card className="media-tile gap-0 py-0" key={index}>
-            <Skeleton className="gallery-card-skeleton rounded-none" />
-            {skeletonHasCardInfo ? (
-              <div className="tile-info">
-                <GalleryMetadataSkeleton
-                  hasCuration={skeletonHasCuration}
-                  hasSecondaryMetadata={skeletonHasSecondaryMetadata}
-                  hasTitle={skeletonHasTitle}
-                />
-              </div>
-            ) : null}
-          </Card>
+          <GalleryCardSkeleton
+            hasCuration={skeletonHasCuration}
+            hasSecondaryMetadata={skeletonHasSecondaryMetadata}
+            hasTitle={skeletonHasTitle}
+            key={index}
+          />
         ))}
       </div>
     </div>
@@ -634,228 +785,224 @@ export function GalleryGrid({
 
   if (isInitialLoading) {
     return (
-      <section
-        className="gallery-viewport"
-        ref={scrollParentRef}
-        aria-label="Gallery view"
-        aria-busy="true"
-        onScroll={handleScroll}
-      >
-        {initialSkeletonLayer}
-        <span className="sr-only" role="status">
-          Loading gallery
-        </span>
-      </section>
+      <div className="gallery-shell">
+        <section
+          className="gallery-viewport"
+          ref={scrollParentRef}
+          aria-label="Gallery view"
+          aria-busy="true"
+          onScroll={handleScroll}
+          tabIndex={-1}
+        >
+          {initialSkeletonLayer}
+          <span className="sr-only" role="status">
+            Loading gallery
+          </span>
+        </section>
+      </div>
     );
   }
 
   if (assets.length === 0) {
     return (
-      <section
-        className="gallery-viewport"
-        ref={scrollParentRef}
-        aria-label="Gallery view"
-        onScroll={handleScroll}
-      >
-        <div className="empty-library gallery-empty-enter">
-          <SlidersHorizontal size={22} />
-          <strong>No indexed media in this folder</strong>
-          <span>Run a scan after adding images or videos to the local media root.</span>
-        </div>
-      </section>
+      <div className="gallery-shell">
+        <section
+          className="gallery-viewport"
+          ref={scrollParentRef}
+          aria-label="Gallery view"
+          onScroll={handleScroll}
+          tabIndex={-1}
+        >
+          <div className="empty-library gallery-empty-enter">
+            <SlidersHorizontal size={22} />
+            <strong>No indexed media in this folder</strong>
+            <span>
+              Run a scan after adding images or videos to the local media root.
+            </span>
+          </div>
+        </section>
+      </div>
     );
   }
 
   return (
-    <section
-      className="gallery-viewport"
-      ref={scrollParentRef}
-      aria-label="Gallery view"
-      aria-busy={isRefreshing || !isScrollPositionReady}
-      onScroll={handleScroll}
-    >
-      {isRefreshing ? (
-        <div
-          className="gallery-refresh-indicator"
-          role="progressbar"
-          aria-label="Updating gallery"
-        />
-      ) : null}
-      {initialSkeletonLayer}
-      <div
-        className={[
-          "virtual-gallery gallery-content",
-          !isScrollPositionReady ? "is-scroll-pending" : "",
-          isRefreshing ? "is-refreshing" : ""
-        ]
-          .filter(Boolean)
-          .join(" ")}
-        data-aspect={aspect}
-        inert={isRefreshing || !isScrollPositionReady}
-        style={{ height: rowVirtualizer.getTotalSize() }}
+    <div className="gallery-shell">
+      <section
+        className="gallery-viewport"
+        ref={scrollParentRef}
+        aria-label="Gallery view"
+        aria-busy={isRefreshing || !isScrollPositionReady}
+        onScroll={handleScroll}
+        tabIndex={-1}
       >
-        {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-          const rowAssets = rows[virtualRow.index] ?? [];
+        {isRefreshing ? (
+          <div
+            className="gallery-refresh-indicator"
+            role="progressbar"
+            aria-label="Updating gallery"
+          />
+        ) : null}
+        {initialSkeletonLayer}
+        <div
+          className={[
+            "virtual-gallery gallery-content",
+            !isScrollPositionReady ? "is-scroll-pending" : "",
+            isRefreshing ? "is-refreshing" : ""
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          data-aspect={aspect}
+          inert={isRefreshing || !isScrollPositionReady}
+          style={{ height: rowVirtualizer.getTotalSize() }}
+        >
+          {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+            const rowAssets = rows[virtualRow.index] ?? [];
 
-          return (
-            <div
-              className="virtual-gallery-row"
-              data-index={virtualRow.index}
-              key={virtualRow.key}
-              ref={rowVirtualizer.measureElement}
-              style={{
-                gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))`,
-                transform: `translateY(${virtualRow.start}px)`
-              }}
-            >
-              {rowAssets.map((asset) => {
-                const isSelected = selectedAssetIds.has(asset.id);
-                const secondaryMetadata = gallerySecondaryMetadata(
-                  asset,
-                  metadataFields
-                );
-                const tagBadges = metadataFields.has("tags")
-                  ? asset.tags.slice(0, 2)
-                  : [];
-                const hiddenTagCount = metadataFields.has("tags")
-                  ? Math.max(0, asset.tags.length - tagBadges.length)
-                  : 0;
-                const hasTitle = metadataFields.has("title");
-                const hasSecondaryMetadata = secondaryMetadata.length > 0;
-                const showRatingControl = metadataFields.has("rating");
-                const showFavoriteControl = metadataFields.has("favorite");
-                const hasCuration =
-                  showRatingControl ||
-                  showFavoriteControl ||
-                  tagBadges.length > 0 ||
-                  hiddenTagCount > 0;
-                const hasCardInfo =
-                  hasTitle || hasSecondaryMetadata || hasCuration;
-                const isSavingRating = savingRatingAssetIds.has(asset.id);
-                const tileStyle = mediaTileStyle(
-                  asset,
-                  aspect,
-                  measuredAspectRatios
-                );
+            return (
+              <div
+                className="virtual-gallery-row"
+                data-index={virtualRow.index}
+                key={virtualRow.key}
+                ref={rowVirtualizer.measureElement}
+                style={{
+                  gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))`,
+                  transform: `translateY(${virtualRow.start}px)`
+                }}
+              >
+                {rowAssets.map((asset) => {
+                  const isSelected = selectedAssetIds.has(asset.id);
+                  const secondaryMetadata = gallerySecondaryMetadata(
+                    asset,
+                    metadataFields
+                  );
+                  const tagBadges = metadataFields.has("tags")
+                    ? asset.tags.slice(0, 2)
+                    : [];
+                  const hiddenTagCount = metadataFields.has("tags")
+                    ? Math.max(0, asset.tags.length - tagBadges.length)
+                    : 0;
+                  const hasTitle = metadataFields.has("title");
+                  const hasSecondaryMetadata = secondaryMetadata.length > 0;
+                  const showRatingControl = metadataFields.has("rating");
+                  const showFavoriteControl = metadataFields.has("favorite");
+                  const hasCuration =
+                    showRatingControl ||
+                    showFavoriteControl ||
+                    tagBadges.length > 0 ||
+                    hiddenTagCount > 0;
+                  const hasCardInfo =
+                    hasTitle || hasSecondaryMetadata || hasCuration;
+                  const isSavingRating = savingRatingAssetIds.has(asset.id);
+                  const tileStyle = mediaTileStyle(
+                    asset,
+                    aspect,
+                    measuredAspectRatios
+                  );
 
-                return (
-                  <Card
-                    className={[
-                      "media-tile gap-0 py-0",
-                      isSelectionMode ? "selection-mode" : "",
-                      isSelected ? "selected" : ""
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                    key={asset.id}
-                    style={tileStyle}
-                  >
-                    {isSelectionMode ? (
+                  return (
+                    <Card
+                      className={[
+                        "media-tile gap-0 py-0",
+                        isSelectionMode ? "selection-mode" : "",
+                        isSelected ? "selected" : ""
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                      key={asset.id}
+                      style={tileStyle}
+                    >
+                      {isSelectionMode ? (
+                        <button
+                          className="tile-selection-surface"
+                          type="button"
+                          aria-label={`${isSelected ? "Deselect" : "Select"} ${asset.name}`}
+                          aria-pressed={isSelected}
+                          onClick={() => onToggleSelection(asset.id)}
+                        />
+                      ) : null}
                       <button
-                        className="tile-selection-surface"
+                        className="media-preview-button"
                         type="button"
-                        aria-label={`${isSelected ? "Deselect" : "Select"} ${asset.name}`}
-                        aria-pressed={isSelected}
-                        onClick={() => onToggleSelection(asset.id)}
-                      />
-                    ) : null}
-                    <button
-                      className="media-preview-button"
-                      type="button"
-                      disabled={isSelectionMode}
-                      onClick={() => onSelectAsset(asset.id)}
-                    >
-                      <MediaPreview
-                        asset={asset}
-                        onDimensionsKnown={onMediaDimensionsKnown}
-                      />
-                    </button>
-                    <a
-                      className="icon-link tile-download"
-                      href={downloadUrl(asset.id)}
-                      aria-label="Download media"
-                      aria-disabled={isSelectionMode || undefined}
-                      tabIndex={isSelectionMode ? -1 : undefined}
-                      title="Download"
-                    >
-                      <Download size={15} />
-                    </a>
-                    {hasCardInfo ? (
-                      <div className="tile-info">
-                        {hasTitle ? (
-                          <div className="tile-meta">
-                            <span title={asset.name}>{asset.name}</span>
-                          </div>
-                        ) : null}
-                        {hasSecondaryMetadata ? (
-                          <div className="tile-submeta">
-                            {secondaryMetadata.map((entry) => (
-                              <span key={entry}>{entry}</span>
-                            ))}
-                          </div>
-                        ) : null}
-                        {hasCuration ? (
-                          <GalleryCardCuration
-                            asset={asset}
-                            disabled={isSelectionMode || isSavingRating}
-                            hiddenTagCount={hiddenTagCount}
-                            isBusy={isSavingRating}
-                            showFavorite={showFavoriteControl}
-                            showRating={showRatingControl}
-                            tags={tagBadges}
-                            onFavoriteChange={onFavoriteAsset}
-                            onScoreChange={onScoreAsset}
-                          />
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </Card>
-                );
-              })}
-            </div>
-          );
-        })}
-      </div>
-      {hasMore ? (
-        <div className="load-more-row" ref={loadMoreRef}>
-          <Button
-            type="button"
-            variant="outline"
-            disabled={isLoadingMore}
-            onClick={onLoadMore}
-          >
-            {isLoadingMore ? "Loading" : "Load more"}
-          </Button>
+                        disabled={isSelectionMode}
+                        onClick={() => onSelectAsset(asset.id)}
+                      >
+                        <MediaPreview
+                          asset={asset}
+                          onDimensionsKnown={onMediaDimensionsKnown}
+                        />
+                      </button>
+                      <a
+                        className="icon-link tile-download"
+                        href={downloadUrl(asset.id)}
+                        aria-label="Download media"
+                        aria-disabled={isSelectionMode || undefined}
+                        tabIndex={isSelectionMode ? -1 : undefined}
+                        title="Download"
+                      >
+                        <Download size={15} />
+                      </a>
+                      {hasCardInfo ? (
+                        <div className="tile-info">
+                          {hasTitle ? (
+                            <div className="tile-meta">
+                              <span title={asset.name}>{asset.name}</span>
+                            </div>
+                          ) : null}
+                          {hasSecondaryMetadata ? (
+                            <div className="tile-submeta">
+                              {secondaryMetadata.map((entry) => (
+                                <span key={entry}>{entry}</span>
+                              ))}
+                            </div>
+                          ) : null}
+                          {hasCuration ? (
+                            <GalleryCardCuration
+                              asset={asset}
+                              disabled={isSelectionMode || isSavingRating}
+                              hiddenTagCount={hiddenTagCount}
+                              isBusy={isSavingRating}
+                              showFavorite={showFavoriteControl}
+                              showRating={showRatingControl}
+                              tags={tagBadges}
+                              onFavoriteChange={onFavoriteAsset}
+                              onScoreChange={onScoreAsset}
+                            />
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </Card>
+                  );
+                })}
+              </div>
+            );
+          })}
         </div>
-      ) : null}
-    </section>
-  );
-}
-
-function GalleryMetadataSkeleton({
-  hasCuration,
-  hasSecondaryMetadata,
-  hasTitle
-}: {
-  hasCuration: boolean;
-  hasSecondaryMetadata: boolean;
-  hasTitle: boolean;
-}) {
-  return (
-    <>
-      {hasTitle ? <Skeleton className="h-4 w-3/5" /> : null}
-      {hasSecondaryMetadata ? (
-        <div className="flex h-[15px] items-center gap-2">
-          <Skeleton className="h-3 w-1/4" />
-          <Skeleton className="h-3 w-1/5" />
-        </div>
-      ) : null}
-      {hasCuration ? (
-        <div className="flex h-7 items-center gap-2">
-          <Skeleton className="h-6 w-20 rounded-full" />
-          <Skeleton className="h-6 w-6 rounded-full" />
-        </div>
-      ) : null}
-    </>
+        {hasMore ? (
+          <div className="load-more-row" ref={loadMoreRef}>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isLoadingMore}
+              onClick={onLoadMore}
+            >
+              {isLoadingMore ? "Loading" : "Load more"}
+            </Button>
+          </div>
+        ) : null}
+      </section>
+      <Button
+        className="gallery-scroll-top"
+        data-visible={isScrollTopVisible}
+        type="button"
+        variant="secondary"
+        size="icon"
+        aria-hidden={!isScrollTopVisible}
+        aria-label="Scroll gallery to top"
+        tabIndex={isScrollTopVisible ? 0 : -1}
+        onClick={scrollToTop}
+      >
+        <ArrowUp />
+      </Button>
+    </div>
   );
 }

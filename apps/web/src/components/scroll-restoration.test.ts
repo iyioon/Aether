@@ -3,6 +3,7 @@ import {
   clearSessionScrollPositions,
   findScrollAnchorItem,
   readSessionScrollPosition,
+  scaleScrollAnchorOffset,
   writeSessionScrollPosition
 } from "./scroll-restoration";
 
@@ -83,5 +84,19 @@ describe("findScrollAnchorItem", () => {
 
   it("does not fall back to the first overscanned row", () => {
     expect(findScrollAnchorItem(items, 900)?.index).toBe(6);
+  });
+});
+
+describe("scaleScrollAnchorOffset", () => {
+  it("preserves the relative position inside a resized row", () => {
+    expect(scaleScrollAnchorOffset(75, 300, 600)).toBe(150);
+  });
+
+  it("clamps offsets from the grid gap to the end of the resized row", () => {
+    expect(scaleScrollAnchorOffset(312, 300, 180)).toBe(180);
+  });
+
+  it("keeps the pixel offset when the previous row size is unavailable", () => {
+    expect(scaleScrollAnchorOffset(48, undefined, 240)).toBe(48);
   });
 });

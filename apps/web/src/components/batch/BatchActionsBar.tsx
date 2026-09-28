@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  ArrowUp,
   Heart,
   ListChecks,
-  Minus,
   MousePointer2,
   Plus,
   Tags,
@@ -13,6 +11,7 @@ import {
 } from "lucide-react";
 import type { TagRecord } from "../../api/client";
 import { PANEL_MOTION_DURATION_MS } from "../../lib/motion";
+import { MediaScoreControl } from "../MediaCurationControls";
 import { selectedMediaLabel } from "../media/media-format";
 import {
   AlertDialog,
@@ -213,40 +212,13 @@ export function BatchActionsBar({
               </div>
 
               <div className="batch-score-editor">
-                  <div className="group/score inline-flex h-8 items-center overflow-hidden rounded-md border bg-background shadow-xs outline-none focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50">
-                    <Button
-                      className="h-8 min-w-12 rounded-none px-2 font-semibold tabular-nums focus-visible:border-transparent focus-visible:ring-0"
-                      type="button"
-                      size="xs"
-                      variant="ghost"
-                      aria-label={`Increase score to ${batchScoreValue + 1}`}
-                      disabled={isSaving}
-                      onClick={() =>
-                        setBatchScoreValue((current) => current + 1)
-                      }
-                    >
-                      <ArrowUp />
-                      <span>{batchScoreValue}</span>
-                    </Button>
-                    <Button
-                      className={[
-                        "h-8 w-8 max-w-0 min-w-0 overflow-hidden rounded-none border-l px-0 opacity-0 transition-[max-width,opacity] duration-200 focus-visible:border-transparent focus-visible:ring-0",
-                        batchScoreValue > 0
-                          ? "group-hover/score:max-w-8 group-hover/score:opacity-100 group-focus-within/score:max-w-8 group-focus-within/score:opacity-100"
-                          : "pointer-events-none border-l-transparent"
-                      ].join(" ")}
-                      type="button"
-                      size="icon-xs"
-                      variant="ghost"
-                      aria-label={`Decrease score to ${Math.max(0, batchScoreValue - 1)}`}
-                      disabled={isSaving || batchScoreValue === 0}
-                      onClick={() =>
-                        setBatchScoreValue((current) => Math.max(0, current - 1))
-                      }
-                    >
-                      <Minus />
-                    </Button>
-                  </div>
+                  <MediaScoreControl
+                    disabled={isSaving}
+                    mediaName="selected media"
+                    score={batchScoreValue}
+                    size="md"
+                    onChange={(score) => setBatchScoreValue(score ?? 0)}
+                  />
                   <Button
                     className="favorite-button"
                     type="button"

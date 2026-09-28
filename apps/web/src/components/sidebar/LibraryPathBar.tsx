@@ -1,7 +1,12 @@
-import { Fragment, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, type ReactNode } from "react";
 import { GalleryHorizontalEnd, Grid3X3, Search } from "lucide-react";
 import type { TreeResponse } from "../../api/client";
 import type { ViewMode } from "../library-state";
+import {
+  hasOpenKeyboardLayer,
+  hasShortcutModifier,
+  isEditableKeyboardTarget
+} from "../../lib/keyboard";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -46,6 +51,35 @@ export function LibraryPathBar({
   onSwitchView
 }: LibraryPathBarProps) {
   const path = buildFolderPath(tree, selectedFolderId);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    function focusSearch(event: KeyboardEvent) {
+      if (
+        event.defaultPrevented ||
+        event.isComposing ||
+        event.repeat ||
+        event.key !== "/" ||
+        hasShortcutModifier(event) ||
+        isEditableKeyboardTarget(event.target) ||
+        hasOpenKeyboardLayer()
+      ) {
+        return;
+      }
+
+      const searchInput = searchInputRef.current;
+
+      if (!searchInput || searchInput.disabled) {
+        return;
+      }
+
+      event.preventDefault();
+      searchInput.focus({ preventScroll: true });
+    }
+
+    window.addEventListener("keydown", focusSearch);
+    return () => window.removeEventListener("keydown", focusSearch);
+  }, []);
 
   return (
     <header className="library-path-bar">
@@ -109,8 +143,10 @@ export function LibraryPathBar({
             <Search aria-hidden="true" />
             <Input
               className="h-9 pl-9"
-              aria-label="Search memories"
-              placeholder="Search memories"
+              aria-label="Search"
+              aria-keyshortcuts="/"
+              placeholder="Search"
+              ref={searchInputRef}
               type="search"
               value={searchDraft}
               onChange={(event) => onSearchDraftChange(event.target.value)}

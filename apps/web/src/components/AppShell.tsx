@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { getSettings, logout, type SettingsSummary } from "../api/client";
-import { shouldCollapseFeedControlsByDefault } from "./app/app-helpers";
 import { useLibraryTree } from "./app/useLibraryTree";
 import { useAssetList } from "./assets/useAssetList";
 import { readLibraryStateFromUrl, type ViewMode } from "./library-state";
@@ -24,7 +23,6 @@ import { readSidebarDefaultOpen } from "./sidebar/sidebar-state";
 import { clearSessionScrollPositions } from "./scroll-restoration";
 import { SidebarInset, SidebarProvider } from "./ui/sidebar";
 import { LibraryControlStrip } from "./toolbar/LibraryControlStrip";
-import { FeedCollapsedTopbar } from "./toolbar/LibraryToolbar";
 import { useLibraryControls } from "./toolbar/useLibraryControls";
 
 interface AppShellProps {
@@ -86,11 +84,6 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
   } = useGalleryMetadataFields();
   const { handleMediaDimensionsKnown, measuredAspectRatios } =
     useMeasuredAspectRatios();
-  const [isTopBarCollapsed, setIsTopBarCollapsed] = useState(
-    () =>
-      initialLibraryState.view === "feed" &&
-      shouldCollapseFeedControlsByDefault()
-  );
   const [isFeedChromeHidden, setIsFeedChromeHidden] = useState(false);
   const activeMediaAnchorIdRef = useRef<string | null>(null);
   const [syncedMediaAnchorId, setSyncedMediaAnchorId] = useState<string | null>(
@@ -281,9 +274,8 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     setSelectedFolderId(folderId);
     setOpenControlMenu(null);
     setAnnotationAssetId(null);
-    setIsFeedChromeHidden(false);
     if (view === "feed") {
-      setIsTopBarCollapsed(shouldCollapseFeedControlsByDefault());
+      setIsFeedChromeHidden(false);
     }
   }
 
@@ -295,9 +287,6 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     setOpenControlMenu(null);
     setAnnotationAssetId(null);
     setIsFeedChromeHidden(false);
-    setIsTopBarCollapsed(
-      nextView === "feed" && shouldCollapseFeedControlsByDefault()
-    );
   }
 
   function openAnchoredAsset(assetId: string) {
@@ -322,7 +311,6 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
 
   function setFeedChromeVisibility(isHidden: boolean) {
     setIsFeedChromeHidden(isHidden);
-    setIsTopBarCollapsed(isHidden || shouldCollapseFeedControlsByDefault());
   }
 
   async function refreshSettingsSummary() {
@@ -422,7 +410,16 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
         onSelectFolder={selectFolder}
         onToggleFolderExpansion={toggleFolderExpansion}
       />
-      <SidebarInset className="library-inset">
+      <SidebarInset
+        className={[
+          "library-inset",
+          activePage === "library" && view === "feed" && isFeedChromeHidden
+            ? "feed-chrome-hidden"
+            : ""
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
         <LibraryPathBar
           controls={libraryControls}
           isSettingsOpen={activePage === "settings"}
@@ -444,9 +441,6 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
             : view === "feed"
               ? "view-feed"
               : "view-gallery",
-          activePage === "library" && view === "feed" && isTopBarCollapsed
-            ? "topbar-collapsed"
-            : "",
           activePage === "library" && view === "feed" && isFeedChromeHidden
             ? "feed-chrome-hidden"
             : ""
@@ -471,15 +465,6 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
           />
         ) : (
           <>
-            {view === "feed" && isTopBarCollapsed ? (
-              <FeedCollapsedTopbar
-                selectedLabel={selectedLabel}
-                totalAssets={totalAssets}
-                onOpenControls={() => setIsTopBarCollapsed(false)}
-                onSwitchView={switchView}
-              />
-            ) : null}
-
             <BatchActionsBar
               isOpen={isSelectionMode}
               loadedCount={assets.length}
@@ -543,13 +528,20 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
                 loadMoreRef={loadMoreRef}
                 isFeedChromeHidden={isFeedChromeHidden}
                 isPlaybackPaused={selectedAssetId !== null}
+                savingRatingAssetIds={savingRatingAssetIds}
                 scrollContextKey={listQueryKey}
                 syncedAssetId={syncedMediaAnchorId}
                 onLoadMore={() => void handleLoadMore()}
                 onActiveAssetChange={trackActiveMedia}
                 onFeedChromeHiddenChange={setFeedChromeVisibility}
+                onFavoriteAsset={(asset, favorite) =>
+                  void saveAssetRating(asset, { favorite })
+                }
                 onOpenAnnotations={setAnnotationAssetId}
                 onOpenAsset={openAnchoredAsset}
+                onScoreAsset={(asset, score) =>
+                  void saveAssetRating(asset, { rating: score })
+                }
               />
             )}
           </>
@@ -569,6 +561,9 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
           )}
           isInfoOpen={annotationAsset !== null}
           onClose={closeAnchoredAsset}
+          onRatingChange={(rating) =>
+            void saveAssetRating(selectedAsset, { rating })
+          }
           onToggleInfo={() =>
             setAnnotationAssetId((current) =>
               current === selectedAsset.id ? null : selectedAsset.id

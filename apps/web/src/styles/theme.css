@@ -68,11 +68,17 @@
   --chart-4: #b2955d;
   --chart-5: #8777b7;
   --radius: 0.5rem;
+  --aether-motion-fast: 80ms;
+  --default-transition-duration: var(--aether-motion-fast);
   --sidebar: #f1f1f3;
   --sidebar-foreground: #18181b;
   --sidebar-primary: var(--aether-accent);
   --sidebar-primary-foreground: var(--primary-foreground);
-  --sidebar-accent: color-mix(in srgb, var(--aether-accent) 7%, var(--sidebar));
+  --sidebar-accent: color-mix(
+    in srgb,
+    var(--sidebar-foreground) 7%,
+    var(--sidebar)
+  );
   --sidebar-accent-foreground: #27272a;
   --sidebar-border: rgb(24 24 27 / 12%);
   --sidebar-ring: var(--aether-accent);
@@ -88,6 +94,13 @@
   --aether-destructive-rgb: 231, 0, 11;
   --aether-subtle-foreground: #71717a;
   --aether-foreground-soft: #27272a;
+  --aether-active-border: rgba(var(--aether-accent-rgb), 0.42);
+  --aether-active-border-hover: rgba(var(--aether-accent-rgb), 0.56);
+  --aether-active-background: rgba(var(--aether-accent-rgb), 0.22);
+  --aether-active-background-hover: rgba(var(--aether-accent-rgb), 0.32);
+  --aether-ambient-primary: rgba(var(--aether-accent-rgb), 0.05);
+  --aether-ambient-secondary: rgba(var(--aether-accent-rgb), 0.025);
+  --aether-feed-vignette: rgba(24, 24, 27, 0.045);
 
   --primary: var(--aether-accent);
   --primary-foreground: var(--aether-accent-contrast);
@@ -117,7 +130,11 @@
   --chart-5: #b8a8e3;
   --sidebar: #09090b;
   --sidebar-foreground: #fafafa;
-  --sidebar-accent: color-mix(in srgb, var(--aether-accent) 10%, var(--sidebar));
+  --sidebar-accent: color-mix(
+    in srgb,
+    var(--sidebar-foreground) 10%,
+    var(--sidebar)
+  );
   --sidebar-accent-foreground: #fafafa;
   --sidebar-border: rgb(250 250 250 / 10%);
   --aether-accent: #fafafa;
@@ -130,6 +147,16 @@
   --aether-destructive-rgb: 231, 0, 11;
   --aether-subtle-foreground: #a1a1aa;
   --aether-foreground-soft: #e4e4e7;
+  --aether-ambient-primary: rgba(var(--aether-accent-rgb), 0.075);
+  --aether-ambient-secondary: rgba(var(--aether-accent-rgb), 0.035);
+  --aether-feed-vignette: rgba(0, 0, 0, 0.48);
+}
+
+:root:not(.dark)[data-accent="graphite"] {
+  --aether-active-border: rgba(var(--aether-accent-rgb), 0.28);
+  --aether-active-border-hover: rgba(var(--aether-accent-rgb), 0.4);
+  --aether-active-background: rgba(var(--aether-accent-rgb), 0.12);
+  --aether-active-background-hover: rgba(var(--aether-accent-rgb), 0.17);
 }
 
 :root[data-accent="mist"] {
@@ -146,6 +173,11 @@
   --aether-accent: #d6a5ad;
   --aether-accent-strong: #895c64;
   --aether-accent-rgb: 214, 165, 173;
+}
+
+:root:not(.dark)[data-accent="rose"] {
+  --primary: #b94f68;
+  --primary-foreground: #ffffff;
 }
 
 :root.dark[data-accent="rose"] {

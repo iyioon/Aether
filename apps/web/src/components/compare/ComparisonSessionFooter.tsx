@@ -1,4 +1,4 @@
-import { CornerUpLeft, Shuffle } from "lucide-react";
+import { CornerUpLeft, Shuffle, Trophy } from "lucide-react";
 import type { ComparisonPairResponse } from "../../api/client";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -10,6 +10,7 @@ interface ComparisonSessionFooterProps {
   isLoading: boolean;
   isSubmitting: boolean;
   progress: ComparisonPairResponse["progress"];
+  onExit: () => void;
   onSkip: () => void;
   onUndo: () => void;
 }
@@ -19,6 +20,7 @@ export function ComparisonSessionFooter({
   isLoading,
   isSubmitting,
   progress,
+  onExit,
   onSkip,
   onUndo
 }: ComparisonSessionFooterProps) {
@@ -44,6 +46,19 @@ export function ComparisonSessionFooter({
         </div>
       </div>
       <div className="comparison-session-actions">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              aria-label="Open leaderboard"
+              size="icon-sm"
+              variant="outline"
+              onClick={onExit}
+            >
+              <Trophy aria-hidden="true" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Open leaderboard</TooltipContent>
+        </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
             <Button

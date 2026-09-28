@@ -60,7 +60,7 @@ const browsingViews = [
     icon: GitCompareArrows,
     title: "Compare",
     description:
-      "Choose between two items at a time. Aether uses those choices to build a useful order for your library."
+      "Review the score leaderboard, then rank more media by choosing between two items at a time."
   }
 ] as const;
 
@@ -142,7 +142,7 @@ export function UserGuidePage() {
         </GuideSection>
 
         <GuideSection
-          description="You do not need to give every item a score. A few clear choices can already improve the order."
+          description="The leaderboard shows the current order. You do not need to rank everything—a few clear choices can already improve it."
           id="guide-ranking"
           title="How ranking works"
         >
@@ -152,31 +152,32 @@ export function UserGuidePage() {
                 <li>
                   <span>1</span>
                   <div>
-                    <strong>Choose the item you prefer.</strong>
+                    <strong>Start from the leaderboard.</strong>
                     <p>
-                      Use the buttons or the Left and Right arrow keys. Skip the
-                      pair if you have no clear preference.
+                      Open any item to inspect it, or choose Rank media to begin
+                      a comparison session. The active folder, search, and
+                      filters carry across both views.
                     </p>
                   </div>
                 </li>
                 <li>
                   <span>2</span>
                   <div>
-                    <strong>Aether learns the relative order.</strong>
+                    <strong>Choose the item you prefer.</strong>
                     <p>
-                      It considers the full set of choices, including which
-                      items each one was compared against, and updates their
-                      scores.
+                      Select either item or use the Left and Right arrow keys.
+                      Skip the pair if you have no clear preference.
                     </p>
                   </div>
                 </li>
                 <li>
                   <span>3</span>
                   <div>
-                    <strong>The next pairs become more useful.</strong>
+                    <strong>Aether updates the order.</strong>
                     <p>
-                      Aether favors items with fewer comparisons and close
-                      matchups, while still mixing in new combinations.
+                      It considers the full set of choices and refreshes the
+                      leaderboard when you return. Later pairs favor useful,
+                      close matchups while still mixing in new combinations.
                     </p>
                   </div>
                 </li>

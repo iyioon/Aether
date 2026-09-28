@@ -43,11 +43,11 @@ The web app is organized around reusable UI surfaces:
 - `folders`: folder tree model, DOM helpers, and navigation hooks.
 - `gallery`: virtualized grid, metadata display, sizing, and aspect-ratio behavior.
 - `feed`: vertical feed item rendering and navigation.
-- `compare`: pairwise ranking session state and responsive comparison UI.
+- `compare`: score leaderboard, pairwise ranking session state, and responsive comparison UI.
 - `media`: preview rendering, fullscreen viewer, annotation drawer, and media actions.
 - `batch`: multi-select annotation actions.
 
-Comparison presentation is split into the media card, choice feedback, progress and actions footer, and session hook. The page component only coordinates those pieces and keyboard input. Score details are similarly separated from tag editing in the annotation surface.
+The comparison workspace opens on a paginated final-score leaderboard scoped by the current folder, search, media, score, and tag filters. It switches to a focused pairwise ranking session without loading that session until requested, then refreshes the leaderboard after new decisions. Ranking presentation is split into the media card, choice feedback, progress and actions footer, and session hook. Score details are similarly separated from tag editing in the annotation surface.
 
 Secondary workspaces such as comparison, settings, and the user guide are loaded on demand behind a shared accessible skeleton fallback. This keeps their dependencies out of the initial application bundle while preserving a consistent loading state.
 

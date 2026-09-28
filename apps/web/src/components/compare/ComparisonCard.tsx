@@ -27,7 +27,7 @@ export function ComparisonCard({
   return (
     <Card className="comparison-card" data-chosen={isChosen ? "true" : "false"}>
       <CardContent className="comparison-media">
-        <MediaPreview asset={asset} playbackPaused />
+        <MediaPreview asset={asset} useOriginalVideo />
         <button
           className="comparison-choose-surface"
           type="button"

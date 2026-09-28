@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added a responsive score leaderboard as the main comparison workspace, with filtered pagination, fullscreen inspection, and a direct path into and back from pairwise ranking.
 - Refactored ranking math, asset filtering, comparison UI, score details, and route registration into focused modules with shared rules and deterministic tests.
 - Added repository-wide ESLint and Prettier quality gates plus documented engineering, accessibility, state-management, and shadcn composition standards.
 - Split major web workspaces and media overlays into on-demand bundles, removing the production chunk-size warning while keeping a shared accessible loading state.

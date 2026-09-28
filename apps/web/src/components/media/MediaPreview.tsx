@@ -165,6 +165,7 @@ export function MediaPreview({
 
     const previewElement =
       asset.mediaType === "video" ? videoRef.current : imageRef.current;
+    const video = videoRef.current;
 
     if (!previewElement) {
       return;
@@ -196,7 +197,7 @@ export function MediaPreview({
       observer.disconnect();
 
       if (asset.mediaType === "video") {
-        videoRef.current?.pause();
+        video?.pause();
       }
     };
   }, [asset.id, asset.mediaType, isAnimatedImage]);
@@ -392,7 +393,7 @@ export function MediaPreview({
             loading={isActive ? "eager" : "lazy"}
             onLoad={(event) => {
               const image = event.currentTarget;
-              image
+              void image
                 .decode()
                 .catch(() => undefined)
                 .then(() => setLoadedThumbnailSource(posterSource));
@@ -422,7 +423,7 @@ export function MediaPreview({
           fetchPriority={useOriginalImage && isActive ? "high" : "auto"}
           onLoad={(event) => {
             const image = event.currentTarget;
-            image
+            void image
               .decode()
               .catch(() => undefined)
               .then(() => {

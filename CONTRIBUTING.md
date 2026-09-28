@@ -17,6 +17,8 @@ npm run dev
 npm run verify
 ```
 
+Use `npm run format` before verification when source formatting changed. See [Engineering standards](docs/engineering.md) for module boundaries, state ownership, accessibility, and UI composition rules.
+
 Run `npm run test:e2e` for UI flows, media serving changes, auth changes, scanner changes, and release candidates.
 
 ## Expectations

@@ -1,10 +1,6 @@
 import path from "node:path";
 import type { AetherDatabase } from "../db/database.js";
-import {
-  getAssetSource,
-  getAssetTags,
-  suggestTags
-} from "./repository.js";
+import { getAssetSource, getAssetTags, suggestTags } from "./repository.js";
 
 export interface TagSuggestion {
   displayName: string;

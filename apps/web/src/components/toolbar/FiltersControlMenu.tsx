@@ -1,10 +1,6 @@
 import { useRef } from "react";
 import { Plus, SlidersHorizontal, Tags, X } from "lucide-react";
-import type {
-  MediaTypeFilter,
-  ScoreFilter,
-  TagRecord
-} from "../../api/client";
+import type { MediaTypeFilter, ScoreFilter, TagRecord } from "../../api/client";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
@@ -15,10 +11,7 @@ import {
   normalizeTagIdentity
 } from "../library-state";
 import { ToolbarMenu } from "./ToolbarMenu";
-import {
-  mediaFilters,
-  scoreFilters
-} from "./library-control-options";
+import { mediaFilters, scoreFilters } from "./library-control-options";
 
 interface FiltersControlMenuProps {
   filterSummary: string;
@@ -58,9 +51,7 @@ export function FiltersControlMenu({
   onSetTagFilterDraft
 }: FiltersControlMenuProps) {
   const tagInputRef = useRef<HTMLInputElement>(null);
-  const normalizedSelectedTags = new Set(
-    tagFilters.map(normalizeTagIdentity)
-  );
+  const normalizedSelectedTags = new Set(tagFilters.map(normalizeTagIdentity));
   const normalizedDraft = normalizeTagIdentity(tagFilterDraft);
   const isAtTagLimit = tagFilters.length >= MAX_TAG_FILTERS;
   const canAddTag =
@@ -70,7 +61,8 @@ export function FiltersControlMenu({
   const availableSuggestions = isAtTagLimit
     ? []
     : filterTagSuggestions.filter(
-        (tag) => !normalizedSelectedTags.has(normalizeTagIdentity(tag.displayName))
+        (tag) =>
+          !normalizedSelectedTags.has(normalizeTagIdentity(tag.displayName))
       );
 
   function addTagFilter(tagName: string) {
@@ -104,8 +96,14 @@ export function FiltersControlMenu({
             const Icon = filter.icon;
             return (
               <div className="flex items-center gap-3" key={filter.value}>
-                <RadioGroupItem id={`media-${filter.value}`} value={filter.value} />
-                <Label className="flex items-center gap-2" htmlFor={`media-${filter.value}`}>
+                <RadioGroupItem
+                  id={`media-${filter.value}`}
+                  value={filter.value}
+                />
+                <Label
+                  className="flex items-center gap-2"
+                  htmlFor={`media-${filter.value}`}
+                >
                   <Icon className="size-4" />
                   {filter.label}
                 </Label>
@@ -124,16 +122,20 @@ export function FiltersControlMenu({
           className="gap-3"
           aria-label="Score filters"
           value={scoreFilter}
-          onValueChange={(value) =>
-            onSetScoreFilter(value as ScoreFilter)
-          }
+          onValueChange={(value) => onSetScoreFilter(value as ScoreFilter)}
         >
           {scoreFilters.map((filter) => {
             const Icon = filter.icon;
             return (
               <div className="flex items-center gap-3" key={filter.value}>
-                <RadioGroupItem id={`score-${filter.value}`} value={filter.value} />
-                <Label className="flex items-center gap-2" htmlFor={`score-${filter.value}`}>
+                <RadioGroupItem
+                  id={`score-${filter.value}`}
+                  value={filter.value}
+                />
+                <Label
+                  className="flex items-center gap-2"
+                  htmlFor={`score-${filter.value}`}
+                >
                   <Icon className="size-4" />
                   {filter.label}
                 </Label>
@@ -234,7 +236,6 @@ export function FiltersControlMenu({
           ) : null}
         </div>
       </div>
-
     </ToolbarMenu>
   );
 }

@@ -370,9 +370,9 @@ async function discoverDirectory(
   absoluteDirectory: string,
   relativeDirectory: string
 ): Promise<DiscoveredDirectory> {
-  const entries = await readdir(absoluteDirectory, { withFileTypes: true }).catch(
-    () => null
-  );
+  const entries = await readdir(absoluteDirectory, {
+    withFileTypes: true
+  }).catch(() => null);
 
   if (!entries) {
     return { entries: [], readFailed: true };
@@ -419,9 +419,7 @@ function countDiscoveredEntries(directory: DiscoveredDirectory): number {
   );
 }
 
-function createScanProgress(
-  phase: ScanProgress["phase"]
-): ScanProgress {
+function createScanProgress(phase: ScanProgress["phase"]): ScanProgress {
   return {
     phase,
     processed: 0,

@@ -40,8 +40,7 @@ function searchTerms(
     input
       .normalize("NFKC")
       .toLocaleLowerCase("en-US")
-      .match(/[\p{L}\p{N}]+/gu)
-      ?? [];
+      .match(/[\p{L}\p{N}]+/gu) ?? [];
 
   return limit === null ? terms : terms.slice(0, limit);
 }

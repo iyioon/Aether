@@ -72,7 +72,8 @@ export function upsertFolder(
   input: UpsertFolderInput
 ): string {
   const id = folderIdFor(input.rootId, input.relativePath);
-  db.prepare(`
+  db.prepare(
+    `
     INSERT INTO folders
       (id, root_id, parent_id, relative_path, name, asset_count, created_at, updated_at)
     VALUES
@@ -81,7 +82,8 @@ export function upsertFolder(
       parent_id = excluded.parent_id,
       name = excluded.name,
       updated_at = excluded.updated_at
-  `).run({
+  `
+  ).run({
     id,
     rootId: input.rootId,
     parentId: input.parentId,
@@ -124,7 +126,8 @@ export function refreshFolderAssetCounts(
   db: AetherDatabase,
   rootId: string
 ): void {
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE folders
     SET asset_count = (
       SELECT COUNT(*)
@@ -132,7 +135,8 @@ export function refreshFolderAssetCounts(
       WHERE assets.folder_id = folders.id
     )
     WHERE root_id = ?
-  `).run(rootId);
+  `
+  ).run(rootId);
 }
 
 export function listFolders(db: AetherDatabase): FolderRecord[] {

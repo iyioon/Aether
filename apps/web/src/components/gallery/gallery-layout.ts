@@ -70,10 +70,7 @@ export function estimateGalleryRowHeight({
   const width = Math.max(containerWidth, minTileWidth);
   const tileWidth =
     (width - GALLERY_GRID_GAP * Math.max(0, columnCount - 1)) / columnCount;
-  const mediaWidth = Math.max(
-    0,
-    tileWidth - GALLERY_CARD_BORDER_WIDTH * 2
-  );
+  const mediaWidth = Math.max(0, tileWidth - GALLERY_CARD_BORDER_WIDTH * 2);
   const mediaHeight =
     aspect === "Original" && rowAssets?.length
       ? Math.max(
@@ -114,12 +111,7 @@ function mediaAspectRatio(
     }
   }
 
-  if (
-    asset.width &&
-    asset.height &&
-    asset.width > 0 &&
-    asset.height > 0
-  ) {
+  if (asset.width && asset.height && asset.width > 0 && asset.height > 0) {
     return asset.width / asset.height;
   }
 
@@ -136,8 +128,11 @@ export function galleryTileChromeHeight(
     fields.has("score") ||
     fields.has("favorite") ||
     (fields.has("tags") && (asset === undefined || asset.tags.length > 0));
-  const visibleSectionCount = [hasTitle, hasSecondaryMetadata, hasCuration]
-    .filter(Boolean).length;
+  const visibleSectionCount = [
+    hasTitle,
+    hasSecondaryMetadata,
+    hasCuration
+  ].filter(Boolean).length;
 
   if (visibleSectionCount === 0) {
     return 0;

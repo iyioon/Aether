@@ -102,8 +102,7 @@ export function FolderTreePanel({
   onSelectFolder,
   onToggleFolderExpansion
 }: FolderTreePanelProps) {
-  const isScanInProgress =
-    scanState === "starting" || scanState === "running";
+  const isScanInProgress = scanState === "starting" || scanState === "running";
   const treeListRef = useRef<HTMLDivElement | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
   const latestScrollTopRef = useRef(0);
@@ -164,7 +163,10 @@ export function FolderTreePanel({
 
       const listBounds = treeList.getBoundingClientRect();
       const itemBounds = selectedItem.getBoundingClientRect();
-      if (itemBounds.top < listBounds.top || itemBounds.bottom > listBounds.bottom) {
+      if (
+        itemBounds.top < listBounds.top ||
+        itemBounds.bottom > listBounds.bottom
+      ) {
         selectedItem.scrollIntoView({ block: "nearest", behavior: "auto" });
       }
     });
@@ -184,8 +186,7 @@ export function FolderTreePanel({
 
   useEffect(() => {
     window.addEventListener("pagehide", saveTreeScrollPosition);
-    return () =>
-      window.removeEventListener("pagehide", saveTreeScrollPosition);
+    return () => window.removeEventListener("pagehide", saveTreeScrollPosition);
   }, [saveTreeScrollPosition]);
 
   return (
@@ -371,7 +372,9 @@ function FolderTreeRow({
         <button
           className="tree-disclosure"
           type="button"
-          aria-label={isExpanded ? `Collapse ${item.label}` : `Expand ${item.label}`}
+          aria-label={
+            isExpanded ? `Collapse ${item.label}` : `Expand ${item.label}`
+          }
           title={isExpanded ? "Collapse folder" : "Expand folder"}
           tabIndex={-1}
           onClick={(event) => {
@@ -385,11 +388,7 @@ function FolderTreeRow({
         <span className="tree-disclosure-spacer" aria-hidden="true" />
       )}
       <span className="tree-folder-icon" aria-hidden="true">
-        {isExpanded ? (
-          <FolderOpen size={15} />
-        ) : (
-          <Folder size={15} />
-        )}
+        {isExpanded ? <FolderOpen size={15} /> : <Folder size={15} />}
       </span>
       <span className="tree-label">{item.label}</span>
       <small className="tree-count">{item.assetCount}</small>

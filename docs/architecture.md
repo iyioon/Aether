@@ -30,6 +30,10 @@ Key areas:
 - `library`: folder indexing, asset queries, routes, tags, thumbnails, video previews, and watcher logic.
 - `security`: filesystem path safety checks.
 
+Library transport is divided by responsibility. `routes.ts` covers library browsing, annotations, and media delivery; comparison and administrative endpoints are registered by dedicated route modules. Route code validates input and maps errors, while repositories own SQLite operations and transactions.
+
+Asset list and comparison queries share the filter builder in `asset-query.ts`, including folder scope, media type, search, tags, favorites, and ranked state. Final-score SQL and asset projection columns also live there so list, detail, and source records cannot drift.
+
 ## Web App
 
 The web app is organized around reusable UI surfaces:
@@ -43,13 +47,17 @@ The web app is organized around reusable UI surfaces:
 - `media`: preview rendering, fullscreen viewer, annotation drawer, and media actions.
 - `batch`: multi-select annotation actions.
 
+Comparison presentation is split into the media card, choice feedback, progress and actions footer, and session hook. The page component only coordinates those pieces and keyboard input. Score details are similarly separated from tag editing in the annotation surface.
+
+Secondary workspaces such as comparison, settings, and the user guide are loaded on demand behind a shared accessible skeleton fallback. This keeps their dependencies out of the initial application bundle while preserving a consistent loading state.
+
 ## Data Storage
 
 SQLite stores indexed folders, assets, derivatives, tags, scores, pairwise ranking history, sessions, login attempts, and search text. Source media remains in the configured folders and is not copied into the database.
 
 ## Pairwise Ranking
 
-Ranking uses a regularized Bradley–Terry model over the current winner for each unordered asset pair. Every choice and undo is appended to `comparison_events`, while `pair_preferences` materializes the active decision for efficient refitting. Changing a choice replaces that pair's active preference instead of counting both opinions; undo restores its previous decision.
+Ranking uses a regularized Bradley–Terry model over the current winner for each unordered asset pair. The pure model in `ranking-model.ts` owns fitting and pair-selection policy; repository code owns persistence. This keeps the mathematics deterministic and directly unit-testable. Every choice and undo is appended to `comparison_events`, while `pair_preferences` materializes the active decision for efficient refitting. Changing a choice replaces that pair's active preference instead of counting both opinions; undo restores its previous decision.
 
 `asset_annotations.manual_score` stores the directly selected value and defaults to zero. `asset_rankings` stores fitted skill, `comparison_score`, comparison coverage, and `manual_adjustment`. For ranked media, `final_score = max(0, comparison_score + manual_adjustment)`; otherwise, the final score is the manual score, with a missing annotation row also resolving to zero. Zero is the single unranked state; positive values are ranked. When an item first enters ranking, an existing positive score is converted into an adjustment so its displayed value does not jump. Later direct edits update that adjustment and survive ranking changes or a complete undo. Pair selection favors under-compared assets and similarly skilled opponents, avoids the immediately previous pair when possible, and reserves some random exploration to prevent a narrow comparison loop.
 

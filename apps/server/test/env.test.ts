@@ -28,7 +28,10 @@ describe("loadLocalEnv", () => {
     await mkdir(path.join(root, "apps", "web"), { recursive: true });
     await writeFile(
       path.join(root, "package.json"),
-      JSON.stringify({ name: "aether", workspaces: ["apps/server", "apps/web"] })
+      JSON.stringify({
+        name: "aether",
+        workspaces: ["apps/server", "apps/web"]
+      })
     );
     await writeFile(path.join(serverDir, "package.json"), "{}\n");
     await writeFile(path.join(root, "apps", "web", "package.json"), "{}\n");

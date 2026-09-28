@@ -16,7 +16,13 @@ export const aspectOptions = [
 ] as const;
 export type AspectMode = (typeof aspectOptions)[number];
 
-export const sizeOptions = ["Tiny", "Compact", "Medium", "Large", "Huge"] as const;
+export const sizeOptions = [
+  "Tiny",
+  "Compact",
+  "Medium",
+  "Large",
+  "Huge"
+] as const;
 export type GridSize = (typeof sizeOptions)[number];
 
 export const sortValues: readonly SortMode[] = [
@@ -106,7 +112,12 @@ export function parseLibraryStateSearch(search: string): LibraryUrlState {
 
   return {
     folderId: readTextParam(params, "folder", 160) || null,
-    view: readOptionParam(params, "view", viewOptions, defaultLibraryState.view),
+    view: readOptionParam(
+      params,
+      "view",
+      viewOptions,
+      defaultLibraryState.view
+    ),
     gridSize: readMappedOptionParam(
       params,
       "size",

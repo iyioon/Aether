@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, RotateCcw, ScanSearch, Sparkles, Trash2, X } from "lucide-react";
+import { Plus, ScanSearch, Sparkles, X } from "lucide-react";
 import {
   ApiError,
   clearAssetManualAdjustment,
@@ -22,18 +22,9 @@ import {
 } from "../MediaCurationControls";
 import { uniqueTagNames } from "../tags/tag-utils";
 import { Button } from "../ui/button";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle
-} from "../ui/alert-dialog";
 import { Input } from "../ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
+import { AssetScoreBreakdown } from "./AssetScoreBreakdown";
 
 interface AssetAnnotationPanelProps {
   aiStatus: AiStatus | null;
@@ -142,7 +133,7 @@ export function AssetAnnotationPanel({
     }
   }
 
-  async function useComparisonScore() {
+  async function clearManualAdjustment() {
     setIsSavingScore(true);
     setAnnotationError(null);
 
@@ -263,118 +254,14 @@ export function AssetAnnotationPanel({
         </div>
       </div>
 
-      <div className="score-breakdown">
-        <div className="score-breakdown-values">
-          {asset.ranking ? (
-            <>
-              <span>
-                Comparison
-                <span className="score-breakdown-value">
-                  <strong>{asset.ranking.comparisonScore}</strong>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        size="icon-xs"
-                        variant="ghost"
-                        aria-label={`Reset ${asset.ranking.comparisonCount} comparisons for ${asset.name}`}
-                        disabled={isSavingScore}
-                        onClick={() => setIsResetComparisonOpen(true)}
-                      >
-                        <Trash2 />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      Reset this item’s comparisons and recalculate related
-                      scores
-                    </TooltipContent>
-                  </Tooltip>
-                </span>
-              </span>
-              <span>
-                Manual adjustment
-                <span className="score-breakdown-value">
-                  <strong>
-                    {formatSignedScore(asset.ranking.manualAdjustment)}
-                  </strong>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        size="icon-xs"
-                        variant="ghost"
-                        aria-label={`Remove the manual score adjustment for ${asset.name}`}
-                        disabled={
-                          isSavingScore || asset.ranking.manualAdjustment === 0
-                        }
-                        onClick={() => void useComparisonScore()}
-                      >
-                        <RotateCcw />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      Remove the manual adjustment and use the comparison score
-                    </TooltipContent>
-                  </Tooltip>
-                </span>
-              </span>
-              <span>
-                Final
-                <strong>{asset.score}</strong>
-              </span>
-            </>
-          ) : (
-            <>
-              <span>
-                Comparison
-                <strong>Not ranked</strong>
-              </span>
-              <span>
-                Manual score
-                <strong>{asset.score}</strong>
-              </span>
-              <span>
-                Final
-                <strong>{asset.score}</strong>
-              </span>
-            </>
-          )}
-        </div>
-        <p>
-          {asset.ranking
-            ? "Final score adds the comparison score and manual adjustment, and never falls below 0."
-            : "With no comparisons yet, the final score is the manual score."}
-        </p>
-        {asset.ranking ? (
-          <AlertDialog
-            open={isResetComparisonOpen}
-            onOpenChange={setIsResetComparisonOpen}
-          >
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>
-                  Reset comparisons for {asset.name}?
-                </AlertDialogTitle>
-                <AlertDialogDescription>
-                  This removes {asset.ranking.comparisonCount} active pair
-                  {asset.ranking.comparisonCount === 1 ? "" : "s"} involving
-                  this item and recalculates related scores. Manual scores stay
-                  in place. This action cannot be undone.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction
-                  variant="destructive"
-                  onClick={() => void resetComparisons()}
-                >
-                  Reset comparisons
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        ) : null}
-      </div>
+      <AssetScoreBreakdown
+        asset={asset}
+        isResetOpen={isResetComparisonOpen}
+        isSaving={isSavingScore}
+        onClearAdjustment={() => void clearManualAdjustment()}
+        onReset={() => void resetComparisons()}
+        onResetOpenChange={setIsResetComparisonOpen}
+      />
 
       <div className="tag-editor">
         <div className="tag-editor-heading">
@@ -514,10 +401,6 @@ export function AssetAnnotationPanel({
       </div>
     </section>
   );
-}
-
-function formatSignedScore(value: number): string {
-  return value > 0 ? `+${value}` : String(value);
 }
 
 function aiSuggestionErrorMessage(caught: unknown): string {

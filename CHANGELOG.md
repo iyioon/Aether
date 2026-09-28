@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Refactored ranking math, asset filtering, comparison UI, score details, and route registration into focused modules with shared rules and deterministic tests.
+- Added repository-wide ESLint and Prettier quality gates plus documented engineering, accessibility, state-management, and shadcn composition standards.
+- Split major web workspaces and media overlays into on-demand bundles, removing the production chunk-size warning while keeping a shared accessible loading state.
+
 - Added a concise in-app User Guide covering setup, browsing views, ranking, organization, keyboard controls, and source-file privacy.
 - Preserved existing and newly adjusted manual scores when comparison ranking starts, changes, or is fully undone, without adding an arbitrary score cap.
 - Unified score terminology across the API, interface state, repository model, and database while preserving existing annotations and ranking data during migration.

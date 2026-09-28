@@ -99,7 +99,9 @@ export async function createConfigBackup({
 
   await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
   const prunedBackups =
-    keep === undefined ? [] : await pruneBackupDirectory(outputDir, keep, backupDir);
+    keep === undefined
+      ? []
+      : await pruneBackupDirectory(outputDir, keep, backupDir);
 
   return {
     backupDir,
@@ -120,7 +122,9 @@ export async function pruneBackupDirectory(
   }
 
   const entries = await readdir(outputDir, { withFileTypes: true });
-  const protectedPath = protectedBackupDir ? path.resolve(protectedBackupDir) : null;
+  const protectedPath = protectedBackupDir
+    ? path.resolve(protectedBackupDir)
+    : null;
   const candidates: Array<{
     path: string;
     createdAtMs: number;
@@ -150,7 +154,9 @@ export async function pruneBackupDirectory(
       continue;
     }
 
-    const manifest = await readBackupManifest(path.join(backupPath, "manifest.json"));
+    const manifest = await readBackupManifest(
+      path.join(backupPath, "manifest.json")
+    );
 
     if (!manifest) {
       continue;
@@ -224,7 +230,8 @@ function isBackupManifest(value: unknown): value is BackupManifest {
     typeof value.createdAt === "string" &&
     isRecord(value.source) &&
     typeof value.source.configDir === "string" &&
-    (typeof value.source.cacheDir === "string" || value.source.cacheDir === null) &&
+    (typeof value.source.cacheDir === "string" ||
+      value.source.cacheDir === null) &&
     typeof value.includedCache === "boolean" &&
     Array.isArray(value.files)
   );

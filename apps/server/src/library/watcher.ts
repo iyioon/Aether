@@ -126,16 +126,19 @@ export class LibraryWatcher {
 
   private scheduleRefresh(): void {
     clearTimer(this.refreshTimer);
-    this.refreshTimer = setTimeout(() => {
-      this.refreshTimer = null;
-      this.refreshWatches().catch((error: unknown) => {
-        this.lastError = errorMessage(error);
-        this.options.logger?.warn(
-          { err: error },
-          "media watcher refresh failed"
-        );
-      });
-    }, Math.min(Math.max(this.options.debounceMs, 250), 2000));
+    this.refreshTimer = setTimeout(
+      () => {
+        this.refreshTimer = null;
+        this.refreshWatches().catch((error: unknown) => {
+          this.lastError = errorMessage(error);
+          this.options.logger?.warn(
+            { err: error },
+            "media watcher refresh failed"
+          );
+        });
+      },
+      Math.min(Math.max(this.options.debounceMs, 250), 2000)
+    );
     this.refreshTimer.unref?.();
   }
 
@@ -166,7 +169,8 @@ export class LibraryWatcher {
 
   private watchDirectory(directory: string): void {
     try {
-      const watchDirectory = this.options.watchDirectory ?? nativeWatchDirectory;
+      const watchDirectory =
+        this.options.watchDirectory ?? nativeWatchDirectory;
       const watcher = watchDirectory(directory, (eventType, filename) => {
         this.handleWatchEvent(directory, eventType, filename);
       });

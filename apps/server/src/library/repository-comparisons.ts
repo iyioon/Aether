@@ -1,7 +1,13 @@
 import { randomUUID } from "node:crypto";
 import type { AetherDatabase } from "../db/database.js";
+import { buildAssetFilterQuery } from "./asset-query.js";
+import {
+  comparisonPairKey,
+  fitRankingModel,
+  selectInformativePair,
+  type ComparisonCandidate
+} from "./ranking-model.js";
 import { getFolder } from "./repository-folders.js";
-import { normalizeTagSearch } from "./repository-tags.js";
 import type {
   AssetListOptions,
   ComparisonDecisionInput,
@@ -9,19 +15,6 @@ import type {
   ComparisonPairResult,
   ComparisonUndoResult
 } from "./repository-types.js";
-import { assetSearchQuery } from "./search-text.js";
-
-const REGULARIZATION = 1;
-const FIT_ITERATIONS = 80;
-const FIT_DAMPING = 0.55;
-const FINAL_SCORE_SQL =
-  "CASE WHEN ar.asset_id IS NOT NULL THEN MAX(0, ar.comparison_score + ar.manual_adjustment) ELSE COALESCE(aa.manual_score, 0) END";
-
-interface ComparisonCandidateRow {
-  id: string;
-  skill: number | null;
-  comparison_count: number | null;
-}
 
 interface PreferenceRow {
   asset_low_id: string;
@@ -46,7 +39,10 @@ export class ComparisonConflictError extends Error {
 
 export function getNextComparisonPair(
   db: AetherDatabase,
-  options: Omit<AssetListOptions, "offset" | "limit" | "sort" | "sortDirection"> & {
+  options: Omit<
+    AssetListOptions,
+    "offset" | "limit" | "sort" | "sortDirection"
+  > & {
     excludeAssetIds?: string[];
   }
 ): ComparisonPairResult | null {
@@ -55,7 +51,7 @@ export function getNextComparisonPair(
     return null;
   }
 
-  const { filters, parameters } = comparisonFilters(folder, options);
+  const { whereClause, parameters } = buildAssetFilterQuery(folder, options);
   const candidates = db
     .prepare(
       `SELECT
@@ -65,9 +61,13 @@ export function getNextComparisonPair(
       FROM assets a
       LEFT JOIN asset_annotations aa ON aa.asset_id = a.id
       LEFT JOIN asset_rankings ar ON ar.asset_id = a.id
-      WHERE ${filters.join(" AND ")}`
+      WHERE ${whereClause}`
     )
-    .all(parameters) as ComparisonCandidateRow[];
+    .all(parameters) as Array<{
+    id: string;
+    skill: number | null;
+    comparison_count: number | null;
+  }>;
 
   if (candidates.length < 2) {
     return null;
@@ -81,11 +81,18 @@ export function getNextComparisonPair(
     .all() as PreferenceRow[];
   const decidedPairs = new Set(
     preferences.map((preference) =>
-      pairKey(preference.asset_low_id, preference.asset_high_id)
+      comparisonPairKey(preference.asset_low_id, preference.asset_high_id)
     )
   );
+  const candidateModels: ComparisonCandidate[] = candidates.map(
+    (candidate) => ({
+      id: candidate.id,
+      skill: candidate.skill,
+      comparisonCount: candidate.comparison_count
+    })
+  );
   const selected = selectInformativePair(
-    candidates,
+    candidateModels,
     decidedPairs,
     options.excludeAssetIds ?? []
   );
@@ -141,14 +148,16 @@ export function recordComparisonDecision(
       .get(assetLowId, assetHighId) as { event_id: string } | undefined;
     replacedDecision = Boolean(current);
 
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO comparison_events
         (id, event_type, asset_low_id, asset_high_id, winner_id,
          previous_event_id, target_event_id, created_at)
       VALUES
         (@id, 'decision', @assetLowId, @assetHighId, @winnerId,
          @previousEventId, NULL, @createdAt)
-    `).run({
+    `
+    ).run({
       id: eventId,
       assetLowId,
       assetHighId,
@@ -157,7 +166,8 @@ export function recordComparisonDecision(
       createdAt: input.createdAt
     });
 
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO pair_preferences
         (asset_low_id, asset_high_id, winner_id, event_id, updated_at)
       VALUES
@@ -166,7 +176,8 @@ export function recordComparisonDecision(
         winner_id = excluded.winner_id,
         event_id = excluded.event_id,
         updated_at = excluded.updated_at
-    `).run({
+    `
+    ).run({
       assetLowId,
       assetHighId,
       winnerId: input.winnerAssetId,
@@ -210,8 +221,7 @@ export function undoComparisonDecision(
        WHERE asset_low_id = ? AND asset_high_id = ?`
     )
     .get(decision.asset_low_id, decision.asset_high_id) as
-    | { event_id: string }
-    | undefined;
+    { event_id: string } | undefined;
 
   if (current?.event_id !== decisionEventId) {
     throw new ComparisonConflictError("comparison_changed");
@@ -230,14 +240,16 @@ export function undoComparisonDecision(
           .get(decision.previous_event_id) as PreferenceEventRow | undefined)
       : undefined;
 
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO comparison_events
         (id, event_type, asset_low_id, asset_high_id, winner_id,
          previous_event_id, target_event_id, created_at)
       VALUES
         (@id, 'undo', @assetLowId, @assetHighId, NULL,
          @previousEventId, @targetEventId, @createdAt)
-    `).run({
+    `
+    ).run({
       id: undoEventId,
       assetLowId: decision.asset_low_id,
       assetHighId: decision.asset_high_id,
@@ -248,11 +260,13 @@ export function undoComparisonDecision(
 
     if (previous) {
       restoredDecision = true;
-      db.prepare(`
+      db.prepare(
+        `
         UPDATE pair_preferences
         SET winner_id = @winnerId, event_id = @eventId, updated_at = @createdAt
         WHERE asset_low_id = @assetLowId AND asset_high_id = @assetHighId
-      `).run({
+      `
+      ).run({
         winnerId: previous.winner_id,
         eventId: previous.id,
         createdAt,
@@ -319,80 +333,17 @@ function recomputeRankings(db: AetherDatabase, updatedAt: string): void {
       "SELECT asset_low_id, asset_high_id, winner_id FROM pair_preferences"
     )
     .all() as PreferenceRow[];
-  const activeIds = new Set<string>();
-  const comparisonCounts = new Map<string, number>();
+  const projections = fitRankingModel(
+    preferences.map((preference) => ({
+      assetLowId: preference.asset_low_id,
+      assetHighId: preference.asset_high_id,
+      winnerId: preference.winner_id
+    }))
+  );
 
-  for (const preference of preferences) {
-    activeIds.add(preference.asset_low_id);
-    activeIds.add(preference.asset_high_id);
-    comparisonCounts.set(
-      preference.asset_low_id,
-      (comparisonCounts.get(preference.asset_low_id) ?? 0) + 1
-    );
-    comparisonCounts.set(
-      preference.asset_high_id,
-      (comparisonCounts.get(preference.asset_high_id) ?? 0) + 1
-    );
-  }
-
-  if (activeIds.size === 0) {
+  if (projections.size === 0) {
     db.prepare("DELETE FROM asset_rankings").run();
     return;
-  }
-
-  const skills = new Map([...activeIds].map((assetId) => [assetId, 0]));
-
-  for (let iteration = 0; iteration < FIT_ITERATIONS; iteration += 1) {
-    const gradients = new Map([...activeIds].map((assetId) => [assetId, 0]));
-    const curvatures = new Map(
-      [...activeIds].map((assetId) => [assetId, REGULARIZATION])
-    );
-
-    for (const preference of preferences) {
-      const loserId =
-        preference.winner_id === preference.asset_low_id
-          ? preference.asset_high_id
-          : preference.asset_low_id;
-      const winnerSkill = skills.get(preference.winner_id) ?? 0;
-      const loserSkill = skills.get(loserId) ?? 0;
-      const probability = logistic(winnerSkill - loserSkill);
-      const residual = 1 - probability;
-      const curvature = probability * (1 - probability);
-
-      gradients.set(
-        preference.winner_id,
-        (gradients.get(preference.winner_id) ?? 0) + residual
-      );
-      gradients.set(loserId, (gradients.get(loserId) ?? 0) - residual);
-      curvatures.set(
-        preference.winner_id,
-        (curvatures.get(preference.winner_id) ?? REGULARIZATION) + curvature
-      );
-      curvatures.set(
-        loserId,
-        (curvatures.get(loserId) ?? REGULARIZATION) + curvature
-      );
-    }
-
-    let maxChange = 0;
-    for (const assetId of activeIds) {
-      const skill = skills.get(assetId) ?? 0;
-      const gradient = (gradients.get(assetId) ?? 0) - REGULARIZATION * skill;
-      const change = FIT_DAMPING * gradient / (curvatures.get(assetId) ?? 1);
-      skills.set(assetId, skill + change);
-      maxChange = Math.max(maxChange, Math.abs(change));
-    }
-
-    const mean =
-      [...skills.values()].reduce((total, value) => total + value, 0) /
-      skills.size;
-    for (const [assetId, skill] of skills) {
-      skills.set(assetId, skill - mean);
-    }
-
-    if (maxChange < 0.00001) {
-      break;
-    }
   }
 
   const existingAdjustments = new Map(
@@ -423,8 +374,8 @@ function recomputeRankings(db: AetherDatabase, updatedAt: string): void {
       updated_at = excluded.updated_at
   `);
 
-  for (const [assetId, skill] of skills) {
-    const comparisonScore = Math.round(logistic(skill) * 100);
+  for (const [assetId, projection] of projections) {
+    const { comparisonCount, comparisonScore, skill } = projection;
     const storedManualScore = storedManualScores.get(assetId);
     upsert.run({
       assetId,
@@ -435,131 +386,16 @@ function recomputeRankings(db: AetherDatabase, updatedAt: string): void {
         (storedManualScore === undefined
           ? 0
           : storedManualScore - comparisonScore),
-      comparisonCount: comparisonCounts.get(assetId) ?? 0,
+      comparisonCount,
       updatedAt
     });
   }
 
-  const placeholders = [...activeIds].map(() => "?").join(", ");
+  const activeIds = [...projections.keys()];
+  const placeholders = activeIds.map(() => "?").join(", ");
   db.prepare(
     `DELETE FROM asset_rankings WHERE asset_id NOT IN (${placeholders})`
   ).run(...activeIds);
-}
-
-function comparisonFilters(
-  folder: { rootId: string; relativePath: string },
-  options: Omit<AssetListOptions, "offset" | "limit" | "sort" | "sortDirection">
-): {
-  filters: string[];
-  parameters: Record<string, string | number>;
-} {
-  const parameters: Record<string, string | number> = {
-    rootId: folder.rootId,
-    folderId: options.folderId
-  };
-  const filters = ["a.root_id = @rootId"];
-
-  if (options.recursive) {
-    if (folder.relativePath !== "") {
-      parameters.relativePath = folder.relativePath;
-      parameters.relativePrefix = `${folder.relativePath}/%`;
-      filters.push(
-        "(a.relative_path = @relativePath OR a.relative_path LIKE @relativePrefix)"
-      );
-    }
-  } else {
-    filters.push("a.folder_id = @folderId");
-  }
-
-  if (options.type !== "all") {
-    parameters.mediaType = options.type;
-    filters.push("a.media_type = @mediaType");
-  }
-
-  const searchQuery = assetSearchQuery(options.search ?? "");
-  if (searchQuery) {
-    parameters.searchQuery = searchQuery;
-    filters.push(
-      "a.id IN (SELECT asset_id FROM asset_search WHERE asset_search MATCH @searchQuery)"
-    );
-  }
-
-  [...new Set((options.tags ?? []).map(normalizeTagSearch).filter(Boolean))]
-    .forEach((tagFilter, index) => {
-      const parameterName = `tagFilter${index}`;
-      parameters[parameterName] = tagFilter;
-      filters.push(
-        `EXISTS (
-           SELECT 1
-           FROM asset_tags at
-           JOIN tags t ON t.id = at.tag_id
-           WHERE at.asset_id = a.id AND t.normalized_name = @${parameterName}
-         )`
-      );
-    });
-
-  switch (options.scoreFilter ?? "all") {
-    case "favorites":
-      filters.push("COALESCE(aa.favorite, 0) = 1");
-      break;
-    case "ranked":
-      filters.push(`${FINAL_SCORE_SQL} > 0`);
-      break;
-    case "unranked":
-      filters.push(`${FINAL_SCORE_SQL} = 0`);
-      break;
-    default:
-      break;
-  }
-
-  return { filters, parameters };
-}
-
-function selectInformativePair(
-  candidates: ComparisonCandidateRow[],
-  decidedPairs: Set<string>,
-  excludedAssetIds: string[]
-): [string, string] {
-  const minimumCount = Math.min(
-    ...candidates.map((candidate) => candidate.comparison_count ?? 0)
-  );
-  const anchorPool = candidates.filter(
-    (candidate) => (candidate.comparison_count ?? 0) <= minimumCount + 1
-  );
-  const anchor = anchorPool[Math.floor(Math.random() * anchorPool.length)]!;
-  const excludedPair =
-    excludedAssetIds.length === 2
-      ? pairKey(excludedAssetIds[0]!, excludedAssetIds[1]!)
-      : null;
-  const opponents = candidates.filter((candidate) => candidate.id !== anchor.id);
-  const eligibleOpponents = opponents.filter(
-    (candidate) => pairKey(anchor.id, candidate.id) !== excludedPair
-  );
-  const pool = eligibleOpponents.length > 0 ? eligibleOpponents : opponents;
-
-  if (Math.random() < 0.15) {
-    const opponent = pool[Math.floor(Math.random() * pool.length)]!;
-    return [anchor.id, opponent.id];
-  }
-
-  const ranked = [...pool].sort((left, right) => {
-    const leftCost = opponentCost(anchor, left, decidedPairs);
-    const rightCost = opponentCost(anchor, right, decidedPairs);
-    return leftCost - rightCost;
-  });
-
-  return [anchor.id, ranked[0]!.id];
-}
-
-function opponentCost(
-  anchor: ComparisonCandidateRow,
-  opponent: ComparisonCandidateRow,
-  decidedPairs: Set<string>
-): number {
-  const repeatCost = decidedPairs.has(pairKey(anchor.id, opponent.id)) ? 2 : 0;
-  const uncertaintyCost = Math.abs((anchor.skill ?? 0) - (opponent.skill ?? 0));
-  const exposureCost = (opponent.comparison_count ?? 0) * 0.03;
-  return repeatCost + uncertaintyCost + exposureCost + Math.random() * 0.08;
 }
 
 function assetsExist(db: AetherDatabase, assetIds: string[]): boolean {
@@ -567,17 +403,11 @@ function assetsExist(db: AetherDatabase, assetIds: string[]): boolean {
   return assetIds.every((assetId) => Boolean(query.get(assetId)));
 }
 
-function canonicalPair(leftAssetId: string, rightAssetId: string): [string, string] {
+function canonicalPair(
+  leftAssetId: string,
+  rightAssetId: string
+): [string, string] {
   return leftAssetId < rightAssetId
     ? [leftAssetId, rightAssetId]
     : [rightAssetId, leftAssetId];
-}
-
-function pairKey(leftAssetId: string, rightAssetId: string): string {
-  return canonicalPair(leftAssetId, rightAssetId).join("\u0000");
-}
-
-function logistic(value: number): number {
-  const bounded = Math.max(-20, Math.min(20, value));
-  return 1 / (1 + Math.exp(-bounded));
 }

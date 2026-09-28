@@ -2,7 +2,9 @@ import { realpath } from "node:fs/promises";
 import path from "node:path";
 
 export class UnsafePathError extends Error {
-  constructor(message = "Requested path is outside the configured media root.") {
+  constructor(
+    message = "Requested path is outside the configured media root."
+  ) {
     super(message);
     this.name = "UnsafePathError";
   }

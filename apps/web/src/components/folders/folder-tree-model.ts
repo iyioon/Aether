@@ -51,7 +51,12 @@ export function buildVisibleFolderItems({
   const items: FolderTreeItem[] = [];
 
   for (const root of [...tree.roots].sort(folderComparator(sortMode))) {
-    appendRootTreeItem(root, items, folderChildrenByParentId, expandedFolderIds);
+    appendRootTreeItem(
+      root,
+      items,
+      folderChildrenByParentId,
+      expandedFolderIds
+    );
   }
 
   return items;
@@ -138,7 +143,13 @@ function appendRootTreeItem(
   }
 
   for (const child of children) {
-    appendFolderTreeItem(child, 1, items, folderChildrenByParentId, expandedFolderIds);
+    appendFolderTreeItem(
+      child,
+      1,
+      items,
+      folderChildrenByParentId,
+      expandedFolderIds
+    );
   }
 }
 

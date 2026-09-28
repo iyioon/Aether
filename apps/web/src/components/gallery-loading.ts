@@ -45,10 +45,12 @@ export function buildAssetListQueryKey(input: AssetListQueryKeyInput): string {
 }
 
 export function canRequestMoreAssets(state: LoadMoreState): boolean {
-  return Boolean(state.folderId) &&
+  return (
+    Boolean(state.folderId) &&
     !state.isLoadingMore &&
     !state.isRequestInFlight &&
-    state.loadedCount < state.totalCount;
+    state.loadedCount < state.totalCount
+  );
 }
 
 export function isAssetListPending(state: AssetListPendingState): boolean {

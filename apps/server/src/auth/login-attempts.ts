@@ -116,11 +116,20 @@ function stateForRow(
   policy: LoginThrottlePolicy,
   now: Date
 ): LoginThrottleState {
-  if (!row || isExpiredLock(row, now) || isOutsideWindow(row.first_failed_at, policy, now)) {
+  if (
+    !row ||
+    isExpiredLock(row, now) ||
+    isOutsideWindow(row.first_failed_at, policy, now)
+  ) {
     return stateForParts(0, null, policy, now);
   }
 
-  return stateForParts(row.failed_count, dateOrNull(row.locked_until), policy, now);
+  return stateForParts(
+    row.failed_count,
+    dateOrNull(row.locked_until),
+    policy,
+    now
+  );
 }
 
 function stateForParts(

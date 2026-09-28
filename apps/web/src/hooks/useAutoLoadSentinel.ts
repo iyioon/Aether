@@ -30,7 +30,12 @@ export function useAutoLoadSentinel({
     const root = rootRef.current;
     const target = targetRef.current;
 
-    if (!enabled || !root || !target || typeof IntersectionObserver === "undefined") {
+    if (
+      !enabled ||
+      !root ||
+      !target ||
+      typeof IntersectionObserver === "undefined"
+    ) {
       return;
     }
 

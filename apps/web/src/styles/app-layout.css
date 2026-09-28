@@ -24,7 +24,8 @@
 
 .sidebar-footer-action {
   border: 1px solid transparent;
-  transition: color var(--aether-motion-fast) ease,
+  transition:
+    color var(--aether-motion-fast) ease,
     background-color var(--aether-motion-fast) ease,
     border-color var(--aether-motion-fast) ease;
 }
@@ -331,7 +332,8 @@
   border-radius: 7px;
   background: transparent;
   outline: none;
-  transition: border-color var(--aether-motion-fast) ease,
+  transition:
+    border-color var(--aether-motion-fast) ease,
     background-color var(--aether-motion-fast) ease;
 }
 
@@ -375,7 +377,8 @@
   border: 0;
   border-radius: 6px;
   background: transparent;
-  transition: color var(--aether-motion-fast) ease,
+  transition:
+    color var(--aether-motion-fast) ease,
     background var(--aether-motion-fast) ease;
 }
 
@@ -401,7 +404,8 @@
   place-items: center;
   color: var(--muted-foreground);
   background: transparent;
-  transition: color var(--aether-motion-fast) ease,
+  transition:
+    color var(--aether-motion-fast) ease,
     background var(--aether-motion-fast) ease;
 }
 
@@ -430,7 +434,8 @@
   font-size: 12px;
   line-height: 1.35;
   text-align: center;
-  transition: color var(--aether-motion-fast) ease,
+  transition:
+    color var(--aether-motion-fast) ease,
     background-color var(--aether-motion-fast) ease;
 }
 

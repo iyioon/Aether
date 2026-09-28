@@ -186,11 +186,19 @@
 
 :root[data-accent="custom"] {
   --aether-accent: var(--aether-custom-accent);
-  --aether-accent-strong: color-mix(in srgb, var(--aether-custom-accent) 65%, #27272a);
+  --aether-accent-strong: color-mix(
+    in srgb,
+    var(--aether-custom-accent) 65%,
+    #27272a
+  );
 }
 
 :root.dark[data-accent="custom"] {
-  --aether-accent-strong: color-mix(in srgb, var(--aether-custom-accent) 65%, white);
+  --aether-accent-strong: color-mix(
+    in srgb,
+    var(--aether-custom-accent) 65%,
+    white
+  );
 }
 
 @layer base {

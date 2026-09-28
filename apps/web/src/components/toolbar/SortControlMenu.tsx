@@ -45,7 +45,10 @@ export function SortControlMenu({
         >
           {sortOptions.map((option) => (
             <div className="flex items-center gap-3" key={option.value}>
-              <RadioGroupItem id={`sort-${option.value}`} value={option.value} />
+              <RadioGroupItem
+                id={`sort-${option.value}`}
+                value={option.value}
+              />
               <Label htmlFor={`sort-${option.value}`}>{option.label}</Label>
             </div>
           ))}
@@ -70,8 +73,14 @@ export function SortControlMenu({
               const Icon = option.icon;
               return (
                 <div className="flex items-center gap-3" key={option.value}>
-                  <RadioGroupItem id={`direction-${option.value}`} value={option.value} />
-                  <Label className="flex items-center gap-2" htmlFor={`direction-${option.value}`}>
+                  <RadioGroupItem
+                    id={`direction-${option.value}`}
+                    value={option.value}
+                  />
+                  <Label
+                    className="flex items-center gap-2"
+                    htmlFor={`direction-${option.value}`}
+                  >
                     <Icon className="size-4" />
                     {option.label}
                   </Label>

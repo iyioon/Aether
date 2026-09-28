@@ -13,11 +13,7 @@ import {
   type LibraryDataResetOptions,
   type LibraryDataResetResult
 } from "../../api/client";
-import {
-  Alert,
-  AlertDescription,
-  AlertTitle
-} from "../ui/alert";
+import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -181,7 +177,10 @@ export function DataResetSettingsSection({
 
       <div className="settings-reset-footer">
         <p>
-          Selected: {hasSelection ? selectedOptions.map(({ label }) => label).join(", ") : "None"}
+          Selected:{" "}
+          {hasSelection
+            ? selectedOptions.map(({ label }) => label).join(", ")
+            : "None"}
         </p>
         <Button
           type="button"
@@ -199,9 +198,11 @@ export function DataResetSettingsSection({
           <AlertDialogHeader>
             <AlertDialogTitle>Reset selected library data?</AlertDialogTitle>
             <AlertDialogDescription>
-              This permanently resets {selectedOptions
+              This permanently resets{" "}
+              {selectedOptions
                 .map(({ label }) => label.toLowerCase())
-                .join(", ")}. It cannot be undone.
+                .join(", ")}
+              . It cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
 

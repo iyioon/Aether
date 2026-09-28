@@ -107,7 +107,9 @@ export function AppearanceSettingsSection({
                   style={{ backgroundColor: customAccent }}
                 />
                 <span className="min-w-0 text-left">
-                  <span className="block text-sm font-medium">Choose a color</span>
+                  <span className="block text-sm font-medium">
+                    Choose a color
+                  </span>
                   <span className="block text-xs font-normal text-muted-foreground">
                     Used for primary actions and focus rings.
                   </span>
@@ -119,7 +121,10 @@ export function AppearanceSettingsSection({
             </Button>
           </PopoverTrigger>
           <PopoverContent align="end" className="w-72">
-            <ColorPicker value={customAccent} onChange={handleCustomAccentChange}>
+            <ColorPicker
+              value={customAccent}
+              onChange={handleCustomAccentChange}
+            >
               <ColorPickerSelection className="h-40 rounded-md" />
               <ColorPickerHue />
               <div className="flex items-center gap-2">

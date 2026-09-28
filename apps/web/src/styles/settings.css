@@ -295,7 +295,8 @@
   }
 }
 
-@media (max-width: 760px), (max-width: 920px) and (hover: none) and (pointer: coarse) {
+@media (max-width: 760px),
+  (max-width: 920px) and (hover: none) and (pointer: coarse) {
   .library-main.view-settings {
     height: 100vh;
     height: 100dvh;

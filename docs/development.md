@@ -16,13 +16,16 @@ media         local source media mount, ignored except .gitkeep
 ```bash
 npm install
 npm run dev
+npm run lint
+npm run format:check
+npm run format
 npm run check
 npm run build
 npm run verify
 npm run test:e2e
 ```
 
-`npm run check` runs workspace type checks and unit tests. `npm run verify` adds production builds. `npm run test:e2e` starts isolated local API and web servers and writes temporary fixture media under `.e2e/`.
+`npm run lint` applies the TypeScript and React correctness rules. `npm run format:check` verifies the shared Prettier format, while `npm run format` applies it. `npm run check` runs both quality gates, workspace type checks, and unit tests. `npm run verify` adds production builds. `npm run test:e2e` starts isolated local API and web servers and writes temporary fixture media under `.e2e/`.
 
 ## Code Style
 
@@ -33,6 +36,7 @@ npm run test:e2e
 - Use argument arrays for subprocess calls.
 - Add or update tests for auth, path handling, metadata writes, search, and media streaming.
 - Keep generated artifacts, local databases, cache files, and private notes out of source control.
+- Follow the module, state, accessibility, and UI conventions in [Engineering standards](engineering.md).
 
 ## Browser Checks
 

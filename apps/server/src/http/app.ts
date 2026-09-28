@@ -137,9 +137,7 @@ export async function buildApp({
 
     if (unsafeMethods.has(request.method)) {
       const csrfHeader = request.headers["x-csrf-token"];
-      const csrfToken = Array.isArray(csrfHeader)
-        ? csrfHeader[0]
-        : csrfHeader;
+      const csrfToken = Array.isArray(csrfHeader) ? csrfHeader[0] : csrfHeader;
 
       if (!verifyCsrfToken(db, session.id, csrfToken)) {
         return reply.code(403).send({ error: "csrf_required" });
@@ -256,8 +254,9 @@ function isPublicRoute(request: FastifyRequest): boolean {
   }
 
   return (
-    request.method === "GET" && request.url === "/api/health"
-  ) || request.url === "/api/auth/login";
+    (request.method === "GET" && request.url === "/api/health") ||
+    request.url === "/api/auth/login"
+  );
 }
 
 function setSessionCookies(

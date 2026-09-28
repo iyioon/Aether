@@ -30,11 +30,7 @@ import { Card, CardContent, CardHeader } from "../ui/card";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { RadioGroup, RadioGroupItem } from "../ui/radio-group";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger
-} from "../ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 
 type TagApplyMode = "add" | "replace";
 
@@ -74,9 +70,8 @@ export function BatchActionsBar({
   onClearTags
 }: BatchActionsBarProps) {
   const [batchScoreValue, setBatchScoreValue] = useState(0);
-  const [batchFavoriteValue, setBatchFavoriteValue] = useState(
-    allSelectedFavorite
-  );
+  const [batchFavoriteValue, setBatchFavoriteValue] =
+    useState(allSelectedFavorite);
   const [isFavoriteDirty, setIsFavoriteDirty] = useState(false);
   const [tagApplyMode, setTagApplyMode] = useState<TagApplyMode>("add");
   const [isRendered, setIsRendered] = useState(isOpen);
@@ -212,50 +207,48 @@ export function BatchActionsBar({
               </div>
 
               <div className="batch-score-editor">
-                  <MediaScoreControl
-                    disabled={isSaving}
-                    mediaName="selected media"
-                    score={batchScoreValue}
-                    size="md"
-                    onChange={setBatchScoreValue}
-                  />
-                  <Button
-                    className="favorite-button"
-                    type="button"
-                    size="icon-sm"
-                    variant="ghost"
-                    aria-label={
-                      batchFavoriteValue
-                        ? "Do not favorite selected media"
-                        : "Favorite selected media"
-                    }
-                    aria-pressed={batchFavoriteValue}
-                    disabled={isSaving}
-                    onClick={() => {
-                      const nextFavorite = !batchFavoriteValue;
-                      setBatchFavoriteValue(nextFavorite);
-                      setIsFavoriteDirty(
-                        nextFavorite !== allSelectedFavorite
-                      );
-                    }}
-                  >
-                    <Heart />
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    disabled={isSaving}
-                    onClick={() =>
-                      onApplyCuration({
-                        score: batchScoreValue,
-                        ...(isFavoriteDirty
-                          ? { favorite: batchFavoriteValue }
-                          : {})
-                      })
-                    }
-                  >
-                    Apply
-                  </Button>
+                <MediaScoreControl
+                  disabled={isSaving}
+                  mediaName="selected media"
+                  score={batchScoreValue}
+                  size="md"
+                  onChange={setBatchScoreValue}
+                />
+                <Button
+                  className="favorite-button"
+                  type="button"
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label={
+                    batchFavoriteValue
+                      ? "Do not favorite selected media"
+                      : "Favorite selected media"
+                  }
+                  aria-pressed={batchFavoriteValue}
+                  disabled={isSaving}
+                  onClick={() => {
+                    const nextFavorite = !batchFavoriteValue;
+                    setBatchFavoriteValue(nextFavorite);
+                    setIsFavoriteDirty(nextFavorite !== allSelectedFavorite);
+                  }}
+                >
+                  <Heart />
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={isSaving}
+                  onClick={() =>
+                    onApplyCuration({
+                      score: batchScoreValue,
+                      ...(isFavoriteDirty
+                        ? { favorite: batchFavoriteValue }
+                        : {})
+                    })
+                  }
+                >
+                  Apply
+                </Button>
               </div>
             </section>
 
@@ -263,116 +256,117 @@ export function BatchActionsBar({
               className="batch-editor-section"
               aria-labelledby="batch-tags-title"
             >
-          <div className="batch-section-heading">
-            <h3 id="batch-tags-title">Tags</h3>
-          </div>
-
-          <RadioGroup
-            className="batch-tag-mode"
-            aria-label="Tag update mode"
-            value={tagApplyMode}
-            onValueChange={(value) => setTagApplyMode(value as TagApplyMode)}
-          >
-            <div className="flex items-center gap-2">
-              <RadioGroupItem id="batch-tag-add" value="add" />
-              <Label htmlFor="batch-tag-add">Add to existing</Label>
-            </div>
-            <div className="flex items-center gap-2">
-              <RadioGroupItem id="batch-tag-replace" value="replace" />
-              <Label htmlFor="batch-tag-replace">Replace existing</Label>
-            </div>
-          </RadioGroup>
-
-          <div className="batch-tag-control">
-            <form
-              className="batch-tag-form"
-              aria-label="Tag selected media"
-              onSubmit={(event) => {
-                event.preventDefault();
-                applyTags();
-              }}
-            >
-              <div className="relative min-w-0 flex-1">
-                <Tags
-                  className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-                  aria-hidden="true"
-                />
-                <Input
-                  className="pl-9 text-sm font-normal"
-                  aria-label="Tag name"
-                  value={tagDraft}
-                  maxLength={48}
-                  placeholder="Enter a tag"
-                  disabled={isSaving}
-                  onChange={(event) => onTagDraftChange(event.target.value)}
-                />
+              <div className="batch-section-heading">
+                <h3 id="batch-tags-title">Tags</h3>
               </div>
-              <Button
-                type="submit"
-                size="sm"
-                disabled={isSaving || !hasTagDraft}
-              >
-                <Plus />
-                Apply
-              </Button>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={isSaving}
-                  >
-                    <Trash2 />
-                    Clear tags
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Clear all tags?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This removes every tag from all {displayedSelectedCount}{" "}
-                      selected {selectedMediaLabel(displayedSelectedCount)}. This
-                      action cannot be undone.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction
-                      variant="destructive"
-                      onClick={onClearTags}
-                    >
-                      Clear tags
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            </form>
-            {tagSuggestions.length ? (
-              <div
-                className="batch-tag-suggestions"
-                aria-label="Tag suggestions"
-              >
-                {tagSuggestions.map((tag) => (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    key={tag.id}
-                    disabled={isSaving}
-                    onClick={() => onTagDraftChange(tag.displayName)}
-                  >
-                    {tag.displayName}
-                  </Button>
-                ))}
-              </div>
-            ) : null}
-          </div>
 
+              <RadioGroup
+                className="batch-tag-mode"
+                aria-label="Tag update mode"
+                value={tagApplyMode}
+                onValueChange={(value) =>
+                  setTagApplyMode(value as TagApplyMode)
+                }
+              >
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem id="batch-tag-add" value="add" />
+                  <Label htmlFor="batch-tag-add">Add to existing</Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem id="batch-tag-replace" value="replace" />
+                  <Label htmlFor="batch-tag-replace">Replace existing</Label>
+                </div>
+              </RadioGroup>
+
+              <div className="batch-tag-control">
+                <form
+                  className="batch-tag-form"
+                  aria-label="Tag selected media"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    applyTags();
+                  }}
+                >
+                  <div className="relative min-w-0 flex-1">
+                    <Tags
+                      className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+                      aria-hidden="true"
+                    />
+                    <Input
+                      className="pl-9 text-sm font-normal"
+                      aria-label="Tag name"
+                      value={tagDraft}
+                      maxLength={48}
+                      placeholder="Enter a tag"
+                      disabled={isSaving}
+                      onChange={(event) => onTagDraftChange(event.target.value)}
+                    />
+                  </div>
+                  <Button
+                    type="submit"
+                    size="sm"
+                    disabled={isSaving || !hasTagDraft}
+                  >
+                    <Plus />
+                    Apply
+                  </Button>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={isSaving}
+                      >
+                        <Trash2 />
+                        Clear tags
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Clear all tags?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This removes every tag from all{" "}
+                          {displayedSelectedCount} selected{" "}
+                          {selectedMediaLabel(displayedSelectedCount)}. This
+                          action cannot be undone.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          variant="destructive"
+                          onClick={onClearTags}
+                        >
+                          Clear tags
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </form>
+                {tagSuggestions.length ? (
+                  <div
+                    className="batch-tag-suggestions"
+                    aria-label="Tag suggestions"
+                  >
+                    {tagSuggestions.map((tag) => (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        key={tag.id}
+                        disabled={isSaving}
+                        onClick={() => onTagDraftChange(tag.displayName)}
+                      >
+                        {tag.displayName}
+                      </Button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
             </section>
           </div>
         )}
-
       </CardContent>
     </Card>
   );

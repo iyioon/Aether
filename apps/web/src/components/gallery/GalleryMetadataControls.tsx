@@ -51,9 +51,7 @@ export function GalleryMetadataControls({
               <DropdownMenuItem onSelect={onReset}>
                 Restore defaults
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={onClear}>
-                Hide all
-              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={onClear}>Hide all</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

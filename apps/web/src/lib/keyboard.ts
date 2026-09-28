@@ -38,12 +38,7 @@ const OPEN_KEYBOARD_LAYER_SELECTOR = [
 ].join(", ");
 
 export type FeedKeyboardCommand =
-  | "first"
-  | "last"
-  | "next"
-  | "open"
-  | "previous"
-  | "toggle-playback";
+  "first" | "last" | "next" | "open" | "previous" | "toggle-playback";
 
 export type ViewerKeyboardCommand =
   | "decrease-score"
@@ -122,11 +117,15 @@ export function isEditableKeyboardTarget(target: EventTarget | null): boolean {
   return targetMatches(target, EDITABLE_TARGET_SELECTOR);
 }
 
-export function isKeyboardActivationTarget(target: EventTarget | null): boolean {
+export function isKeyboardActivationTarget(
+  target: EventTarget | null
+): boolean {
   return targetMatches(target, ACTIVATION_TARGET_SELECTOR);
 }
 
-export function isDirectionalKeyboardTarget(target: EventTarget | null): boolean {
+export function isDirectionalKeyboardTarget(
+  target: EventTarget | null
+): boolean {
   return targetMatches(target, DIRECTIONAL_TARGET_SELECTOR);
 }
 

@@ -356,8 +356,11 @@ export function openDatabase(configDir: string): AetherDatabase {
   const databasePath = path.join(configDir, "aether.sqlite");
   const db = new Database(databasePath);
 
-  db.function("aether_search_ngrams", { deterministic: true }, (input: unknown) =>
-    typeof input === "string" ? searchNgramText(input) : ""
+  db.function(
+    "aether_search_ngrams",
+    { deterministic: true },
+    (input: unknown) =>
+      typeof input === "string" ? searchNgramText(input) : ""
   );
   db.pragma("foreign_keys = ON");
   db.pragma("journal_mode = WAL");

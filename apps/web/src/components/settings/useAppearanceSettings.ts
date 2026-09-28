@@ -94,10 +94,7 @@ export function useAppearanceSettings(): AppearanceSettings {
       const rgb = hexToRgb(customAccent);
       root.style.setProperty("--aether-custom-accent", customAccent);
       root.style.setProperty("--aether-accent-rgb", rgb.join(", "));
-      root.style.setProperty(
-        "--aether-accent-contrast",
-        contrastColor(rgb)
-      );
+      root.style.setProperty("--aether-accent-contrast", contrastColor(rgb));
       window.localStorage.setItem(CUSTOM_ACCENT_STORAGE_KEY, customAccent);
       return;
     }

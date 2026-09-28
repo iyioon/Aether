@@ -21,7 +21,10 @@ const configDir = path.resolve(
   rootDir,
   process.env.AETHER_CONFIG_DIR ?? "./config"
 );
-const cacheDir = path.resolve(rootDir, process.env.AETHER_CACHE_DIR ?? "./cache");
+const cacheDir = path.resolve(
+  rootDir,
+  process.env.AETHER_CACHE_DIR ?? "./cache"
+);
 const includeCache = args.includes("--include-cache");
 
 try {
@@ -50,7 +53,10 @@ function readOption(args: string[], name: string): string | null {
   return args[index + 1] ?? null;
 }
 
-function readPositiveIntegerOption(args: string[], name: string): number | null {
+function readPositiveIntegerOption(
+  args: string[],
+  name: string
+): number | null {
   const value = readOption(args, name);
 
   if (value === null) {

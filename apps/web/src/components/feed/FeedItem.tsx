@@ -122,7 +122,9 @@ export function FeedItem({
               iconSize={17}
               variant={feedSoundState === "on" ? "secondary" : "outline"}
               label={
-                feedSoundState === "on" ? "Mute feed sound" : "Enable feed sound"
+                feedSoundState === "on"
+                  ? "Mute feed sound"
+                  : "Enable feed sound"
               }
               title={
                 feedSoundState === "blocked"

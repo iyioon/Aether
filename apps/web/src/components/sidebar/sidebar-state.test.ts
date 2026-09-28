@@ -6,7 +6,9 @@ import {
 
 describe("sidebar persistence", () => {
   it("restores the stock sidebar open cookie", () => {
-    expect(parseSidebarOpenCookie("theme=dark; sidebar_state=false")).toBe(false);
+    expect(parseSidebarOpenCookie("theme=dark; sidebar_state=false")).toBe(
+      false
+    );
     expect(parseSidebarOpenCookie("sidebar_state=true; theme=dark")).toBe(true);
     expect(parseSidebarOpenCookie("theme=dark")).toBe(true);
   });

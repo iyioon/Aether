@@ -4,7 +4,7 @@ const password = process.argv[2] ?? process.env.AETHER_PASSWORD;
 
 if (!password) {
   console.error(
-    "Usage: npm run hash-password -w @aether/server -- \"your password\""
+    'Usage: npm run hash-password -w @aether/server -- "your password"'
   );
   process.exit(1);
 }

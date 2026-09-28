@@ -8,4 +8,5 @@ These docs cover running, using, and maintaining Aether as a private self-hosted
 - [Security](security.md): deployment posture, auth, media serving, and backups.
 - [Architecture](architecture.md): how the server, database, cache, and web app fit together.
 - [Development](development.md): repository layout, commands, tests, and contribution notes.
+- [Engineering standards](engineering.md): module boundaries, state rules, UI conventions, and quality gates.
 - [Release checklist](release-checklist.md): practical checks before tagging or publishing a release.

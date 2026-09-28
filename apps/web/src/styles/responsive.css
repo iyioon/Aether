@@ -78,7 +78,8 @@
   }
 }
 
-@media (max-width: 760px), (max-width: 920px) and (hover: none) and (pointer: coarse) {
+@media (max-width: 760px),
+  (max-width: 920px) and (hover: none) and (pointer: coarse) {
   .library-inset.feed-chrome-hidden > .library-path-bar {
     display: none;
   }
@@ -504,7 +505,6 @@
   .feed-nav-rail {
     display: none;
   }
-
 }
 
 @media (max-width: 520px) {
@@ -560,7 +560,6 @@
     padding-right: 10px;
     padding-left: 10px;
   }
-
 }
 
 @media (max-width: 420px) {

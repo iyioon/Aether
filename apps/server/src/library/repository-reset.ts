@@ -24,7 +24,10 @@ export function resetLibraryData(
   const result: LibraryDataResetResult = {
     scoresReset: options.scores ? countScoresToReset(db) : 0,
     favoritesReset: options.favorites
-      ? countRows(db, "SELECT COUNT(*) AS total FROM asset_annotations WHERE favorite = 1")
+      ? countRows(
+          db,
+          "SELECT COUNT(*) AS total FROM asset_annotations WHERE favorite = 1"
+        )
       : 0,
     tagsRemoved: options.tags
       ? countRows(db, "SELECT COUNT(*) AS total FROM tags")

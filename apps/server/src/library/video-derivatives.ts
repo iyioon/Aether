@@ -72,7 +72,12 @@ export async function ensureVideoPoster({
     throw new UnsupportedVideoPosterError("Only video posters are available.");
   }
 
-  const posterPath = posterPathFor(config.cacheDir, file.asset.id, file.mtimeMs, size);
+  const posterPath = posterPathFor(
+    config.cacheDir,
+    file.asset.id,
+    file.mtimeMs,
+    size
+  );
   const derivativeId = stableId(
     "derivative",
     file.asset.id,
@@ -126,7 +131,9 @@ export async function ensureVideoPreview({
   durationSeconds: number;
 }): Promise<VideoPreviewFile> {
   if (file.asset.mediaType !== "video") {
-    throw new UnsupportedVideoPreviewError("Only video previews are available.");
+    throw new UnsupportedVideoPreviewError(
+      "Only video previews are available."
+    );
   }
 
   const previewSize = evenPreviewSize(size);
@@ -198,27 +205,31 @@ async function generateVideoPoster({
   try {
     const metadata = await probeVideoMetadata(file);
 
-    await runMediaCommand("ffmpeg", [
-      "-hide_banner",
-      "-loglevel",
-      "error",
-      "-i",
-      file.sourcePath,
-      "-map",
-      "0:v:0",
-      "-frames:v",
-      "1",
-      "-vf",
-      `scale=${size}:${size}:force_original_aspect_ratio=decrease`,
-      "-c:v",
-      "mjpeg",
-      "-q:v",
-      "3",
-      "-f",
-      "image2",
-      "-y",
-      temporaryPath
-    ], POSTER_TIMEOUT_MS);
+    await runMediaCommand(
+      "ffmpeg",
+      [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        file.sourcePath,
+        "-map",
+        "0:v:0",
+        "-frames:v",
+        "1",
+        "-vf",
+        `scale=${size}:${size}:force_original_aspect_ratio=decrease`,
+        "-c:v",
+        "mjpeg",
+        "-q:v",
+        "3",
+        "-f",
+        "image2",
+        "-y",
+        temporaryPath
+      ],
+      POSTER_TIMEOUT_MS
+    );
 
     await rename(temporaryPath, posterPath);
     updateAssetMediaMetadata(db, {
@@ -281,39 +292,43 @@ async function generateVideoPreview({
   try {
     const metadata = await probeVideoMetadata(file);
 
-    await runMediaCommand("ffmpeg", [
-      "-hide_banner",
-      "-loglevel",
-      "error",
-      "-i",
-      file.sourcePath,
-      "-map",
-      "0:v:0",
-      "-map",
-      "0:a:0?",
-      "-t",
-      String(durationSeconds),
-      "-vf",
-      `scale=${size}:${size}:force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p`,
-      "-c:v",
-      "libx264",
-      "-preset",
-      "veryfast",
-      "-crf",
-      "30",
-      "-c:a",
-      "aac",
-      "-b:a",
-      "128k",
-      "-ac",
-      "2",
-      "-movflags",
-      "+faststart",
-      "-f",
-      "mp4",
-      "-y",
-      temporaryPath
-    ], PREVIEW_TIMEOUT_MS);
+    await runMediaCommand(
+      "ffmpeg",
+      [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        file.sourcePath,
+        "-map",
+        "0:v:0",
+        "-map",
+        "0:a:0?",
+        "-t",
+        String(durationSeconds),
+        "-vf",
+        `scale=${size}:${size}:force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p`,
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "30",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        "-ac",
+        "2",
+        "-movflags",
+        "+faststart",
+        "-f",
+        "mp4",
+        "-y",
+        temporaryPath
+      ],
+      PREVIEW_TIMEOUT_MS
+    );
 
     await rename(temporaryPath, previewPath);
     updateAssetMediaMetadata(db, {
@@ -390,17 +405,21 @@ export async function probeVideoMetadata(
     throw new UnsupportedVideoPosterError("Only video metadata is available.");
   }
 
-  const result = await runMediaCommand("ffprobe", [
-    "-v",
-    "error",
-    "-select_streams",
-    "v:0",
-    "-show_entries",
-    "stream=width,height,codec_name:format=duration",
-    "-of",
-    "json",
-    file.sourcePath
-  ], PROBE_TIMEOUT_MS);
+  const result = await runMediaCommand(
+    "ffprobe",
+    [
+      "-v",
+      "error",
+      "-select_streams",
+      "v:0",
+      "-show_entries",
+      "stream=width,height,codec_name:format=duration",
+      "-of",
+      "json",
+      file.sourcePath
+    ],
+    PROBE_TIMEOUT_MS
+  );
   const payload = JSON.parse(result.stdout) as ProbePayload;
   const stream = payload.streams?.[0];
 
@@ -420,7 +439,10 @@ function sendPreviewRange(
 ): FastifyReply {
   const chunkSize = range.end - range.start + 1;
   reply.code(206);
-  reply.header("content-range", `bytes ${range.start}-${range.end}/${sizeBytes}`);
+  reply.header(
+    "content-range",
+    `bytes ${range.start}-${range.end}/${sizeBytes}`
+  );
   reply.header("content-length", String(chunkSize));
   return reply.send(
     createReadStream(previewPath, {

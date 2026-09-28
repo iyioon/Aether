@@ -1,0 +1,9 @@
+**/dist
+**/node_modules
+.e2e
+.playwright-cli
+cache
+config
+media
+test-results
+package-lock.json

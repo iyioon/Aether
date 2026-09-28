@@ -35,7 +35,10 @@ export async function resolveAssetFile(
     return null;
   }
 
-  const sourcePath = await resolveMediaPath(asset.rootRealPath, asset.relativePath);
+  const sourcePath = await resolveMediaPath(
+    asset.rootRealPath,
+    asset.relativePath
+  );
   const fileStat = await stat(sourcePath).catch(() => null);
 
   if (!fileStat?.isFile()) {
@@ -77,7 +80,9 @@ export function isAssetNotModified(
 
   const sinceTime = Date.parse(headers.ifModifiedSince);
 
-  return Number.isFinite(sinceTime) && assetLastModifiedTimeMs(file) <= sinceTime;
+  return (
+    Number.isFinite(sinceTime) && assetLastModifiedTimeMs(file) <= sinceTime
+  );
 }
 
 export function requestedByteRange(
@@ -263,7 +268,10 @@ function entityTagMatches(header: string, entityTag: string): boolean {
     .some((entry) => entry === "*" || entityTagValue(entry) === expectedTag);
 }
 
-function ifRangeMatches(file: ResolvedAssetFile, ifRangeHeader: string): boolean {
+function ifRangeMatches(
+  file: ResolvedAssetFile,
+  ifRangeHeader: string
+): boolean {
   const header = ifRangeHeader.trim();
 
   if (!header) {
@@ -274,7 +282,7 @@ function ifRangeMatches(file: ResolvedAssetFile, ifRangeHeader: string): boolean
     return false;
   }
 
-  if (header.startsWith("\"")) {
+  if (header.startsWith('"')) {
     return header === assetEntityTag(file);
   }
 

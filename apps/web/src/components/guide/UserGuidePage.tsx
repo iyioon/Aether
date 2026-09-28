@@ -81,10 +81,12 @@ export function UserGuidePage() {
       <div className="guide-shell">
         <header className="guide-hero">
           <Badge variant="outline">User guide</Badge>
-          <h1 id="guide-title">Your private media library, made easier to explore</h1>
+          <h1 id="guide-title">
+            Your private media library, made easier to explore
+          </h1>
           <p>
-            Aether helps you browse, organize, compare, and rediscover photos and
-            videos stored in your own folders.
+            Aether helps you browse, organize, compare, and rediscover photos
+            and videos stored in your own folders.
           </p>
         </header>
 
@@ -257,9 +259,9 @@ export function UserGuidePage() {
           <div>
             <h2>Your originals stay where they are</h2>
             <p>
-              Aether reads media from the folders you choose. Browsing,
-              ranking, favorites, scores, and tags do not rename, move, or edit
-              the original files.
+              Aether reads media from the folders you choose. Browsing, ranking,
+              favorites, scores, and tags do not rename, move, or edit the
+              original files.
             </p>
           </div>
         </aside>
@@ -275,12 +277,7 @@ interface GuideSectionProps {
   title: string;
 }
 
-function GuideSection({
-  children,
-  description,
-  id,
-  title
-}: GuideSectionProps) {
+function GuideSection({ children, description, id, title }: GuideSectionProps) {
   return (
     <section className="guide-section" id={id}>
       <header>

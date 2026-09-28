@@ -80,6 +80,7 @@ The default Compose file binds Aether to `127.0.0.1:3030`. That keeps it local t
 - [Security](docs/security.md)
 - [Architecture](docs/architecture.md)
 - [Development](docs/development.md)
+- [Engineering standards](docs/engineering.md)
 - [Release checklist](docs/release-checklist.md)
 
 ## Verification
@@ -89,7 +90,7 @@ npm run verify
 npm run test:e2e
 ```
 
-`npm run verify` runs type checks, unit tests, and production builds. The e2e suite starts isolated local servers and writes temporary fixture media under `.e2e/`.
+`npm run verify` runs linting, formatting verification, type checks, unit tests, and production builds. The e2e suite starts isolated local servers and writes temporary fixture media under `.e2e/`.
 
 ## License
 

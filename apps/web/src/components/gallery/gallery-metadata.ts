@@ -1,10 +1,5 @@
 export type GalleryMetadataField =
-  | "title"
-  | "mediaType"
-  | "size"
-  | "score"
-  | "tags"
-  | "favorite";
+  "title" | "mediaType" | "size" | "score" | "tags" | "favorite";
 
 export const galleryMetadataOptions: Array<{
   label: string;

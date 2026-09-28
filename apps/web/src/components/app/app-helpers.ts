@@ -1,7 +1,10 @@
 import { ApiError, type AssetRecord } from "../../api/client";
 import { selectedMediaLabel } from "../media/media-format";
 
-export function setsEqual<T>(left: ReadonlySet<T>, right: ReadonlySet<T>): boolean {
+export function setsEqual<T>(
+  left: ReadonlySet<T>,
+  right: ReadonlySet<T>
+): boolean {
   if (left.size !== right.size) {
     return false;
   }

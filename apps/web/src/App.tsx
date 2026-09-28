@@ -22,11 +22,7 @@ export function App() {
   return <AuthenticatedApp appearance={appearance} />;
 }
 
-function AuthenticatedApp({
-  appearance
-}: {
-  appearance: AppearanceSettings;
-}) {
+function AuthenticatedApp({ appearance }: { appearance: AppearanceSettings }) {
   const [authStatus, setAuthStatus] = useState<AuthStatus>("checking");
 
   useEffect(() => {
@@ -74,11 +70,7 @@ function AuthenticatedApp({
         appearance={appearance}
         onLogout={() => setAuthStatus("anonymous")}
       />
-      <Toaster
-        closeButton
-        position="top-center"
-        theme={appearance.theme}
-      />
+      <Toaster closeButton position="top-center" theme={appearance.theme} />
     </>
   );
 }

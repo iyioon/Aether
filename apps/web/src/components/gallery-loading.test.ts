@@ -87,7 +87,9 @@ describe("gallery loading helpers", () => {
     };
 
     expect(isAssetListPending(readyState)).toBe(false);
-    expect(isAssetListPending({ ...readyState, isLoadingTree: true })).toBe(true);
+    expect(isAssetListPending({ ...readyState, isLoadingTree: true })).toBe(
+      true
+    );
     expect(isAssetListPending({ ...readyState, isLoadingAssets: true })).toBe(
       true
     );

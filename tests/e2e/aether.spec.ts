@@ -31,9 +31,9 @@ test("supports login, scan, batch annotation, fullscreen, and feed", async ({
   await expect(page.locator("html")).toHaveAttribute("data-accent", "mist");
   await expect
     .poll(async () =>
-      page.locator(".settings-page").evaluate(
-        (element) => element.scrollWidth <= element.clientWidth + 1
-      )
+      page
+        .locator(".settings-page")
+        .evaluate((element) => element.scrollWidth <= element.clientWidth + 1)
     )
     .toBe(true);
   await page.getByRole("tab", { name: "Server" }).click();
@@ -129,7 +129,9 @@ test("supports login, scan, batch annotation, fullscreen, and feed", async ({
 
   const feedScroller = page.locator(".feed-view");
   await feedScroller.evaluate((element) => element.scrollTo({ top: 0 }));
-  const initialFeedScroll = await feedScroller.evaluate((element) => element.scrollTop);
+  const initialFeedScroll = await feedScroller.evaluate(
+    (element) => element.scrollTop
+  );
   const feedBox = await feedScroller.boundingBox();
 
   expect(feedBox).not.toBeNull();
@@ -142,7 +144,9 @@ test("supports login, scan, batch annotation, fullscreen, and feed", async ({
     .poll(async () => feedScroller.evaluate((element) => element.scrollTop))
     .toBeGreaterThan(initialFeedScroll);
 
-  const scrolledFeedTop = await feedScroller.evaluate((element) => element.scrollTop);
+  const scrolledFeedTop = await feedScroller.evaluate(
+    (element) => element.scrollTop
+  );
   await feed.focus();
   await page.keyboard.press("ArrowUp");
   await expect
@@ -167,10 +171,7 @@ test("collapses the desktop sidebar without breaking the mobile drawer", async (
   await expect(
     page.locator('[data-slot="sidebar"][data-state="collapsed"]')
   ).toBeVisible();
-  await expect(page.locator("#library-sidebar")).toHaveCSS(
-    "left",
-    /-\d+px/
-  );
+  await expect(page.locator("#library-sidebar")).toHaveCSS("left", /-\d+px/);
 
   const breadcrumb = page.locator(".library-path-navigation nav");
   await expect(sidebarToggle).toBeVisible();

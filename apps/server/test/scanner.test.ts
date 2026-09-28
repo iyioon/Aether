@@ -96,7 +96,9 @@ describe("library scanner", () => {
       "image",
       "image"
     ]);
-    expect(assets?.items.find((asset) => asset.name === "photo.JPG")).toMatchObject({
+    expect(
+      assets?.items.find((asset) => asset.name === "photo.JPG")
+    ).toMatchObject({
       width: 32,
       height: 24
     });

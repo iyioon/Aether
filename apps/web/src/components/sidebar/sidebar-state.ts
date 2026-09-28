@@ -96,7 +96,9 @@ export function parseFolderNavigationState(
     const expandedFolderIds = [
       ...new Set(
         parsed.expandedFolderIds
-          .filter((folderId): folderId is string => typeof folderId === "string")
+          .filter(
+            (folderId): folderId is string => typeof folderId === "string"
+          )
           .filter(Boolean)
           .slice(0, MAX_STORED_FOLDER_IDS)
       )

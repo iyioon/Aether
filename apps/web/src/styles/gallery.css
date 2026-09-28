@@ -235,7 +235,12 @@
 .media-image-loading,
 .media-video-loading {
   background:
-    linear-gradient(90deg, transparent, rgba(var(--aether-overlay-rgb), 0.08), transparent),
+    linear-gradient(
+      90deg,
+      transparent,
+      rgba(var(--aether-overlay-rgb), 0.08),
+      transparent
+    ),
     #1f1f23;
   background-size: 220% 100%;
   animation: shimmer 1.6s linear infinite;
@@ -246,7 +251,11 @@
   place-items: center;
   color: var(--aether-accent);
   background:
-    linear-gradient(135deg, rgba(var(--aether-accent-rgb), 0.1), rgba(113, 113, 122, 0.1)),
+    linear-gradient(
+      135deg,
+      rgba(var(--aether-accent-rgb), 0.1),
+      rgba(113, 113, 122, 0.1)
+    ),
     #18181b;
 }
 

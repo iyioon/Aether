@@ -93,10 +93,7 @@ export function usePressRepeat({
       isRepeatingRef.current = false;
       suppressPointerClickRef.current = false;
       pressStartedAtRef.current = window.performance.now();
-      timerRef.current = window.setTimeout(
-        runRepeat,
-        INITIAL_REPEAT_DELAY_MS
-      );
+      timerRef.current = window.setTimeout(runRepeat, INITIAL_REPEAT_DELAY_MS);
     },
     [clearTimer, runRepeat]
   );

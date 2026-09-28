@@ -39,8 +39,9 @@ export function useLibraryControls({
   tree
 }: UseLibraryControlsOptions) {
   const [view, setView] = useState<ViewMode>(initialState.view);
-  const [openControlMenu, setOpenControlMenu] =
-    useState<ControlMenuId | null>(null);
+  const [openControlMenu, setOpenControlMenu] = useState<ControlMenuId | null>(
+    null
+  );
   const [gridSize, setGridSize] = useState<GridSize>(initialState.gridSize);
   const [aspect, setAspect] = useState<AspectMode>(initialState.aspect);
   const [sort, setSort] = useState<SortMode>(initialState.sort);
@@ -101,7 +102,9 @@ export function useLibraryControls({
   ]);
 
   const selectedLabel = useMemo(() => {
-    const root = tree?.roots.find((entry) => entry.folderId === selectedFolderId);
+    const root = tree?.roots.find(
+      (entry) => entry.folderId === selectedFolderId
+    );
     if (root) {
       return root.label;
     }
@@ -156,9 +159,7 @@ export function useLibraryControls({
   }
 
   function removeTagFilter(tagToRemove: string) {
-    setTagFilters((current) =>
-      current.filter((tag) => tag !== tagToRemove)
-    );
+    setTagFilters((current) => current.filter((tag) => tag !== tagToRemove));
   }
 
   function clearTagFilters() {
@@ -204,7 +205,8 @@ export function useLibraryControls({
     sortDirection,
     sortDirectionLabel,
     sortLabel,
-    sortSummary: sort === "random" ? sortLabel : `${sortLabel} · ${sortDirectionLabel}`,
+    sortSummary:
+      sort === "random" ? sortLabel : `${sortLabel} · ${sortDirectionLabel}`,
     tagFilters,
     tagFilterDraft,
     view

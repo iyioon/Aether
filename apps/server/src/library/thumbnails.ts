@@ -7,7 +7,11 @@ import type { AppConfig } from "../config/config.js";
 import type { AetherDatabase } from "../db/database.js";
 import { stableId } from "./ids.js";
 import type { ResolvedAssetFile } from "./media-serving.js";
-import { getDerivative, updateAssetDimensions, upsertDerivative } from "./repository.js";
+import {
+  getDerivative,
+  updateAssetDimensions,
+  upsertDerivative
+} from "./repository.js";
 
 export interface ThumbnailFile {
   path: string;
@@ -29,7 +33,12 @@ export async function ensureImageThumbnail({
     throw new UnsupportedThumbnailError("Only image thumbnails are available.");
   }
 
-  const thumbnailPath = thumbnailPathFor(config.cacheDir, file.asset.id, file.mtimeMs, size);
+  const thumbnailPath = thumbnailPathFor(
+    config.cacheDir,
+    file.asset.id,
+    file.mtimeMs,
+    size
+  );
   const derivativeId = stableId(
     "derivative",
     file.asset.id,
@@ -139,5 +148,7 @@ function thumbnailPathFor(
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Thumbnail generation failed.";
+  return error instanceof Error
+    ? error.message
+    : "Thumbnail generation failed.";
 }

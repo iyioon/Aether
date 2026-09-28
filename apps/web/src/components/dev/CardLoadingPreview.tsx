@@ -16,7 +16,8 @@ export function CardLoadingPreview() {
               Card loading
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Production gallery skeletons with the animation looping continuously.
+              Production gallery skeletons with the animation looping
+              continuously.
             </p>
           </div>
           <Button asChild variant="outline">

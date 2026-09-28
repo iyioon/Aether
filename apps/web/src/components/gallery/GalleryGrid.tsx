@@ -58,7 +58,11 @@ interface GalleryGridProps {
   onLoadMore: () => void;
   onActiveAssetChange: (assetId: string) => void;
   onFavoriteAsset: (asset: AssetRecord, favorite: boolean) => void;
-  onMediaDimensionsKnown: (assetId: string, width: number, height: number) => void;
+  onMediaDimensionsKnown: (
+    assetId: string,
+    width: number,
+    height: number
+  ) => void;
   onScoreAsset: (asset: AssetRecord, score: number) => void;
   onSelectAsset: (assetId: string) => void;
   onToggleSelection: (assetId: string) => void;
@@ -230,27 +234,30 @@ export function GalleryGrid({
     });
   }, []);
 
-  const handleScroll = useCallback((event: ReactUIEvent<HTMLElement>) => {
-    const scrollElement = event.currentTarget;
-    const scrollTop = scrollElement.scrollTop;
-    const shouldShowScrollTop =
-      scrollTop > Math.max(320, scrollElement.clientHeight * 0.65);
-    latestScrollTopRef.current = scrollTop;
+  const handleScroll = useCallback(
+    (event: ReactUIEvent<HTMLElement>) => {
+      const scrollElement = event.currentTarget;
+      const scrollTop = scrollElement.scrollTop;
+      const shouldShowScrollTop =
+        scrollTop > Math.max(320, scrollElement.clientHeight * 0.65);
+      latestScrollTopRef.current = scrollTop;
 
-    if (scrollTopVisibleRef.current !== shouldShowScrollTop) {
-      scrollTopVisibleRef.current = shouldShowScrollTop;
-      setIsScrollTopVisible(shouldShowScrollTop);
-    }
+      if (scrollTopVisibleRef.current !== shouldShowScrollTop) {
+        scrollTopVisibleRef.current = shouldShowScrollTop;
+        setIsScrollTopVisible(shouldShowScrollTop);
+      }
 
-    if (isRestoringRef.current || scrollFrameRef.current !== null) {
-      return;
-    }
+      if (isRestoringRef.current || scrollFrameRef.current !== null) {
+        return;
+      }
 
-    scrollFrameRef.current = window.requestAnimationFrame(() => {
-      scrollFrameRef.current = null;
-      saveScrollPosition();
-    });
-  }, [saveScrollPosition]);
+      scrollFrameRef.current = window.requestAnimationFrame(() => {
+        scrollFrameRef.current = null;
+        saveScrollPosition();
+      });
+    },
+    [saveScrollPosition]
+  );
 
   const scrollToTop = useCallback(() => {
     const scrollElement = scrollParentRef.current;
@@ -297,7 +304,7 @@ export function GalleryGrid({
         : shouldRestore
           ? anchoredIndex >= 0
             ? anchoredIndex
-            : storedPosition.index ?? 0
+            : (storedPosition.index ?? 0)
           : 0;
 
     if (intendedIndex >= assets.length && hasMore) {
@@ -315,11 +322,9 @@ export function GalleryGrid({
     const isSyncedTarget = syncedIndex >= 0;
     const shouldRestoreAnchor = shouldRestore && !isSyncedTarget;
     const anchorOffset = shouldRestoreAnchor
-      ? storedPosition.anchorOffset ?? 0
+      ? (storedPosition.anchorOffset ?? 0)
       : 0;
-    const fallbackTop = shouldRestoreAnchor
-      ? storedPosition.scrollTop
-      : 0;
+    const fallbackTop = shouldRestoreAnchor ? storedPosition.scrollTop : 0;
     const rowOffset = rowVirtualizer.getOffsetForIndex(rowIndex, "start")?.[0];
     const requestedScrollTop =
       rowOffset === undefined ? fallbackTop : rowOffset + anchorOffset;
@@ -428,16 +433,13 @@ export function GalleryGrid({
     const scrollElement = scrollParentRef.current;
     const storedPosition = readSessionScrollPosition("library-content");
 
-    if (
-      !scrollElement ||
-      storedPosition?.contextKey !== scrollContextKey
-    ) {
+    if (!scrollElement || storedPosition?.contextKey !== scrollContextKey) {
       return;
     }
 
     const anchorIndex = storedPosition.anchorId
       ? assets.findIndex((asset) => asset.id === storedPosition.anchorId)
-      : storedPosition.index ?? -1;
+      : (storedPosition.index ?? -1);
 
     if (anchorIndex < 0 || anchorIndex >= assets.length) {
       return;
@@ -472,9 +474,8 @@ export function GalleryGrid({
       }
 
       const measuredRowSize = preferMeasuredSize
-        ? rowVirtualizer
-            .getVirtualItems()
-            .find((row) => row.index === rowIndex)?.size
+        ? rowVirtualizer.getVirtualItems().find((row) => row.index === rowIndex)
+            ?.size
         : undefined;
       const nextAnchorSize =
         measuredRowSize ?? Math.max(1, estimateRowSize(rowIndex));
@@ -680,7 +681,7 @@ export function GalleryGrid({
     ? storedSkeletonPosition.scrollTop
     : 0;
   const skeletonAnchorOffset = shouldPositionSkeleton
-    ? storedSkeletonPosition.anchorOffset ?? 0
+    ? (storedSkeletonPosition.anchorOffset ?? 0)
     : 0;
   const skeletonSavedRowHeight = shouldPositionSkeleton
     ? storedSkeletonPosition.anchorSize
@@ -706,8 +707,7 @@ export function GalleryGrid({
   const skeletonRowHeight =
     (skeletonSavedRowHeight ??
       skeletonTileWidth / galleryAspectRatio(aspect) +
-        galleryTileChromeHeight(metadataFields)) +
-    GALLERY_GRID_GAP;
+        galleryTileChromeHeight(metadataFields)) + GALLERY_GRID_GAP;
   const skeletonViewportHeight =
     typeof window === "undefined" ? 900 : window.innerHeight;
   const skeletonRowCount = Math.max(

@@ -2,11 +2,7 @@ import sharp from "sharp";
 import type { AppConfig } from "../config/config.js";
 import type { AetherDatabase } from "../db/database.js";
 import type { ResolvedAssetFile } from "./media-serving.js";
-import {
-  getAssetTags,
-  suggestTags,
-  type TagRecord
-} from "./repository.js";
+import { getAssetTags, suggestTags, type TagRecord } from "./repository.js";
 
 export interface AiTagSuggestion {
   displayName: string;
@@ -54,7 +50,7 @@ export async function suggestAiAssetTags({
   config,
   file,
   limit,
-  fetchImpl = fetch as AiTagFetch
+  fetchImpl = fetch
 }: {
   db: AetherDatabase;
   config: AppConfig;
@@ -67,7 +63,9 @@ export async function suggestAiAssetTags({
   }
 
   if (file.asset.mediaType !== "image") {
-    throw new AiTaggingUnsupportedAssetError("AI tag suggestions support images first.");
+    throw new AiTaggingUnsupportedAssetError(
+      "AI tag suggestions support images first."
+    );
   }
 
   const existingTags = getAssetTags(db, file.asset.id);
@@ -114,7 +112,8 @@ function aiTagPrompt(
   existingTags: TagRecord[],
   limit: number
 ): string {
-  const savedTags = existingTags.map((tag) => tag.displayName).join(", ") || "none";
+  const savedTags =
+    existingTags.map((tag) => tag.displayName).join(", ") || "none";
 
   return [
     "You help organize a private local media library.",
@@ -232,7 +231,7 @@ function parseLooseJson(value: string): unknown {
     }
 
     try {
-      return JSON.parse(match[0]!);
+      return JSON.parse(match[0]);
     } catch {
       return null;
     }
@@ -284,7 +283,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Unknown AI provider failure.";
+  return error instanceof Error
+    ? error.message
+    : "Unknown AI provider failure.";
 }
 
 export class AiTaggingDisabledError extends Error {

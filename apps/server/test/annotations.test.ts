@@ -7,7 +7,11 @@ import { hashPassword } from "../src/auth/password.js";
 import { loadConfig, type AppConfig } from "../src/config/config.js";
 import { openDatabase, type AetherDatabase } from "../src/db/database.js";
 import { buildApp } from "../src/http/app.js";
-import { folderIdFor, getAsset, listAssets } from "../src/library/repository.js";
+import {
+  folderIdFor,
+  getAsset,
+  listAssets
+} from "../src/library/repository.js";
 import { scanLibrary } from "../src/library/scanner.js";
 
 describe("annotations", () => {
@@ -142,8 +146,9 @@ describe("annotations", () => {
     });
 
     expect(tags.statusCode).toBe(200);
-    expect(tags.json().tags.map((tag: { displayName: string }) => tag.displayName))
-      .toEqual(["Family", "Vacation"]);
+    expect(
+      tags.json().tags.map((tag: { displayName: string }) => tag.displayName)
+    ).toEqual(["Family", "Vacation"]);
 
     expect(firstAsset().tags.map((tag) => tag.displayName)).toEqual([
       "Family",
@@ -184,7 +189,10 @@ describe("annotations", () => {
 
   it("suggests reviewable tags from local metadata", async () => {
     await mkdir(path.join(cwd, "media", "Trips"), { recursive: true });
-    await writeFile(path.join(cwd, "media", "Trips", "beach-walk.png"), "first");
+    await writeFile(
+      path.join(cwd, "media", "Trips", "beach-walk.png"),
+      "first"
+    );
     await scanLibrary(db, config.mediaRoots);
     const folderId = folderIdFor(config.mediaRoots[0]!.id, "");
     const indexed = listAssets(db, {
@@ -233,8 +241,11 @@ describe("annotations", () => {
     expect(names).toContain("Trips");
     expect(names).toContain("Walk");
     expect(names).not.toContain("Beach");
-    expect(body.suggestions.every((suggestion) => suggestion.source === "local-metadata"))
-      .toBe(true);
+    expect(
+      body.suggestions.every(
+        (suggestion) => suggestion.source === "local-metadata"
+      )
+    ).toBe(true);
   });
 
   it("keeps AI tag suggestions disabled by default and CSRF protected", async () => {
@@ -284,7 +295,9 @@ describe("annotations", () => {
       type: "all",
       recursive: true
     })?.items;
-    const familyPhoto = indexed?.find((asset) => asset.name === "family-photo.jpg");
+    const familyPhoto = indexed?.find(
+      (asset) => asset.name === "family-photo.jpg"
+    );
     const skyline = indexed?.find((asset) => asset.name === "skyline.png");
     const auth = await login();
 
@@ -327,7 +340,11 @@ describe("annotations", () => {
       }
     });
 
-    const search = await listedAssetIds(folderId, auth.cookies, "search=family");
+    const search = await listedAssetIds(
+      folderId,
+      auth.cookies,
+      "search=family"
+    );
     expect(search).toEqual([familyPhoto.id]);
 
     const tag = await listedAssetIds(folderId, auth.cookies, "tag=family");
@@ -347,7 +364,11 @@ describe("annotations", () => {
     );
     expect(favorites).toEqual([familyPhoto.id]);
 
-    const unranked = await listedAssetIds(folderId, auth.cookies, "score=unranked");
+    const unranked = await listedAssetIds(
+      folderId,
+      auth.cookies,
+      "score=unranked"
+    );
     expect(unranked).toEqual([skyline.id]);
   });
 
@@ -499,12 +520,14 @@ describe("annotations", () => {
       score: number;
       ranking: { comparisonCount: number };
     }>;
-    expect(firstAssets.find((asset) => asset.id === pair.left.id)!.score).toBeGreaterThan(
+    expect(
+      firstAssets.find((asset) => asset.id === pair.left.id)!.score
+    ).toBeGreaterThan(
       firstAssets.find((asset) => asset.id === pair.right.id)!.score
     );
-    expect(firstAssets.every((asset) => asset.ranking.comparisonCount === 1)).toBe(
-      true
-    );
+    expect(
+      firstAssets.every((asset) => asset.ranking.comparisonCount === 1)
+    ).toBe(true);
 
     const changedDecision = await app.inject({
       method: "POST",
@@ -549,9 +572,11 @@ describe("annotations", () => {
       restoredAssets.find((asset) => asset.id === pair.right.id)!.score
     );
     expect(
-      (db.prepare("SELECT COUNT(*) AS total FROM comparison_events").get() as {
-        total: number;
-      }).total
+      (
+        db.prepare("SELECT COUNT(*) AS total FROM comparison_events").get() as {
+          total: number;
+        }
+      ).total
     ).toBe(3);
   });
 
@@ -812,9 +837,11 @@ describe("annotations", () => {
     expect(getAsset(db, first.id)).toMatchObject({ score: 0, ranking: null });
     expect(getAsset(db, second.id)).toMatchObject({ score: 0, ranking: null });
     expect(
-      (db.prepare("SELECT COUNT(*) AS total FROM assets").get() as {
-        total: number;
-      }).total
+      (
+        db.prepare("SELECT COUNT(*) AS total FROM assets").get() as {
+          total: number;
+        }
+      ).total
     ).toBe(2);
 
     const emptyReset = await app.inject({

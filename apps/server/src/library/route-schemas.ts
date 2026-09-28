@@ -1,13 +1,7 @@
 import { z } from "zod";
 
 const TagListQuery = z.preprocess(
-  (value) => {
-    if (value === undefined) {
-      return [];
-    }
-
-    return Array.isArray(value) ? value : [value];
-  },
+  normalizeArrayQueryValue,
   z.array(z.string().max(64)).max(20)
 );
 
@@ -48,16 +42,18 @@ export const ComparisonPairQuery = AssetListQuery.pick({
   recursive: true
 }).extend({
   exclude: z.preprocess(
-    (value) => {
-      if (value === undefined) {
-        return [];
-      }
-
-      return Array.isArray(value) ? value : [value];
-    },
+    normalizeArrayQueryValue,
     z.array(z.string().min(1).max(256)).max(2)
   )
 });
+
+function normalizeArrayQueryValue(value: unknown): unknown[] {
+  if (value === undefined) {
+    return [];
+  }
+
+  return Array.isArray(value) ? value.map((entry: unknown) => entry) : [value];
+}
 
 export const ComparisonDecisionBody = z
   .object({

@@ -94,56 +94,56 @@ export function LibraryPathBar({
         <SidebarTrigger />
         <Separator className="library-path-separator" orientation="vertical" />
         <Breadcrumb>
-        <BreadcrumbList className="flex-nowrap overflow-hidden">
-          {isSettingsOpen || isGuideOpen ? (
-            <>
-              <BreadcrumbItem>
-                <BreadcrumbLink asChild>
-                  <button type="button" onClick={onBackToLibrary}>
-                    Library
-                  </button>
-                </BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbPage>
-                  {isSettingsOpen ? "Settings" : "User guide"}
-                </BreadcrumbPage>
-              </BreadcrumbItem>
-            </>
-          ) : path.length ? (
-            path.map((segment, index) => {
-              const isCurrent = index === path.length - 1;
+          <BreadcrumbList className="flex-nowrap overflow-hidden">
+            {isSettingsOpen || isGuideOpen ? (
+              <>
+                <BreadcrumbItem>
+                  <BreadcrumbLink asChild>
+                    <button type="button" onClick={onBackToLibrary}>
+                      Library
+                    </button>
+                  </BreadcrumbLink>
+                </BreadcrumbItem>
+                <BreadcrumbSeparator />
+                <BreadcrumbItem>
+                  <BreadcrumbPage>
+                    {isSettingsOpen ? "Settings" : "User guide"}
+                  </BreadcrumbPage>
+                </BreadcrumbItem>
+              </>
+            ) : path.length ? (
+              path.map((segment, index) => {
+                const isCurrent = index === path.length - 1;
 
-              return (
-                <Fragment key={segment.id}>
-                  {index > 0 ? <BreadcrumbSeparator /> : null}
-                  <BreadcrumbItem className="min-w-0">
-                    {isCurrent ? (
-                      <BreadcrumbPage className="truncate">
-                        {segment.label}
-                      </BreadcrumbPage>
-                    ) : (
-                      <BreadcrumbLink asChild>
-                        <button
-                          className="max-w-44 truncate"
-                          type="button"
-                          onClick={() => onSelectFolder(segment.id)}
-                        >
+                return (
+                  <Fragment key={segment.id}>
+                    {index > 0 ? <BreadcrumbSeparator /> : null}
+                    <BreadcrumbItem className="min-w-0">
+                      {isCurrent ? (
+                        <BreadcrumbPage className="truncate">
                           {segment.label}
-                        </button>
-                      </BreadcrumbLink>
-                    )}
-                  </BreadcrumbItem>
-                </Fragment>
-              );
-            })
-          ) : (
-            <BreadcrumbItem>
-              <BreadcrumbPage>Library</BreadcrumbPage>
-            </BreadcrumbItem>
-          )}
-        </BreadcrumbList>
+                        </BreadcrumbPage>
+                      ) : (
+                        <BreadcrumbLink asChild>
+                          <button
+                            className="max-w-44 truncate"
+                            type="button"
+                            onClick={() => onSelectFolder(segment.id)}
+                          >
+                            {segment.label}
+                          </button>
+                        </BreadcrumbLink>
+                      )}
+                    </BreadcrumbItem>
+                  </Fragment>
+                );
+              })
+            ) : (
+              <BreadcrumbItem>
+                <BreadcrumbPage>Library</BreadcrumbPage>
+              </BreadcrumbItem>
+            )}
+          </BreadcrumbList>
         </Breadcrumb>
       </div>
       {!isSettingsOpen && !isGuideOpen ? (
@@ -168,12 +168,18 @@ export function LibraryPathBar({
               orientation="vertical"
             />
           ) : null}
-          <div className="library-view-switcher" role="group" aria-label="Library view">
-            {([
-              ["gallery", "Gallery view", Grid3X3],
-              ["feed", "Feed view", GalleryHorizontalEnd],
-              ["compare", "Compare and rank", GitCompareArrows]
-            ] as const).map(([viewOption, label, Icon]) => (
+          <div
+            className="library-view-switcher"
+            role="group"
+            aria-label="Library view"
+          >
+            {(
+              [
+                ["gallery", "Gallery view", Grid3X3],
+                ["feed", "Feed view", GalleryHorizontalEnd],
+                ["compare", "Compare and rank", GitCompareArrows]
+              ] as const
+            ).map(([viewOption, label, Icon]) => (
               <Button
                 aria-label={label}
                 aria-pressed={view === viewOption}

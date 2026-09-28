@@ -12,10 +12,7 @@ import {
 import { GalleryHorizontalEnd } from "lucide-react";
 import type { AssetRecord } from "../../api/client";
 import { useAutoLoadSentinel } from "../../hooks/useAutoLoadSentinel";
-import {
-  feedKeyboardCommand,
-  hasShortcutModifier
-} from "../../lib/keyboard";
+import { feedKeyboardCommand, hasShortcutModifier } from "../../lib/keyboard";
 import {
   readSessionScrollPosition,
   writeSessionScrollPosition
@@ -198,10 +195,7 @@ export function FeedPreview({
     restoredContextRef.current = scrollContextKey;
     isRestoringRef.current = true;
     let didCompleteRestoration = false;
-    const nextIndex = Math.max(
-      0,
-      Math.min(intendedIndex, assets.length - 1)
-    );
+    const nextIndex = Math.max(0, Math.min(intendedIndex, assets.length - 1));
     setActiveIndex(nextIndex);
     latestActiveIndexRef.current = nextIndex;
     const nextItem = itemRefs.current[nextIndex];
@@ -439,9 +433,8 @@ export function FeedPreview({
   const toggleActiveFeedPlayback = useCallback(
     (index: number) => {
       const activeAsset = assets[index];
-      const activeVideo = itemRefs.current[index]?.querySelector<HTMLVideoElement>(
-        "video"
-      );
+      const activeVideo =
+        itemRefs.current[index]?.querySelector<HTMLVideoElement>("video");
 
       if (activeAsset?.mediaType !== "video" || !activeVideo) {
         return;
@@ -474,7 +467,10 @@ export function FeedPreview({
 
       const command = feedKeyboardCommand(event.key);
 
-      if (!command || (event.repeat && ["open", "toggle-playback"].includes(command))) {
+      if (
+        !command ||
+        (event.repeat && ["open", "toggle-playback"].includes(command))
+      ) {
         return;
       }
 

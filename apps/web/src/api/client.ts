@@ -387,7 +387,9 @@ export async function updateAssetScoresBatch(
   });
 }
 
-export async function getAssetTags(assetId: string): Promise<{ tags: TagRecord[] }> {
+export async function getAssetTags(
+  assetId: string
+): Promise<{ tags: TagRecord[] }> {
   return request<{ tags: TagRecord[] }>(
     `/api/assets/${encodeURIComponent(assetId)}/tags`
   );
@@ -422,9 +424,12 @@ export async function getAiAssetTagSuggestions(
     suggestions: TagSuggestion[];
     provider: "ollama";
     model: string;
-  }>(`/api/assets/${encodeURIComponent(assetId)}/ai-tag-suggestions?${params}`, {
-    method: "POST"
-  });
+  }>(
+    `/api/assets/${encodeURIComponent(assetId)}/ai-tag-suggestions?${params}`,
+    {
+      method: "POST"
+    }
+  );
 }
 
 export async function setAssetTags(
@@ -462,17 +467,15 @@ export async function suggestTags(options: {
   return request<{ tags: TagRecord[] }>(`/api/tags/suggest?${params}`);
 }
 
-async function request<T>(
-  path: string,
-  init: RequestInit = {}
-): Promise<T> {
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
 
   if (init.body && !headers.has("content-type")) {
     headers.set("content-type", "application/json");
   }
 
-  const csrfToken = readCookie("aether_csrf") ?? readCookie("__Host-aether_csrf");
+  const csrfToken =
+    readCookie("aether_csrf") ?? readCookie("__Host-aether_csrf");
   if (csrfToken && isUnsafeMethod(init.method)) {
     headers.set("x-csrf-token", csrfToken);
   }
@@ -509,7 +512,9 @@ function readCookie(name: string): string | null {
   return decodeURIComponent(cookie.slice(prefix.length));
 }
 
-async function safeJson(response: Response): Promise<{ error?: string } | null> {
+async function safeJson(
+  response: Response
+): Promise<{ error?: string } | null> {
   try {
     return (await response.json()) as { error?: string };
   } catch {

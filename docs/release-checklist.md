@@ -17,6 +17,8 @@ npm run test:e2e
 docker compose config -q
 ```
 
+`verify` must include clean ESLint and Prettier checks before type checks, tests, and builds.
+
 For Docker image validation:
 
 ```bash

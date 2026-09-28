@@ -1,8 +1,5 @@
 import type { MediaTypeFilter, ScoreFilter } from "../../api/client";
-import {
-  mediaFilters,
-  scoreFilters
-} from "../toolbar/library-control-options";
+import { mediaFilters, scoreFilters } from "../toolbar/library-control-options";
 import type {
   AppearanceAccent,
   AppearanceAccentOption
@@ -29,7 +26,6 @@ export function mediaTypeLabel(value: MediaTypeFilter): string {
 
 export function scoreFilterLabel(value: ScoreFilter): string {
   return (
-    scoreFilters.find((option) => option.value === value)?.label ??
-    "All scores"
+    scoreFilters.find((option) => option.value === value)?.label ?? "All scores"
   );
 }

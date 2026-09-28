@@ -122,7 +122,10 @@ export function SettingsPage({
             </div>
 
             {settingsError ? (
-              <div className="settings-error text-sm text-destructive" role="alert">
+              <div
+                className="settings-error text-sm text-destructive"
+                role="alert"
+              >
                 {settingsError}
               </div>
             ) : null}
@@ -134,7 +137,8 @@ export function SettingsPage({
             </div>
 
             <p className="settings-runtime-note text-sm text-muted-foreground">
-              Change server settings through environment variables, then restart Aether.
+              Change server settings through environment variables, then restart
+              Aether.
             </p>
           </TabsContent>
 

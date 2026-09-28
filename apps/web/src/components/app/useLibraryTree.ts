@@ -44,7 +44,7 @@ export function useLibraryTree({ initialFolderId }: UseLibraryTreeOptions) {
     setSelectedFolderId((current) =>
       current && knownFolderIds.has(current)
         ? current
-        : response.roots[0]?.folderId ?? null
+        : (response.roots[0]?.folderId ?? null)
     );
   }, []);
 
@@ -95,7 +95,10 @@ export function useLibraryTree({ initialFolderId }: UseLibraryTreeOptions) {
       scanPollAbortRef.current = controller;
 
       try {
-        const reachedTerminalState = await waitForScan(jobId, controller.signal);
+        const reachedTerminalState = await waitForScan(
+          jobId,
+          controller.signal
+        );
 
         if (reachedTerminalState && !controller.signal.aborted) {
           await refreshTree();
@@ -138,7 +141,9 @@ export function useLibraryTree({ initialFolderId }: UseLibraryTreeOptions) {
       .catch((caught) => {
         if (active) {
           const message =
-            caught instanceof ApiError ? caught.code : "Unable to load library.";
+            caught instanceof ApiError
+              ? caught.code
+              : "Unable to load library.";
           setError(message);
         }
       })

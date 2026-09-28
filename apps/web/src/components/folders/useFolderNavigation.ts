@@ -33,15 +33,13 @@ export function useFolderNavigation({
   tree,
   onSelectFolder
 }: UseFolderNavigationOptions) {
-  const [initialNavigationState] =
-    useState(readFolderNavigationState);
+  const [initialNavigationState] = useState(readFolderNavigationState);
   const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(
     () => new Set(initialNavigationState?.expandedFolderIds ?? [])
   );
-  const [folderSortMode, setFolderSortMode] =
-    useState<FolderSortMode>(
-      initialNavigationState?.folderSortMode ?? "name-asc"
-    );
+  const [folderSortMode, setFolderSortMode] = useState<FolderSortMode>(
+    initialNavigationState?.folderSortMode ?? "name-asc"
+  );
   const hasInitializedExpansionRef = useRef(initialNavigationState !== null);
   const folderChildrenByParentId = useMemo(
     () => buildFolderChildrenByParentId(tree, folderSortMode),
@@ -97,7 +95,10 @@ export function useFolderNavigation({
         hasInitializedExpansionRef.current = true;
       }
 
-      for (const ancestorId of folderAncestorIds(selectedFolderId, folderById)) {
+      for (const ancestorId of folderAncestorIds(
+        selectedFolderId,
+        folderById
+      )) {
         next.add(ancestorId);
       }
 

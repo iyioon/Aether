@@ -146,25 +146,29 @@ export function LibraryControlStrip({
         onRemoveTagFilter={onRemoveTagFilter}
       />
 
-      {view !== "compare" ? <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            className="control-menu-trigger"
-            type="button"
-            size="icon"
-            variant={isSelectionMode ? "secondary" : "outline"}
-            aria-label={isSelectionMode ? "Exit selection mode" : "Select media"}
-            aria-pressed={isSelectionMode}
-            disabled={loadedAssetCount === 0}
-            onClick={() => onSetSelectionMode(!isSelectionMode)}
-          >
-            {isSelectionMode ? <Check /> : <MousePointer2 />}
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="bottom">
-          {isSelectionMode ? "Exit selection mode" : "Select media"}
-        </TooltipContent>
-      </Tooltip> : null}
+      {view !== "compare" ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              className="control-menu-trigger"
+              type="button"
+              size="icon"
+              variant={isSelectionMode ? "secondary" : "outline"}
+              aria-label={
+                isSelectionMode ? "Exit selection mode" : "Select media"
+              }
+              aria-pressed={isSelectionMode}
+              disabled={loadedAssetCount === 0}
+              onClick={() => onSetSelectionMode(!isSelectionMode)}
+            >
+              {isSelectionMode ? <Check /> : <MousePointer2 />}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            {isSelectionMode ? "Exit selection mode" : "Select media"}
+          </TooltipContent>
+        </Tooltip>
+      ) : null}
     </section>
   );
 }

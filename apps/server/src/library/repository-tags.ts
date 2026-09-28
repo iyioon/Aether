@@ -13,10 +13,7 @@ import type {
 const MAX_TAGS_PER_ASSET = 50;
 const MAX_TAG_LENGTH = 48;
 
-export function getAssetTags(
-  db: AetherDatabase,
-  assetId: string
-): TagRecord[] {
+export function getAssetTags(db: AetherDatabase, assetId: string): TagRecord[] {
   const rows = db
     .prepare(
       `SELECT t.id, t.normalized_name, t.display_name, t.usage_count
@@ -171,9 +168,11 @@ export function getTagsByAssetId(
 }
 
 export function normalizeTagSearch(query: string): string {
-  return query.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase(
-    "en-US"
-  );
+  return query
+    .normalize("NFKC")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLocaleLowerCase("en-US");
 }
 
 function normalizeTagInputs(tagNames: string[]): NormalizedTag[] {
@@ -296,7 +295,9 @@ function normalizeTagInput(input: string): NormalizedTag | null {
   }
 
   if (displayName.length > MAX_TAG_LENGTH) {
-    throw new InvalidTagError(`Tags must be ${MAX_TAG_LENGTH} characters or fewer.`);
+    throw new InvalidTagError(
+      `Tags must be ${MAX_TAG_LENGTH} characters or fewer.`
+    );
   }
 
   const normalizedName = displayName.toLocaleLowerCase("en-US");
@@ -309,14 +310,16 @@ function normalizeTagInput(input: string): NormalizedTag | null {
 }
 
 function refreshTagUsageCounts(db: AetherDatabase): void {
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE tags
     SET usage_count = (
       SELECT COUNT(*)
       FROM asset_tags
       WHERE asset_tags.tag_id = tags.id
     )
-  `).run();
+  `
+  ).run();
 }
 
 function escapeLike(input: string): string {

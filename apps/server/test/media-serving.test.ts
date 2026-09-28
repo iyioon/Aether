@@ -125,7 +125,7 @@ describe("media serving", () => {
       url: `/api/assets/${asset.id}/media`,
       cookies,
       headers: {
-        "if-range": "\"stale\"",
+        "if-range": '"stale"',
         range: "bytes=2-5"
       }
     });
@@ -279,9 +279,9 @@ describe("media serving", () => {
     expect(derivative?.width).toBe(720);
     expect(derivative?.height).toBe(2);
     expect(derivative?.path).toContain("v3-");
-    expect(derivative?.path ? await hasAudioStream(derivative.path) : false).toBe(
-      true
-    );
+    expect(
+      derivative?.path ? await hasAudioStream(derivative.path) : false
+    ).toBe(true);
 
     const partial = await app.inject({
       method: "GET",

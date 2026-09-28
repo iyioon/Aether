@@ -28,7 +28,10 @@ describe("path safety", () => {
     await mkdir(root);
     await mkdir(outside);
     await writeFile(path.join(outside, "secret.txt"), "secret");
-    await symlink(path.join(outside, "secret.txt"), path.join(root, "link.txt"));
+    await symlink(
+      path.join(outside, "secret.txt"),
+      path.join(root, "link.txt")
+    );
 
     await expect(resolveMediaPath(root, "link.txt")).rejects.toThrow(
       UnsafePathError

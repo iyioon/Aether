@@ -26,7 +26,8 @@ export function upsertDerivative(
   db: AetherDatabase,
   input: UpsertDerivativeInput
 ): void {
-  db.prepare(`
+  db.prepare(
+    `
     INSERT INTO derivatives
       (id, asset_id, kind, width, height, path, source_mtime_ms, status, error, created_at)
     VALUES
@@ -37,7 +38,8 @@ export function upsertDerivative(
       source_mtime_ms = excluded.source_mtime_ms,
       status = excluded.status,
       error = excluded.error
-  `).run({
+  `
+  ).run({
     id: input.id,
     assetId: input.assetId,
     kind: input.kind,
@@ -75,5 +77,11 @@ export function updateAssetMediaMetadata(
          duration_ms = ?,
          codec = ?
      WHERE id = ?`
-  ).run(input.width, input.height, input.durationMs, input.codec, input.assetId);
+  ).run(
+    input.width,
+    input.height,
+    input.durationMs,
+    input.codec,
+    input.assetId
+  );
 }

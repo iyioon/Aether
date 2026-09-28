@@ -102,10 +102,7 @@ export function useBatchSelection({
     setBatchTagDraft("");
   }
 
-  async function saveBatchScore(input: {
-    score?: number;
-    favorite?: boolean;
-  }) {
+  async function saveBatchScore(input: { score?: number; favorite?: boolean }) {
     if (selectedAssetIdList.length === 0) {
       return;
     }
@@ -123,7 +120,9 @@ export function useBatchSelection({
         onReloadAssets();
       }
     } catch (caught) {
-      setBatchError(batchActionErrorMessage(caught, "Unable to update selection."));
+      setBatchError(
+        batchActionErrorMessage(caught, "Unable to update selection.")
+      );
     } finally {
       setIsSavingBatch(false);
     }

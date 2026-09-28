@@ -211,8 +211,7 @@
     transparent 58%
   );
   transform: translate3d(-34%, 0, 0);
-  animation: gallery-skeleton-sweep 2.4s cubic-bezier(0.4, 0, 0.2, 1)
-    infinite;
+  animation: gallery-skeleton-sweep 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
 .feed-frame .media-image,
@@ -340,7 +339,7 @@
   align-items: flex-end;
   min-height: 42%;
   padding: 92px 84px 20px 18px;
-  color: var(--foreground);
+  color: rgba(255, 255, 255, 0.94);
   pointer-events: none;
   background: linear-gradient(
     180deg,
@@ -374,14 +373,13 @@
   gap: 3px;
   padding: 6px 0 2px;
   overflow: hidden;
-  color: var(--foreground);
+  color: rgba(255, 255, 255, 0.94);
   border: 0;
   background: transparent;
   font: inherit;
   text-align: left;
   cursor: pointer;
   pointer-events: auto;
-  transition: color var(--aether-motion-fast) ease;
   appearance: none;
 }
 
@@ -395,10 +393,17 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   text-shadow: 0 2px 12px rgba(0, 0, 0, 0.7);
+  transition:
+    text-shadow var(--aether-motion-fast) ease,
+    transform var(--aether-motion-fast) ease;
 }
 
-.feed-meta-button:hover {
-  color: var(--aether-accent-strong);
+.feed-meta-button:hover strong,
+.feed-meta-button:focus-visible strong {
+  text-shadow:
+    0 2px 14px rgba(0, 0, 0, 0.86),
+    0 0 12px rgba(255, 255, 255, 0.2);
+  transform: translateX(2px);
 }
 
 .feed-meta-button:focus-visible {
@@ -409,8 +414,9 @@
 
 .feed-meta span {
   display: block;
-  color: rgba(var(--aether-foreground-rgb), 0.72);
+  color: rgba(255, 255, 255, 0.72);
   font-size: 12px;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.72);
   text-transform: capitalize;
 }
 

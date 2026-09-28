@@ -8,24 +8,19 @@ import {
   suggestAiAssetTags
 } from "./ai-tag-suggestions.js";
 import {
-  ComparisonConflictError,
   clearAssetManualAdjustment,
   folderIdFor,
   getAsset,
   getAssetTags,
-  getNextComparisonPair,
   InvalidTagError,
   listAssets,
   listFolders,
-  recordComparisonDecision,
-  resetLibraryData,
   resetAssetComparisons,
   setAssetTags,
   suggestTags,
   updateAssetScore,
   updateAssetScoresBatch,
-  updateAssetTagsBatch,
-  undoComparisonDecision
+  updateAssetTagsBatch
 } from "./repository.js";
 import type { LibraryScanner } from "./scanner.js";
 import {
@@ -57,17 +52,15 @@ import {
   AssetTagSuggestionQuery,
   BatchScoreBody,
   BatchTagsBody,
-  ComparisonDecisionBody,
-  ComparisonEventParams,
-  ComparisonPairQuery,
   FolderParams,
-  LibraryDataResetBody,
   ScoreBody,
   TagSuggestionQuery,
   TagsBody,
   ThumbnailQuery,
   VideoPreviewQuery
 } from "./route-schemas.js";
+import { registerAdminRoutes } from "./routes-admin.js";
+import { registerComparisonRoutes } from "./routes-comparisons.js";
 
 export async function registerLibraryRoutes(
   app: FastifyInstance,
@@ -160,95 +153,7 @@ export async function registerLibraryRoutes(
     return asset;
   });
 
-  app.get("/api/folders/:folderId/comparisons/next", async (request, reply) => {
-    const params = FolderParams.safeParse(request.params);
-    const query = ComparisonPairQuery.safeParse(request.query);
-
-    if (!params.success || !query.success) {
-      return reply.code(400).send({ error: "invalid_request" });
-    }
-
-    const pair = getNextComparisonPair(db, {
-      folderId: params.data.folderId,
-      type: query.data.type,
-      recursive: query.data.recursive,
-      search: query.data.search,
-      tags: query.data.tag,
-      scoreFilter: query.data.score,
-      excludeAssetIds: query.data.exclude
-    });
-
-    if (!pair) {
-      return reply.code(404).send({ error: "comparison_pair_unavailable" });
-    }
-
-    const left = getAsset(db, pair.leftAssetId);
-    const right = getAsset(db, pair.rightAssetId);
-    if (!left || !right) {
-      return reply.code(404).send({ error: "asset_not_indexed" });
-    }
-
-    return { left, right, progress: pair.progress };
-  });
-
-  app.post("/api/comparisons", async (request, reply) => {
-    const body = ComparisonDecisionBody.safeParse(request.body);
-    if (!body.success) {
-      return reply.code(400).send({ error: "invalid_request" });
-    }
-
-    try {
-      const result = recordComparisonDecision(db, {
-        ...body.data,
-        createdAt: new Date().toISOString()
-      });
-      if (!result) {
-        return reply.code(404).send({ error: "asset_not_indexed" });
-      }
-
-      return {
-        ...result,
-        assets: result.assetIds
-          .map((assetId) => getAsset(db, assetId))
-          .filter(Boolean)
-      };
-    } catch (error) {
-      if (error instanceof ComparisonConflictError) {
-        return reply.code(409).send({ error: error.code });
-      }
-      throw error;
-    }
-  });
-
-  app.post("/api/comparisons/:eventId/undo", async (request, reply) => {
-    const params = ComparisonEventParams.safeParse(request.params);
-    if (!params.success) {
-      return reply.code(400).send({ error: "invalid_request" });
-    }
-
-    try {
-      const result = undoComparisonDecision(
-        db,
-        params.data.eventId,
-        new Date().toISOString()
-      );
-      if (!result) {
-        return reply.code(404).send({ error: "comparison_not_found" });
-      }
-
-      return {
-        ...result,
-        assets: result.assetIds
-          .map((assetId) => getAsset(db, assetId))
-          .filter(Boolean)
-      };
-    } catch (error) {
-      if (error instanceof ComparisonConflictError) {
-        return reply.code(409).send({ error: error.code });
-      }
-      throw error;
-    }
-  });
+  registerComparisonRoutes(app, db);
 
   app.route({
     method: ["GET", "HEAD"],
@@ -482,43 +387,48 @@ export async function registerLibraryRoutes(
     return result;
   });
 
-  app.post("/api/assets/:assetId/ai-tag-suggestions", async (request, reply) => {
-    const params = AssetParams.safeParse(request.params);
-    const query = AssetTagSuggestionQuery.safeParse(request.query);
+  app.post(
+    "/api/assets/:assetId/ai-tag-suggestions",
+    async (request, reply) => {
+      const params = AssetParams.safeParse(request.params);
+      const query = AssetTagSuggestionQuery.safeParse(request.query);
 
-    if (!params.success || !query.success) {
-      return reply.code(400).send({ error: "invalid_request" });
+      if (!params.success || !query.success) {
+        return reply.code(400).send({ error: "invalid_request" });
+      }
+
+      try {
+        const file = await resolveAssetFile(db, params.data.assetId);
+
+        if (!file) {
+          return reply.code(404).send({ error: "asset_not_found" });
+        }
+
+        return await suggestAiAssetTags({
+          db,
+          config,
+          file,
+          limit: query.data.limit
+        });
+      } catch (error) {
+        if (error instanceof AiTaggingDisabledError) {
+          return reply.code(503).send({ error: "ai_disabled" });
+        }
+
+        if (error instanceof AiTaggingUnsupportedAssetError) {
+          return reply.code(415).send({ error: "ai_not_supported" });
+        }
+
+        if (error instanceof AiTaggingProviderError) {
+          return reply.code(502).send({ error: "ai_provider_failed" });
+        }
+
+        return reply
+          .code(mediaErrorStatus(error))
+          .send({ error: "asset_not_found" });
+      }
     }
-
-    try {
-      const file = await resolveAssetFile(db, params.data.assetId);
-
-      if (!file) {
-        return reply.code(404).send({ error: "asset_not_found" });
-      }
-
-      return await suggestAiAssetTags({
-        db,
-        config,
-        file,
-        limit: query.data.limit
-      });
-    } catch (error) {
-      if (error instanceof AiTaggingDisabledError) {
-        return reply.code(503).send({ error: "ai_disabled" });
-      }
-
-      if (error instanceof AiTaggingUnsupportedAssetError) {
-        return reply.code(415).send({ error: "ai_not_supported" });
-      }
-
-      if (error instanceof AiTaggingProviderError) {
-        return reply.code(502).send({ error: "ai_provider_failed" });
-      }
-
-      return reply.code(mediaErrorStatus(error)).send({ error: "asset_not_found" });
-    }
-  });
+  );
 
   app.get("/api/assets/:assetId/tags", async (request, reply) => {
     const params = AssetParams.safeParse(request.params);
@@ -576,86 +486,7 @@ export async function registerLibraryRoutes(
     };
   });
 
-  app.post("/api/admin/scan", async (_request, reply) => {
-    const job = scanner.startScan();
-    return reply.code(202).send({
-      status: job.status,
-      jobId: job.id
-    });
-  });
-
-  app.get("/api/admin/jobs", async () => ({
-    jobs: scanner.listJobs().map((job) => ({
-      id: job.id,
-      type: job.type,
-      status: job.status,
-      attempts: job.attempts,
-      error: job.error,
-      result: parseJobResult(job.result),
-      progress: job.progress,
-      createdAt: job.created_at,
-      updatedAt: job.updated_at
-    }))
-  }));
-
-  app.get("/api/admin/watch", async () =>
-    watcher?.status() ?? {
-      enabled: false,
-      running: false,
-      debounceMs: config.watchDebounceMs,
-      watchedDirectories: 0,
-      lastEventAt: null,
-      lastScanJobId: null,
-      lastError: null
-    }
-  );
-
-  app.get("/api/admin/ai", async () => ({
-    enabled: config.aiProvider !== "disabled",
-    provider: config.aiProvider,
-    model: config.aiProvider === "ollama" ? config.ollamaVisionModel : null
-  }));
-
-  app.get("/api/admin/settings", async () => ({
-    server: {
-      environment: process.env.NODE_ENV ?? "development",
-      version: process.env.npm_package_version ?? null
-    },
-    library: {
-      mediaRootCount: config.mediaRoots.length,
-      mediaRoots: config.mediaRoots.map((root) => ({
-        id: root.id,
-        label: root.label
-      })),
-      watchEnabled: config.watchEnabled,
-      watchDebounceMs: config.watchDebounceMs
-    },
-    security: {
-      passwordConfigured: Boolean(config.passwordHash),
-      cookieSecure: config.cookieSecure,
-      trustProxy: config.trustProxy,
-      sessionTtlDays: config.sessionTtlDays,
-      loginMaxAttempts: config.loginMaxAttempts,
-      loginWindowMinutes: Math.round(config.loginWindowMs / 60_000),
-      loginLockoutMinutes: Math.round(config.loginLockoutMs / 60_000)
-    },
-    ai: {
-      enabled: config.aiProvider !== "disabled",
-      provider: config.aiProvider,
-      model: config.aiProvider === "ollama" ? config.ollamaVisionModel : null,
-      timeoutMs: config.aiTimeoutMs
-    }
-  }));
-
-  app.post("/api/admin/database/reset", async (request, reply) => {
-    const body = LibraryDataResetBody.safeParse(request.body);
-
-    if (!body.success) {
-      return reply.code(400).send({ error: "invalid_request" });
-    }
-
-    return resetLibraryData(db, body.data, new Date().toISOString());
-  });
+  registerAdminRoutes(app, config, db, scanner, watcher);
 }
 
 function normalizeAssetSort(
@@ -727,24 +558,16 @@ async function streamAssetFile(
       method: request.method
     });
   } catch (error) {
-    return reply.code(mediaErrorStatus(error)).send({ error: "asset_not_found" });
+    return reply
+      .code(mediaErrorStatus(error))
+      .send({ error: "asset_not_found" });
   }
 }
 
-function normalizedHeader(value: string | string[] | undefined): string | undefined {
+function normalizedHeader(
+  value: string | string[] | undefined
+): string | undefined {
   return Array.isArray(value) ? value[0] : value;
-}
-
-function parseJobResult(result: string | null): unknown {
-  if (!result) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(result);
-  } catch {
-    return null;
-  }
 }
 
 function derivativeErrorStatus(error: unknown): number {

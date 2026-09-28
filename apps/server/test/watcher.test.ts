@@ -45,7 +45,10 @@ describe("library watcher", () => {
       expect(watcher.status().watchedDirectories).toBe(1);
 
       await mkdir(path.join(cwd, "media", "Fresh"));
-      await writeFile(path.join(cwd, "media", "Fresh", "new-photo.jpg"), "image");
+      await writeFile(
+        path.join(cwd, "media", "Fresh", "new-photo.jpg"),
+        "image"
+      );
       watchedDirectories[0]?.emit("rename", "Fresh");
 
       await waitFor(() => {

@@ -1,15 +1,8 @@
 export type FolderScanState =
-  | "idle"
-  | "starting"
-  | "running"
-  | "completed"
-  | "failed";
+  "idle" | "starting" | "running" | "completed" | "failed";
 
 export type FolderSortMode =
-  | "name-asc"
-  | "name-desc"
-  | "items-desc"
-  | "items-asc";
+  "name-asc" | "name-desc" | "items-desc" | "items-asc";
 
 export interface FolderTreeItem {
   id: string;

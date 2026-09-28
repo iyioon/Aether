@@ -18,7 +18,12 @@ describe("config backups", () => {
       db.prepare(
         `INSERT INTO roots (id, label, real_path, created_at)
          VALUES (?, ?, ?, ?)`
-      ).run("root_test", "Media", path.join(cwd, "media"), "2026-09-04T00:00:00.000Z");
+      ).run(
+        "root_test",
+        "Media",
+        path.join(cwd, "media"),
+        "2026-09-04T00:00:00.000Z"
+      );
 
       const result = await createConfigBackup({
         configDir,
@@ -36,7 +41,9 @@ describe("config backups", () => {
           path.join(outputDir, "aether-20260904-102030123Z")
         );
         expect(
-          backupDb.prepare("SELECT label FROM roots WHERE id = ?").get("root_test")
+          backupDb
+            .prepare("SELECT label FROM roots WHERE id = ?")
+            .get("root_test")
         ).toEqual({ label: "Media" });
       } finally {
         backupDb.close();

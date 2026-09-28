@@ -56,7 +56,10 @@ async function prepareFixtureLibrary() {
     path.join(mediaDir, "animated-memory.webp"),
     await createAnimatedWebpFixture()
   );
-  await writeFile(path.join(mediaDir, "avif-candidate.avif"), await createAvifFixture());
+  await writeFile(
+    path.join(mediaDir, "avif-candidate.avif"),
+    await createAvifFixture()
+  );
   await writeFile(path.join(mediaDir, "Trips", "beach-walk.png"), pngFixture);
   await writeFile(path.join(mediaDir, "Trips", "city-night.png"), pngFixture);
 }
@@ -65,7 +68,9 @@ async function createAnimatedWebpFixture(): Promise<Buffer> {
   const width = 2;
   const height = 2;
   const frame = (rgba: readonly number[]) =>
-    Buffer.concat(Array.from({ length: width * height }, () => Buffer.from(rgba)));
+    Buffer.concat(
+      Array.from({ length: width * height }, () => Buffer.from(rgba))
+    );
   const frames = Buffer.concat([
     frame([147, 183, 165, 255]),
     frame([125, 154, 180, 255])

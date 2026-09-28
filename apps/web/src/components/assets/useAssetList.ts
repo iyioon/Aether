@@ -126,7 +126,8 @@ export function useAssetList({
     search,
     tagFilters,
     scoreFilter,
-    assetReloadToken
+    assetReloadToken,
+    listQueryKey
   ]);
 
   const reloadAssets = useCallback(() => {
@@ -199,7 +200,9 @@ export function useAssetList({
       setTotalAssets(response.page.total);
     } catch (caught) {
       const message =
-        caught instanceof ApiError ? caught.code : "Unable to load more assets.";
+        caught instanceof ApiError
+          ? caught.code
+          : "Unable to load more assets.";
       setAssetError(message);
     } finally {
       loadMoreInFlightRef.current = false;

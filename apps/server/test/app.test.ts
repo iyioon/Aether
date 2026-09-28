@@ -245,7 +245,9 @@ describe("app security foundation", () => {
 
     expect(login.statusCode).toBe(200);
     const cookies = login.cookies;
-    const sessionCookie = cookies.find((entry) => entry.name === "aether_session");
+    const sessionCookie = cookies.find(
+      (entry) => entry.name === "aether_session"
+    );
     const csrfCookie = cookies.find((entry) => entry.name === "aether_csrf");
 
     expect(sessionCookie?.httpOnly).toBe(true);
@@ -314,7 +316,9 @@ describe("app security foundation", () => {
     const sessionCookie = login.cookies.find(
       (entry) => entry.name === "aether_session"
     );
-    const csrfCookie = login.cookies.find((entry) => entry.name === "aether_csrf");
+    const csrfCookie = login.cookies.find(
+      (entry) => entry.name === "aether_csrf"
+    );
 
     const scan = await app.inject({
       method: "POST",
@@ -438,7 +442,10 @@ describe("app security foundation", () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "aether-static-"));
     await mkdir(path.join(cwd, "media"));
     await mkdir(path.join(cwd, "web-dist"), { recursive: true });
-    await writeFile(path.join(cwd, "web-dist", "index.html"), "<main>Aether</main>");
+    await writeFile(
+      path.join(cwd, "web-dist", "index.html"),
+      "<main>Aether</main>"
+    );
     const passwordHash = await hashPassword("correct horse battery staple");
     const config = await loadConfig(
       {

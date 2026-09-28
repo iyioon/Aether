@@ -8,7 +8,9 @@ interface ServerSettingsSectionsProps {
   settings: SettingsSummary | null;
 }
 
-export function SecuritySettingsSection({ settings }: ServerSettingsSectionsProps) {
+export function SecuritySettingsSection({
+  settings
+}: ServerSettingsSectionsProps) {
   return (
     <SettingsSection
       icon={LockKeyhole}
@@ -21,11 +23,26 @@ export function SecuritySettingsSection({ settings }: ServerSettingsSectionsProp
     >
       <SummaryList
         items={[
-          ["Password", settings?.security.passwordConfigured ? "Configured" : "Missing"],
-          ["Session", settings ? `${settings.security.sessionTtlDays} days` : "-"],
-          ["Login limit", settings ? `${settings.security.loginMaxAttempts} attempts` : "-"],
-          ["Window", settings ? `${settings.security.loginWindowMinutes} min` : "-"],
-          ["Lockout", settings ? `${settings.security.loginLockoutMinutes} min` : "-"],
+          [
+            "Password",
+            settings?.security.passwordConfigured ? "Configured" : "Missing"
+          ],
+          [
+            "Session",
+            settings ? `${settings.security.sessionTtlDays} days` : "-"
+          ],
+          [
+            "Login limit",
+            settings ? `${settings.security.loginMaxAttempts} attempts` : "-"
+          ],
+          [
+            "Window",
+            settings ? `${settings.security.loginWindowMinutes} min` : "-"
+          ],
+          [
+            "Lockout",
+            settings ? `${settings.security.loginLockoutMinutes} min` : "-"
+          ],
           ["Secure cookie", boolLabel(settings?.security.cookieSecure)],
           ["Trust proxy", boolLabel(settings?.security.trustProxy)]
         ]}
@@ -49,7 +66,10 @@ export function ServerStatusSettingsSection({
           ["Version", settings?.server.version ?? "0.1.0"],
           ["Media roots", String(settings?.library.mediaRootCount ?? 0)],
           ["Watcher", settings?.library.watchEnabled ? "Enabled" : "Disabled"],
-          ["Debounce", settings ? `${settings.library.watchDebounceMs} ms` : "-"]
+          [
+            "Debounce",
+            settings ? `${settings.library.watchDebounceMs} ms` : "-"
+          ]
         ]}
       />
       {settings?.library.mediaRoots.length ? (

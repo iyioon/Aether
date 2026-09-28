@@ -59,9 +59,7 @@ export function useComparisonSession({
       return;
     }
 
-    setPair((currentPair) =>
-      replacePairAsset(currentPair, assetUpdate)
-    );
+    setPair((currentPair) => replacePairAsset(currentPair, assetUpdate));
   }, [assetUpdate]);
 
   const loadPair = useCallback(
@@ -112,7 +110,9 @@ export function useComparisonSession({
           setIsLoading(false);
         }
       }
-    }, [folderId, mediaType, scoreFilter, search, tagFilters]);
+    },
+    [folderId, mediaType, scoreFilter, search, tagFilters]
+  );
 
   useEffect(() => {
     setPair(null);
@@ -160,7 +160,9 @@ export function useComparisonSession({
         setChosenAssetId(null);
         setIsSubmitting(false);
       }
-    }, [isSubmitting, loadPair, onAssetsUpdated, onRankingChanged, pair]);
+    },
+    [isSubmitting, loadPair, onAssetsUpdated, onRankingChanged, pair]
+  );
 
   const skipPair = useCallback(() => {
     if (!pair || isSubmitting) {
@@ -183,7 +185,9 @@ export function useComparisonSession({
       const response = await undoComparison(previousDecision.eventId);
       onAssetsUpdated(response.assets);
       onRankingChanged();
-      const assetById = new Map(response.assets.map((asset) => [asset.id, asset]));
+      const assetById = new Map(
+        response.assets.map((asset) => [asset.id, asset])
+      );
       const left = assetById.get(previousDecision.pair.left.id);
       const right = assetById.get(previousDecision.pair.right.id);
 

@@ -1,6 +1,6 @@
 import type {
   MediaTypeFilter,
-  RatingFilter,
+  ScoreFilter,
   SortDirection,
   SortMode,
   TagRecord
@@ -27,8 +27,8 @@ interface LibraryControlStripProps {
   mediaType: MediaTypeFilter;
   mediaTypeLabel: string;
   openControlMenu: ControlMenuId | null;
-  ratingFilter: RatingFilter;
-  ratingFilterLabel: string;
+  scoreFilter: ScoreFilter;
+  scoreFilterLabel: string;
   sort: SortMode;
   sortDirection: SortDirection;
   sortLabel: string;
@@ -46,7 +46,7 @@ interface LibraryControlStripProps {
   onSetGridSize: (gridSize: GridSize) => void;
   onSetMediaType: (mediaType: MediaTypeFilter) => void;
   onSetOpenControlMenu: (menu: ControlMenuId | null) => void;
-  onSetRatingFilter: (ratingFilter: RatingFilter) => void;
+  onSetScoreFilter: (scoreFilter: ScoreFilter) => void;
   onSetSort: (sort: SortMode) => void;
   onSetSortDirection: (sortDirection: SortDirection) => void;
   onSetTagFilterDraft: (value: string) => void;
@@ -65,8 +65,8 @@ export function LibraryControlStrip({
   mediaType,
   mediaTypeLabel,
   openControlMenu,
-  ratingFilter,
-  ratingFilterLabel,
+  scoreFilter,
+  scoreFilterLabel,
   sort,
   sortDirection,
   sortLabel,
@@ -84,7 +84,7 @@ export function LibraryControlStrip({
   onSetGridSize,
   onSetMediaType,
   onSetOpenControlMenu,
-  onSetRatingFilter,
+  onSetScoreFilter,
   onSetSort,
   onSetSortDirection,
   onSetTagFilterDraft,
@@ -131,8 +131,8 @@ export function LibraryControlStrip({
         isOpen={openControlMenu === "filters"}
         mediaType={mediaType}
         mediaTypeLabel={mediaTypeLabel}
-        ratingFilter={ratingFilter}
-        ratingFilterLabel={ratingFilterLabel}
+        scoreFilter={scoreFilter}
+        scoreFilterLabel={scoreFilterLabel}
         tagFilters={tagFilters}
         tagFilterDraft={tagFilterDraft}
         onAddTagFilter={onAddTagFilter}
@@ -141,7 +141,7 @@ export function LibraryControlStrip({
           onSetOpenControlMenu(nextIsOpen ? "filters" : null)
         }
         onSetMediaType={onSetMediaType}
-        onSetRatingFilter={onSetRatingFilter}
+        onSetScoreFilter={onSetScoreFilter}
         onSetTagFilterDraft={onSetTagFilterDraft}
         onRemoveTagFilter={onRemoveTagFilter}
       />

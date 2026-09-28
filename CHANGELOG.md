@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added a concise in-app User Guide covering setup, browsing views, ranking, organization, keyboard controls, and source-file privacy.
+- Preserved existing and newly adjusted manual scores when comparison ranking starts, changes, or is fully undone, without adding an arbitrary score cap.
+- Unified score terminology across the API, interface state, repository model, and database while preserving existing annotations and ranking data during migration.
+- Standardized zero as the default unranked score across storage, APIs, controls, and filters, migrating earlier null values safely.
+- Added an explicit score breakdown with actions to remove a manual adjustment or reset an item's active comparisons after confirmation.
+- Added a protected Database settings tab for transactionally resetting selected scores, favorites, tags, or comparison history without touching indexed media or source files.
 - Added a dedicated comparison workspace with responsive pair cards, keyboard choices, skips, undo, coverage feedback, and filtered candidate selection.
 - Added reversible pairwise decision history and regularized Bradley–Terry ranking projections that feed into media scores without discarding manual score adjustments.
 

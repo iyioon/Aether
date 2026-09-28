@@ -1,6 +1,6 @@
 import type {
   MediaTypeFilter,
-  RatingFilter,
+  ScoreFilter,
   SortDirection,
   SortMode
 } from "../api/client";
@@ -22,7 +22,7 @@ export type GridSize = (typeof sizeOptions)[number];
 export const sortValues: readonly SortMode[] = [
   "date",
   "filename",
-  "rating",
+  "score",
   "random"
 ];
 
@@ -34,11 +34,11 @@ export const mediaFilterValues: readonly MediaTypeFilter[] = [
   "video"
 ];
 
-export const ratingFilterValues: readonly RatingFilter[] = [
+export const scoreFilterValues: readonly ScoreFilter[] = [
   "all",
   "favorites",
-  "rated",
-  "unrated"
+  "ranked",
+  "unranked"
 ];
 
 export const MAX_TAG_FILTERS = 20;
@@ -56,7 +56,7 @@ export interface LibraryUrlState {
   sort: SortMode;
   sortDirection: SortDirection;
   mediaType: MediaTypeFilter;
-  ratingFilter: RatingFilter;
+  scoreFilter: ScoreFilter;
   search: string;
   tags: string[];
 }
@@ -69,7 +69,7 @@ export const defaultLibraryState: LibraryUrlState = {
   sort: "date",
   sortDirection: "desc",
   mediaType: "all",
-  ratingFilter: "all",
+  scoreFilter: "all",
   search: "",
   tags: []
 };
@@ -127,11 +127,11 @@ export function parseLibraryStateSearch(search: string): LibraryUrlState {
       mediaFilterValues,
       defaultLibraryState.mediaType
     ),
-    ratingFilter: readOptionParam(
+    scoreFilter: readOptionParam(
       params,
-      "rating",
-      ratingFilterValues,
-      defaultLibraryState.ratingFilter
+      "score",
+      scoreFilterValues,
+      defaultLibraryState.scoreFilter
     ),
     search: readTextParam(params, "q", 160),
     tags: readTagParams(params)
@@ -172,8 +172,8 @@ export function buildLibraryStateSearch(state: LibraryUrlState): string {
     params.set("type", state.mediaType);
   }
 
-  if (state.ratingFilter !== defaultLibraryState.ratingFilter) {
-    params.set("rating", state.ratingFilter);
+  if (state.scoreFilter !== defaultLibraryState.scoreFilter) {
+    params.set("score", state.scoreFilter);
   }
 
   if (state.search) {

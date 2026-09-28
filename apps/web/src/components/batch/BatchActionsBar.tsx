@@ -48,7 +48,7 @@ interface BatchActionsBarProps {
   isSaving: boolean;
   onClear: () => void;
   onClose: () => void;
-  onApplyCuration: (input: { rating: number; favorite?: boolean }) => void;
+  onApplyCuration: (input: { score: number; favorite?: boolean }) => void;
   onTagDraftChange: (value: string) => void;
   onAddTag: () => void;
   onReplaceTags: () => void;
@@ -217,7 +217,7 @@ export function BatchActionsBar({
                     mediaName="selected media"
                     score={batchScoreValue}
                     size="md"
-                    onChange={(score) => setBatchScoreValue(score ?? 0)}
+                    onChange={setBatchScoreValue}
                   />
                   <Button
                     className="favorite-button"
@@ -247,7 +247,7 @@ export function BatchActionsBar({
                     disabled={isSaving}
                     onClick={() =>
                       onApplyCuration({
-                        rating: batchScoreValue,
+                        score: batchScoreValue,
                         ...(isFavoriteDirty
                           ? { favorite: batchFavoriteValue }
                           : {})

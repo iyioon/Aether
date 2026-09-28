@@ -9,7 +9,7 @@ import {
 describe("library state URL helpers", () => {
   it("restores valid library controls from query parameters", () => {
     const state = parseLibraryStateSearch(
-      "?folder=root-folder&view=feed&size=large&aspect=portrait&sort=rating&order=asc&type=video&rating=favorites&q=%20night%20sky%20&tag=%20Family%20%20Trip%20&tag=Friends&tag=family%20trip"
+      "?folder=root-folder&view=feed&size=large&aspect=portrait&sort=score&order=asc&type=video&score=favorites&q=%20night%20sky%20&tag=%20Family%20%20Trip%20&tag=Friends&tag=family%20trip"
     );
 
     expect(state).toEqual({
@@ -17,10 +17,10 @@ describe("library state URL helpers", () => {
       view: "feed",
       gridSize: "Large",
       aspect: "Portrait",
-      sort: "rating",
+      sort: "score",
       sortDirection: "asc",
       mediaType: "video",
-      ratingFilter: "favorites",
+      scoreFilter: "favorites",
       search: "night sky",
       tags: ["Family Trip", "Friends"]
     });
@@ -48,7 +48,7 @@ describe("library state URL helpers", () => {
 
   it("falls back to safe defaults for invalid enum values", () => {
     const state = parseLibraryStateSearch(
-      "?folder=&view=timeline&size=oversized&aspect=panorama&sort=path&order=sideways&type=audio&rating=private"
+      "?folder=&view=timeline&size=oversized&aspect=panorama&sort=path&order=sideways&type=audio&score=private"
     );
 
     expect(state).toEqual(defaultLibraryState);
@@ -61,7 +61,7 @@ describe("library state URL helpers", () => {
       view: "feed",
       gridSize: "Compact",
       aspect: "Landscape",
-      sort: "rating",
+      sort: "score",
       sortDirection: "asc",
       search: "city sky",
       tags: ["travel", "family"]
@@ -72,7 +72,7 @@ describe("library state URL helpers", () => {
     expect(params.get("view")).toBe("feed");
     expect(params.get("size")).toBe("compact");
     expect(params.get("aspect")).toBe("landscape");
-    expect(params.get("sort")).toBe("rating");
+    expect(params.get("sort")).toBe("score");
     expect(params.get("order")).toBe("asc");
     expect(params.get("q")).toBe("city sky");
     expect(params.getAll("tag")).toEqual(["travel", "family"]);

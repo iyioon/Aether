@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
-import { Plus, ScanSearch, Sparkles, X } from "lucide-react";
+import { Plus, RotateCcw, ScanSearch, Sparkles, Trash2, X } from "lucide-react";
 import {
   ApiError,
+  clearAssetManualAdjustment,
   getAiAssetTagSuggestions,
   getAssetTags,
   getAssetTagSuggestions,
+  resetAssetComparisons,
   setAssetTags,
   suggestTags,
-  updateAssetRating,
+  updateAssetScore,
   type AiStatus,
   type AssetRecord,
   type TagRecord,
@@ -20,12 +22,23 @@ import {
 } from "../MediaCurationControls";
 import { uniqueTagNames } from "../tags/tag-utils";
 import { Button } from "../ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from "../ui/alert-dialog";
 import { Input } from "../ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 
 interface AssetAnnotationPanelProps {
   aiStatus: AiStatus | null;
   asset: AssetRecord;
+  onRankingChanged: () => void;
   onAssetUpdated: (asset: AssetRecord) => void;
   onAssetTagsUpdated: (assetId: string, tags: TagRecord[]) => void;
 }
@@ -33,6 +46,7 @@ interface AssetAnnotationPanelProps {
 export function AssetAnnotationPanel({
   aiStatus,
   asset,
+  onRankingChanged,
   onAssetUpdated,
   onAssetTagsUpdated
 }: AssetAnnotationPanelProps) {
@@ -43,7 +57,8 @@ export function AssetAnnotationPanel({
     TagSuggestion[]
   >([]);
   const [annotationError, setAnnotationError] = useState<string | null>(null);
-  const [isSavingRating, setIsSavingRating] = useState(false);
+  const [isSavingScore, setIsSavingScore] = useState(false);
+  const [isResetComparisonOpen, setIsResetComparisonOpen] = useState(false);
   const [isSavingTags, setIsSavingTags] = useState(false);
   const [isLoadingSmartTags, setIsLoadingSmartTags] = useState(false);
   const [isLoadingAiTags, setIsLoadingAiTags] = useState(false);
@@ -55,6 +70,7 @@ export function AssetAnnotationPanel({
     setTagSuggestions([]);
     setSmartTagSuggestions([]);
     setAnnotationError(null);
+    setIsResetComparisonOpen(false);
 
     getAssetTags(asset.id)
       .then((response) => {
@@ -109,20 +125,50 @@ export function AssetAnnotationPanel({
     };
   }, [tagInput, tags]);
 
-  async function saveRating(input: {
-    rating?: number | null;
+  async function saveScore(input: {
+    score?: number;
     favorite?: boolean;
   }) {
-    setIsSavingRating(true);
+    setIsSavingScore(true);
     setAnnotationError(null);
 
     try {
-      const { asset: updatedAsset } = await updateAssetRating(asset.id, input);
+      const { asset: updatedAsset } = await updateAssetScore(asset.id, input);
       onAssetUpdated(updatedAsset);
     } catch {
-      setAnnotationError("Unable to save rating.");
+      setAnnotationError("Unable to save score.");
     } finally {
-      setIsSavingRating(false);
+      setIsSavingScore(false);
+    }
+  }
+
+  async function useComparisonScore() {
+    setIsSavingScore(true);
+    setAnnotationError(null);
+
+    try {
+      const { asset: updatedAsset } = await clearAssetManualAdjustment(asset.id);
+      onAssetUpdated(updatedAsset);
+      onRankingChanged();
+    } catch {
+      setAnnotationError("Unable to remove the manual adjustment.");
+    } finally {
+      setIsSavingScore(false);
+    }
+  }
+
+  async function resetComparisons() {
+    setIsSavingScore(true);
+    setAnnotationError(null);
+
+    try {
+      const response = await resetAssetComparisons(asset.id);
+      onAssetUpdated(response.asset);
+      onRankingChanged();
+    } catch {
+      setAnnotationError("Unable to reset comparisons.");
+    } finally {
+      setIsSavingScore(false);
     }
   }
 
@@ -203,18 +249,131 @@ export function AssetAnnotationPanel({
         <span className="annotation-label">Score</span>
         <div className="annotation-curation-controls">
           <MediaScoreControl
-            disabled={isSavingRating}
+            disabled={isSavingScore}
             mediaName={asset.name}
-            score={asset.rating}
-            onChange={(rating) => void saveRating({ rating })}
+            score={asset.score}
+            onChange={(score) => void saveScore({ score })}
           />
           <MediaFavoriteButton
-            disabled={isSavingRating}
+            disabled={isSavingScore}
             favorite={asset.favorite}
             mediaName={asset.name}
-            onChange={(favorite) => void saveRating({ favorite })}
+            onChange={(favorite) => void saveScore({ favorite })}
           />
         </div>
+      </div>
+
+      <div className="score-breakdown">
+        <div className="score-breakdown-values">
+          {asset.ranking ? (
+            <>
+              <span>
+                Comparison
+                <span className="score-breakdown-value">
+                  <strong>{asset.ranking.comparisonScore}</strong>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        size="icon-xs"
+                        variant="ghost"
+                        aria-label={`Reset ${asset.ranking.comparisonCount} comparisons for ${asset.name}`}
+                        disabled={isSavingScore}
+                        onClick={() => setIsResetComparisonOpen(true)}
+                      >
+                        <Trash2 />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      Reset this item’s comparisons and recalculate related
+                      scores
+                    </TooltipContent>
+                  </Tooltip>
+                </span>
+              </span>
+              <span>
+                Manual adjustment
+                <span className="score-breakdown-value">
+                  <strong>
+                    {formatSignedScore(asset.ranking.manualAdjustment)}
+                  </strong>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        size="icon-xs"
+                        variant="ghost"
+                        aria-label={`Remove the manual score adjustment for ${asset.name}`}
+                        disabled={
+                          isSavingScore || asset.ranking.manualAdjustment === 0
+                        }
+                        onClick={() => void useComparisonScore()}
+                      >
+                        <RotateCcw />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      Remove the manual adjustment and use the comparison score
+                    </TooltipContent>
+                  </Tooltip>
+                </span>
+              </span>
+              <span>
+                Final
+                <strong>{asset.score}</strong>
+              </span>
+            </>
+          ) : (
+            <>
+              <span>
+                Comparison
+                <strong>Not ranked</strong>
+              </span>
+              <span>
+                Manual score
+                <strong>{asset.score}</strong>
+              </span>
+              <span>
+                Final
+                <strong>{asset.score}</strong>
+              </span>
+            </>
+          )}
+        </div>
+        <p>
+          {asset.ranking
+            ? "Final score adds the comparison score and manual adjustment, and never falls below 0."
+            : "With no comparisons yet, the final score is the manual score."}
+        </p>
+        {asset.ranking ? (
+          <AlertDialog
+            open={isResetComparisonOpen}
+            onOpenChange={setIsResetComparisonOpen}
+          >
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  Reset comparisons for {asset.name}?
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  This removes {asset.ranking.comparisonCount} active pair
+                  {asset.ranking.comparisonCount === 1 ? "" : "s"} involving
+                  this item and recalculates related scores. Manual scores stay
+                  in place. This action cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  variant="destructive"
+                  onClick={() => void resetComparisons()}
+                >
+                  Reset comparisons
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        ) : null}
       </div>
 
       <div className="tag-editor">
@@ -355,6 +514,10 @@ export function AssetAnnotationPanel({
       </div>
     </section>
   );
+}
+
+function formatSignedScore(value: number): string {
+  return value > 0 ? `+${value}` : String(value);
 }
 
 function aiSuggestionErrorMessage(caught: unknown): string {

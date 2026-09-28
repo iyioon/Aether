@@ -24,7 +24,7 @@ import {
   isDirectionalKeyboardTarget,
   isEditableKeyboardTarget,
   isKeyboardActivationTarget,
-  ratingAfterKeyboardAdjustment,
+  scoreAfterKeyboardAdjustment,
   viewerKeyboardCommand
 } from "../../lib/keyboard";
 import { panelExitDurationMs } from "../../lib/motion";
@@ -43,7 +43,7 @@ interface MediaViewerProps {
   hasPrevious: boolean;
   isInfoOpen: boolean;
   onClose: () => void;
-  onRatingChange: (rating: number | null) => void;
+  onScoreChange: (score: number) => void;
   onToggleInfo: () => void;
   onNext: () => void;
   onPrevious: () => void;
@@ -64,7 +64,7 @@ interface ViewerPosterState {
   status: "ready" | "error";
 }
 
-interface ViewerRatingFeedback {
+interface ViewerScoreFeedback {
   assetId: string;
   direction: -1 | 1;
   id: number;
@@ -73,8 +73,8 @@ interface ViewerRatingFeedback {
 }
 
 const CONTROL_HIDE_DELAY_MS = 1_800;
-const RATING_FEEDBACK_IDLE_MS = 750;
-const RATING_FEEDBACK_EXIT_MS = 150;
+const SCORE_FEEDBACK_IDLE_MS = 750;
+const SCORE_FEEDBACK_EXIT_MS = 150;
 const SWIPE_DISTANCE_PX = 56;
 
 export function MediaViewer({
@@ -83,7 +83,7 @@ export function MediaViewer({
   hasPrevious,
   isInfoOpen,
   onClose,
-  onRatingChange,
+  onScoreChange,
   onToggleInfo,
   onNext,
   onPrevious
@@ -92,12 +92,12 @@ export function MediaViewer({
   const viewerVideoRef = useRef<HTMLVideoElement | null>(null);
   const controlsTimerRef = useRef<number | null>(null);
   const closeTimerRef = useRef<number | null>(null);
-  const displayedRatingRef = useRef<number | null>(asset.rating);
+  const displayedScoreRef = useRef<number>(asset.score);
   const isClosingRef = useRef(false);
   const onCloseRef = useRef(onClose);
-  const ratingFeedbackIdRef = useRef(0);
-  const ratingFeedbackRemovalTimerRef = useRef<number | null>(null);
-  const ratingFeedbackTimerRef = useRef<number | null>(null);
+  const scoreFeedbackIdRef = useRef(0);
+  const scoreFeedbackRemovalTimerRef = useRef<number | null>(null);
+  const scoreFeedbackTimerRef = useRef<number | null>(null);
   const touchStartRef = useRef<ViewerTouchStart | null>(null);
   const [isOpen, setIsOpen] = useState(true);
   const [controlsVisible, setControlsVisible] = useState(true);
@@ -115,8 +115,8 @@ export function MediaViewer({
   const [viewerVideoSize, setViewerVideoSize] =
     useState<ViewerStageSize | null>(null);
   const [keyboardAnnouncement, setKeyboardAnnouncement] = useState("");
-  const [ratingFeedback, setRatingFeedback] =
-    useState<ViewerRatingFeedback | null>(null);
+  const [scoreFeedback, setScoreFeedback] =
+    useState<ViewerScoreFeedback | null>(null);
   const storedMediaSize = useMemo<ViewerStageSize | null>(() => {
     if (!asset.width || !asset.height || asset.width <= 0 || asset.height <= 0) {
       return null;
@@ -219,57 +219,57 @@ export function MediaViewer({
     setKeyboardAnnouncement(video.muted ? "Sound muted" : "Sound on");
   }, [revealControls]);
 
-  const adjustViewerRating = useCallback(
+  const adjustViewerScore = useCallback(
     (direction: -1 | 1) => {
-      const currentScore = displayedRatingRef.current ?? 0;
-      const nextRating = ratingAfterKeyboardAdjustment(
-        displayedRatingRef.current,
+      const currentScore = displayedScoreRef.current;
+      const updatedScore = scoreAfterKeyboardAdjustment(
+        displayedScoreRef.current,
         direction
       );
-      const nextScore = nextRating ?? 0;
-
-      ratingFeedbackIdRef.current += 1;
-      setRatingFeedback({
-        assetId: asset.id,
-        direction,
-        id: ratingFeedbackIdRef.current,
-        isExiting: false,
-        score: nextScore
-      });
-
-      if (ratingFeedbackTimerRef.current !== null) {
-        window.clearTimeout(ratingFeedbackTimerRef.current);
-      }
-      if (ratingFeedbackRemovalTimerRef.current !== null) {
-        window.clearTimeout(ratingFeedbackRemovalTimerRef.current);
-        ratingFeedbackRemovalTimerRef.current = null;
-      }
-
-      ratingFeedbackTimerRef.current = window.setTimeout(() => {
-        ratingFeedbackTimerRef.current = null;
-        setRatingFeedback((current) =>
-          current?.assetId === asset.id
-            ? { ...current, isExiting: true }
-            : current
-        );
-        ratingFeedbackRemovalTimerRef.current = window.setTimeout(() => {
-          ratingFeedbackRemovalTimerRef.current = null;
-          setRatingFeedback(null);
-        }, RATING_FEEDBACK_EXIT_MS);
-      }, RATING_FEEDBACK_IDLE_MS);
+      const nextScore = updatedScore;
 
       if (nextScore === currentScore) {
         setKeyboardAnnouncement("Score is already 0");
         return;
       }
 
-      displayedRatingRef.current = nextRating;
+      scoreFeedbackIdRef.current += 1;
+      setScoreFeedback({
+        assetId: asset.id,
+        direction,
+        id: scoreFeedbackIdRef.current,
+        isExiting: false,
+        score: nextScore
+      });
+
+      if (scoreFeedbackTimerRef.current !== null) {
+        window.clearTimeout(scoreFeedbackTimerRef.current);
+      }
+      if (scoreFeedbackRemovalTimerRef.current !== null) {
+        window.clearTimeout(scoreFeedbackRemovalTimerRef.current);
+        scoreFeedbackRemovalTimerRef.current = null;
+      }
+
+      scoreFeedbackTimerRef.current = window.setTimeout(() => {
+        scoreFeedbackTimerRef.current = null;
+        setScoreFeedback((current) =>
+          current?.assetId === asset.id
+            ? { ...current, isExiting: true }
+            : current
+        );
+        scoreFeedbackRemovalTimerRef.current = window.setTimeout(() => {
+          scoreFeedbackRemovalTimerRef.current = null;
+          setScoreFeedback(null);
+        }, SCORE_FEEDBACK_EXIT_MS);
+      }, SCORE_FEEDBACK_IDLE_MS);
+
+      displayedScoreRef.current = updatedScore;
       setKeyboardAnnouncement(
         `Score ${direction > 0 ? "increased" : "decreased"} to ${nextScore}`
       );
-      onRatingChange(nextRating);
+      onScoreChange(updatedScore);
     },
-    [asset.id, onRatingChange]
+    [asset.id, onScoreChange]
   );
 
   const navigateAndPlayViewerVideo = useCallback(
@@ -380,16 +380,16 @@ export function MediaViewer({
   }, [asset.id]);
 
   useEffect(() => {
-    displayedRatingRef.current = asset.rating;
-  }, [asset.id, asset.rating]);
+    displayedScoreRef.current = asset.score;
+  }, [asset.id, asset.score]);
 
   useEffect(
     () => () => {
-      if (ratingFeedbackTimerRef.current !== null) {
-        window.clearTimeout(ratingFeedbackTimerRef.current);
+      if (scoreFeedbackTimerRef.current !== null) {
+        window.clearTimeout(scoreFeedbackTimerRef.current);
       }
-      if (ratingFeedbackRemovalTimerRef.current !== null) {
-        window.clearTimeout(ratingFeedbackRemovalTimerRef.current);
+      if (scoreFeedbackRemovalTimerRef.current !== null) {
+        window.clearTimeout(scoreFeedbackRemovalTimerRef.current);
       }
     },
     []
@@ -423,13 +423,13 @@ export function MediaViewer({
       }
 
       switch (command) {
-        case "increase-rating":
-        case "decrease-rating":
+        case "increase-score":
+        case "decrease-score":
           if (isDirectionalKeyboardTarget(event.target)) {
             return;
           }
           event.preventDefault();
-          adjustViewerRating(command === "increase-rating" ? 1 : -1);
+          adjustViewerScore(command === "increase-score" ? 1 : -1);
           break;
         case "next":
           if (!hasNext || isDirectionalKeyboardTarget(event.target)) {
@@ -473,7 +473,7 @@ export function MediaViewer({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [
-    adjustViewerRating,
+    adjustViewerScore,
     asset.mediaType,
     hasNext,
     hasPrevious,
@@ -714,28 +714,28 @@ export function MediaViewer({
           </Button>
         ) : null}
 
-        {ratingFeedback?.assetId === asset.id ? (
+        {scoreFeedback?.assetId === asset.id ? (
           <div
             className={[
-              "viewer-rating-feedback",
-              ratingFeedback.direction > 0
+              "viewer-score-feedback",
+              scoreFeedback.direction > 0
                 ? "is-increasing"
                 : "is-decreasing",
-              ratingFeedback.isExiting ? "is-exiting" : ""
+              scoreFeedback.isExiting ? "is-exiting" : ""
             ]
               .filter(Boolean)
               .join(" ")}
             aria-hidden="true"
           >
             <span
-              className="viewer-rating-arrow"
-              key={`direction-${ratingFeedback.direction}`}
+              className="viewer-score-arrow"
+              key={`direction-${scoreFeedback.direction}`}
             >
-              {ratingFeedback.direction > 0 ? <ArrowUp /> : <ArrowDown />}
+              {scoreFeedback.direction > 0 ? <ArrowUp /> : <ArrowDown />}
             </span>
             <span>Score</span>
-            <strong key={`score-${ratingFeedback.id}`}>
-              {ratingFeedback.score}
+            <strong key={`score-${scoreFeedback.id}`}>
+              {scoreFeedback.score}
             </strong>
           </div>
         ) : null}

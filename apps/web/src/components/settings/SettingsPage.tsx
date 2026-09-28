@@ -1,8 +1,13 @@
-import { Palette, RefreshCw, ServerCog } from "lucide-react";
-import type { SettingsSummary } from "../../api/client";
+import { Database, Palette, RefreshCw, ServerCog } from "lucide-react";
+import type {
+  LibraryDataResetOptions,
+  LibraryDataResetResult,
+  SettingsSummary
+} from "../../api/client";
 import { Button } from "../ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { AppearanceSettingsSection } from "./AppearanceSettingsSection";
+import { DataResetSettingsSection } from "./DataResetSettingsSection";
 import {
   AiSettingsSection,
   SecuritySettingsSection,
@@ -25,6 +30,10 @@ interface SettingsPageProps {
   theme: AppearanceTheme;
   themeOptions: AppearanceThemeOption[];
   onRefreshSettings: () => void;
+  onDataReset: (
+    result: LibraryDataResetResult,
+    options: LibraryDataResetOptions
+  ) => void;
   onSetAccent: (accent: AppearanceAccent) => void;
   onSetCustomAccent: (color: string) => void;
   onSetTheme: (theme: AppearanceTheme) => void;
@@ -40,6 +49,7 @@ export function SettingsPage({
   theme,
   themeOptions,
   onRefreshSettings,
+  onDataReset,
   onSetAccent,
   onSetCustomAccent,
   onSetTheme
@@ -59,7 +69,7 @@ export function SettingsPage({
         </header>
 
         <Tabs defaultValue="appearance">
-          <TabsList className="settings-tabs-list grid w-full grid-cols-2">
+          <TabsList className="settings-tabs-list grid w-full grid-cols-3">
             <TabsTrigger value="appearance">
               <Palette />
               Appearance
@@ -67,6 +77,10 @@ export function SettingsPage({
             <TabsTrigger value="server">
               <ServerCog />
               Server
+            </TabsTrigger>
+            <TabsTrigger value="data">
+              <Database />
+              Database
             </TabsTrigger>
           </TabsList>
 
@@ -122,6 +136,17 @@ export function SettingsPage({
             <p className="settings-runtime-note text-sm text-muted-foreground">
               Change server settings through environment variables, then restart Aether.
             </p>
+          </TabsContent>
+
+          <TabsContent className="settings-tab-panel" value="data">
+            <div className="settings-tab-intro">
+              <p className="text-sm text-muted-foreground">
+                Selectively reset library annotations and ranking information.
+              </p>
+            </div>
+            <div className="settings-grid settings-grid-single">
+              <DataResetSettingsSection onResetComplete={onDataReset} />
+            </div>
           </TabsContent>
         </Tabs>
       </div>

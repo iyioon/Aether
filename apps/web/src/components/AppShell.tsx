@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { getSettings, logout, type SettingsSummary } from "../api/client";
+import {
+  getSettings,
+  logout,
+  type AssetRecord,
+  type LibraryDataResetOptions,
+  type SettingsSummary
+} from "../api/client";
 import { useLibraryTree } from "./app/useLibraryTree";
 import { useAssetList } from "./assets/useAssetList";
 import { readLibraryStateFromUrl, type ViewMode } from "./library-state";
@@ -10,6 +16,7 @@ import { ComparisonView } from "./compare/ComparisonView";
 import { FeedPreview } from "./feed/FeedPreview";
 import { useFolderNavigation } from "./folders/useFolderNavigation";
 import { GalleryGrid } from "./gallery/GalleryGrid";
+import { UserGuidePage } from "./guide/UserGuidePage";
 import { isAssetListPending } from "./gallery-loading";
 import { useGalleryMetadataFields } from "./gallery/useGalleryMetadataFields";
 import { useMeasuredAspectRatios } from "./gallery/useMeasuredAspectRatios";
@@ -34,9 +41,9 @@ interface AppShellProps {
 export function AppShell({ appearance, onLogout }: AppShellProps) {
   const initialLibraryState = useMemo(() => readLibraryStateFromUrl(), []);
   const sidebarDefaultOpen = useMemo(() => readSidebarDefaultOpen(), []);
-  const [activePage, setActivePage] = useState<"library" | "settings">(
-    "library"
-  );
+  const [activePage, setActivePage] = useState<
+    "library" | "guide" | "settings"
+  >("library");
   const [settingsSummary, setSettingsSummary] =
     useState<SettingsSummary | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
@@ -86,6 +93,8 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
   const { handleMediaDimensionsKnown, measuredAspectRatios } =
     useMeasuredAspectRatios();
   const [isFeedChromeHidden, setIsFeedChromeHidden] = useState(false);
+  const [comparisonAssetUpdate, setComparisonAssetUpdate] =
+    useState<AssetRecord | null>(null);
   const rankingChangedRef = useRef(false);
   const activeMediaAnchorIdRef = useRef<string | null>(null);
   const [syncedMediaAnchorId, setSyncedMediaAnchorId] = useState<string | null>(
@@ -102,8 +111,8 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     mediaType,
     mediaTypeLabel,
     openControlMenu,
-    ratingFilter,
-    ratingFilterLabel,
+    scoreFilter,
+    scoreFilterLabel,
     removeTagFilter,
     search,
     searchDraft,
@@ -112,7 +121,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     setGridSize,
     setMediaType,
     setOpenControlMenu,
-    setRatingFilter,
+    setScoreFilter,
     setSearchDraft,
     setSort,
     setSortDirection,
@@ -130,8 +139,8 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     selectedFolderId,
     tree
   });
-  const shouldReloadAfterRatingChange =
-    ratingFilter !== "all" || sort === "rating";
+  const shouldReloadAfterScoreChange =
+    scoreFilter !== "all" || sort === "score";
   const {
     assetError,
     assets,
@@ -150,7 +159,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
   } = useAssetList({
     folderId: selectedFolderId,
     mediaType,
-    ratingFilter,
+    scoreFilter,
     search,
     sort,
     sortDirection,
@@ -173,7 +182,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     clearSelectedAssets,
     isSelectionMode,
     isSavingBatch,
-    saveBatchRating,
+    saveBatchScore,
     saveBatchTags,
     selectLoadedAssets,
     selectedAssetCount,
@@ -186,7 +195,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     listQueryKey,
     onAssetsUpdated: mergeUpdatedAssets,
     onReloadAssets: reloadAssets,
-    shouldReloadAfterRatingChange
+    shouldReloadAfterScoreChange
   });
 
   useEffect(() => {
@@ -207,13 +216,23 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     assets.every(
       (asset) => !selectedAssetIds.has(asset.id) || asset.favorite
     );
+
+  function mergeMediaActionAssets(updatedAssets: AssetRecord[]) {
+    mergeUpdatedAssets(updatedAssets);
+
+    const latestUpdatedAsset = updatedAssets.at(-1);
+    if (latestUpdatedAsset) {
+      setComparisonAssetUpdate(latestUpdatedAsset);
+    }
+  }
+
   const {
     annotationAsset,
     handleAssetTagsUpdated,
     handleAssetUpdated,
     openAssetFullscreen,
-    saveAssetRating,
-    savingRatingAssetIds,
+    saveAssetScore,
+    savingScoreAssetIds,
     selectAdjacentAsset,
     selectedAsset,
     selectedAssetId,
@@ -222,10 +241,10 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
   } = useMediaActions({
     assets,
     onAssetError: setAssetError,
-    onAssetsUpdated: mergeUpdatedAssets,
+    onAssetsUpdated: mergeMediaActionAssets,
     onAssetTagsUpdated: updateAssetTags,
     onReloadAssets: reloadAssets,
-    shouldReloadAfterRatingChange
+    shouldReloadAfterScoreChange
   });
 
   useEffect(() => {
@@ -301,6 +320,12 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     openAssetFullscreen(assetId);
   }
 
+  function openComparisonAsset(asset: AssetRecord) {
+    activeMediaAnchorIdRef.current = asset.id;
+    setSyncedMediaAnchorId(asset.id);
+    openAssetFullscreen(asset);
+  }
+
   function closeAnchoredAsset() {
     if (selectedAssetId) {
       activeMediaAnchorIdRef.current = selectedAssetId;
@@ -341,6 +366,14 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     void refreshSettingsSummary();
   }
 
+  function openGuide() {
+    setActivePage("guide");
+    closeSelectionMode();
+    setOpenControlMenu(null);
+    setAnnotationAssetId(null);
+    setSelectedAssetId(null);
+  }
+
   function backToLibrary() {
     setActivePage("library");
   }
@@ -364,8 +397,8 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
       mediaType={mediaType}
       mediaTypeLabel={mediaTypeLabel}
       openControlMenu={openControlMenu}
-      ratingFilter={ratingFilter}
-      ratingFilterLabel={ratingFilterLabel}
+      scoreFilter={scoreFilter}
+      scoreFilterLabel={scoreFilterLabel}
       sort={sort}
       sortDirection={sortDirection}
       sortLabel={sortLabel}
@@ -383,7 +416,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
       onSetGridSize={setGridSize}
       onSetMediaType={setMediaType}
       onSetOpenControlMenu={setOpenControlMenu}
-      onSetRatingFilter={setRatingFilter}
+      onSetScoreFilter={setScoreFilter}
       onSetSort={setSort}
       onSetSortDirection={setSortDirection}
       onSetTagFilterDraft={setTagFilterDraft}
@@ -400,6 +433,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
         expandedFolderIds={expandedFolderIds}
         folderSortMode={folderSortMode}
         isLoadingTree={isLoadingTree}
+        isGuideOpen={activePage === "guide"}
         isSettingsOpen={activePage === "settings"}
         items={tree?.roots.length ? visibleFolderItems : []}
         scanProgress={scanProgress}
@@ -412,6 +446,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
         onFolderKeyDown={handleFolderTreeKeyDown}
         onFolderSortChange={setFolderSortMode}
         onLogout={() => void handleLogout()}
+        onOpenGuide={openGuide}
         onOpenSettings={openSettings}
         onScan={() => void handleScan()}
         onSelectFolder={selectFolder}
@@ -429,6 +464,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
       >
         <LibraryPathBar
           controls={libraryControls}
+          isGuideOpen={activePage === "guide"}
           isSettingsOpen={activePage === "settings"}
           searchDraft={searchDraft}
           selectedFolderId={selectedFolderId}
@@ -445,11 +481,13 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
           isSelectionMode ? "has-selection" : "",
           activePage === "settings"
             ? "view-settings"
-            : view === "feed"
-              ? "view-feed"
-              : view === "compare"
-                ? "view-compare"
-                : "view-gallery",
+            : activePage === "guide"
+              ? "view-guide"
+              : view === "feed"
+                ? "view-feed"
+                : view === "compare"
+                  ? "view-compare"
+                  : "view-gallery",
           activePage === "library" && view === "feed" && isFeedChromeHidden
             ? "feed-chrome-hidden"
             : ""
@@ -469,9 +507,23 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
             onSetCustomAccent={setCustomAccent}
             onSetTheme={setTheme}
             onRefreshSettings={() => void refreshSettingsSummary()}
+            onDataReset={(_result, options: LibraryDataResetOptions) => {
+              if (options.tags) {
+                clearTagFilters();
+              }
+              if (options.scores || options.favorites || options.comparisons) {
+                setScoreFilter("all");
+              }
+              if (options.scores || options.comparisons) {
+                rankingChangedRef.current = true;
+              }
+              reloadAssets();
+            }}
             theme={theme}
             themeOptions={themeOptions}
           />
+        ) : activePage === "guide" ? (
+          <UserGuidePage />
         ) : (
           <>
             <BatchActionsBar
@@ -484,7 +536,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
               isSaving={isSavingBatch}
               onClear={clearSelectedAssets}
               onClose={closeSelectionMode}
-              onApplyCuration={(input) => void saveBatchRating(input)}
+              onApplyCuration={(input) => void saveBatchScore(input)}
               onTagDraftChange={setBatchTagDraft}
               onAddTag={() => void saveBatchTags([batchTagDraft], "add")}
               onReplaceTags={() =>
@@ -513,16 +565,16 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
                 measuredAspectRatios={measuredAspectRatios}
                 scrollContextKey={listQueryKey}
                 syncedAssetId={syncedMediaAnchorId}
-                savingRatingAssetIds={savingRatingAssetIds}
+                savingScoreAssetIds={savingScoreAssetIds}
                 selectedAssetIds={selectedAssetIds}
                 onLoadMore={() => void handleLoadMore()}
                 onActiveAssetChange={trackActiveMedia}
                 onMediaDimensionsKnown={handleMediaDimensionsKnown}
                 onFavoriteAsset={(asset, favorite) =>
-                  void saveAssetRating(asset, { favorite })
+                  void saveAssetScore(asset, { favorite })
                 }
                 onScoreAsset={(asset, score) =>
-                  void saveAssetRating(asset, { rating: score })
+                  void saveAssetScore(asset, { score: score })
                 }
                 onSelectAsset={openAnchoredAsset}
                 onToggleSelection={toggleAssetSelection}
@@ -537,29 +589,31 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
                 loadMoreRef={loadMoreRef}
                 isFeedChromeHidden={isFeedChromeHidden}
                 isPlaybackPaused={selectedAssetId !== null}
-                savingRatingAssetIds={savingRatingAssetIds}
+                savingScoreAssetIds={savingScoreAssetIds}
                 scrollContextKey={listQueryKey}
                 syncedAssetId={syncedMediaAnchorId}
                 onLoadMore={() => void handleLoadMore()}
                 onActiveAssetChange={trackActiveMedia}
                 onFeedChromeHiddenChange={setFeedChromeVisibility}
                 onFavoriteAsset={(asset, favorite) =>
-                  void saveAssetRating(asset, { favorite })
+                  void saveAssetScore(asset, { favorite })
                 }
                 onOpenAnnotations={setAnnotationAssetId}
                 onOpenAsset={openAnchoredAsset}
                 onScoreAsset={(asset, score) =>
-                  void saveAssetRating(asset, { rating: score })
+                  void saveAssetScore(asset, { score: score })
                 }
               />
             ) : (
               <ComparisonView
+                assetUpdate={comparisonAssetUpdate}
                 folderId={selectedFolderId}
                 mediaType={mediaType}
-                ratingFilter={ratingFilter}
+                scoreFilter={scoreFilter}
                 search={search}
                 tagFilters={tagFilters}
                 onAssetsUpdated={mergeUpdatedAssets}
+                onOpenFullscreen={openComparisonAsset}
                 onRankingChanged={() => {
                   rankingChangedRef.current = true;
                 }}
@@ -582,8 +636,8 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
           )}
           isInfoOpen={annotationAsset !== null}
           onClose={closeAnchoredAsset}
-          onRatingChange={(rating) =>
-            void saveAssetRating(selectedAsset, { rating })
+          onScoreChange={(score) =>
+            void saveAssetScore(selectedAsset, { score })
           }
           onToggleInfo={() =>
             setAnnotationAssetId((current) =>
@@ -603,6 +657,10 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
           onAssetTagsUpdated={handleAssetTagsUpdated}
           onAssetUpdated={handleAssetUpdated}
           onClose={() => setAnnotationAssetId(null)}
+          onRankingChanged={() => {
+            rankingChangedRef.current = true;
+            reloadAssets();
+          }}
         />
       ) : null}
     </SidebarProvider>

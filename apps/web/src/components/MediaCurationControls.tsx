@@ -7,9 +7,9 @@ interface MediaScoreControlProps {
   disabled?: boolean;
   mediaName: string;
   orientation?: "horizontal" | "vertical";
-  score: number | null;
+  score: number;
   size?: "sm" | "md";
-  onChange: (score: number | null) => void;
+  onChange: (score: number) => void;
 }
 
 export function MediaScoreControl({
@@ -20,7 +20,7 @@ export function MediaScoreControl({
   size = "sm",
   onChange
 }: MediaScoreControlProps) {
-  const value = score ?? 0;
+  const value = score;
   const isVertical = orientation === "vertical";
   const isMedium = size === "md";
   const [previewValue, setPreviewValue] = useState<number | undefined>();
@@ -42,7 +42,7 @@ export function MediaScoreControl({
       return;
     }
 
-    onChange(next === 0 ? null : next);
+    onChange(next);
   }
 
   const increasePress = usePressRepeat({
@@ -53,7 +53,7 @@ export function MediaScoreControl({
   });
   const decreasePress = usePressRepeat({
     disabled: disabled || value === 0,
-    onPress: () => onChange(value === 1 ? null : value - 1),
+    onPress: () => onChange(value - 1),
     onRepeat: () => changePreview(-1),
     onRepeatEnd: commitPreview
   });

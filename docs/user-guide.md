@@ -1,5 +1,7 @@
 # User Guide
 
+The same concise guide is available inside Aether from **User guide** in the sidebar.
+
 ## First Run
 
 1. Sign in with the configured password.
@@ -7,13 +9,13 @@
 3. Press the scan button to index the configured media folders.
 4. Browse from the folder tree or use search and filters from the top toolbar.
 
-Aether reads source media in place. It stores library metadata, ratings, favorites, and tags in SQLite under the configured config directory.
+Aether reads source media in place. It stores library metadata, scores, favorites, and tags in SQLite under the configured config directory.
 
 ## Browsing
 
 The sidebar mirrors the configured folder roots. Folders can be expanded, collapsed, and selected without changing the original folder structure.
 
-The gallery view is the default browser. Use it when you want to scan many items quickly. Controls let you choose the sort field and direction, grid density, tile aspect ratio, visible card metadata, media type, rating state, and tag filters.
+The gallery view is the default browser. Use it when you want to scan many items quickly. Controls let you choose the sort field and direction, grid density, tile aspect ratio, visible card metadata, media type, score state, and tag filters.
 
 The feed view shows one item at a time in a vertical scroll flow. It uses the same filtered collection as the gallery, so search and filters carry across both views. Static images appear immediately from a cached thumbnail, then crossfade to the original after the browser finishes decoding it. If the original format cannot be displayed, the thumbnail remains available as the fallback.
 
@@ -29,9 +31,11 @@ Feed videos try the authenticated original stream first. If the browser cannot d
 
 ## Scores, Favorites, And Tags
 
-Aether stores a non-negative media score with no upper limit. On a gallery card, use the up-arrow button to increase its score. Hover or focus the score control to reveal the decrement action; reducing a score from one clears it back to zero.
+Aether stores a non-negative media score without a fixed scale such as 1–5 or 1–10. Every item starts at zero, which means unranked. On a gallery card, use the up-arrow button to increase its score. Hover or focus the score control to reveal the decrement action. The Ranked filter includes values above zero; Unranked includes zero.
 
-Pairwise choices are fitted into a relative score using the active comparison graph. The comparison workspace gives priority to items with less evidence and to close matchups, so rankings improve without requiring every possible pair. Direct score adjustments are retained as a separate manual offset.
+Pairwise choices are fitted into a relative score using the active comparison graph. The comparison workspace gives priority to items with less evidence and to close matchups, so rankings improve without requiring every possible pair. Direct score changes are retained as a separate manual adjustment.
+
+For a ranked item, open media details to see its comparison score, manual adjustment, and final score. **Use comparison score** removes the manual adjustment without changing pairwise choices. **Reset comparisons** removes every active pair involving that item after confirmation, preserves its manual score, and recalculates related media.
 
 Favorites are stored separately from score. Use them for quick filtering regardless of score.
 
@@ -51,6 +55,8 @@ Downloads use authenticated asset routes. The browser never receives the source 
 
 ## Settings
 
-Open Settings from the sidebar to adjust browser-local appearance preferences and browsing defaults such as view mode, sort field, sort direction, grid size, tile aspect ratio, visible card information, media filter, and rating filter. These controls use the same state as the gallery toolbar, so changes take effect immediately.
+Open Settings from the sidebar to adjust browser-local appearance preferences and browsing defaults such as view mode, sort field, sort direction, grid size, tile aspect ratio, visible card information, media filter, and score filter. These controls use the same state as the gallery toolbar, so changes take effect immediately.
 
 Settings also shows read-only server, security, watcher, media root, and AI status. Sensitive values such as password hashes, session secrets, absolute paths, config directories, and cache directories are not sent to the browser.
+
+The **Database** tab can selectively reset scores, favorites, tags, or comparison history. Nothing is selected by default. Review the descriptions carefully, confirm the selected categories, and type `RESET` before the transaction runs. These actions do not delete source media, indexed assets, folders, accounts, server configuration, thumbnails, posters, or preview clips.

@@ -15,13 +15,13 @@ export const AssetListQuery = z.object({
   offset: z.coerce.number().int().min(0).default(0),
   limit: z.coerce.number().int().min(1).max(250).default(80),
   sort: z
-    .enum(["date", "filename", "rating", "random", "newest", "oldest"])
+    .enum(["date", "filename", "score", "random", "newest", "oldest"])
     .default("date"),
   order: z.enum(["desc", "asc"]).optional(),
   type: z.enum(["all", "image", "video"]).default("all"),
   search: z.string().max(128).default(""),
   tag: TagListQuery,
-  rating: z.enum(["all", "favorites", "rated", "unrated"]).default("all"),
+  score: z.enum(["all", "favorites", "ranked", "unranked"]).default("all"),
   recursive: z
     .enum(["true", "false"])
     .optional()
@@ -44,7 +44,7 @@ export const ComparisonPairQuery = AssetListQuery.pick({
   type: true,
   search: true,
   tag: true,
-  rating: true,
+  score: true,
   recursive: true
 }).extend({
   exclude: z.preprocess(
@@ -85,12 +85,12 @@ export const VideoPreviewQuery = z.object({
   duration: z.coerce.number().int().min(1).max(8).default(4)
 });
 
-export const RatingBody = z
+export const ScoreBody = z
   .object({
-    rating: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).nullable().optional(),
+    score: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
     favorite: z.boolean().optional()
   })
-  .refine((data) => data.rating !== undefined || data.favorite !== undefined);
+  .refine((data) => data.score !== undefined || data.favorite !== undefined);
 
 export const TagsBody = z.object({
   tags: z.array(z.string()).max(50)
@@ -98,13 +98,25 @@ export const TagsBody = z.object({
 
 const BatchAssetIds = z.array(z.string().min(1).max(256)).min(1).max(500);
 
-export const BatchRatingBody = z
+export const BatchScoreBody = z
   .object({
     assetIds: BatchAssetIds,
-    rating: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).nullable().optional(),
+    score: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
     favorite: z.boolean().optional()
   })
-  .refine((data) => data.rating !== undefined || data.favorite !== undefined);
+  .refine((data) => data.score !== undefined || data.favorite !== undefined);
+
+export const LibraryDataResetBody = z
+  .object({
+    confirmation: z.literal("RESET"),
+    scores: z.boolean().default(false),
+    favorites: z.boolean().default(false),
+    tags: z.boolean().default(false),
+    comparisons: z.boolean().default(false)
+  })
+  .refine(
+    (data) => data.scores || data.favorites || data.tags || data.comparisons
+  );
 
 export const BatchTagsBody = z
   .object({

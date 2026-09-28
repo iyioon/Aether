@@ -45,13 +45,17 @@ The web app is organized around reusable UI surfaces:
 
 ## Data Storage
 
-SQLite stores indexed folders, assets, derivatives, tags, ratings, pairwise ranking history, sessions, login attempts, and search text. Source media remains in the configured folders and is not copied into the database.
+SQLite stores indexed folders, assets, derivatives, tags, scores, pairwise ranking history, sessions, login attempts, and search text. Source media remains in the configured folders and is not copied into the database.
 
 ## Pairwise Ranking
 
 Ranking uses a regularized Bradley–Terry model over the current winner for each unordered asset pair. Every choice and undo is appended to `comparison_events`, while `pair_preferences` materializes the active decision for efficient refitting. Changing a choice replaces that pair's active preference instead of counting both opinions; undo restores its previous decision.
 
-`asset_rankings` stores fitted skill, a display score, comparison coverage, and a manual adjustment. Direct score edits therefore remain separate from the statistical projection. Pair selection favors under-compared assets and similarly skilled opponents, avoids the immediately previous pair when possible, and reserves some random exploration to prevent a narrow comparison loop.
+`asset_annotations.manual_score` stores the directly selected value and defaults to zero. `asset_rankings` stores fitted skill, `comparison_score`, comparison coverage, and `manual_adjustment`. For ranked media, `final_score = max(0, comparison_score + manual_adjustment)`; otherwise, the final score is the manual score, with a missing annotation row also resolving to zero. Zero is the single unranked state; positive values are ranked. When an item first enters ranking, an existing positive score is converted into an adjustment so its displayed value does not jump. Later direct edits update that adjustment and survive ranking changes or a complete undo. Pair selection favors under-compared assets and similarly skilled opponents, avoids the immediately previous pair when possible, and reserves some random exploration to prevent a narrow comparison loop.
+
+Removing a manual adjustment sets it and the stored manual score to zero while retaining the active comparison graph. Resetting an item's comparisons removes its active `pair_preferences`, retains the append-only decision events for history, and refits the remaining graph. The item's manual score remains available after its comparison projection is removed.
+
+Selective database resets run in one SQLite transaction. Scores reset `manual_score` and ranking adjustments, favorites clear their annotation flag, tags remove assignments and saved tag records, and comparison resets remove preferences, events, and derived rankings. Unselected categories and indexed asset records are left unchanged.
 
 The cache directory stores generated derivatives. It can be rebuilt from source media, but keeping it improves startup and browsing performance after a reinstall.
 

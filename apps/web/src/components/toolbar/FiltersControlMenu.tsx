@@ -2,7 +2,7 @@ import { useRef } from "react";
 import { Plus, SlidersHorizontal, Tags, X } from "lucide-react";
 import type {
   MediaTypeFilter,
-  RatingFilter,
+  ScoreFilter,
   TagRecord
 } from "../../api/client";
 import { Button } from "../ui/button";
@@ -17,7 +17,7 @@ import {
 import { ToolbarMenu } from "./ToolbarMenu";
 import {
   mediaFilters,
-  ratingFilters
+  scoreFilters
 } from "./library-control-options";
 
 interface FiltersControlMenuProps {
@@ -26,8 +26,8 @@ interface FiltersControlMenuProps {
   isOpen: boolean;
   mediaType: MediaTypeFilter;
   mediaTypeLabel: string;
-  ratingFilter: RatingFilter;
-  ratingFilterLabel: string;
+  scoreFilter: ScoreFilter;
+  scoreFilterLabel: string;
   tagFilters: string[];
   tagFilterDraft: string;
   onAddTagFilter: (tagName: string) => void;
@@ -35,7 +35,7 @@ interface FiltersControlMenuProps {
   onOpenChange: (isOpen: boolean) => void;
   onSetMediaType: (mediaType: MediaTypeFilter) => void;
   onRemoveTagFilter: (tagName: string) => void;
-  onSetRatingFilter: (ratingFilter: RatingFilter) => void;
+  onSetScoreFilter: (scoreFilter: ScoreFilter) => void;
   onSetTagFilterDraft: (value: string) => void;
 }
 
@@ -45,8 +45,8 @@ export function FiltersControlMenu({
   isOpen,
   mediaType,
   mediaTypeLabel,
-  ratingFilter,
-  ratingFilterLabel,
+  scoreFilter,
+  scoreFilterLabel,
   tagFilters,
   tagFilterDraft,
   onAddTagFilter,
@@ -54,7 +54,7 @@ export function FiltersControlMenu({
   onOpenChange,
   onSetMediaType,
   onRemoveTagFilter,
-  onSetRatingFilter,
+  onSetScoreFilter,
   onSetTagFilterDraft
 }: FiltersControlMenuProps) {
   const tagInputRef = useRef<HTMLInputElement>(null);
@@ -117,23 +117,23 @@ export function FiltersControlMenu({
 
       <div className="mt-5 grid gap-3 border-t pt-4">
         <div className="flex items-center justify-between gap-3">
-          <Label>Rating</Label>
-          <small className="text-muted-foreground">{ratingFilterLabel}</small>
+          <Label>Score</Label>
+          <small className="text-muted-foreground">{scoreFilterLabel}</small>
         </div>
         <RadioGroup
           className="gap-3"
-          aria-label="Rating filters"
-          value={ratingFilter}
+          aria-label="Score filters"
+          value={scoreFilter}
           onValueChange={(value) =>
-            onSetRatingFilter(value as RatingFilter)
+            onSetScoreFilter(value as ScoreFilter)
           }
         >
-          {ratingFilters.map((filter) => {
+          {scoreFilters.map((filter) => {
             const Icon = filter.icon;
             return (
               <div className="flex items-center gap-3" key={filter.value}>
-                <RadioGroupItem id={`rating-${filter.value}`} value={filter.value} />
-                <Label className="flex items-center gap-2" htmlFor={`rating-${filter.value}`}>
+                <RadioGroupItem id={`score-${filter.value}`} value={filter.value} />
+                <Label className="flex items-center gap-2" htmlFor={`score-${filter.value}`}>
                   <Icon className="size-4" />
                   {filter.label}
                 </Label>

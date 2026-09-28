@@ -26,6 +26,7 @@ import { Separator } from "../ui/separator";
 import { SidebarTrigger } from "../ui/sidebar";
 
 interface LibraryPathBarProps {
+  isGuideOpen: boolean;
   isSettingsOpen: boolean;
   controls?: ReactNode;
   searchDraft: string;
@@ -44,6 +45,7 @@ interface PathSegment {
 }
 
 export function LibraryPathBar({
+  isGuideOpen,
   isSettingsOpen,
   controls,
   searchDraft,
@@ -93,7 +95,7 @@ export function LibraryPathBar({
         <Separator className="library-path-separator" orientation="vertical" />
         <Breadcrumb>
         <BreadcrumbList className="flex-nowrap overflow-hidden">
-          {isSettingsOpen ? (
+          {isSettingsOpen || isGuideOpen ? (
             <>
               <BreadcrumbItem>
                 <BreadcrumbLink asChild>
@@ -104,7 +106,9 @@ export function LibraryPathBar({
               </BreadcrumbItem>
               <BreadcrumbSeparator />
               <BreadcrumbItem>
-                <BreadcrumbPage>Settings</BreadcrumbPage>
+                <BreadcrumbPage>
+                  {isSettingsOpen ? "Settings" : "User guide"}
+                </BreadcrumbPage>
               </BreadcrumbItem>
             </>
           ) : path.length ? (
@@ -142,7 +146,7 @@ export function LibraryPathBar({
         </BreadcrumbList>
         </Breadcrumb>
       </div>
-      {!isSettingsOpen ? (
+      {!isSettingsOpen && !isGuideOpen ? (
         <div className="library-path-actions">
           <div className="topbar-search">
             <Search aria-hidden="true" />

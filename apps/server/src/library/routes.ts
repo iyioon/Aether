@@ -9,6 +9,7 @@ import {
 } from "./ai-tag-suggestions.js";
 import {
   ComparisonConflictError,
+  clearAssetManualAdjustment,
   folderIdFor,
   getAsset,
   getAssetTags,
@@ -17,10 +18,12 @@ import {
   listAssets,
   listFolders,
   recordComparisonDecision,
+  resetLibraryData,
+  resetAssetComparisons,
   setAssetTags,
   suggestTags,
-  updateAssetRating,
-  updateAssetRatingsBatch,
+  updateAssetScore,
+  updateAssetScoresBatch,
   updateAssetTagsBatch,
   undoComparisonDecision
 } from "./repository.js";
@@ -52,13 +55,14 @@ import {
   AssetListQuery,
   AssetParams,
   AssetTagSuggestionQuery,
-  BatchRatingBody,
+  BatchScoreBody,
   BatchTagsBody,
   ComparisonDecisionBody,
   ComparisonEventParams,
   ComparisonPairQuery,
   FolderParams,
-  RatingBody,
+  LibraryDataResetBody,
+  ScoreBody,
   TagSuggestionQuery,
   TagsBody,
   ThumbnailQuery,
@@ -120,7 +124,7 @@ export async function registerLibraryRoutes(
       recursive: query.data.recursive,
       search: query.data.search,
       tags: query.data.tag,
-      ratingFilter: query.data.rating
+      scoreFilter: query.data.score
     });
 
     if (!result) {
@@ -136,7 +140,7 @@ export async function registerLibraryRoutes(
       recursive: query.data.recursive,
       search: query.data.search,
       tags: query.data.tag,
-      rating: query.data.rating
+      score: query.data.score
     };
   });
 
@@ -170,7 +174,7 @@ export async function registerLibraryRoutes(
       recursive: query.data.recursive,
       search: query.data.search,
       tags: query.data.tag,
-      ratingFilter: query.data.rating,
+      scoreFilter: query.data.score,
       excludeAssetIds: query.data.exclude
     });
 
@@ -344,17 +348,17 @@ export async function registerLibraryRoutes(
     }
   });
 
-  app.patch("/api/assets/:assetId/rating", async (request, reply) => {
+  app.patch("/api/assets/:assetId/score", async (request, reply) => {
     const params = AssetParams.safeParse(request.params);
-    const body = RatingBody.safeParse(request.body);
+    const body = ScoreBody.safeParse(request.body);
 
     if (!params.success || !body.success) {
       return reply.code(400).send({ error: "invalid_request" });
     }
 
-    const asset = updateAssetRating(db, {
+    const asset = updateAssetScore(db, {
       assetId: params.data.assetId,
-      rating: body.data.rating,
+      score: body.data.score,
       favorite: body.data.favorite,
       updatedAt: new Date().toISOString()
     });
@@ -366,16 +370,62 @@ export async function registerLibraryRoutes(
     return { asset };
   });
 
-  app.patch("/api/assets/batch/ratings", async (request, reply) => {
-    const body = BatchRatingBody.safeParse(request.body);
+  app.delete(
+    "/api/assets/:assetId/score/manual-adjustment",
+    async (request, reply) => {
+      const params = AssetParams.safeParse(request.params);
+
+      if (!params.success) {
+        return reply.code(400).send({ error: "invalid_request" });
+      }
+
+      const asset = clearAssetManualAdjustment(
+        db,
+        params.data.assetId,
+        new Date().toISOString()
+      );
+
+      if (!asset) {
+        return reply.code(404).send({ error: "asset_not_indexed" });
+      }
+
+      return { asset };
+    }
+  );
+
+  app.delete("/api/assets/:assetId/comparisons", async (request, reply) => {
+    const params = AssetParams.safeParse(request.params);
+
+    if (!params.success) {
+      return reply.code(400).send({ error: "invalid_request" });
+    }
+
+    const result = resetAssetComparisons(
+      db,
+      params.data.assetId,
+      new Date().toISOString()
+    );
+
+    if (!result) {
+      return reply.code(404).send({ error: "asset_not_indexed" });
+    }
+
+    return {
+      asset: getAsset(db, params.data.assetId),
+      removedComparisons: result.removedComparisonCount
+    };
+  });
+
+  app.patch("/api/assets/batch/scores", async (request, reply) => {
+    const body = BatchScoreBody.safeParse(request.body);
 
     if (!body.success) {
       return reply.code(400).send({ error: "invalid_request" });
     }
 
-    const result = updateAssetRatingsBatch(db, {
+    const result = updateAssetScoresBatch(db, {
       assetIds: body.data.assetIds,
-      rating: body.data.rating,
+      score: body.data.score,
       favorite: body.data.favorite,
       updatedAt: new Date().toISOString()
     });
@@ -596,13 +646,23 @@ export async function registerLibraryRoutes(
       timeoutMs: config.aiTimeoutMs
     }
   }));
+
+  app.post("/api/admin/database/reset", async (request, reply) => {
+    const body = LibraryDataResetBody.safeParse(request.body);
+
+    if (!body.success) {
+      return reply.code(400).send({ error: "invalid_request" });
+    }
+
+    return resetLibraryData(db, body.data, new Date().toISOString());
+  });
 }
 
 function normalizeAssetSort(
-  mode: "date" | "filename" | "rating" | "random" | "newest" | "oldest",
+  mode: "date" | "filename" | "score" | "random" | "newest" | "oldest",
   direction: "desc" | "asc" | undefined
 ): {
-  mode: "date" | "filename" | "rating" | "random";
+  mode: "date" | "filename" | "score" | "random";
   direction: "desc" | "asc";
 } {
   if (mode === "newest") {
@@ -617,7 +677,7 @@ function normalizeAssetSort(
 }
 
 function defaultAssetSortDirection(
-  mode: "date" | "filename" | "rating" | "random"
+  mode: "date" | "filename" | "score" | "random"
 ): "desc" | "asc" {
   return mode === "filename" ? "asc" : "desc";
 }

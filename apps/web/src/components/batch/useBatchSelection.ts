@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  updateAssetRatingsBatch,
+  updateAssetScoresBatch,
   updateAssetTagsBatch,
   type AssetRecord
 } from "../../api/client";
 import {
   batchActionErrorMessage,
-  batchRatingStatus,
+  batchScoreStatus,
   batchTagStatus
 } from "../app/app-helpers";
 import { uniqueTagNames } from "../tags/tag-utils";
@@ -15,7 +15,7 @@ import { useTagSuggestions } from "../tags/useTagSuggestions";
 interface UseBatchSelectionOptions {
   assets: AssetRecord[];
   listQueryKey: string;
-  shouldReloadAfterRatingChange: boolean;
+  shouldReloadAfterScoreChange: boolean;
   onAssetsUpdated: (assets: AssetRecord[]) => void;
   onReloadAssets: () => void;
 }
@@ -23,7 +23,7 @@ interface UseBatchSelectionOptions {
 export function useBatchSelection({
   assets,
   listQueryKey,
-  shouldReloadAfterRatingChange,
+  shouldReloadAfterScoreChange,
   onAssetsUpdated,
   onReloadAssets
 }: UseBatchSelectionOptions) {
@@ -102,8 +102,8 @@ export function useBatchSelection({
     setBatchTagDraft("");
   }
 
-  async function saveBatchRating(input: {
-    rating?: number | null;
+  async function saveBatchScore(input: {
+    score?: number;
     favorite?: boolean;
   }) {
     if (selectedAssetIdList.length === 0) {
@@ -115,11 +115,11 @@ export function useBatchSelection({
     setBatchStatus(null);
 
     try {
-      const response = await updateAssetRatingsBatch(selectedAssetIdList, input);
+      const response = await updateAssetScoresBatch(selectedAssetIdList, input);
       onAssetsUpdated(response.assets);
-      setBatchStatus(batchRatingStatus(response.updated));
+      setBatchStatus(batchScoreStatus(response.updated));
 
-      if (shouldReloadAfterRatingChange) {
+      if (shouldReloadAfterScoreChange) {
         onReloadAssets();
       }
     } catch (caught) {
@@ -166,7 +166,7 @@ export function useBatchSelection({
     clearSelectedAssets,
     isSelectionMode,
     isSavingBatch,
-    saveBatchRating,
+    saveBatchScore,
     saveBatchTags,
     selectLoadedAssets,
     selectedAssetCount,

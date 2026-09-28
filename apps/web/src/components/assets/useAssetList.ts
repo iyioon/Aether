@@ -4,7 +4,7 @@ import {
   getAssets,
   type AssetRecord,
   type MediaTypeFilter,
-  type RatingFilter,
+  type ScoreFilter,
   type SortDirection,
   type SortMode,
   type TagRecord,
@@ -20,7 +20,7 @@ const ASSET_PAGE_LIMIT = 80;
 interface UseAssetListOptions {
   folderId: string | null;
   mediaType: MediaTypeFilter;
-  ratingFilter: RatingFilter;
+  scoreFilter: ScoreFilter;
   search: string;
   sort: SortMode;
   sortDirection: SortDirection;
@@ -31,7 +31,7 @@ interface UseAssetListOptions {
 export function useAssetList({
   folderId,
   mediaType,
-  ratingFilter,
+  scoreFilter,
   search,
   sort,
   sortDirection,
@@ -56,9 +56,9 @@ export function useAssetList({
         mediaType,
         search,
         tagFilters,
-        ratingFilter
+        scoreFilter
       }),
-    [folderId, sort, sortDirection, mediaType, search, tagFilters, ratingFilter]
+    [folderId, sort, sortDirection, mediaType, search, tagFilters, scoreFilter]
   );
   const listQueryKeyRef = useRef(listQueryKey);
   const hasMoreAssets = assets.length < totalAssets;
@@ -92,7 +92,7 @@ export function useAssetList({
       recursive: true,
       search,
       tags: tagFilters,
-      rating: ratingFilter
+      score: scoreFilter
     })
       .then((response) => {
         if (active) {
@@ -125,7 +125,7 @@ export function useAssetList({
     mediaType,
     search,
     tagFilters,
-    ratingFilter,
+    scoreFilter,
     assetReloadToken
   ]);
 
@@ -181,7 +181,7 @@ export function useAssetList({
         recursive: true,
         search,
         tags: tagFilters,
-        rating: ratingFilter
+        score: scoreFilter
       });
 
       if (listQueryKeyRef.current !== requestQueryKey) {
@@ -211,7 +211,7 @@ export function useAssetList({
     isLoadingMore,
     listQueryKey,
     mediaType,
-    ratingFilter,
+    scoreFilter,
     search,
     sort,
     sortDirection,

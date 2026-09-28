@@ -15,18 +15,18 @@ export function setsEqual<T>(left: ReadonlySet<T>, right: ReadonlySet<T>): boole
   return true;
 }
 
-export function optimisticRatingAsset(
+export function optimisticScoreAsset(
   asset: AssetRecord,
-  input: { rating?: number | null; favorite?: boolean }
+  input: { score?: number; favorite?: boolean }
 ): AssetRecord {
   return {
     ...asset,
     favorite: input.favorite ?? asset.favorite,
-    rating: input.rating === undefined ? asset.rating : input.rating
+    score: input.score === undefined ? asset.score : input.score
   };
 }
 
-export function ratingActionErrorMessage(caught: unknown): string {
+export function scoreActionErrorMessage(caught: unknown): string {
   if (!(caught instanceof ApiError)) {
     return "Unable to update media.";
   }
@@ -35,7 +35,7 @@ export function ratingActionErrorMessage(caught: unknown): string {
     case "asset_not_indexed":
       return "This media is no longer indexed.";
     case "invalid_request":
-      return "Rating request was invalid.";
+      return "Score request was invalid.";
     default:
       return "Unable to update media.";
   }
@@ -79,7 +79,7 @@ export function batchTagStatus(
   return `${tagLabel} added to ${updatedCount} ${mediaLabel}.`;
 }
 
-export function batchRatingStatus(updatedCount: number): string {
+export function batchScoreStatus(updatedCount: number): string {
   return `${updatedCount} ${selectedMediaLabel(updatedCount)} updated.`;
 }
 

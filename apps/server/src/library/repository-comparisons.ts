@@ -14,8 +14,8 @@ import { assetSearchQuery } from "./search-text.js";
 const REGULARIZATION = 1;
 const FIT_ITERATIONS = 80;
 const FIT_DAMPING = 0.55;
-const EFFECTIVE_RATING_SQL =
-  "CASE WHEN ar.asset_id IS NOT NULL THEN MAX(0, ar.score + ar.manual_offset) ELSE r.rating END";
+const FINAL_SCORE_SQL =
+  "CASE WHEN ar.asset_id IS NOT NULL THEN MAX(0, ar.comparison_score + ar.manual_adjustment) ELSE COALESCE(aa.manual_score, 0) END";
 
 interface ComparisonCandidateRow {
   id: string;
@@ -63,7 +63,7 @@ export function getNextComparisonPair(
         ar.skill,
         ar.comparison_count
       FROM assets a
-      LEFT JOIN ratings r ON r.asset_id = a.id
+      LEFT JOIN asset_annotations aa ON aa.asset_id = a.id
       LEFT JOIN asset_rankings ar ON ar.asset_id = a.id
       WHERE ${filters.join(" AND ")}`
     )
@@ -278,6 +278,41 @@ export function undoComparisonDecision(
   };
 }
 
+export function resetAssetComparisons(
+  db: AetherDatabase,
+  assetId: string,
+  updatedAt: string
+): { removedComparisonCount: number } | null {
+  if (!assetsExist(db, [assetId])) {
+    return null;
+  }
+
+  const removedComparisonCount = (
+    db
+      .prepare(
+        `SELECT COUNT(*) AS total
+         FROM pair_preferences
+         WHERE asset_low_id = ? OR asset_high_id = ?`
+      )
+      .get(assetId, assetId) as { total: number }
+  ).total;
+
+  if (removedComparisonCount === 0) {
+    return { removedComparisonCount };
+  }
+
+  const transaction = db.transaction(() => {
+    db.prepare(
+      `DELETE FROM pair_preferences
+       WHERE asset_low_id = ? OR asset_high_id = ?`
+    ).run(assetId, assetId);
+    recomputeRankings(db, updatedAt);
+  });
+
+  transaction();
+  return { removedComparisonCount };
+}
+
 function recomputeRankings(db: AetherDatabase, updatedAt: string): void {
   const preferences = db
     .prepare(
@@ -360,31 +395,46 @@ function recomputeRankings(db: AetherDatabase, updatedAt: string): void {
     }
   }
 
-  const existingOffsets = new Map(
+  const existingAdjustments = new Map(
     (
       db
-        .prepare("SELECT asset_id, manual_offset FROM asset_rankings")
-        .all() as Array<{ asset_id: string; manual_offset: number }>
-    ).map((row) => [row.asset_id, row.manual_offset])
+        .prepare("SELECT asset_id, manual_adjustment FROM asset_rankings")
+        .all() as Array<{ asset_id: string; manual_adjustment: number }>
+    ).map((row) => [row.asset_id, row.manual_adjustment])
+  );
+  const storedManualScores = new Map(
+    (
+      db
+        .prepare(
+          "SELECT asset_id, manual_score FROM asset_annotations WHERE manual_score > 0"
+        )
+        .all() as Array<{ asset_id: string; manual_score: number }>
+    ).map((row) => [row.asset_id, row.manual_score])
   );
   const upsert = db.prepare(`
     INSERT INTO asset_rankings
-      (asset_id, skill, score, manual_offset, comparison_count, updated_at)
+      (asset_id, skill, comparison_score, manual_adjustment, comparison_count, updated_at)
     VALUES
-      (@assetId, @skill, @score, @manualOffset, @comparisonCount, @updatedAt)
+      (@assetId, @skill, @comparisonScore, @manualAdjustment, @comparisonCount, @updatedAt)
     ON CONFLICT(asset_id) DO UPDATE SET
       skill = excluded.skill,
-      score = excluded.score,
+      comparison_score = excluded.comparison_score,
       comparison_count = excluded.comparison_count,
       updated_at = excluded.updated_at
   `);
 
   for (const [assetId, skill] of skills) {
+    const comparisonScore = Math.round(logistic(skill) * 100);
+    const storedManualScore = storedManualScores.get(assetId);
     upsert.run({
       assetId,
       skill,
-      score: Math.round(logistic(skill) * 100),
-      manualOffset: existingOffsets.get(assetId) ?? 0,
+      comparisonScore,
+      manualAdjustment:
+        existingAdjustments.get(assetId) ??
+        (storedManualScore === undefined
+          ? 0
+          : storedManualScore - comparisonScore),
       comparisonCount: comparisonCounts.get(assetId) ?? 0,
       updatedAt
     });
@@ -448,15 +498,15 @@ function comparisonFilters(
       );
     });
 
-  switch (options.ratingFilter ?? "all") {
+  switch (options.scoreFilter ?? "all") {
     case "favorites":
-      filters.push("COALESCE(r.favorite, 0) = 1");
+      filters.push("COALESCE(aa.favorite, 0) = 1");
       break;
-    case "rated":
-      filters.push(`${EFFECTIVE_RATING_SQL} IS NOT NULL`);
+    case "ranked":
+      filters.push(`${FINAL_SCORE_SQL} > 0`);
       break;
-    case "unrated":
-      filters.push(`${EFFECTIVE_RATING_SQL} IS NULL`);
+    case "unranked":
+      filters.push(`${FINAL_SCORE_SQL} = 0`);
       break;
     default:
       break;

@@ -24,7 +24,7 @@ export interface AssetRecord {
   codec: string | null;
   status: string;
   error: string | null;
-  rating: number | null;
+  score: number;
   ranking: AssetRankingRecord | null;
   favorite: boolean;
   tags: TagRecord[];
@@ -32,7 +32,8 @@ export interface AssetRecord {
 
 export interface AssetRankingRecord {
   skill: number;
-  score: number;
+  comparisonScore: number;
+  manualAdjustment: number;
   comparisonCount: number;
 }
 
@@ -83,21 +84,21 @@ export interface TagRecord {
   usageCount: number;
 }
 
-export interface RatingUpdateInput {
+export interface ScoreUpdateInput {
   assetId: string;
-  rating?: number | null;
+  score?: number;
   favorite?: boolean;
   updatedAt: string;
 }
 
-export interface BatchRatingUpdateInput {
+export interface BatchScoreUpdateInput {
   assetIds: string[];
-  rating?: number | null;
+  score?: number;
   favorite?: boolean;
   updatedAt: string;
 }
 
-export interface BatchRatingUpdateResult {
+export interface BatchScoreUpdateResult {
   assets: AssetRecord[];
   updated: number;
 }
@@ -126,13 +127,13 @@ export interface AssetListOptions {
   folderId: string;
   offset: number;
   limit: number;
-  sort: "date" | "filename" | "rating" | "random";
+  sort: "date" | "filename" | "score" | "random";
   sortDirection?: "desc" | "asc";
   type: "all" | MediaType;
   recursive: boolean;
   search?: string;
   tags?: string[];
-  ratingFilter?: "all" | "favorites" | "rated" | "unrated";
+  scoreFilter?: "all" | "favorites" | "ranked" | "unranked";
 }
 
 export interface UpsertFolderInput {
@@ -184,9 +185,10 @@ export interface AssetRow {
   codec: string | null;
   status: string;
   error: string | null;
-  rating: number | null;
+  final_score: number;
   ranking_skill: number | null;
-  ranking_score: number | null;
+  ranking_comparison_score: number | null;
+  ranking_manual_adjustment: number | null;
   ranking_comparison_count: number | null;
   favorite: number;
 }

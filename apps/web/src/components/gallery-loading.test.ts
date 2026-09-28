@@ -60,7 +60,7 @@ describe("gallery loading helpers", () => {
       mediaType: "all",
       search: "",
       tagFilters: [],
-      ratingFilter: "all"
+      scoreFilter: "all"
     });
 
     const filteredKey = buildAssetListQueryKey({
@@ -70,7 +70,7 @@ describe("gallery loading helpers", () => {
       mediaType: "image",
       search: "sky",
       tagFilters: ["travel", "family"],
-      ratingFilter: "favorites"
+      scoreFilter: "favorites"
     });
 
     expect(filteredKey).not.toBe(baseKey);

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   feedKeyboardCommand,
   hasShortcutModifier,
-  ratingAfterKeyboardAdjustment,
+  scoreAfterKeyboardAdjustment,
   viewerKeyboardCommand
 } from "./keyboard";
 
@@ -16,8 +16,8 @@ describe("keyboard commands", () => {
   });
 
   it("maps viewer navigation and media controls case-insensitively", () => {
-    expect(viewerKeyboardCommand("ArrowUp")).toBe("increase-rating");
-    expect(viewerKeyboardCommand("ArrowDown")).toBe("decrease-rating");
+    expect(viewerKeyboardCommand("ArrowUp")).toBe("increase-score");
+    expect(viewerKeyboardCommand("ArrowDown")).toBe("decrease-score");
     expect(viewerKeyboardCommand("ArrowLeft")).toBe("previous");
     expect(viewerKeyboardCommand("ArrowRight")).toBe("next");
     expect(viewerKeyboardCommand(" ")).toBe("toggle-playback");
@@ -27,12 +27,12 @@ describe("keyboard commands", () => {
     expect(viewerKeyboardCommand("Escape")).toBeNull();
   });
 
-  it("adjusts keyboard ratings using the same zero-as-unrated behavior", () => {
-    expect(ratingAfterKeyboardAdjustment(null, 1)).toBe(1);
-    expect(ratingAfterKeyboardAdjustment(4, 1)).toBe(5);
-    expect(ratingAfterKeyboardAdjustment(4, -1)).toBe(3);
-    expect(ratingAfterKeyboardAdjustment(1, -1)).toBeNull();
-    expect(ratingAfterKeyboardAdjustment(null, -1)).toBeNull();
+  it("adjusts keyboard scores while keeping zero as the floor", () => {
+    expect(scoreAfterKeyboardAdjustment(0, 1)).toBe(1);
+    expect(scoreAfterKeyboardAdjustment(4, 1)).toBe(5);
+    expect(scoreAfterKeyboardAdjustment(4, -1)).toBe(3);
+    expect(scoreAfterKeyboardAdjustment(1, -1)).toBe(0);
+    expect(scoreAfterKeyboardAdjustment(0, -1)).toBe(0);
   });
 
   it("recognizes command modifiers without treating Shift as a blocker", () => {

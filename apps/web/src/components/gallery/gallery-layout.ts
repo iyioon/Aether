@@ -133,7 +133,7 @@ export function galleryTileChromeHeight(
   const hasTitle = fields.has("title");
   const hasSecondaryMetadata = fields.has("mediaType") || fields.has("size");
   const hasCuration =
-    fields.has("rating") ||
+    fields.has("score") ||
     fields.has("favorite") ||
     (fields.has("tags") && (asset === undefined || asset.tags.length > 0));
   const visibleSectionCount = [hasTitle, hasSecondaryMetadata, hasCuration]

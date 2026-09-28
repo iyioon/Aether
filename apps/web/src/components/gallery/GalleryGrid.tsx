@@ -53,13 +53,13 @@ interface GalleryGridProps {
   measuredAspectRatios: Record<string, string>;
   scrollContextKey: string;
   syncedAssetId: string | null;
-  savingRatingAssetIds: ReadonlySet<string>;
+  savingScoreAssetIds: ReadonlySet<string>;
   selectedAssetIds: ReadonlySet<string>;
   onLoadMore: () => void;
   onActiveAssetChange: (assetId: string) => void;
   onFavoriteAsset: (asset: AssetRecord, favorite: boolean) => void;
   onMediaDimensionsKnown: (assetId: string, width: number, height: number) => void;
-  onScoreAsset: (asset: AssetRecord, score: number | null) => void;
+  onScoreAsset: (asset: AssetRecord, score: number) => void;
   onSelectAsset: (assetId: string) => void;
   onToggleSelection: (assetId: string) => void;
 }
@@ -78,7 +78,7 @@ export function GalleryGrid({
   measuredAspectRatios,
   scrollContextKey,
   syncedAssetId,
-  savingRatingAssetIds,
+  savingScoreAssetIds,
   selectedAssetIds,
   onLoadMore,
   onActiveAssetChange,
@@ -668,7 +668,7 @@ export function GalleryGrid({
   const skeletonHasSecondaryMetadata =
     metadataFields.has("mediaType") || metadataFields.has("size");
   const skeletonHasCuration =
-    metadataFields.has("rating") ||
+    metadataFields.has("score") ||
     metadataFields.has("favorite") ||
     metadataFields.has("tags");
   const storedSkeletonPosition = showInitialSkeletonLayer
@@ -883,16 +883,16 @@ export function GalleryGrid({
                     : 0;
                   const hasTitle = metadataFields.has("title");
                   const hasSecondaryMetadata = secondaryMetadata.length > 0;
-                  const showRatingControl = metadataFields.has("rating");
+                  const showScoreControl = metadataFields.has("score");
                   const showFavoriteControl = metadataFields.has("favorite");
                   const hasCuration =
-                    showRatingControl ||
+                    showScoreControl ||
                     showFavoriteControl ||
                     tagBadges.length > 0 ||
                     hiddenTagCount > 0;
                   const hasCardInfo =
                     hasTitle || hasSecondaryMetadata || hasCuration;
-                  const isSavingRating = savingRatingAssetIds.has(asset.id);
+                  const isSavingScore = savingScoreAssetIds.has(asset.id);
                   const tileStyle = mediaTileStyle(
                     asset,
                     aspect,
@@ -958,11 +958,11 @@ export function GalleryGrid({
                           {hasCuration ? (
                             <GalleryCardCuration
                               asset={asset}
-                              disabled={isSelectionMode || isSavingRating}
+                              disabled={isSelectionMode || isSavingScore}
                               hiddenTagCount={hiddenTagCount}
-                              isBusy={isSavingRating}
+                              isBusy={isSavingScore}
                               showFavorite={showFavoriteControl}
-                              showRating={showRatingControl}
+                              showScore={showScoreControl}
                               tags={tagBadges}
                               onFavoriteChange={onFavoriteAsset}
                               onScoreChange={onScoreAsset}

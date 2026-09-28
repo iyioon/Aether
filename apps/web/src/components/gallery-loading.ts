@@ -1,6 +1,6 @@
 import type {
   MediaTypeFilter,
-  RatingFilter,
+  ScoreFilter,
   SortDirection,
   SortMode
 } from "../api/client";
@@ -12,7 +12,7 @@ export interface AssetListQueryKeyInput {
   mediaType: MediaTypeFilter;
   search: string;
   tagFilters: string[];
-  ratingFilter: RatingFilter;
+  scoreFilter: ScoreFilter;
 }
 
 export interface LoadMoreState {
@@ -40,7 +40,7 @@ export function buildAssetListQueryKey(input: AssetListQueryKeyInput): string {
     input.mediaType,
     input.search,
     input.tagFilters.join("\u001e"),
-    input.ratingFilter
+    input.scoreFilter
   ].join("\u001f");
 }
 

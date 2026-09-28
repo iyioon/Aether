@@ -49,7 +49,7 @@
 }
 
 .settings-tabs-list {
-  max-width: 520px;
+  max-width: 720px;
 }
 
 .settings-tab-panel {
@@ -68,6 +68,78 @@
 
 .settings-runtime-note {
   padding: 4px 2px 0;
+}
+
+.settings-reset-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.settings-reset-option {
+  min-width: 0;
+  min-height: 92px;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--muted) 34%, transparent);
+  cursor: pointer;
+  transition:
+    border-color 80ms ease,
+    background-color 80ms ease;
+}
+
+.settings-reset-option:hover {
+  background: color-mix(in srgb, var(--muted) 62%, transparent);
+}
+
+.settings-reset-option[data-checked="true"] {
+  border-color: color-mix(in srgb, var(--destructive) 50%, var(--border));
+  background: color-mix(in srgb, var(--destructive) 7%, transparent);
+}
+
+.settings-reset-option > svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  color: var(--muted-foreground);
+}
+
+.settings-reset-option > span {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.settings-reset-option strong {
+  color: var(--foreground);
+  font-size: 14px;
+}
+
+.settings-reset-option small {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.settings-reset-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.settings-reset-footer p {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.settings-reset-confirmation {
+  display: grid;
+  gap: 8px;
 }
 
 .settings-field-group {
@@ -265,6 +337,15 @@
   .settings-choice-grid-two,
   .settings-toggle-grid {
     grid-template-columns: 1fr;
+  }
+
+  .settings-reset-options {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-reset-footer {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .settings-swatch {

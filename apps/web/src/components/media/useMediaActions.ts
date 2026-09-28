@@ -1,17 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  updateAssetRating,
+  updateAssetScore,
   type AssetRecord,
   type TagRecord
 } from "../../api/client";
 import {
-  optimisticRatingAsset,
-  ratingActionErrorMessage
+  optimisticScoreAsset,
+  scoreActionErrorMessage
 } from "../app/app-helpers";
 
 interface UseMediaActionsOptions {
   assets: AssetRecord[];
-  shouldReloadAfterRatingChange: boolean;
+  shouldReloadAfterScoreChange: boolean;
   onAssetError: (message: string | null) => void;
   onAssetsUpdated: (assets: AssetRecord[]) => void;
   onAssetTagsUpdated: (assetId: string, tags: TagRecord[]) => void;
@@ -20,7 +20,7 @@ interface UseMediaActionsOptions {
 
 export function useMediaActions({
   assets,
-  shouldReloadAfterRatingChange,
+  shouldReloadAfterScoreChange,
   onAssetError,
   onAssetsUpdated,
   onAssetTagsUpdated,
@@ -30,16 +30,18 @@ export function useMediaActions({
   const [annotationAssetId, setAnnotationAssetId] = useState<string | null>(
     null
   );
-  const [savingRatingAssetIds, setSavingRatingAssetIds] = useState<Set<string>>(
+  const [viewerAssetFallback, setViewerAssetFallback] =
+    useState<AssetRecord | null>(null);
+  const [savingScoreAssetIds, setSavingScoreAssetIds] = useState<Set<string>>(
     () => new Set()
   );
   const selectedAsset = useMemo(
-    () => assets.find((asset) => asset.id === selectedAssetId) ?? null,
-    [assets, selectedAssetId]
+    () => resolveViewerAsset(selectedAssetId, viewerAssetFallback, assets),
+    [assets, selectedAssetId, viewerAssetFallback]
   );
   const annotationAsset = useMemo(
-    () => assets.find((asset) => asset.id === annotationAssetId) ?? null,
-    [annotationAssetId, assets]
+    () => resolveViewerAsset(annotationAssetId, viewerAssetFallback, assets),
+    [annotationAssetId, assets, viewerAssetFallback]
   );
 
   useEffect(() => {
@@ -52,12 +54,20 @@ export function useMediaActions({
     }
   }, [annotationAsset, annotationAssetId, selectedAsset, selectedAssetId]);
 
-  function closeFullscreen() {
-    setAnnotationAssetId(null);
-    setSelectedAssetId(null);
-  }
+  useEffect(() => {
+    if (!selectedAssetId && !annotationAssetId) {
+      setViewerAssetFallback(null);
+    }
+  }, [annotationAssetId, selectedAssetId]);
 
-  function openAssetFullscreen(assetId: string) {
+  function openAssetFullscreen(assetOrId: AssetRecord | string) {
+    const assetId = typeof assetOrId === "string" ? assetOrId : assetOrId.id;
+
+    setViewerAssetFallback(
+      typeof assetOrId === "string"
+        ? assets.find((asset) => asset.id === assetOrId) ?? null
+        : assetOrId
+    );
     setAnnotationAssetId(null);
     setSelectedAssetId(assetId);
   }
@@ -67,47 +77,64 @@ export function useMediaActions({
       return;
     }
 
-    const currentIndex = assets.findIndex((asset) => asset.id === selectedAsset.id);
+    const currentIndex = assets.findIndex(
+      (asset) => asset.id === selectedAsset.id
+    );
     const nextAsset = assets[currentIndex + direction];
 
     if (nextAsset) {
+      setViewerAssetFallback(null);
       setSelectedAssetId(nextAsset.id);
     }
   }
 
   function handleAssetUpdated(updatedAsset: AssetRecord) {
+    updateViewerAssetFallback(updatedAsset);
     onAssetsUpdated([updatedAsset]);
   }
 
   function handleAssetTagsUpdated(assetId: string, tags: TagRecord[]) {
+    setViewerAssetFallback((current) =>
+      current?.id === assetId ? { ...current, tags } : current
+    );
     onAssetTagsUpdated(assetId, tags);
   }
 
-  async function saveAssetRating(
+  function updateViewerAssetFallback(updatedAsset: AssetRecord) {
+    setViewerAssetFallback((current) =>
+      current?.id === updatedAsset.id ? updatedAsset : current
+    );
+  }
+
+  async function saveAssetScore(
     asset: AssetRecord,
-    input: { rating?: number | null; favorite?: boolean }
+    input: { score?: number; favorite?: boolean }
   ) {
     onAssetError(null);
-    setSavingRatingAssetIds((current) => {
+    setSavingScoreAssetIds((current) => {
       const next = new Set(current);
       next.add(asset.id);
       return next;
     });
 
-    onAssetsUpdated([optimisticRatingAsset(asset, input)]);
+    const optimisticAsset = optimisticScoreAsset(asset, input);
+    updateViewerAssetFallback(optimisticAsset);
+    onAssetsUpdated([optimisticAsset]);
 
     try {
-      const { asset: updatedAsset } = await updateAssetRating(asset.id, input);
+      const { asset: updatedAsset } = await updateAssetScore(asset.id, input);
+      updateViewerAssetFallback(updatedAsset);
       onAssetsUpdated([updatedAsset]);
 
-      if (shouldReloadAfterRatingChange) {
+      if (shouldReloadAfterScoreChange) {
         onReloadAssets();
       }
     } catch (caught) {
+      updateViewerAssetFallback(asset);
       onAssetsUpdated([asset]);
-      onAssetError(ratingActionErrorMessage(caught));
+      onAssetError(scoreActionErrorMessage(caught));
     } finally {
-      setSavingRatingAssetIds((current) => {
+      setSavingScoreAssetIds((current) => {
         const next = new Set(current);
         next.delete(asset.id);
         return next;
@@ -118,16 +145,31 @@ export function useMediaActions({
   return {
     annotationAsset,
     annotationAssetId,
-    closeFullscreen,
     handleAssetTagsUpdated,
     handleAssetUpdated,
     openAssetFullscreen,
-    saveAssetRating,
-    savingRatingAssetIds,
+    saveAssetScore,
+    savingScoreAssetIds,
     selectAdjacentAsset,
     selectedAsset,
     selectedAssetId,
     setAnnotationAssetId,
     setSelectedAssetId
   };
+}
+
+function resolveViewerAsset(
+  assetId: string | null,
+  viewerAssetFallback: AssetRecord | null,
+  assets: AssetRecord[]
+): AssetRecord | null {
+  if (!assetId) {
+    return null;
+  }
+
+  if (viewerAssetFallback?.id === assetId) {
+    return viewerAssetFallback;
+  }
+
+  return assets.find((asset) => asset.id === assetId) ?? null;
 }

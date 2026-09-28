@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import type {
   MediaTypeFilter,
-  RatingFilter,
+  ScoreFilter,
   SortDirection,
   SortMode
 } from "../../api/client";
@@ -21,7 +21,7 @@ export type ControlMenuId = "sort" | "layout" | "filters";
 export const sortOptions: Array<{ label: string; value: SortMode }> = [
   { label: "Date", value: "date" },
   { label: "Filename", value: "filename" },
-  { label: "Rating", value: "rating" },
+  { label: "Score", value: "score" },
   { label: "Random", value: "random" }
 ];
 
@@ -44,13 +44,13 @@ export const mediaFilters: Array<{
   { label: "Videos", value: "video", icon: Video }
 ];
 
-export const ratingFilters: Array<{
+export const scoreFilters: Array<{
   label: string;
-  value: RatingFilter;
+  value: ScoreFilter;
   icon: LucideIcon;
 }> = [
-  { label: "All ratings", value: "all", icon: Rows3 },
+  { label: "All scores", value: "all", icon: Rows3 },
   { label: "Favorites", value: "favorites", icon: Heart },
-  { label: "Rated", value: "rated", icon: Star },
-  { label: "Unrated", value: "unrated", icon: SlidersHorizontal }
+  { label: "Ranked", value: "ranked", icon: Star },
+  { label: "Unranked", value: "unranked", icon: SlidersHorizontal }
 ];

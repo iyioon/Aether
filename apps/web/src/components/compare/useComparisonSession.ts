@@ -7,13 +7,14 @@ import {
   type AssetRecord,
   type ComparisonPairResponse,
   type MediaTypeFilter,
-  type RatingFilter
+  type ScoreFilter
 } from "../../api/client";
 
 interface UseComparisonSessionOptions {
+  assetUpdate: AssetRecord | null;
   folderId: string | null;
   mediaType: MediaTypeFilter;
-  ratingFilter: RatingFilter;
+  scoreFilter: ScoreFilter;
   search: string;
   tagFilters: string[];
   onAssetsUpdated: (assets: AssetRecord[]) => void;
@@ -26,9 +27,10 @@ interface PreviousDecision {
 }
 
 export function useComparisonSession({
+  assetUpdate,
   folderId,
   mediaType,
-  ratingFilter,
+  scoreFilter,
   search,
   tagFilters,
   onAssetsUpdated,
@@ -45,12 +47,22 @@ export function useComparisonSession({
   const queryKey = [
     folderId ?? "",
     mediaType,
-    ratingFilter,
+    scoreFilter,
     search,
     ...tagFilters
   ].join("\u0000");
   const queryKeyRef = useRef(queryKey);
   queryKeyRef.current = queryKey;
+
+  useEffect(() => {
+    if (!assetUpdate) {
+      return;
+    }
+
+    setPair((currentPair) =>
+      replacePairAsset(currentPair, assetUpdate)
+    );
+  }, [assetUpdate]);
 
   const loadPair = useCallback(
     async (excludeAssetIds: string[] = []) => {
@@ -71,7 +83,7 @@ export function useComparisonSession({
           recursive: true,
           search,
           tags: tagFilters,
-          rating: ratingFilter,
+          score: scoreFilter,
           excludeAssetIds
         });
 
@@ -100,7 +112,7 @@ export function useComparisonSession({
           setIsLoading(false);
         }
       }
-    }, [folderId, mediaType, ratingFilter, search, tagFilters]);
+    }, [folderId, mediaType, scoreFilter, search, tagFilters]);
 
   useEffect(() => {
     setPair(null);
@@ -210,4 +222,23 @@ export function useComparisonSession({
     skipPair,
     undoLastDecision
   };
+}
+
+function replacePairAsset(
+  pair: ComparisonPairResponse | null,
+  updatedAsset: AssetRecord
+): ComparisonPairResponse | null {
+  if (!pair) {
+    return null;
+  }
+
+  if (pair.left.id === updatedAsset.id) {
+    return { ...pair, left: updatedAsset };
+  }
+
+  if (pair.right.id === updatedAsset.id) {
+    return { ...pair, right: updatedAsset };
+  }
+
+  return pair;
 }

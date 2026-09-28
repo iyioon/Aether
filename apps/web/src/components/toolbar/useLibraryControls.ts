@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type {
   MediaTypeFilter,
-  RatingFilter,
+  ScoreFilter,
   SortDirection,
   SortMode,
   TreeResponse
@@ -21,7 +21,7 @@ import {
 import { useTagSuggestions } from "../tags/useTagSuggestions";
 import {
   mediaFilters,
-  ratingFilters,
+  scoreFilters,
   sortDirectionOptions,
   sortOptions,
   type ControlMenuId
@@ -50,8 +50,8 @@ export function useLibraryControls({
   const [mediaType, setMediaType] = useState<MediaTypeFilter>(
     initialState.mediaType
   );
-  const [ratingFilter, setRatingFilter] = useState<RatingFilter>(
-    initialState.ratingFilter
+  const [scoreFilter, setScoreFilter] = useState<ScoreFilter>(
+    initialState.scoreFilter
   );
   const [searchDraft, setSearchDraft] = useState(initialState.search);
   const [search, setSearch] = useState(initialState.search);
@@ -82,7 +82,7 @@ export function useLibraryControls({
       sort,
       sortDirection,
       mediaType,
-      ratingFilter,
+      scoreFilter,
       search,
       tags: tagFilters
     });
@@ -90,7 +90,7 @@ export function useLibraryControls({
     aspect,
     gridSize,
     mediaType,
-    ratingFilter,
+    scoreFilter,
     search,
     selectedFolderId,
     sort,
@@ -119,17 +119,17 @@ export function useLibraryControls({
       ?.label ?? "Descending";
   const mediaTypeLabel =
     mediaFilters.find((option) => option.value === mediaType)?.label ?? "All";
-  const ratingFilterLabel =
-    ratingFilters.find((option) => option.value === ratingFilter)?.label ??
-    "All ratings";
+  const scoreFilterLabel =
+    scoreFilters.find((option) => option.value === scoreFilter)?.label ??
+    "All scores";
   const activeFilterLabels: string[] = [];
 
   if (mediaType !== "all") {
     activeFilterLabels.push(mediaTypeLabel);
   }
 
-  if (ratingFilter !== "all") {
-    activeFilterLabels.push(ratingFilterLabel);
+  if (scoreFilter !== "all") {
+    activeFilterLabels.push(scoreFilterLabel);
   }
 
   for (const tag of tagFilters) {
@@ -184,8 +184,8 @@ export function useLibraryControls({
     mediaType,
     mediaTypeLabel,
     openControlMenu,
-    ratingFilter,
-    ratingFilterLabel,
+    scoreFilter,
+    scoreFilterLabel,
     removeTagFilter,
     search,
     searchDraft,
@@ -194,7 +194,7 @@ export function useLibraryControls({
     setGridSize,
     setMediaType,
     setOpenControlMenu,
-    setRatingFilter,
+    setScoreFilter,
     setSearchDraft,
     setSort: selectSort,
     setSortDirection,

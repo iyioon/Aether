@@ -45,7 +45,7 @@ Never commit `.env`, `.env.local`, `config`, `cache`, or media folders. Rotate `
 
 ## Backups
 
-Back up `AETHER_CONFIG_DIR`; it contains SQLite state for library metadata, ratings, favorites, tags, sessions, and derivative records.
+Back up `AETHER_CONFIG_DIR`; it contains SQLite state for library metadata, scores, favorites, tags, sessions, and derivative records.
 
 ```bash
 npm run backup -- --output ./backups

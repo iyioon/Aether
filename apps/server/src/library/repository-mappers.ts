@@ -36,14 +36,16 @@ export function mapAssetRow(row: AssetRow): AssetRecord {
     codec: row.codec,
     status: row.status,
     error: row.error,
-    rating: row.rating,
+    score: row.final_score,
     ranking:
       row.ranking_skill !== null &&
-      row.ranking_score !== null &&
+      row.ranking_comparison_score !== null &&
+      row.ranking_manual_adjustment !== null &&
       row.ranking_comparison_count !== null
         ? {
             skill: row.ranking_skill,
-            score: row.ranking_score,
+            comparisonScore: row.ranking_comparison_score,
+            manualAdjustment: row.ranking_manual_adjustment,
             comparisonCount: row.ranking_comparison_count
           }
         : null,

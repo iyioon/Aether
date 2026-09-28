@@ -304,6 +304,50 @@ const migrations: Migration[] = [
       CREATE INDEX idx_asset_rankings_score
         ON asset_rankings(score DESC, comparison_count DESC);
     `
+  },
+  {
+    version: 10,
+    name: "consistent_score_terminology",
+    sql: `
+      DROP INDEX IF EXISTS idx_ratings_sort;
+      ALTER TABLE ratings RENAME TO asset_annotations;
+      ALTER TABLE asset_annotations RENAME COLUMN rating TO manual_score;
+
+      CREATE INDEX idx_asset_annotations_sort
+        ON asset_annotations(favorite, manual_score);
+
+      DROP INDEX IF EXISTS idx_asset_rankings_score;
+      ALTER TABLE asset_rankings RENAME COLUMN score TO comparison_score;
+      ALTER TABLE asset_rankings RENAME COLUMN manual_offset TO manual_adjustment;
+
+      CREATE INDEX idx_asset_rankings_comparison_score
+        ON asset_rankings(comparison_score DESC, comparison_count DESC);
+    `
+  },
+  {
+    version: 11,
+    name: "zero_default_score",
+    sql: `
+      DROP INDEX IF EXISTS idx_asset_annotations_sort;
+
+      CREATE TABLE asset_annotations_next (
+        asset_id TEXT PRIMARY KEY REFERENCES assets(id) ON DELETE CASCADE,
+        manual_score INTEGER NOT NULL DEFAULT 0 CHECK(manual_score >= 0),
+        favorite INTEGER NOT NULL DEFAULT 0 CHECK(favorite IN (0, 1)),
+        updated_at TEXT NOT NULL
+      );
+
+      INSERT INTO asset_annotations_next
+        (asset_id, manual_score, favorite, updated_at)
+      SELECT asset_id, COALESCE(manual_score, 0), favorite, updated_at
+      FROM asset_annotations;
+
+      DROP TABLE asset_annotations;
+      ALTER TABLE asset_annotations_next RENAME TO asset_annotations;
+
+      CREATE INDEX idx_asset_annotations_sort
+        ON asset_annotations(favorite, manual_score);
+    `
   }
 ];
 

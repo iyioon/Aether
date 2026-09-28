@@ -7,7 +7,7 @@ import { hashPassword } from "../src/auth/password.js";
 import { loadConfig, type AppConfig } from "../src/config/config.js";
 import { openDatabase, type AetherDatabase } from "../src/db/database.js";
 import { buildApp } from "../src/http/app.js";
-import { folderIdFor, listAssets } from "../src/library/repository.js";
+import { folderIdFor, getAsset, listAssets } from "../src/library/repository.js";
 import { scanLibrary } from "../src/library/scanner.js";
 
 describe("annotations", () => {
@@ -39,16 +39,16 @@ describe("annotations", () => {
     db.close();
   });
 
-  it("updates ratings and favorites behind CSRF protection", async () => {
+  it("updates scores and favorites behind CSRF protection", async () => {
     const asset = await createIndexedAsset("photo.jpg");
     const auth = await login();
 
     const forbidden = await app.inject({
       method: "PATCH",
-      url: `/api/assets/${asset.id}/rating`,
+      url: `/api/assets/${asset.id}/score`,
       cookies: auth.cookies,
       payload: {
-        rating: 4
+        score: 4
       }
     });
 
@@ -56,13 +56,13 @@ describe("annotations", () => {
 
     const response = await app.inject({
       method: "PATCH",
-      url: `/api/assets/${asset.id}/rating`,
+      url: `/api/assets/${asset.id}/score`,
       cookies: auth.cookies,
       headers: {
         "x-csrf-token": auth.csrfToken
       },
       payload: {
-        rating: 10,
+        score: 10,
         favorite: true
       }
     });
@@ -70,12 +70,12 @@ describe("annotations", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json().asset).toMatchObject({
       id: asset.id,
-      rating: 10,
+      score: 10,
       favorite: true
     });
 
     const updated = firstAsset();
-    expect(updated.rating).toBe(10);
+    expect(updated.score).toBe(10);
     expect(updated.favorite).toBe(true);
   });
 
@@ -85,28 +85,28 @@ describe("annotations", () => {
 
     const response = await app.inject({
       method: "PATCH",
-      url: `/api/assets/${asset.id}/rating`,
+      url: `/api/assets/${asset.id}/score`,
       cookies: auth.cookies,
       headers: {
         "x-csrf-token": auth.csrfToken
       },
       payload: {
-        rating: 125
+        score: 125
       }
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json().asset.rating).toBe(125);
+    expect(response.json().asset.score).toBe(125);
 
     const invalid = await app.inject({
       method: "PATCH",
-      url: `/api/assets/${asset.id}/rating`,
+      url: `/api/assets/${asset.id}/score`,
       cookies: auth.cookies,
       headers: {
         "x-csrf-token": auth.csrfToken
       },
       payload: {
-        rating: -1
+        score: -1
       }
     });
 
@@ -271,7 +271,7 @@ describe("annotations", () => {
     expect(disabled.json()).toEqual({ error: "ai_disabled" });
   });
 
-  it("filters listed assets by search, tag, and rating state", async () => {
+  it("filters listed assets by search, tag, and score state", async () => {
     await writeFile(path.join(cwd, "media", "family-photo.jpg"), "first");
     await writeFile(path.join(cwd, "media", "skyline.png"), "second");
     await scanLibrary(db, config.mediaRoots);
@@ -294,13 +294,13 @@ describe("annotations", () => {
 
     await app.inject({
       method: "PATCH",
-      url: `/api/assets/${familyPhoto.id}/rating`,
+      url: `/api/assets/${familyPhoto.id}/score`,
       cookies: auth.cookies,
       headers: {
         "x-csrf-token": auth.csrfToken
       },
       payload: {
-        rating: 5,
+        score: 5,
         favorite: true
       }
     });
@@ -343,15 +343,15 @@ describe("annotations", () => {
     const favorites = await listedAssetIds(
       folderId,
       auth.cookies,
-      "rating=favorites"
+      "score=favorites"
     );
     expect(favorites).toEqual([familyPhoto.id]);
 
-    const unrated = await listedAssetIds(folderId, auth.cookies, "rating=unrated");
-    expect(unrated).toEqual([skyline.id]);
+    const unranked = await listedAssetIds(folderId, auth.cookies, "score=unranked");
+    expect(unranked).toEqual([skyline.id]);
   });
 
-  it("batch updates ratings and tags transactionally", async () => {
+  it("batch updates scores and tags transactionally", async () => {
     await writeFile(path.join(cwd, "media", "family-photo.jpg"), "first");
     await writeFile(path.join(cwd, "media", "skyline.png"), "second");
     await scanLibrary(db, config.mediaRoots);
@@ -369,38 +369,38 @@ describe("annotations", () => {
 
     expect(assetIds).toHaveLength(2);
 
-    const forbiddenRating = await app.inject({
+    const forbiddenScore = await app.inject({
       method: "PATCH",
-      url: "/api/assets/batch/ratings",
+      url: "/api/assets/batch/scores",
       cookies: auth.cookies,
       payload: {
         assetIds,
-        rating: 4
+        score: 4
       }
     });
 
-    expect(forbiddenRating.statusCode).toBe(403);
+    expect(forbiddenScore.statusCode).toBe(403);
 
-    const ratings = await app.inject({
+    const scores = await app.inject({
       method: "PATCH",
-      url: "/api/assets/batch/ratings",
+      url: "/api/assets/batch/scores",
       cookies: auth.cookies,
       headers: {
         "x-csrf-token": auth.csrfToken
       },
       payload: {
         assetIds,
-        rating: 8,
+        score: 8,
         favorite: true
       }
     });
 
-    expect(ratings.statusCode).toBe(200);
-    expect(ratings.json()).toMatchObject({
+    expect(scores.statusCode).toBe(200);
+    expect(scores.json()).toMatchObject({
       updated: 2,
       assets: [
-        { id: assetIds[0], rating: 8, favorite: true },
-        { id: assetIds[1], rating: 8, favorite: true }
+        { id: assetIds[0], score: 8, favorite: true },
+        { id: assetIds[1], score: 8, favorite: true }
       ]
     });
 
@@ -444,20 +444,20 @@ describe("annotations", () => {
 
     const response = await app.inject({
       method: "PATCH",
-      url: "/api/assets/batch/ratings",
+      url: "/api/assets/batch/scores",
       cookies: auth.cookies,
       headers: {
         "x-csrf-token": auth.csrfToken
       },
       payload: {
         assetIds: [asset.id, "asset_missing"],
-        rating: 5
+        score: 5
       }
     });
 
     expect(response.statusCode).toBe(404);
     expect(response.json()).toEqual({ error: "asset_not_indexed" });
-    expect(firstAsset().rating).toBeNull();
+    expect(firstAsset().score).toBe(0);
   });
 
   it("records reversible pair decisions and projects them into media scores", async () => {
@@ -496,11 +496,11 @@ describe("annotations", () => {
     expect(firstDecision.json().replacedDecision).toBe(false);
     const firstAssets = firstDecision.json().assets as Array<{
       id: string;
-      rating: number;
+      score: number;
       ranking: { comparisonCount: number };
     }>;
-    expect(firstAssets.find((asset) => asset.id === pair.left.id)!.rating).toBeGreaterThan(
-      firstAssets.find((asset) => asset.id === pair.right.id)!.rating
+    expect(firstAssets.find((asset) => asset.id === pair.left.id)!.score).toBeGreaterThan(
+      firstAssets.find((asset) => asset.id === pair.right.id)!.score
     );
     expect(firstAssets.every((asset) => asset.ranking.comparisonCount === 1)).toBe(
       true
@@ -522,12 +522,12 @@ describe("annotations", () => {
     expect(changedDecision.json().replacedDecision).toBe(true);
     const changedAssets = changedDecision.json().assets as Array<{
       id: string;
-      rating: number;
+      score: number;
     }>;
     expect(
-      changedAssets.find((asset) => asset.id === pair.right.id)!.rating
+      changedAssets.find((asset) => asset.id === pair.right.id)!.score
     ).toBeGreaterThan(
-      changedAssets.find((asset) => asset.id === pair.left.id)!.rating
+      changedAssets.find((asset) => asset.id === pair.left.id)!.score
     );
 
     const undo = await app.inject({
@@ -541,18 +541,311 @@ describe("annotations", () => {
     expect(undo.json().restoredDecision).toBe(true);
     const restoredAssets = undo.json().assets as Array<{
       id: string;
-      rating: number;
+      score: number;
     }>;
     expect(
-      restoredAssets.find((asset) => asset.id === pair.left.id)!.rating
+      restoredAssets.find((asset) => asset.id === pair.left.id)!.score
     ).toBeGreaterThan(
-      restoredAssets.find((asset) => asset.id === pair.right.id)!.rating
+      restoredAssets.find((asset) => asset.id === pair.right.id)!.score
     );
     expect(
       (db.prepare("SELECT COUNT(*) AS total FROM comparison_events").get() as {
         total: number;
       }).total
     ).toBe(3);
+  });
+
+  it("preserves manual scores when ranking begins and when its last choice is undone", async () => {
+    await writeFile(path.join(cwd, "media", "manual.jpg"), "manual");
+    await writeFile(path.join(cwd, "media", "other.jpg"), "other");
+    await scanLibrary(db, config.mediaRoots);
+    const folderId = folderIdFor(config.mediaRoots[0]!.id, "");
+    const indexed = listAssets(db, {
+      folderId,
+      offset: 0,
+      limit: 10,
+      sort: "filename",
+      type: "all",
+      recursive: true
+    })?.items;
+    const manualAsset = indexed?.find((asset) => asset.name === "manual.jpg");
+    const otherAsset = indexed?.find((asset) => asset.name === "other.jpg");
+    const auth = await login();
+
+    if (!manualAsset || !otherAsset) {
+      throw new Error("Expected indexed comparison assets.");
+    }
+
+    await app.inject({
+      method: "PATCH",
+      url: `/api/assets/${manualAsset.id}/score`,
+      cookies: auth.cookies,
+      headers: { "x-csrf-token": auth.csrfToken },
+      payload: { score: 125 }
+    });
+
+    const decision = await app.inject({
+      method: "POST",
+      url: "/api/comparisons",
+      cookies: auth.cookies,
+      headers: { "x-csrf-token": auth.csrfToken },
+      payload: {
+        leftAssetId: manualAsset.id,
+        rightAssetId: otherAsset.id,
+        winnerAssetId: otherAsset.id
+      }
+    });
+
+    expect(decision.statusCode).toBe(200);
+    expect(
+      decision
+        .json()
+        .assets.find((asset: { id: string }) => asset.id === manualAsset.id)
+    ).toMatchObject({ score: 125, ranking: { comparisonCount: 1 } });
+
+    const adjusted = await app.inject({
+      method: "PATCH",
+      url: `/api/assets/${manualAsset.id}/score`,
+      cookies: auth.cookies,
+      headers: { "x-csrf-token": auth.csrfToken },
+      payload: { score: 200 }
+    });
+    expect(adjusted.json().asset.score).toBe(200);
+
+    const undo = await app.inject({
+      method: "POST",
+      url: `/api/comparisons/${decision.json().eventId}/undo`,
+      cookies: auth.cookies,
+      headers: { "x-csrf-token": auth.csrfToken }
+    });
+
+    expect(undo.statusCode).toBe(200);
+    expect(
+      undo
+        .json()
+        .assets.find((asset: { id: string }) => asset.id === manualAsset.id)
+    ).toMatchObject({ score: 200, ranking: null });
+  });
+
+  it("removes manual adjustments and resets an item's active comparisons", async () => {
+    await writeFile(path.join(cwd, "media", "reset-one.jpg"), "one");
+    await writeFile(path.join(cwd, "media", "reset-two.jpg"), "two");
+    await scanLibrary(db, config.mediaRoots);
+    const folderId = folderIdFor(config.mediaRoots[0]!.id, "");
+    const indexed = listAssets(db, {
+      folderId,
+      offset: 0,
+      limit: 10,
+      sort: "filename",
+      type: "all",
+      recursive: true
+    })?.items;
+    const first = indexed?.find((asset) => asset.name === "reset-one.jpg");
+    const second = indexed?.find((asset) => asset.name === "reset-two.jpg");
+    const auth = await login();
+
+    if (!first || !second) {
+      throw new Error("Expected indexed reset fixtures.");
+    }
+
+    const decision = await app.inject({
+      method: "POST",
+      url: "/api/comparisons",
+      cookies: auth.cookies,
+      headers: { "x-csrf-token": auth.csrfToken },
+      payload: {
+        leftAssetId: first.id,
+        rightAssetId: second.id,
+        winnerAssetId: first.id
+      }
+    });
+    expect(decision.statusCode).toBe(200);
+
+    const adjusted = await app.inject({
+      method: "PATCH",
+      url: `/api/assets/${first.id}/score`,
+      cookies: auth.cookies,
+      headers: { "x-csrf-token": auth.csrfToken },
+      payload: { score: 200 }
+    });
+    expect(adjusted.json().asset).toMatchObject({
+      score: 200,
+      ranking: { comparisonCount: 1 }
+    });
+
+    const cleared = await app.inject({
+      method: "DELETE",
+      url: `/api/assets/${first.id}/score/manual-adjustment`,
+      cookies: auth.cookies,
+      headers: { "x-csrf-token": auth.csrfToken }
+    });
+    expect(cleared.statusCode).toBe(200);
+    expect(cleared.json().asset.score).toBe(
+      cleared.json().asset.ranking.comparisonScore
+    );
+    expect(cleared.json().asset.ranking.manualAdjustment).toBe(0);
+
+    await app.inject({
+      method: "PATCH",
+      url: `/api/assets/${first.id}/score`,
+      cookies: auth.cookies,
+      headers: { "x-csrf-token": auth.csrfToken },
+      payload: { score: 150 }
+    });
+
+    const reset = await app.inject({
+      method: "DELETE",
+      url: `/api/assets/${first.id}/comparisons`,
+      cookies: auth.cookies,
+      headers: { "x-csrf-token": auth.csrfToken }
+    });
+    expect(reset.statusCode).toBe(200);
+    expect(reset.json()).toMatchObject({
+      asset: { score: 150, ranking: null },
+      removedComparisons: 1
+    });
+    expect(getAsset(db, second.id)).toMatchObject({
+      score: 0,
+      ranking: null
+    });
+  });
+
+  it("selectively resets library data without removing indexed assets", async () => {
+    await writeFile(path.join(cwd, "media", "reset-data-one.jpg"), "one");
+    await writeFile(path.join(cwd, "media", "reset-data-two.jpg"), "two");
+    await scanLibrary(db, config.mediaRoots);
+    const folderId = folderIdFor(config.mediaRoots[0]!.id, "");
+    const assets = listAssets(db, {
+      folderId,
+      offset: 0,
+      limit: 10,
+      sort: "filename",
+      type: "all",
+      recursive: true
+    })?.items;
+    const first = assets?.find((asset) => asset.name === "reset-data-one.jpg");
+    const second = assets?.find((asset) => asset.name === "reset-data-two.jpg");
+    const auth = await login();
+
+    if (!first || !second) {
+      throw new Error("Expected indexed data reset fixtures.");
+    }
+
+    await app.inject({
+      method: "PATCH",
+      url: `/api/assets/${first.id}/score`,
+      cookies: auth.cookies,
+      headers: { "x-csrf-token": auth.csrfToken },
+      payload: { score: 20, favorite: true }
+    });
+    for (const asset of [first, second]) {
+      await app.inject({
+        method: "PUT",
+        url: `/api/assets/${asset.id}/tags`,
+        cookies: auth.cookies,
+        headers: { "x-csrf-token": auth.csrfToken },
+        payload: { tags: ["Reset test"] }
+      });
+    }
+    await app.inject({
+      method: "POST",
+      url: "/api/comparisons",
+      cookies: auth.cookies,
+      headers: { "x-csrf-token": auth.csrfToken },
+      payload: {
+        leftAssetId: first.id,
+        rightAssetId: second.id,
+        winnerAssetId: first.id
+      }
+    });
+
+    const annotationsReset = await app.inject({
+      method: "POST",
+      url: "/api/admin/database/reset",
+      cookies: auth.cookies,
+      headers: { "x-csrf-token": auth.csrfToken },
+      payload: {
+        confirmation: "RESET",
+        scores: false,
+        favorites: true,
+        tags: true,
+        comparisons: false
+      }
+    });
+
+    expect(annotationsReset.statusCode).toBe(200);
+    expect(annotationsReset.json()).toMatchObject({
+      scoresReset: 0,
+      favoritesReset: 1,
+      tagsRemoved: 1,
+      tagAssignmentsRemoved: 2,
+      comparisonPreferencesRemoved: 0,
+      comparisonEventsRemoved: 0
+    });
+    expect(getAsset(db, first.id)).toMatchObject({
+      score: 20,
+      favorite: false,
+      tags: [],
+      ranking: { comparisonCount: 1 }
+    });
+
+    const rankingReset = await app.inject({
+      method: "POST",
+      url: "/api/admin/database/reset",
+      cookies: auth.cookies,
+      headers: { "x-csrf-token": auth.csrfToken },
+      payload: {
+        confirmation: "RESET",
+        scores: true,
+        favorites: false,
+        tags: false,
+        comparisons: true
+      }
+    });
+
+    expect(rankingReset.statusCode).toBe(200);
+    expect(rankingReset.json()).toMatchObject({
+      scoresReset: 1,
+      comparisonPreferencesRemoved: 1,
+      comparisonEventsRemoved: 1
+    });
+    expect(getAsset(db, first.id)).toMatchObject({ score: 0, ranking: null });
+    expect(getAsset(db, second.id)).toMatchObject({ score: 0, ranking: null });
+    expect(
+      (db.prepare("SELECT COUNT(*) AS total FROM assets").get() as {
+        total: number;
+      }).total
+    ).toBe(2);
+
+    const emptyReset = await app.inject({
+      method: "POST",
+      url: "/api/admin/database/reset",
+      cookies: auth.cookies,
+      headers: { "x-csrf-token": auth.csrfToken },
+      payload: {
+        confirmation: "RESET",
+        scores: false,
+        favorites: false,
+        tags: false,
+        comparisons: false
+      }
+    });
+    expect(emptyReset.statusCode).toBe(400);
+
+    const unconfirmedReset = await app.inject({
+      method: "POST",
+      url: "/api/admin/database/reset",
+      cookies: auth.cookies,
+      headers: { "x-csrf-token": auth.csrfToken },
+      payload: {
+        confirmation: "reset",
+        scores: true,
+        favorites: false,
+        tags: false,
+        comparisons: false
+      }
+    });
+    expect(unconfirmedReset.statusCode).toBe(400);
   });
 
   async function createIndexedAsset(name: string) {

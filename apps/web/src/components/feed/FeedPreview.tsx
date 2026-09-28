@@ -49,7 +49,7 @@ interface FeedPreviewProps {
   loadMoreRef: MutableRefObject<HTMLDivElement | null>;
   isFeedChromeHidden: boolean;
   isPlaybackPaused: boolean;
-  savingRatingAssetIds: Set<string>;
+  savingScoreAssetIds: Set<string>;
   scrollContextKey: string;
   syncedAssetId: string | null;
   onLoadMore: () => void;
@@ -58,7 +58,7 @@ interface FeedPreviewProps {
   onOpenAnnotations: (assetId: string) => void;
   onOpenAsset: (assetId: string) => void;
   onFavoriteAsset: (asset: AssetRecord, favorite: boolean) => void;
-  onScoreAsset: (asset: AssetRecord, score: number | null) => void;
+  onScoreAsset: (asset: AssetRecord, score: number) => void;
 }
 
 export function FeedPreview({
@@ -70,7 +70,7 @@ export function FeedPreview({
   loadMoreRef,
   isFeedChromeHidden,
   isPlaybackPaused,
-  savingRatingAssetIds,
+  savingScoreAssetIds,
   scrollContextKey,
   syncedAssetId,
   onLoadMore,
@@ -693,10 +693,10 @@ export function FeedPreview({
         activeIndex={activeIndex}
         activeFavorite={activeAsset.favorite}
         activeMediaName={activeAsset.name}
-        activeRating={activeAsset.rating}
+        activeScore={activeAsset.score}
         assetCount={assets.length}
         hasMore={hasMore}
-        isRatingSaving={savingRatingAssetIds.has(activeAsset.id)}
+        isScoreSaving={savingScoreAssetIds.has(activeAsset.id)}
         onFavoriteChange={(favorite) => onFavoriteAsset(activeAsset, favorite)}
         onNext={() =>
           scrollToFeedItem(
@@ -708,7 +708,7 @@ export function FeedPreview({
             nearestFeedIndexFromScroll(feedRef.current, itemRefs.current) - 1
           )
         }
-        onRatingChange={(rating) => onScoreAsset(activeAsset, rating)}
+        onScoreChange={(score) => onScoreAsset(activeAsset, score)}
       />
     </section>
   );

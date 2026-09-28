@@ -10,10 +10,10 @@ interface GalleryCardCurationProps {
   hiddenTagCount: number;
   isBusy?: boolean;
   showFavorite: boolean;
-  showRating: boolean;
+  showScore: boolean;
   tags: TagRecord[];
   onFavoriteChange: (asset: AssetRecord, favorite: boolean) => void;
-  onScoreChange: (asset: AssetRecord, score: number | null) => void;
+  onScoreChange: (asset: AssetRecord, score: number) => void;
 }
 
 export function GalleryCardCuration({
@@ -22,24 +22,24 @@ export function GalleryCardCuration({
   hiddenTagCount,
   isBusy = false,
   showFavorite,
-  showRating,
+  showScore,
   tags,
   onFavoriteChange,
   onScoreChange
 }: GalleryCardCurationProps) {
   const hasTags = tags.length > 0 || hiddenTagCount > 0;
 
-  if (!showRating && !showFavorite && !hasTags) {
+  if (!showScore && !showFavorite && !hasTags) {
     return null;
   }
 
   return (
     <div className="tile-curation-row" aria-busy={isBusy || undefined}>
-      {showRating ? (
+      {showScore ? (
         <MediaScoreControl
           disabled={disabled}
           mediaName={asset.name}
-          score={asset.rating}
+          score={asset.score}
           onChange={(score) => onScoreChange(asset, score)}
         />
       ) : null}

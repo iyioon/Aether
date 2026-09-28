@@ -23,9 +23,9 @@ export interface TreeResponse {
 }
 
 export type MediaTypeFilter = "all" | "image" | "video";
-export type SortMode = "date" | "filename" | "rating" | "random";
+export type SortMode = "date" | "filename" | "score" | "random";
 export type SortDirection = "desc" | "asc";
-export type RatingFilter = "all" | "favorites" | "rated" | "unrated";
+export type ScoreFilter = "all" | "favorites" | "ranked" | "unranked";
 
 export interface AssetRecord {
   id: string;
@@ -42,10 +42,11 @@ export interface AssetRecord {
   codec: string | null;
   status: string;
   error: string | null;
-  rating: number | null;
+  score: number;
   ranking: {
     skill: number;
-    score: number;
+    comparisonScore: number;
+    manualAdjustment: number;
     comparisonCount: number;
   } | null;
   favorite: boolean;
@@ -87,10 +88,10 @@ export interface AssetListResponse {
   recursive: boolean;
   search: string;
   tags: string[];
-  rating: RatingFilter;
+  score: ScoreFilter;
 }
 
-export interface BatchRatingResponse {
+export interface BatchScoreResponse {
   assets: AssetRecord[];
   updated: number;
 }
@@ -98,6 +99,22 @@ export interface BatchRatingResponse {
 export interface BatchTagsResponse {
   tags: TagRecord[];
   updated: number;
+}
+
+export interface LibraryDataResetOptions {
+  scores: boolean;
+  favorites: boolean;
+  tags: boolean;
+  comparisons: boolean;
+}
+
+export interface LibraryDataResetResult {
+  scoresReset: number;
+  favoritesReset: number;
+  tagsRemoved: number;
+  tagAssignmentsRemoved: number;
+  comparisonPreferencesRemoved: number;
+  comparisonEventsRemoved: number;
 }
 
 export interface ComparisonPairResponse {
@@ -220,7 +237,7 @@ export async function getAssets(options: {
   recursive?: boolean;
   search?: string;
   tags?: string[];
-  rating?: RatingFilter;
+  score?: ScoreFilter;
 }): Promise<AssetListResponse> {
   const sort = options.sort ?? "date";
   const params = new URLSearchParams({
@@ -231,7 +248,7 @@ export async function getAssets(options: {
     type: options.type ?? "all",
     recursive: String(options.recursive ?? true),
     search: options.search ?? "",
-    rating: options.rating ?? "all"
+    score: options.score ?? "all"
   });
 
   for (const tag of options.tags ?? []) {
@@ -249,14 +266,14 @@ export async function getNextComparisonPair(options: {
   recursive?: boolean;
   search?: string;
   tags?: string[];
-  rating?: RatingFilter;
+  score?: ScoreFilter;
   excludeAssetIds?: string[];
 }): Promise<ComparisonPairResponse> {
   const params = new URLSearchParams({
     type: options.type ?? "all",
     recursive: String(options.recursive ?? true),
     search: options.search ?? "",
-    rating: options.rating ?? "all"
+    score: options.score ?? "all"
   });
 
   for (const tag of options.tags ?? []) {
@@ -313,16 +330,25 @@ export async function getSettings(): Promise<SettingsSummary> {
   return request<SettingsSummary>("/api/admin/settings");
 }
 
+export async function resetLibraryData(
+  options: LibraryDataResetOptions
+): Promise<LibraryDataResetResult> {
+  return request<LibraryDataResetResult>("/api/admin/database/reset", {
+    method: "POST",
+    body: JSON.stringify({ ...options, confirmation: "RESET" })
+  });
+}
+
 function defaultSortDirectionForApiSort(sort: SortMode): SortDirection {
   return sort === "filename" ? "asc" : "desc";
 }
 
-export async function updateAssetRating(
+export async function updateAssetScore(
   assetId: string,
-  input: { rating?: number | null; favorite?: boolean }
+  input: { score?: number; favorite?: boolean }
 ): Promise<{ asset: AssetRecord }> {
   return request<{ asset: AssetRecord }>(
-    `/api/assets/${encodeURIComponent(assetId)}/rating`,
+    `/api/assets/${encodeURIComponent(assetId)}/score`,
     {
       method: "PATCH",
       body: JSON.stringify(input)
@@ -330,11 +356,32 @@ export async function updateAssetRating(
   );
 }
 
-export async function updateAssetRatingsBatch(
+export async function clearAssetManualAdjustment(
+  assetId: string
+): Promise<{ asset: AssetRecord }> {
+  return request<{ asset: AssetRecord }>(
+    `/api/assets/${encodeURIComponent(assetId)}/score/manual-adjustment`,
+    { method: "DELETE" }
+  );
+}
+
+export async function resetAssetComparisons(assetId: string): Promise<{
+  asset: AssetRecord;
+  removedComparisons: number;
+}> {
+  return request<{
+    asset: AssetRecord;
+    removedComparisons: number;
+  }>(`/api/assets/${encodeURIComponent(assetId)}/comparisons`, {
+    method: "DELETE"
+  });
+}
+
+export async function updateAssetScoresBatch(
   assetIds: string[],
-  input: { rating?: number | null; favorite?: boolean }
-): Promise<BatchRatingResponse> {
-  return request<BatchRatingResponse>("/api/assets/batch/ratings", {
+  input: { score?: number; favorite?: boolean }
+): Promise<BatchScoreResponse> {
+  return request<BatchScoreResponse>("/api/assets/batch/scores", {
     method: "PATCH",
     body: JSON.stringify({ assetIds, ...input })
   });

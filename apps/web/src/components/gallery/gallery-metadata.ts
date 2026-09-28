@@ -2,7 +2,7 @@ export type GalleryMetadataField =
   | "title"
   | "mediaType"
   | "size"
-  | "rating"
+  | "score"
   | "tags"
   | "favorite";
 
@@ -13,7 +13,7 @@ export const galleryMetadataOptions: Array<{
   { label: "Title", value: "title" },
   { label: "Type", value: "mediaType" },
   { label: "Size", value: "size" },
-  { label: "Score", value: "rating" },
+  { label: "Score", value: "score" },
   { label: "Tags", value: "tags" },
   { label: "Heart", value: "favorite" }
 ];

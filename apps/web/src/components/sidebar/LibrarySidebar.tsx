@@ -4,7 +4,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent
 } from "react";
-import { LogOut, Settings } from "lucide-react";
+import { BookOpen, LogOut, Settings } from "lucide-react";
 import type { LibraryWatchStatus, ScanProgress } from "../../api/client";
 import { BrandMark } from "../BrandMark";
 import { FolderTreePanel } from "../FolderTreePanel";
@@ -33,6 +33,7 @@ interface LibrarySidebarProps {
   expandedFolderIds: ReadonlySet<string>;
   folderSortMode: FolderSortMode;
   isLoadingTree: boolean;
+  isGuideOpen: boolean;
   isSettingsOpen: boolean;
   items: FolderTreeItem[];
   scanProgress: ScanProgress | null;
@@ -48,6 +49,7 @@ interface LibrarySidebarProps {
   ) => void;
   onFolderSortChange: (sortMode: FolderSortMode) => void;
   onLogout: () => void;
+  onOpenGuide: () => void;
   onOpenSettings: () => void;
   onScan: () => void;
   onSelectFolder: (folderId: string) => void;
@@ -66,6 +68,7 @@ export function LibrarySidebar({
   expandedFolderIds,
   folderSortMode,
   isLoadingTree,
+  isGuideOpen,
   isSettingsOpen,
   items,
   scanProgress,
@@ -78,6 +81,7 @@ export function LibrarySidebar({
   onFolderKeyDown,
   onFolderSortChange,
   onLogout,
+  onOpenGuide,
   onOpenSettings,
   onScan,
   onSelectFolder,
@@ -92,6 +96,11 @@ export function LibrarySidebar({
 
   function openSettings() {
     onOpenSettings();
+    setOpenMobile(false);
+  }
+
+  function openGuide() {
+    onOpenGuide();
     setOpenMobile(false);
   }
 
@@ -137,6 +146,16 @@ export function LibrarySidebar({
 
       <SidebarFooter className="p-3">
         <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              className="sidebar-footer-action"
+              isActive={isGuideOpen}
+              onClick={openGuide}
+            >
+              <BookOpen />
+              <span>User guide</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton
               className="sidebar-footer-action"

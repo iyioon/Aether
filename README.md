@@ -1,6 +1,6 @@
 # Aether
 
-Aether is a self-hosted media gallery for private photo and video libraries. It reads one or more local folders, indexes the media inside them, and gives you a fast browser UI for browsing, searching, rating, tagging, downloading, and rediscovering your collection.
+Aether is a self-hosted media gallery for private photo and video libraries. It reads one or more local folders, indexes the media inside them, and gives you a fast browser UI for browsing, searching, scoring, tagging, downloading, and rediscovering your collection.
 
 It is built for a home server or trusted local network. Aether does not require cloud storage, public hosting, or an external account.
 
@@ -12,7 +12,7 @@ It is built for a home server or trusted local network. Aether does not require 
 - Vertical feed mode with progressive full-resolution images, original video playback when browser-compatible, and timeline seeking.
 - Pairwise comparison workspace with reversible choices and statistically derived media scores.
 - Fullscreen viewer for images and videos.
-- Ratings, favorites, tags, tag suggestions, and batch annotation tools.
+- Scores, favorites, tags, tag suggestions, and batch annotation tools.
 - Filename/path search, including CJK substring matching for Korean and similar scripts.
 - Authenticated media streaming with HTTP range support for video seeking.
 - Lazy thumbnails, video posters, and browser-compatible preview clips stored in a local cache.

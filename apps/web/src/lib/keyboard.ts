@@ -46,9 +46,9 @@ export type FeedKeyboardCommand =
   | "toggle-playback";
 
 export type ViewerKeyboardCommand =
-  | "decrease-rating"
+  | "decrease-score"
   | "details"
-  | "increase-rating"
+  | "increase-score"
   | "next"
   | "previous"
   | "toggle-playback"
@@ -80,13 +80,13 @@ export function viewerKeyboardCommand(
 ): ViewerKeyboardCommand | null {
   switch (key) {
     case "ArrowDown":
-      return "decrease-rating";
+      return "decrease-score";
     case "ArrowLeft":
       return "previous";
     case "ArrowRight":
       return "next";
     case "ArrowUp":
-      return "increase-rating";
+      return "increase-score";
     case " ":
       return "toggle-playback";
     default: {
@@ -105,12 +105,11 @@ export function viewerKeyboardCommand(
   }
 }
 
-export function ratingAfterKeyboardAdjustment(
-  rating: number | null,
+export function scoreAfterKeyboardAdjustment(
+  score: number,
   direction: -1 | 1
-): number | null {
-  const nextScore = Math.max(0, (rating ?? 0) + direction);
-  return nextScore === 0 ? null : nextScore;
+): number {
+  return Math.max(0, score + direction);
 }
 
 export function hasShortcutModifier(

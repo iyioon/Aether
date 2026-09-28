@@ -10,28 +10,28 @@ interface FeedNavRailProps {
   activeIndex: number;
   activeFavorite: boolean;
   activeMediaName: string;
-  activeRating: number | null;
+  activeScore: number;
   assetCount: number;
   hasMore: boolean;
-  isRatingSaving: boolean;
+  isScoreSaving: boolean;
   onNext: () => void;
   onFavoriteChange: (favorite: boolean) => void;
   onPrevious: () => void;
-  onRatingChange: (rating: number | null) => void;
+  onScoreChange: (score: number) => void;
 }
 
 export function FeedNavRail({
   activeIndex,
   activeFavorite,
   activeMediaName,
-  activeRating,
+  activeScore,
   assetCount,
   hasMore,
-  isRatingSaving,
+  isScoreSaving,
   onNext,
   onFavoriteChange,
   onPrevious,
-  onRatingChange
+  onScoreChange
 }: FeedNavRailProps) {
   return (
     <div className="feed-nav-rail" aria-label="Feed navigation" role="group">
@@ -60,14 +60,14 @@ export function FeedNavRail({
       <Separator className="feed-nav-separator" />
       <div className="feed-curation-controls">
         <MediaScoreControl
-          disabled={isRatingSaving}
+          disabled={isScoreSaving}
           mediaName={activeMediaName}
           orientation="vertical"
-          score={activeRating}
-          onChange={onRatingChange}
+          score={activeScore}
+          onChange={onScoreChange}
         />
         <MediaFavoriteButton
-          disabled={isRatingSaving}
+          disabled={isScoreSaving}
           favorite={activeFavorite}
           mediaName={activeMediaName}
           overlay

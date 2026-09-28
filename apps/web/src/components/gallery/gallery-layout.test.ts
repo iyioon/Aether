@@ -8,7 +8,7 @@ describe("galleryTileChromeHeight", () => {
   it("matches the rendered metadata row heights and gaps", () => {
     expect(
       galleryTileChromeHeight(
-        new Set(["title", "mediaType", "size", "rating", "favorite", "tags"])
+        new Set(["title", "mediaType", "size", "score", "favorite", "tags"])
       )
     ).toBe(90);
   });

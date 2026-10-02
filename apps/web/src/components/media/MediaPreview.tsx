@@ -80,15 +80,15 @@ export function MediaPreview({
   const shouldLoadVideo =
     asset.mediaType === "video" &&
     (isVideoPlaybackVisible || preloadPreview);
+  const shouldAutoplayVideo =
+    asset.mediaType === "video" &&
+    isActive &&
+    isVideoPlaybackVisible &&
+    !playbackPaused &&
+    !isVideoHoldPaused;
 
   const playVisibleVideo = useCallback(() => {
-    if (
-      asset.mediaType !== "video" ||
-      !isActive ||
-      !isVideoPlaybackVisible ||
-      playbackPaused ||
-      isVideoHoldPaused
-    ) {
+    if (!shouldAutoplayVideo) {
       return;
     }
 
@@ -116,14 +116,10 @@ export function MediaPreview({
         video.play().catch(() => undefined);
       });
   }, [
-    asset.mediaType,
-    isActive,
-    isVideoHoldPaused,
-    isVideoPlaybackVisible,
     muted,
     onAudibleAutoplayBlocked,
     onAudiblePlaybackStarted,
-    playbackPaused
+    shouldAutoplayVideo
   ]);
 
   useEffect(() => {
@@ -213,7 +209,7 @@ export function MediaPreview({
       return;
     }
 
-    if (isActive && isVideoPlaybackVisible && !playbackPaused) {
+    if (shouldAutoplayVideo) {
       playVisibleVideo();
     } else {
       video.pause();
@@ -221,10 +217,8 @@ export function MediaPreview({
   }, [
     asset.id,
     asset.mediaType,
-    isActive,
-    isVideoPlaybackVisible,
-    playbackPaused,
-    playVisibleVideo
+    playVisibleVideo,
+    shouldAutoplayVideo
   ]);
 
   useEffect(() => {
@@ -483,6 +477,7 @@ export function MediaPreview({
         className={tall ? "media-video tall" : "media-video"}
         src={shouldLoadVideo ? videoSource : undefined}
         poster={posterSource}
+        autoPlay={shouldAutoplayVideo}
         data-preview-source={
           shouldLoadVideo
             ? useOriginalVideo
@@ -515,12 +510,12 @@ export function MediaPreview({
           );
         }}
         onLoadedData={() => {
-          if (isVideoPlaybackVisible && !playbackPaused) {
+          if (shouldAutoplayVideo) {
             playVisibleVideo();
           }
         }}
         onCanPlay={() => {
-          if (isVideoPlaybackVisible && !playbackPaused) {
+          if (shouldAutoplayVideo) {
             playVisibleVideo();
           }
         }}

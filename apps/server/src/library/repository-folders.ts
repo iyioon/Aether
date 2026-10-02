@@ -55,10 +55,14 @@ export function syncConfiguredRoots(
     const existingRoots = db.prepare("SELECT id FROM roots").all() as Array<{
       id: string;
     }>;
+    const deleteRootSearchRows = db.prepare(
+      "DELETE FROM asset_search WHERE root_id = ?"
+    );
     const deleteRoot = db.prepare("DELETE FROM roots WHERE id = ?");
 
     for (const row of existingRoots) {
       if (!configuredIds.has(row.id)) {
+        deleteRootSearchRows.run(row.id);
         deleteRoot.run(row.id);
       }
     }

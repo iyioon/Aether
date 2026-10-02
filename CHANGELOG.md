@@ -5,6 +5,8 @@
 - Added a responsive score leaderboard as the main comparison workspace, with filtered pagination, fullscreen inspection, and a direct path into and back from pairwise ranking.
 - Smoothed iPhone video startup, replay, and comparison changes by retaining decoded posters until Safari presents a video frame and preloading the next comparison posters before swapping pairs.
 - Improved comparison performance with poster-only leaderboard media, display-sized row thumbnails, canceled stale requests, paused hidden playback, a single-request decision pipeline, and allocation-efficient ranking calculations.
+- Improved application-wide efficiency with abortable stale reads, ordered and coalesced score mutations, memoized media and folder rows, constant-time feed position lookup, and batched scroll-state persistence.
+- Reduced server work with unchanged-file scan fast paths, set-based batch annotation hydration, lightweight media-source queries, bounded session activity writes, concurrent thumbnail deduplication, and shared video metadata probes.
 - Refactored ranking math, asset filtering, comparison UI, score details, and route registration into focused modules with shared rules and deterministic tests.
 - Added repository-wide ESLint and Prettier quality gates plus documented engineering, accessibility, state-management, and shadcn composition standards.
 - Split major web workspaces and media overlays into on-demand bundles, removing the production chunk-size warning while keeping a shared accessible loading state.

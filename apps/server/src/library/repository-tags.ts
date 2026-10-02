@@ -44,7 +44,7 @@ export function setAssetTags(
   const tags = normalizeTagInputs(tagNames);
 
   const transaction = db.transaction(() => {
-    replaceAssetTags(db, assetId, tags, now);
+    createAssetTagReplacer(db)(assetId, tags, now);
     refreshTagUsageCounts(db);
     db.prepare("DELETE FROM tags WHERE usage_count = 0").run();
   });
@@ -72,6 +72,8 @@ export function updateAssetTagsBatch(
   }
 
   const transaction = db.transaction(() => {
+    const replaceAssetTags = createAssetTagReplacer(db);
+
     for (const assetId of assetIds) {
       const nextTags =
         input.mode === "replace"
@@ -82,7 +84,7 @@ export function updateAssetTagsBatch(
         throw new InvalidTagError(`Use ${MAX_TAGS_PER_ASSET} tags or fewer.`);
       }
 
-      replaceAssetTags(db, assetId, nextTags, now);
+      replaceAssetTags(assetId, nextTags, now);
     }
 
     refreshTagUsageCounts(db);
@@ -92,9 +94,10 @@ export function updateAssetTagsBatch(
   transaction();
 
   return {
-    tags: tags
-      .map((tag) => getTagById(db, tag.id))
-      .filter((tag): tag is TagRecord => Boolean(tag)),
+    tags: getTagsByIds(
+      db,
+      tags.map((tag) => tag.id)
+    ),
     updated: assetIds.length
   };
 }
@@ -197,12 +200,7 @@ function normalizeTagInputs(tagNames: string[]): NormalizedTag[] {
   return [...tags.values()];
 }
 
-function replaceAssetTags(
-  db: AetherDatabase,
-  assetId: string,
-  tags: NormalizedTag[],
-  now: string
-): void {
+function createAssetTagReplacer(db: AetherDatabase) {
   const upsertTag = db.prepare(`
     INSERT INTO tags (id, normalized_name, display_name, usage_count, created_at)
     VALUES (@id, @normalizedName, @displayName, 0, @createdAt)
@@ -213,22 +211,27 @@ function replaceAssetTags(
     INSERT OR IGNORE INTO asset_tags (asset_id, tag_id, created_at)
     VALUES (@assetId, @tagId, @createdAt)
   `);
+  const deleteAssetTags = db.prepare(
+    "DELETE FROM asset_tags WHERE asset_id = ?"
+  );
 
-  db.prepare("DELETE FROM asset_tags WHERE asset_id = ?").run(assetId);
+  return (assetId: string, tags: NormalizedTag[], now: string): void => {
+    deleteAssetTags.run(assetId);
 
-  for (const tag of tags) {
-    upsertTag.run({
-      id: tag.id,
-      normalizedName: tag.normalizedName,
-      displayName: tag.displayName,
-      createdAt: now
-    });
-    linkTag.run({
-      assetId,
-      tagId: tag.id,
-      createdAt: now
-    });
-  }
+    for (const tag of tags) {
+      upsertTag.run({
+        id: tag.id,
+        normalizedName: tag.normalizedName,
+        displayName: tag.displayName,
+        createdAt: now
+      });
+      linkTag.run({
+        assetId,
+        tagId: tag.id,
+        createdAt: now
+      });
+    }
+  };
 }
 
 function getNormalizedAssetTags(
@@ -275,16 +278,30 @@ function mergeNormalizedTags(
   return [...tags.values()];
 }
 
-function getTagById(db: AetherDatabase, tagId: string): TagRecord | null {
-  const row = db
+function getTagsByIds(db: AetherDatabase, tagIds: string[]): TagRecord[] {
+  if (tagIds.length === 0) {
+    return [];
+  }
+
+  const placeholders = tagIds.map(() => "?").join(", ");
+  const rows = db
     .prepare(
       `SELECT id, normalized_name, display_name, usage_count
        FROM tags
-       WHERE id = ?`
+       WHERE id IN (${placeholders})`
     )
-    .get(tagId) as TagRow | undefined;
+    .all(...tagIds) as TagRow[];
+  const tagsById = new Map(
+    rows.map((row) => {
+      const tag = mapTagRow(row);
+      return [tag.id, tag] as const;
+    })
+  );
 
-  return row ? mapTagRow(row) : null;
+  return tagIds.flatMap((tagId) => {
+    const tag = tagsById.get(tagId);
+    return tag ? [tag] : [];
+  });
 }
 
 function normalizeTagInput(input: string): NormalizedTag | null {
@@ -331,9 +348,20 @@ function uniqueAssetIds(assetIds: string[]): string[] {
 }
 
 function allAssetsExist(db: AetherDatabase, assetIds: string[]): boolean {
-  const findAsset = db.prepare("SELECT id FROM assets WHERE id = ?");
+  if (assetIds.length === 0) {
+    return true;
+  }
 
-  return assetIds.every((assetId) => Boolean(findAsset.get(assetId)));
+  const placeholders = assetIds.map(() => "?").join(", ");
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS asset_count
+       FROM assets
+       WHERE id IN (${placeholders})`
+    )
+    .get(...assetIds) as { asset_count: number };
+
+  return row.asset_count === assetIds.length;
 }
 
 export class InvalidTagError extends Error {

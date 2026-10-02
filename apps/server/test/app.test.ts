@@ -108,6 +108,56 @@ describe("app security foundation", () => {
     }
   });
 
+  it("throttles session activity writes across frequent requests", async () => {
+    const login = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: {
+        password: "correct horse battery staple"
+      }
+    });
+    const sessionCookie = login.cookies.find(
+      (entry) => entry.name === "aether_session"
+    );
+
+    if (!sessionCookie) {
+      throw new Error("Expected a session cookie.");
+    }
+
+    const session = db.prepare("SELECT id FROM sessions LIMIT 1").get() as {
+      id: string;
+    };
+    const recent = new Date().toISOString();
+    db.prepare("UPDATE sessions SET last_seen_at = ? WHERE id = ?").run(
+      recent,
+      session.id
+    );
+
+    const recentRequest = await app.inject({
+      method: "GET",
+      url: "/api/auth/me",
+      cookies: { aether_session: sessionCookie.value }
+    });
+    expect(recentRequest.statusCode).toBe(200);
+    expect(sessionLastSeenAt(session.id)).toBe(recent);
+
+    const stale = new Date(Date.now() - 6 * 60 * 1000).toISOString();
+    db.prepare("UPDATE sessions SET last_seen_at = ? WHERE id = ?").run(
+      stale,
+      session.id
+    );
+
+    const staleRequest = await app.inject({
+      method: "GET",
+      url: "/api/auth/me",
+      cookies: { aether_session: sessionCookie.value }
+    });
+    expect(staleRequest.statusCode).toBe(200);
+    expect(Date.parse(sessionLastSeenAt(session.id))).toBeGreaterThan(
+      Date.parse(stale)
+    );
+  });
+
   it("normalizes asset sort fields and direction query parameters", async () => {
     const login = await app.inject({
       method: "POST",
@@ -466,4 +516,12 @@ describe("app security foundation", () => {
     expect(malformed.statusCode).toBe(400);
     expect(malformed.json()).toEqual({ error: "invalid_request" });
   });
+
+  function sessionLastSeenAt(sessionId: string): string {
+    const row = db
+      .prepare("SELECT last_seen_at FROM sessions WHERE id = ?")
+      .get(sessionId) as { last_seen_at: string };
+
+    return row.last_seen_at;
+  }
 });

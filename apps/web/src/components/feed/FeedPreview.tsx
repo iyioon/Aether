@@ -14,6 +14,7 @@ import type { AssetRecord } from "../../api/client";
 import { useAutoLoadSentinel } from "../../hooks/useAutoLoadSentinel";
 import { feedKeyboardCommand, hasShortcutModifier } from "../../lib/keyboard";
 import {
+  flushSessionScrollPositions,
   readSessionScrollPosition,
   writeSessionScrollPosition
 } from "../scroll-restoration";
@@ -27,7 +28,9 @@ import {
   FEED_WHEEL_THRESHOLD,
   feedItemTop,
   isInteractiveTarget,
-  nearestFeedIndexFromScroll
+  nearestFeedIndexFromScroll,
+  shouldJumpFeedImmediately,
+  shouldRenderFeedMedia
 } from "./feed-navigation";
 
 interface FeedTouchStart {
@@ -91,9 +94,13 @@ export function FeedPreview({
   const assetsRef = useRef(assets);
   const lastReportedAssetIdRef = useRef<string | null>(null);
   const onActiveAssetChangeRef = useRef(onActiveAssetChange);
+  const onOpenAnnotationsRef = useRef(onOpenAnnotations);
+  const onOpenAssetRef = useRef(onOpenAsset);
   contextKeyRef.current = scrollContextKey;
   assetsRef.current = assets;
   onActiveAssetChangeRef.current = onActiveAssetChange;
+  onOpenAnnotationsRef.current = onOpenAnnotations;
+  onOpenAssetRef.current = onOpenAsset;
   const wheelLockUntilRef = useRef(0);
   const touchStartRef = useRef<FeedTouchStart | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -108,6 +115,21 @@ export function FeedPreview({
     : isFeedMuted
       ? "muted"
       : "on";
+
+  const handleOpenAnnotations = useCallback((assetId: string) => {
+    onOpenAnnotationsRef.current(assetId);
+  }, []);
+
+  const handleOpenAsset = useCallback((assetId: string) => {
+    onOpenAssetRef.current(assetId);
+  }, []);
+
+  const handleRegisterItem = useCallback(
+    (itemIndex: number, node: HTMLElement | null) => {
+      itemRefs.current[itemIndex] = node;
+    },
+    []
+  );
 
   useEffect(() => {
     setIsKeyboardPlaybackPaused(false);
@@ -309,7 +331,11 @@ export function FeedPreview({
   );
 
   useEffect(() => {
-    const handlePageHide = () => saveFeedPosition();
+    const handlePageHide = () => {
+      saveFeedPosition();
+      flushSessionScrollPositions("library-content");
+    };
+
     window.addEventListener("pagehide", handlePageHide);
     return () => window.removeEventListener("pagehide", handlePageHide);
   }, [saveFeedPosition]);
@@ -347,10 +373,18 @@ export function FeedPreview({
         return;
       }
 
-      feedElement.scrollTo({
-        top: feedItemTop(feedElement, nextItem),
-        behavior: "smooth"
-      });
+      const currentIndex = nearestFeedIndexFromScroll(
+        feedElement,
+        itemRefs.current
+      );
+      const targetTop = feedItemTop(feedElement, nextItem);
+
+      if (shouldJumpFeedImmediately(currentIndex, nextIndex)) {
+        setScrollPositionImmediately(feedElement, targetTop);
+      } else {
+        feedElement.scrollTo({ top: targetTop, behavior: "smooth" });
+      }
+
       setActiveIndex(nextIndex);
       latestActiveIndexRef.current = nextIndex;
       const nextAssetId = assets[nextIndex]?.id;
@@ -504,7 +538,7 @@ export function FeedPreview({
           }
 
           event.preventDefault();
-          onOpenAsset(activeAsset.id);
+          handleOpenAsset(activeAsset.id);
           break;
         }
         case "toggle-playback":
@@ -513,7 +547,7 @@ export function FeedPreview({
           break;
       }
     },
-    [assets, onOpenAsset, scrollToFeedItem, toggleActiveFeedPlayback]
+    [assets, handleOpenAsset, scrollToFeedItem, toggleActiveFeedPlayback]
   );
 
   const handleFeedWheel = useCallback(
@@ -655,11 +689,13 @@ export function FeedPreview({
       >
         {assets.map((asset, index) => (
           <FeedItem
-            activeIndex={activeIndex}
             asset={asset}
-            audiblePlaybackRequest={audiblePlaybackRequest}
+            audiblePlaybackRequest={
+              index === activeIndex ? audiblePlaybackRequest : 0
+            }
             feedSoundState={feedSoundState}
             index={index}
+            isActive={index === activeIndex}
             isFeedChromeHidden={isFeedChromeHidden}
             isFeedMuted={isFeedMuted}
             isPlaybackPaused={
@@ -672,15 +708,14 @@ export function FeedPreview({
               asset.mediaType === "video" &&
               Math.abs(index - activeIndex) <= FEED_PRELOAD_DISTANCE
             }
+            renderMedia={shouldRenderFeedMedia(index, activeIndex)}
             showLoadSentinel={hasMore && index === assets.length - 1}
             onAudibleAutoplayBlocked={handleAudibleAutoplayBlocked}
             onAudiblePlaybackStarted={handleAudiblePlaybackStarted}
             onFeedSoundToggle={handleFeedSoundToggle}
-            onOpenAnnotations={onOpenAnnotations}
-            onOpenAsset={onOpenAsset}
-            onRegisterItem={(itemIndex, node) => {
-              itemRefs.current[itemIndex] = node;
-            }}
+            onOpenAnnotations={handleOpenAnnotations}
+            onOpenAsset={handleOpenAsset}
+            onRegisterItem={handleRegisterItem}
             onToggleFeedChrome={toggleFeedChrome}
           />
         ))}

@@ -19,23 +19,23 @@ export function useTagSuggestions({
       return;
     }
 
-    let active = true;
+    const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      suggestTags({ query: normalizedQuery, limit })
+      suggestTags({ query: normalizedQuery, limit, signal: controller.signal })
         .then((response) => {
-          if (active) {
+          if (!controller.signal.aborted) {
             setSuggestions(response.tags);
           }
         })
         .catch(() => {
-          if (active) {
+          if (!controller.signal.aborted) {
             setSuggestions([]);
           }
         });
     }, 180);
 
     return () => {
-      active = false;
+      controller.abort();
       window.clearTimeout(timer);
     };
   }, [enabled, limit, normalizedQuery]);

@@ -16,7 +16,10 @@ export interface CreatedSession {
 interface SessionRow {
   id: string;
   expires_at: string;
+  last_seen_at: string;
 }
+
+const SESSION_TOUCH_INTERVAL_MS = 5 * 60 * 1000;
 
 export function createSession(
   db: AetherDatabase,
@@ -55,7 +58,7 @@ export function findSession(
   const now = new Date();
   const row = db
     .prepare(
-      `SELECT id, expires_at
+      `SELECT id, expires_at, last_seen_at
        FROM sessions
        WHERE token_hash = ? AND expires_at > ?`
     )
@@ -65,10 +68,17 @@ export function findSession(
     return null;
   }
 
-  db.prepare("UPDATE sessions SET last_seen_at = ? WHERE id = ?").run(
-    now.toISOString(),
-    row.id
-  );
+  const lastSeenTime = Date.parse(row.last_seen_at);
+
+  if (
+    !Number.isFinite(lastSeenTime) ||
+    lastSeenTime <= now.getTime() - SESSION_TOUCH_INTERVAL_MS
+  ) {
+    db.prepare("UPDATE sessions SET last_seen_at = ? WHERE id = ?").run(
+      now.toISOString(),
+      row.id
+    );
+  }
 
   return { id: row.id, expiresAt: row.expires_at };
 }

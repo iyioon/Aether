@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  rm,
+  symlink,
+  utimes,
+  writeFile
+} from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import sharp from "sharp";
@@ -132,6 +139,172 @@ describe("library scanner", () => {
       total: 3,
       percent: 100
     });
+  });
+
+  it("does not rewrite dimensions for an unchanged image on repeat scans", async () => {
+    const imagePath = path.join(cwd, "media", "unchanged.png");
+    await sharp({
+      create: {
+        width: 40,
+        height: 30,
+        channels: 3,
+        background: "#718096"
+      }
+    })
+      .png()
+      .toFile(imagePath);
+
+    await scanLibrary(db, config.mediaRoots);
+    db.exec(`
+      CREATE TRIGGER reject_redundant_dimension_write
+      BEFORE UPDATE OF width, height ON assets
+      BEGIN
+        SELECT RAISE(ABORT, 'unchanged dimensions were rewritten');
+      END;
+    `);
+
+    const result = await scanLibrary(db, config.mediaRoots);
+    const assets = listAssets(db, {
+      folderId: folderIdFor(config.mediaRoots[0]!.id, ""),
+      offset: 0,
+      limit: 10,
+      sort: "filename",
+      type: "image",
+      recursive: true
+    });
+
+    expect(result.assets).toBe(1);
+    expect(assets?.items[0]).toMatchObject({ width: 40, height: 30 });
+  });
+
+  it("refreshes dimensions when an image changes between scans", async () => {
+    const imagePath = path.join(cwd, "media", "resized.png");
+    await sharp({
+      create: {
+        width: 40,
+        height: 30,
+        channels: 3,
+        background: "#718096"
+      }
+    })
+      .png()
+      .toFile(imagePath);
+    await scanLibrary(db, config.mediaRoots);
+
+    await sharp({
+      create: {
+        width: 96,
+        height: 72,
+        channels: 3,
+        background: "#8ca99b"
+      }
+    })
+      .png()
+      .toFile(imagePath);
+    const changedAt = new Date(Date.now() + 1_000);
+    await utimes(imagePath, changedAt, changedAt);
+    await scanLibrary(db, config.mediaRoots);
+
+    const assets = listAssets(db, {
+      folderId: folderIdFor(config.mediaRoots[0]!.id, ""),
+      offset: 0,
+      limit: 10,
+      sort: "filename",
+      type: "image",
+      recursive: true
+    });
+
+    expect(assets?.items).toHaveLength(1);
+    expect(assets?.items[0]).toMatchObject({
+      name: "resized.png",
+      width: 96,
+      height: 72
+    });
+  });
+
+  it("keeps search index rows intact for unchanged assets", async () => {
+    const mediaDir = path.join(cwd, "media");
+    await Promise.all([
+      sharp({
+        create: {
+          width: 32,
+          height: 24,
+          channels: 3,
+          background: "#718096"
+        }
+      })
+        .png()
+        .toFile(path.join(mediaDir, "first.png")),
+      sharp({
+        create: {
+          width: 48,
+          height: 36,
+          channels: 3,
+          background: "#8ca99b"
+        }
+      })
+        .png()
+        .toFile(path.join(mediaDir, "second.png"))
+    ]);
+    await scanLibrary(db, config.mediaRoots);
+
+    const searchRowsBefore = db
+      .prepare(
+        `SELECT asset_id, rowid
+         FROM asset_search
+         ORDER BY asset_id`
+      )
+      .all();
+
+    await scanLibrary(db, config.mediaRoots);
+
+    const searchRowsAfter = db
+      .prepare(
+        `SELECT asset_id, rowid
+         FROM asset_search
+         ORDER BY asset_id`
+      )
+      .all();
+
+    expect(searchRowsBefore).toHaveLength(2);
+    expect(searchRowsAfter).toEqual(searchRowsBefore);
+  });
+
+  it("repairs a missing search row during an unchanged repeat scan", async () => {
+    const imagePath = path.join(cwd, "media", "search-repair.png");
+    await sharp({
+      create: {
+        width: 32,
+        height: 24,
+        channels: 3,
+        background: "#718096"
+      }
+    })
+      .png()
+      .toFile(imagePath);
+    await scanLibrary(db, config.mediaRoots);
+
+    const indexedAsset = db
+      .prepare("SELECT id FROM assets WHERE name = ?")
+      .get("search-repair.png") as { id: string };
+    db.prepare("DELETE FROM asset_search WHERE asset_id = ?").run(
+      indexedAsset.id
+    );
+
+    await scanLibrary(db, config.mediaRoots);
+
+    const searchResult = listAssets(db, {
+      folderId: folderIdFor(config.mediaRoots[0]!.id, ""),
+      offset: 0,
+      limit: 10,
+      sort: "filename",
+      type: "image",
+      recursive: true,
+      search: "search-repair"
+    });
+
+    expect(searchResult?.items).toHaveLength(1);
+    expect(searchResult?.items[0]?.id).toBe(indexedAsset.id);
   });
 
   it("skips symlinks and removes assets missing from a later scan", async () => {

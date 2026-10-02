@@ -16,11 +16,18 @@ export interface ScrollAnchorItem {
 }
 
 const STORAGE_PREFIX = "aether.scroll.v2";
+const STORAGE_WRITE_DELAY_MS = 120;
 const LEGACY_STORAGE_KEYS = [
   "aether.scroll.v1.feed",
   "aether.scroll.v1.folder-tree",
   "aether.scroll.v1.gallery"
 ];
+const cachedPositions = new Map<ScrollSurface, SessionScrollPosition>();
+const dirtySurfaces = new Set<ScrollSurface>();
+const pendingStorageWrites = new Map<
+  ScrollSurface,
+  ReturnType<typeof setTimeout>
+>();
 
 export function findScrollAnchorItem<T extends ScrollAnchorItem>(
   items: readonly T[],
@@ -70,6 +77,12 @@ export function scaleScrollAnchorOffset(
 export function readSessionScrollPosition(
   surface: ScrollSurface
 ): SessionScrollPosition | null {
+  const cachedPosition = cachedPositions.get(surface);
+
+  if (cachedPosition) {
+    return { ...cachedPosition };
+  }
+
   if (typeof window === "undefined") {
     return null;
   }
@@ -91,7 +104,7 @@ export function readSessionScrollPosition(
       return null;
     }
 
-    return {
+    const position = {
       anchorId:
         typeof parsed.anchorId === "string" ? parsed.anchorId : undefined,
       anchorOffset:
@@ -112,6 +125,8 @@ export function readSessionScrollPosition(
           : undefined,
       scrollTop: Math.max(0, parsed.scrollTop)
     };
+    cachedPositions.set(surface, position);
+    return { ...position };
   } catch {
     return null;
   }
@@ -121,24 +136,67 @@ export function writeSessionScrollPosition(
   surface: ScrollSurface,
   position: SessionScrollPosition
 ) {
+  const normalizedPosition = {
+    ...position,
+    scrollTop: Math.max(0, Math.round(position.scrollTop))
+  };
+  cachedPositions.set(surface, normalizedPosition);
+
   if (typeof window === "undefined") {
     return;
   }
 
-  try {
-    window.sessionStorage.setItem(
-      storageKey(surface),
-      JSON.stringify({
-        ...position,
-        scrollTop: Math.max(0, Math.round(position.scrollTop))
-      })
-    );
-  } catch {
-    // Scroll restoration is optional and should never block navigation.
+  dirtySurfaces.add(surface);
+
+  if (pendingStorageWrites.has(surface)) {
+    return;
+  }
+
+  pendingStorageWrites.set(
+    surface,
+    globalThis.setTimeout(
+      () => flushSessionScrollPositions(surface),
+      STORAGE_WRITE_DELAY_MS
+    )
+  );
+}
+
+export function flushSessionScrollPositions(surface?: ScrollSurface) {
+  const surfaces = surface ? [surface] : [...dirtySurfaces];
+
+  for (const currentSurface of surfaces) {
+    const pendingWrite = pendingStorageWrites.get(currentSurface);
+    if (pendingWrite !== undefined) {
+      globalThis.clearTimeout(pendingWrite);
+      pendingStorageWrites.delete(currentSurface);
+    }
+
+    const position = cachedPositions.get(currentSurface);
+    dirtySurfaces.delete(currentSurface);
+
+    if (!position || typeof window === "undefined") {
+      continue;
+    }
+
+    try {
+      window.sessionStorage.setItem(
+        storageKey(currentSurface),
+        JSON.stringify(position)
+      );
+    } catch {
+      // Scroll restoration is optional and should never block navigation.
+    }
   }
 }
 
 export function clearSessionScrollPositions() {
+  for (const pendingWrite of pendingStorageWrites.values()) {
+    globalThis.clearTimeout(pendingWrite);
+  }
+  pendingStorageWrites.clear();
+  dirtySurfaces.clear();
+  cachedPositions.clear();
+
   if (typeof window === "undefined") {
     return;
   }

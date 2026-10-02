@@ -1,4 +1,5 @@
 import {
+  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -39,6 +40,7 @@ import {
 import { Progress } from "./ui/progress";
 import { Skeleton } from "./ui/skeleton";
 import {
+  flushSessionScrollPositions,
   readSessionScrollPosition,
   writeSessionScrollPosition
 } from "./scroll-restoration";
@@ -69,10 +71,10 @@ interface FolderTreePanelProps {
 }
 
 interface FolderTreeRowProps {
-  expandedFolderIds: ReadonlySet<string>;
+  isExpanded: boolean;
+  isSelected: boolean;
+  isTabStop: boolean;
   item: FolderTreeItem;
-  selectedFolderId: string | null;
-  treeTabStopId: string | null;
   onFolderKeyDown: (
     event: ReactKeyboardEvent<HTMLElement>,
     item: FolderTreeItem
@@ -185,8 +187,13 @@ export function FolderTreePanel({
   );
 
   useEffect(() => {
-    window.addEventListener("pagehide", saveTreeScrollPosition);
-    return () => window.removeEventListener("pagehide", saveTreeScrollPosition);
+    const handlePageHide = () => {
+      saveTreeScrollPosition();
+      flushSessionScrollPositions("folder-tree");
+    };
+
+    window.addEventListener("pagehide", handlePageHide);
+    return () => window.removeEventListener("pagehide", handlePageHide);
   }, [saveTreeScrollPosition]);
 
   return (
@@ -278,11 +285,11 @@ export function FolderTreePanel({
         >
           {items.map((item) => (
             <FolderTreeRow
-              expandedFolderIds={expandedFolderIds}
+              isExpanded={expandedFolderIds.has(item.id)}
+              isSelected={selectedFolderId === item.id}
+              isTabStop={treeTabStopId === item.id}
               item={item}
               key={item.id}
-              selectedFolderId={selectedFolderId}
-              treeTabStopId={treeTabStopId}
               onFolderKeyDown={onFolderKeyDown}
               onSelectFolder={onSelectFolder}
               onToggleFolderExpansion={onToggleFolderExpansion}
@@ -328,18 +335,15 @@ export function FolderTreePanel({
   );
 }
 
-function FolderTreeRow({
-  expandedFolderIds,
+const FolderTreeRow = memo(function FolderTreeRow({
+  isExpanded,
+  isSelected,
+  isTabStop,
   item,
-  selectedFolderId,
-  treeTabStopId,
   onFolderKeyDown,
   onSelectFolder,
   onToggleFolderExpansion
 }: FolderTreeRowProps) {
-  const isExpanded = expandedFolderIds.has(item.id);
-  const isSelected = selectedFolderId === item.id;
-
   return (
     <div
       aria-expanded={item.hasChildren ? isExpanded : undefined}
@@ -358,7 +362,7 @@ function FolderTreeRow({
         .join(" ")}
       id={folderTreeItemDomId(item.id)}
       role="treeitem"
-      tabIndex={treeTabStopId === item.id ? 0 : -1}
+      tabIndex={isTabStop ? 0 : -1}
       style={
         {
           "--tree-indent": `${item.depth * 8}px`
@@ -394,7 +398,7 @@ function FolderTreeRow({
       <small className="tree-count">{item.assetCount}</small>
     </div>
   );
-}
+});
 
 function FolderSortIcon({ sortMode }: { sortMode: FolderSortMode }) {
   switch (sortMode) {

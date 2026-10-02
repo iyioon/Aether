@@ -26,22 +26,22 @@ function AuthenticatedApp({ appearance }: { appearance: AppearanceSettings }) {
   const [authStatus, setAuthStatus] = useState<AuthStatus>("checking");
 
   useEffect(() => {
-    let active = true;
+    const controller = new AbortController();
 
-    getMe()
+    getMe(controller.signal)
       .then(() => {
-        if (active) {
+        if (!controller.signal.aborted) {
           setAuthStatus("authenticated");
         }
       })
       .catch(() => {
-        if (active) {
+        if (!controller.signal.aborted) {
           setAuthStatus("anonymous");
         }
       });
 
     return () => {
-      active = false;
+      controller.abort();
     };
   }, []);
 

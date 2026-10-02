@@ -56,6 +56,7 @@ const VIDEO_PREVIEW_CACHE_VERSION = "v3";
 
 const pendingPosterJobs = new Map<string, Promise<ThumbnailFile>>();
 const pendingPreviewJobs = new Map<string, Promise<VideoPreviewFile>>();
+const pendingMetadataJobs = new Map<string, Promise<VideoMetadata>>();
 
 export async function ensureVideoPoster({
   db,
@@ -203,7 +204,7 @@ async function generateVideoPoster({
   const temporaryPath = `${posterPath}.${process.pid}.${Date.now()}.tmp`;
 
   try {
-    const metadata = await probeVideoMetadata(file);
+    const metadata = await cachedOrProbeVideoMetadata(file);
 
     await runMediaCommand(
       "ffmpeg",
@@ -290,7 +291,7 @@ async function generateVideoPreview({
   const temporaryPath = `${previewPath}.${process.pid}.${Date.now()}.tmp`;
 
   try {
-    const metadata = await probeVideoMetadata(file);
+    const metadata = await cachedOrProbeVideoMetadata(file);
 
     await runMediaCommand(
       "ffmpeg",
@@ -429,6 +430,36 @@ export async function probeVideoMetadata(
     durationMs: durationMsOrNull(payload.format?.duration),
     codec: stream?.codec_name ?? null
   };
+}
+
+async function cachedOrProbeVideoMetadata(
+  file: ResolvedAssetFile
+): Promise<VideoMetadata> {
+  const { width, height, durationMs, codec } = file.asset;
+
+  if (
+    file.asset.indexedMtimeMs === file.mtimeMs &&
+    file.asset.indexedSizeBytes === file.sizeBytes &&
+    width !== null &&
+    height !== null &&
+    durationMs !== null &&
+    codec !== null
+  ) {
+    return { width, height, durationMs, codec };
+  }
+
+  const cacheKey = `${file.asset.id}:${file.sizeBytes}:${file.mtimeMs}`;
+  const pending = pendingMetadataJobs.get(cacheKey);
+
+  if (pending) {
+    return pending;
+  }
+
+  const job = probeVideoMetadata(file).finally(() => {
+    pendingMetadataJobs.delete(cacheKey);
+  });
+  pendingMetadataJobs.set(cacheKey, job);
+  return job;
 }
 
 function sendPreviewRange(

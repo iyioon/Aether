@@ -134,6 +134,7 @@
 .feed-item {
   position: relative;
   container-type: size;
+  content-visibility: auto;
   display: grid;
   height: 100%;
   min-height: 100%;

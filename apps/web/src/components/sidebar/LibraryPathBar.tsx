@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, type ReactNode } from "react";
 import {
   GalleryHorizontalEnd,
   GitCompareArrows,
@@ -34,6 +34,7 @@ interface LibraryPathBarProps {
   tree: TreeResponse | null;
   view: ViewMode;
   onBackToLibrary: () => void;
+  onPreloadView: (view: ViewMode) => void;
   onSearchDraftChange: (value: string) => void;
   onSelectFolder: (folderId: string) => void;
   onSwitchView: (view: ViewMode) => void;
@@ -53,11 +54,15 @@ export function LibraryPathBar({
   tree,
   view,
   onBackToLibrary,
+  onPreloadView,
   onSearchDraftChange,
   onSelectFolder,
   onSwitchView
 }: LibraryPathBarProps) {
-  const path = buildFolderPath(tree, selectedFolderId);
+  const path = useMemo(
+    () => buildFolderPath(tree, selectedFolderId),
+    [selectedFolderId, tree]
+  );
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -188,7 +193,9 @@ export function LibraryPathBar({
                 size="icon"
                 title={label}
                 variant={view === viewOption ? "secondary" : "ghost"}
+                onFocus={() => onPreloadView(viewOption)}
                 onClick={() => onSwitchView(viewOption)}
+                onPointerEnter={() => onPreloadView(viewOption)}
               >
                 <Icon />
               </Button>

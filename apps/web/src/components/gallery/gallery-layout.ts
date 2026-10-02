@@ -185,14 +185,13 @@ export function galleryAspectRatio(aspect: AspectMode): number {
 export function mediaTileStyle(
   asset: AssetRecord,
   aspect: AspectMode,
-  measuredAspectRatios: Record<string, string>
+  measuredAspectRatio?: string
 ): CSSProperties | undefined {
   if (aspect !== "Original") {
     return undefined;
   }
 
-  const ratio =
-    measuredAspectRatios[asset.id] ?? knownMediaAspectRatio(asset) ?? "3 / 2";
+  const ratio = measuredAspectRatio ?? knownMediaAspectRatio(asset) ?? "3 / 2";
 
   return {
     "--media-aspect-ratio": ratio

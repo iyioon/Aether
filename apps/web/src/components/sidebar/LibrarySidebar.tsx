@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useLayoutEffect,
   useRef,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -51,6 +52,8 @@ interface LibrarySidebarProps {
   onLogout: () => void;
   onOpenGuide: () => void;
   onOpenSettings: () => void;
+  onPreloadGuide: () => void;
+  onPreloadSettings: () => void;
   onScan: () => void;
   onSelectFolder: (folderId: string) => void;
   onToggleFolderExpansion: (folderId: string) => void;
@@ -83,16 +86,21 @@ export function LibrarySidebar({
   onLogout,
   onOpenGuide,
   onOpenSettings,
+  onPreloadGuide,
+  onPreloadSettings,
   onScan,
   onSelectFolder,
   onToggleFolderExpansion
 }: LibrarySidebarProps) {
   const { setOpenMobile } = useSidebar();
 
-  function selectFolder(folderId: string) {
-    onSelectFolder(folderId);
-    setOpenMobile(false);
-  }
+  const selectFolder = useCallback(
+    (folderId: string) => {
+      onSelectFolder(folderId);
+      setOpenMobile(false);
+    },
+    [onSelectFolder, setOpenMobile]
+  );
 
   function openSettings() {
     onOpenSettings();
@@ -151,6 +159,8 @@ export function LibrarySidebar({
               className="sidebar-footer-action"
               isActive={isGuideOpen}
               onClick={openGuide}
+              onFocus={onPreloadGuide}
+              onPointerEnter={onPreloadGuide}
             >
               <BookOpen />
               <span>User guide</span>
@@ -161,6 +171,8 @@ export function LibrarySidebar({
               className="sidebar-footer-action"
               isActive={isSettingsOpen}
               onClick={openSettings}
+              onFocus={onPreloadSettings}
+              onPointerEnter={onPreloadSettings}
             >
               <Settings />
               <span>Settings</span>

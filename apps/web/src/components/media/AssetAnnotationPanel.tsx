@@ -55,7 +55,7 @@ export function AssetAnnotationPanel({
   const [isLoadingAiTags, setIsLoadingAiTags] = useState(false);
 
   useEffect(() => {
-    let active = true;
+    const controller = new AbortController();
     setTags([]);
     setTagInput("");
     setTagSuggestions([]);
@@ -63,20 +63,20 @@ export function AssetAnnotationPanel({
     setAnnotationError(null);
     setIsResetComparisonOpen(false);
 
-    getAssetTags(asset.id)
+    getAssetTags(asset.id, controller.signal)
       .then((response) => {
-        if (active) {
+        if (!controller.signal.aborted) {
           setTags(response.tags);
         }
       })
       .catch(() => {
-        if (active) {
+        if (!controller.signal.aborted) {
           setAnnotationError("Unable to load tags.");
         }
       });
 
     return () => {
-      active = false;
+      controller.abort();
     };
   }, [asset.id]);
 
@@ -88,11 +88,11 @@ export function AssetAnnotationPanel({
       return;
     }
 
-    let active = true;
+    const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      suggestTags({ query, limit: 8 })
+      suggestTags({ query, limit: 8, signal: controller.signal })
         .then((response) => {
-          if (active) {
+          if (!controller.signal.aborted) {
             const selectedNames = new Set(
               tags.map((tag) => tag.normalizedName)
             );
@@ -104,14 +104,14 @@ export function AssetAnnotationPanel({
           }
         })
         .catch(() => {
-          if (active) {
+          if (!controller.signal.aborted) {
             setTagSuggestions([]);
           }
         });
     }, 180);
 
     return () => {
-      active = false;
+      controller.abort();
       window.clearTimeout(timer);
     };
   }, [tagInput, tags]);

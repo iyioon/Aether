@@ -425,6 +425,28 @@ describe("annotations", () => {
       ]
     });
 
+    const favoriteOnly = await app.inject({
+      method: "PATCH",
+      url: "/api/assets/batch/scores",
+      cookies: auth.cookies,
+      headers: {
+        "x-csrf-token": auth.csrfToken
+      },
+      payload: {
+        assetIds: [...assetIds].reverse(),
+        favorite: false
+      }
+    });
+
+    expect(favoriteOnly.statusCode).toBe(200);
+    expect(favoriteOnly.json()).toMatchObject({
+      updated: 2,
+      assets: [
+        { id: assetIds[1], score: 8, favorite: false },
+        { id: assetIds[0], score: 8, favorite: false }
+      ]
+    });
+
     const tags = await app.inject({
       method: "POST",
       url: "/api/assets/batch/tags",

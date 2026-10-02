@@ -3,42 +3,50 @@ export const FEED_WHEEL_THRESHOLD = 28;
 export const FEED_TOUCH_DISTANCE = 54;
 export const FEED_TOUCH_VELOCITY = 0.34;
 export const FEED_PRELOAD_DISTANCE = 1;
+export const FEED_RENDER_DISTANCE = 3;
+
+export function shouldRenderFeedMedia(index: number, activeIndex: number) {
+  return Math.abs(index - activeIndex) <= FEED_RENDER_DISTANCE;
+}
+
+export function shouldJumpFeedImmediately(
+  currentIndex: number,
+  nextIndex: number
+) {
+  return Math.abs(nextIndex - currentIndex) > FEED_RENDER_DISTANCE;
+}
 
 export function nearestFeedIndexFromScroll(
   feedElement: HTMLElement | null,
   itemRefs: Array<HTMLElement | null>
 ): number {
-  if (!feedElement) {
+  if (!feedElement || itemRefs.length === 0) {
     return 0;
   }
 
-  let nearestIndex = 0;
-  let nearestDistance = Number.POSITIVE_INFINITY;
+  const itemHeight = feedElement.clientHeight;
 
-  for (let index = 0; index < itemRefs.length; index += 1) {
-    const item = itemRefs[index];
-
-    if (!item) {
-      continue;
-    }
-
-    const distance = Math.abs(
-      feedItemTop(feedElement, item) - feedElement.scrollTop
-    );
-
-    if (distance < nearestDistance) {
-      nearestDistance = distance;
-      nearestIndex = index;
-    }
+  if (itemHeight <= 0) {
+    return 0;
   }
 
-  return nearestIndex;
+  return Math.max(
+    0,
+    Math.min(
+      Math.round(feedElement.scrollTop / itemHeight),
+      itemRefs.length - 1
+    )
+  );
 }
 
 export function feedItemTop(
   feedElement: HTMLElement,
   item: HTMLElement
 ): number {
+  if (item.offsetParent === feedElement) {
+    return item.offsetTop;
+  }
+
   return (
     item.getBoundingClientRect().top -
     feedElement.getBoundingClientRect().top +

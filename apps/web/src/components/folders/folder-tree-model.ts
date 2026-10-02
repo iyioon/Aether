@@ -3,6 +3,10 @@ import type { FolderSortMode, FolderTreeItem } from "./folder-tree-types";
 
 type RootTreeNode = TreeResponse["roots"][number];
 type FolderTreeNode = TreeResponse["folders"][number];
+const folderNameCollator = new Intl.Collator(undefined, {
+  numeric: true,
+  sensitivity: "base"
+});
 
 export function buildFolderChildrenByParentId(
   tree: TreeResponse | null,
@@ -66,10 +70,7 @@ function folderComparator<T extends { assetCount: number; label: string }>(
   sortMode: FolderSortMode
 ): (left: T, right: T) => number {
   return (left, right) => {
-    const nameOrder = left.label.localeCompare(right.label, undefined, {
-      numeric: true,
-      sensitivity: "base"
-    });
+    const nameOrder = folderNameCollator.compare(left.label, right.label);
 
     switch (sortMode) {
       case "name-desc":

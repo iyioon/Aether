@@ -18,6 +18,11 @@ export interface ThumbnailFile {
   contentType: string;
 }
 
+const pendingThumbnailJobsByDatabase = new WeakMap<
+  AetherDatabase,
+  Map<string, Promise<ThumbnailFile>>
+>();
+
 export async function ensureImageThumbnail({
   db,
   config,
@@ -55,6 +60,54 @@ export async function ensureImageThumbnail({
     };
   }
 
+  const pendingThumbnailJobs = jobsForDatabase(db);
+  const pending = pendingThumbnailJobs.get(thumbnailPath);
+
+  if (pending) {
+    return pending;
+  }
+
+  const job = generateImageThumbnail({
+    db,
+    file,
+    size,
+    thumbnailPath,
+    derivativeId
+  }).finally(() => {
+    pendingThumbnailJobs.delete(thumbnailPath);
+  });
+
+  pendingThumbnailJobs.set(thumbnailPath, job);
+  return job;
+}
+
+function jobsForDatabase(
+  db: AetherDatabase
+): Map<string, Promise<ThumbnailFile>> {
+  const existing = pendingThumbnailJobsByDatabase.get(db);
+
+  if (existing) {
+    return existing;
+  }
+
+  const jobs = new Map<string, Promise<ThumbnailFile>>();
+  pendingThumbnailJobsByDatabase.set(db, jobs);
+  return jobs;
+}
+
+async function generateImageThumbnail({
+  db,
+  file,
+  size,
+  thumbnailPath,
+  derivativeId
+}: {
+  db: AetherDatabase;
+  file: ResolvedAssetFile;
+  size: number;
+  thumbnailPath: string;
+  derivativeId: string;
+}): Promise<ThumbnailFile> {
   await mkdir(path.dirname(thumbnailPath), { recursive: true });
   const temporaryPath = `${thumbnailPath}.${process.pid}.${Date.now()}.tmp`;
 

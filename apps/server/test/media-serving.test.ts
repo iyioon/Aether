@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
@@ -16,8 +16,12 @@ import {
   getDerivative,
   listAssets
 } from "../src/library/repository.js";
-import { parseRangeHeader } from "../src/library/media-serving.js";
+import {
+  parseRangeHeader,
+  resolveAssetFile
+} from "../src/library/media-serving.js";
 import { scanLibrary } from "../src/library/scanner.js";
+import { ensureImageThumbnail } from "../src/library/thumbnails.js";
 
 describe("media serving", () => {
   let cwd: string;
@@ -207,6 +211,141 @@ describe("media serving", () => {
     const updatedAsset = getAsset(db, asset.id);
     expect(updatedAsset?.width).toBe(16);
     expect(updatedAsset?.height).toBe(12);
+  });
+
+  it("shares concurrent generation work for the same image thumbnail", async () => {
+    await sharp({
+      create: {
+        width: 96,
+        height: 64,
+        channels: 3,
+        background: "#768c82"
+      }
+    })
+      .png()
+      .toFile(path.join(cwd, "media", "shared.png"));
+    await scanLibrary(db, config.mediaRoots);
+    const asset = firstAsset("image");
+    const cookies = await loginCookies();
+    db.exec(`
+      CREATE TABLE derivative_write_attempts (count INTEGER NOT NULL);
+      INSERT INTO derivative_write_attempts (count) VALUES (0);
+      CREATE TRIGGER count_derivative_write_attempts
+      BEFORE INSERT ON derivatives
+      BEGIN
+        UPDATE derivative_write_attempts SET count = count + 1;
+      END;
+    `);
+
+    const [first, second] = await Promise.all([
+      app.inject({
+        method: "GET",
+        url: `/api/assets/${asset.id}/thumbnail?size=128`,
+        cookies
+      }),
+      app.inject({
+        method: "GET",
+        url: `/api/assets/${asset.id}/thumbnail?size=128`,
+        cookies
+      })
+    ]);
+
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    expect(first.rawPayload).toEqual(second.rawPayload);
+    expect(
+      db.prepare("SELECT count FROM derivative_write_attempts").get()
+    ).toEqual({ count: 1 });
+  });
+
+  it("isolates concurrent thumbnail jobs between databases and cache directories", async () => {
+    const sourceMtime = new Date("2026-01-01T00:00:00.000Z");
+    const fixtures: Array<{
+      config: AppConfig;
+      db: AetherDatabase;
+      file: NonNullable<Awaited<ReturnType<typeof resolveAssetFile>>>;
+    }> = [];
+
+    try {
+      for (const [name, background] of [
+        ["first", "#b45309"],
+        ["second", "#0369a1"]
+      ] as const) {
+        const fixtureDirectory = path.join(cwd, name);
+        const mediaDirectory = path.join(fixtureDirectory, "media");
+        const sourcePath = path.join(mediaDirectory, "shared.png");
+        await mkdir(mediaDirectory, { recursive: true });
+        await sharp({
+          create: {
+            width: 512,
+            height: 384,
+            channels: 3,
+            background
+          }
+        })
+          .png()
+          .toFile(sourcePath);
+        await utimes(sourcePath, sourceMtime, sourceMtime);
+
+        const fixtureConfig: AppConfig = {
+          ...config,
+          mediaRoots: [
+            {
+              id: "root_shared-thumbnail-isolation",
+              label: "media",
+              inputPath: mediaDirectory,
+              realPath: await realpath(mediaDirectory)
+            }
+          ],
+          configDir: path.join(fixtureDirectory, "config"),
+          cacheDir: path.join(fixtureDirectory, "cache")
+        };
+        const fixtureDb = openDatabase(fixtureConfig.configDir);
+        await scanLibrary(fixtureDb, fixtureConfig.mediaRoots);
+        const asset = fixtureDb.prepare("SELECT id FROM assets").get() as {
+          id: string;
+        };
+        const file = await resolveAssetFile(fixtureDb, asset.id);
+
+        if (!file) {
+          fixtureDb.close();
+          throw new Error("Expected an indexed thumbnail fixture.");
+        }
+
+        fixtures.push({ config: fixtureConfig, db: fixtureDb, file });
+      }
+
+      const thumbnails = await Promise.all(
+        fixtures.map((fixture) =>
+          ensureImageThumbnail({
+            db: fixture.db,
+            config: fixture.config,
+            file: fixture.file,
+            size: 128
+          })
+        )
+      );
+
+      expect(thumbnails[0]?.path).not.toBe(thumbnails[1]?.path);
+      expect(thumbnails[0]?.path).toContain(
+        path.join("first", "cache", "thumbnails")
+      );
+      expect(thumbnails[1]?.path).toContain(
+        path.join("second", "cache", "thumbnails")
+      );
+      expect(
+        fixtures.map((fixture) =>
+          fixture.db.prepare("SELECT path, status FROM derivatives").get()
+        )
+      ).toEqual([
+        { path: thumbnails[0]?.path, status: "ready" },
+        { path: thumbnails[1]?.path, status: "ready" }
+      ]);
+    } finally {
+      for (const fixture of fixtures) {
+        fixture.db.close();
+      }
+    }
   });
 
   it("generates cached video posters and updates metadata", async () => {

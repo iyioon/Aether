@@ -30,9 +30,13 @@ Key areas:
 - `library`: folder indexing, asset queries, routes, tags, thumbnails, video previews, and watcher logic.
 - `security`: filesystem path safety checks.
 
+Authenticated requests validate the session on every call. Session activity is persisted at a bounded interval rather than on every thumbnail, video range, or API request, avoiding needless SQLite and WAL writes without changing fixed session expiration.
+
 Library transport is divided by responsibility. `routes.ts` covers library browsing, annotations, and media delivery; comparison and administrative endpoints are registered by dedicated route modules. Route code validates input and maps errors, while repositories own SQLite operations and transactions.
 
 Asset list and comparison queries share the filter builder in `asset-query.ts`, including folder scope, media type, search, tags, favorites, and ranked state. Final-score SQL and asset projection columns also live there so list, detail, and source records cannot drift.
+
+Repeat scans use each asset's stable path, size, modification time, and media identity to recognize unchanged files. Those rows are only marked as seen; existing image dimensions and search-index entries are retained instead of decoding the source and rebuilding FTS data. Changed asset and search-row writes are atomic, and scan finalization repairs incomplete search data left by an interrupted older scan. Batch score and tag changes prepare their write statements once, validate IDs as a set, and hydrate the updated records in bounded set-based queries while preserving request order.
 
 ## Web App
 
@@ -50,6 +54,10 @@ The web app is organized around reusable UI surfaces:
 The comparison workspace opens on a paginated final-score leaderboard scoped by the current folder, search, media, score, and tag filters. Leaderboard media stays poster-only, uses display-sized thumbnails, and defers offscreen rows so static browsing does not start video decoders or animated originals. The workspace preloads its focused ranking module when the user approaches **Rank media**, then refreshes the leaderboard after new decisions. Ranking presentation is split into the media card, choice feedback, progress and actions footer, and session hook. Score details are similarly separated from tag editing in the annotation surface.
 
 Secondary workspaces such as comparison, settings, and the user guide are loaded on demand behind a shared accessible skeleton fallback. This keeps their dependencies out of the initial application bundle while preserving a consistent loading state.
+
+List, tree, settings, authentication, and tag-suggestion reads are abortable. Hooks cancel work whose query or owning surface is no longer current, and rapid score changes for one asset are serialized and coalesced so an older response cannot replace newer intent. Frequently rendered feed, gallery, and folder rows keep stable callbacks and memoized boundaries; feed position lookup uses its fixed snap geometry rather than scanning every mounted item.
+
+Gallery, feed, and folder-tree positions are cached in memory immediately and persisted to session storage in a short batch. This keeps synchronous storage work off the scroll hot path while retaining exact in-app restoration and flushing the latest position when the page is hidden.
 
 ## Data Storage
 
@@ -76,6 +84,8 @@ The feed uses a progressive image path: it displays the cached thumbnail first, 
 Feed videos request the original authenticated stream first and use HTTP range requests for full-duration seeking. If the browser cannot play the source, the client falls back to the cached browser-compatible preview. A separate decoded poster remains visible until the browser presents a video frame, including after a loop seek, so playback events cannot expose an undecoded black frame on iPhone.
 
 The fullscreen viewer and comparison cards use authenticated originals and the same frame-aware poster fallback for videos. A saved comparison response includes the next filtered pair, avoiding a second network round trip. The client gives both posters a bounded warm-up window before replacing the pair, cancels stale requests immediately, and lets the mounted preview finish loading if a warm-up is slow. A bounded shared readiness cache deduplicates poster work across surfaces. Source filesystem paths are never exposed to the browser.
+
+Derivative generation also deduplicates concurrent server work by derivative identity. Image thumbnails share one in-flight job, while video posters and previews reuse stored metadata or one in-flight probe for the same source version. Media delivery resolves only the source fields it needs instead of hydrating annotations, rankings, and tags.
 
 ## Search
 

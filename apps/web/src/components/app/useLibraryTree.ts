@@ -48,11 +48,14 @@ export function useLibraryTree({ initialFolderId }: UseLibraryTreeOptions) {
     );
   }, []);
 
-  const refreshTree = useCallback(async () => {
-    const response = await getTree();
-    applyTreeResponse(response);
-    return response;
-  }, [applyTreeResponse]);
+  const refreshTree = useCallback(
+    async (signal?: AbortSignal) => {
+      const response = await getTree(signal);
+      applyTreeResponse(response);
+      return response;
+    },
+    [applyTreeResponse]
+  );
 
   const waitForScan = useCallback(
     async (jobId: string, signal: AbortSignal) => {
@@ -65,7 +68,7 @@ export function useLibraryTree({ initialFolderId }: UseLibraryTreeOptions) {
 
         let jobs: Awaited<ReturnType<typeof getScanJobs>>["jobs"];
         try {
-          ({ jobs } = await getScanJobs());
+          ({ jobs } = await getScanJobs(signal));
         } catch {
           continue;
         }
@@ -101,7 +104,7 @@ export function useLibraryTree({ initialFolderId }: UseLibraryTreeOptions) {
         );
 
         if (reachedTerminalState && !controller.signal.aborted) {
-          await refreshTree();
+          await refreshTree(controller.signal);
         }
       } catch (caught) {
         if (!controller.signal.aborted) {
@@ -128,18 +131,18 @@ export function useLibraryTree({ initialFolderId }: UseLibraryTreeOptions) {
   );
 
   useEffect(() => {
-    let active = true;
+    const controller = new AbortController();
 
-    getTree()
+    getTree(controller.signal)
       .then((nextTree) => {
-        if (!active) {
+        if (controller.signal.aborted) {
           return;
         }
 
         applyTreeResponse(nextTree);
       })
       .catch((caught) => {
-        if (active) {
+        if (!controller.signal.aborted) {
           const message =
             caught instanceof ApiError
               ? caught.code
@@ -148,18 +151,18 @@ export function useLibraryTree({ initialFolderId }: UseLibraryTreeOptions) {
         }
       })
       .finally(() => {
-        if (active) {
+        if (!controller.signal.aborted) {
           setIsLoadingTree(false);
         }
       });
 
     Promise.all([
-      getWatchStatus().catch(() => null),
-      getScanJobs().catch(() => ({ jobs: [] })),
-      getAiStatus().catch(() => null)
+      getWatchStatus(controller.signal).catch(() => null),
+      getScanJobs(controller.signal).catch(() => ({ jobs: [] })),
+      getAiStatus(controller.signal).catch(() => null)
     ])
       .then(([nextWatchStatus, scanJobs, nextAiStatus]) => {
-        if (!active) {
+        if (controller.signal.aborted) {
           return;
         }
 
@@ -176,7 +179,7 @@ export function useLibraryTree({ initialFolderId }: UseLibraryTreeOptions) {
       .catch(() => undefined);
 
     return () => {
-      active = false;
+      controller.abort();
     };
   }, [applyTreeResponse, observeScanJob]);
 
@@ -185,46 +188,67 @@ export function useLibraryTree({ initialFolderId }: UseLibraryTreeOptions) {
       return;
     }
 
-    let active = true;
-    const pollInterval = window.setInterval(() => {
-      Promise.all([getWatchStatus(), getScanJobs()])
-        .then(async ([nextWatchStatus, scanJobs]) => {
-          if (!active) {
-            return;
+    const controller = new AbortController();
+    let pollTimer: number | null = null;
+
+    const schedulePoll = () => {
+      pollTimer = window.setTimeout(() => {
+        void pollWatchStatus();
+      }, 10_000);
+    };
+
+    const pollWatchStatus = async () => {
+      try {
+        const [nextWatchStatus, scanJobs] = await Promise.all([
+          getWatchStatus(controller.signal),
+          getScanJobs(controller.signal)
+        ]);
+
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        setWatchStatus(nextWatchStatus);
+        const latestJob = scanJobs.jobs[0];
+
+        if (!latestJob) {
+          return;
+        }
+
+        if (latestJob.status === "running") {
+          setScanProgress(latestJob.progress);
+          setScanState((current) =>
+            current === "starting" ? current : "running"
+          );
+          return;
+        }
+
+        if (latestJob.id !== observedScanJobIdRef.current) {
+          observedScanJobIdRef.current = latestJob.id;
+          setScanState(latestJob.status);
+          setScanProgress(null);
+          const nextTree = await getTree(controller.signal);
+
+          if (!controller.signal.aborted) {
+            applyTreeResponse(nextTree);
           }
+        }
+      } catch {
+        // A later poll retries transient watcher and job-status failures.
+      } finally {
+        if (!controller.signal.aborted) {
+          schedulePoll();
+        }
+      }
+    };
 
-          setWatchStatus(nextWatchStatus);
-          const latestJob = scanJobs.jobs[0];
-
-          if (!latestJob) {
-            return;
-          }
-
-          if (latestJob.status === "running") {
-            setScanProgress(latestJob.progress);
-            setScanState((current) =>
-              current === "starting" ? current : "running"
-            );
-            return;
-          }
-
-          if (latestJob.id !== observedScanJobIdRef.current) {
-            observedScanJobIdRef.current = latestJob.id;
-            setScanState(latestJob.status);
-            setScanProgress(null);
-            const nextTree = await getTree();
-
-            if (active) {
-              applyTreeResponse(nextTree);
-            }
-          }
-        })
-        .catch(() => undefined);
-    }, 10_000);
+    schedulePoll();
 
     return () => {
-      active = false;
-      window.clearInterval(pollInterval);
+      controller.abort();
+      if (pollTimer !== null) {
+        window.clearTimeout(pollTimer);
+      }
     };
   }, [applyTreeResponse, watchStatus?.enabled]);
 

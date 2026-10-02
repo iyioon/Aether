@@ -88,8 +88,7 @@ export function upsertAsset(
   input: UpsertAssetInput
 ): string {
   const id = assetIdFor(input.rootId, input.relativePath);
-
-  db.prepare(
+  const upsert = db.prepare(
     `
     INSERT INTO assets
       (id, root_id, folder_id, relative_path, name, extension, media_type, mime_type,
@@ -114,29 +113,87 @@ export function upsertAsset(
       status = 'indexed',
       error = NULL
   `
-  ).run({
-    id,
-    rootId: input.rootId,
-    folderId: input.folderId,
-    relativePath: input.relativePath,
-    name: input.name,
-    extension: input.extension,
-    mediaType: input.mediaType,
-    mimeType: input.mimeType,
-    sizeBytes: input.sizeBytes,
-    mtimeMs: input.mtimeMs,
-    fingerprint: input.fingerprint,
-    seenAt: input.seenAt
+  );
+  const transaction = db.transaction(() => {
+    upsert.run({
+      id,
+      rootId: input.rootId,
+      folderId: input.folderId,
+      relativePath: input.relativePath,
+      name: input.name,
+      extension: input.extension,
+      mediaType: input.mediaType,
+      mimeType: input.mimeType,
+      sizeBytes: input.sizeBytes,
+      mtimeMs: input.mtimeMs,
+      fingerprint: input.fingerprint,
+      seenAt: input.seenAt
+    });
+    syncAssetSearchRow(db, {
+      id,
+      rootId: input.rootId,
+      folderId: input.folderId,
+      name: input.name,
+      relativePath: input.relativePath
+    });
   });
-  syncAssetSearchRow(db, {
-    id,
-    rootId: input.rootId,
-    folderId: input.folderId,
-    name: input.name,
-    relativePath: input.relativePath
-  });
+  transaction();
 
   return id;
+}
+
+/**
+ * Marks an indexed asset as seen without rebuilding its search row when none
+ * of the searchable or media-identifying fields changed. Returning the stored
+ * dimensions lets repeat scans avoid decoding unchanged images again.
+ */
+export function touchAssetIfUnchanged(
+  db: AetherDatabase,
+  input: UpsertAssetInput
+): { id: string; width: number | null; height: number | null } | null {
+  const id = assetIdFor(input.rootId, input.relativePath);
+  const existing = db
+    .prepare(
+      `SELECT id, width, height
+       FROM assets
+       WHERE id = @id
+         AND root_id = @rootId
+         AND folder_id = @folderId
+         AND relative_path = @relativePath
+         AND name = @name
+         AND extension = @extension
+         AND media_type = @mediaType
+         AND mime_type IS @mimeType
+         AND size_bytes = @sizeBytes
+         AND mtime_ms = @mtimeMs
+         AND fingerprint IS @fingerprint`
+    )
+    .get({
+      id,
+      rootId: input.rootId,
+      folderId: input.folderId,
+      relativePath: input.relativePath,
+      name: input.name,
+      extension: input.extension,
+      mediaType: input.mediaType,
+      mimeType: input.mimeType,
+      sizeBytes: input.sizeBytes,
+      mtimeMs: input.mtimeMs,
+      fingerprint: input.fingerprint
+    }) as
+    { id: string; width: number | null; height: number | null } | undefined;
+
+  if (!existing) {
+    return null;
+  }
+
+  db.prepare(
+    `UPDATE assets
+     SET indexed_at = @seenAt, status = 'indexed', error = NULL
+     WHERE id = @id`
+  ).run({ id, seenAt: input.seenAt });
+
+  return existing;
 }
 
 function syncAssetSearchRow(
@@ -165,6 +222,46 @@ function syncAssetSearchRow(
     relativePath: input.relativePath,
     searchNgrams: searchNgramText(`${input.name} ${input.relativePath}`)
   });
+}
+
+/**
+ * Repairs search rows left incomplete by an interrupted scan from an older
+ * release. Current asset/search writes are transactional, so the inexpensive
+ * count check is sufficient during normal scans and avoids per-asset FTS work.
+ */
+export function repairAssetSearchIndexForRoot(
+  db: AetherDatabase,
+  rootId: string
+): void {
+  const assetCount = db
+    .prepare("SELECT COUNT(*) AS count FROM assets WHERE root_id = ?")
+    .get(rootId) as { count: number };
+  const searchCount = db
+    .prepare("SELECT COUNT(*) AS count FROM asset_search WHERE root_id = ?")
+    .get(rootId) as { count: number };
+
+  if (assetCount.count === searchCount.count) {
+    return;
+  }
+
+  const transaction = db.transaction(() => {
+    db.prepare("DELETE FROM asset_search WHERE root_id = ?").run(rootId);
+    db.prepare(
+      `INSERT INTO asset_search
+        (asset_id, root_id, folder_id, name, relative_path, search_ngrams)
+       SELECT
+         id,
+         root_id,
+         folder_id,
+         name,
+         relative_path,
+         aether_search_ngrams(name || ' ' || relative_path)
+       FROM assets
+       WHERE root_id = ?`
+    ).run(rootId);
+  });
+
+  transaction();
 }
 
 export function listAssets(
@@ -280,7 +377,7 @@ export function updateAssetScore(
   db: AetherDatabase,
   input: ScoreUpdateInput
 ): AssetRecord | null {
-  if (!getAsset(db, input.assetId)) {
+  if (!assetExists(db, input.assetId)) {
     return null;
   }
 
@@ -336,7 +433,7 @@ export function clearAssetManualAdjustment(
   assetId: string,
   updatedAt: string
 ): AssetRecord | null {
-  if (!getAsset(db, assetId)) {
+  if (!assetExists(db, assetId)) {
     return null;
   }
 
@@ -368,24 +465,92 @@ export function updateAssetScoresBatch(
   }
 
   const transaction = db.transaction(() => {
+    const getAnnotation = db.prepare(
+      "SELECT manual_score, favorite FROM asset_annotations WHERE asset_id = ?"
+    );
+    const getRanking = db.prepare(
+      "SELECT comparison_score FROM asset_rankings WHERE asset_id = ?"
+    );
+    const upsertAnnotation = db.prepare(
+      `INSERT INTO asset_annotations (asset_id, manual_score, favorite, updated_at)
+       VALUES (@assetId, @score, @favorite, @updatedAt)
+       ON CONFLICT(asset_id) DO UPDATE SET
+         manual_score = excluded.manual_score,
+         favorite = excluded.favorite,
+         updated_at = excluded.updated_at`
+    );
+    const updateRanking = db.prepare(
+      `UPDATE asset_rankings
+       SET manual_adjustment = @manualAdjustment, updated_at = @updatedAt
+       WHERE asset_id = @assetId`
+    );
+
     for (const assetId of assetIds) {
-      updateAssetScore(db, {
+      const current =
+        input.score === undefined || input.favorite === undefined
+          ? (getAnnotation.get(assetId) as
+              { manual_score: number; favorite: number } | undefined)
+          : undefined;
+      const ranking =
+        input.score === undefined
+          ? undefined
+          : (getRanking.get(assetId) as
+              { comparison_score: number } | undefined);
+      const score = input.score ?? current?.manual_score ?? 0;
+      const favorite = input.favorite ?? current?.favorite === 1;
+
+      upsertAnnotation.run({
         assetId,
-        score: input.score,
-        favorite: input.favorite,
+        score,
+        favorite: favorite ? 1 : 0,
         updatedAt: input.updatedAt
       });
+
+      if (ranking && input.score !== undefined) {
+        updateRanking.run({
+          assetId,
+          manualAdjustment: input.score - ranking.comparison_score,
+          updatedAt: input.updatedAt
+        });
+      }
     }
   });
 
   transaction();
 
   return {
-    assets: assetIds
-      .map((assetId) => getAsset(db, assetId))
-      .filter((asset): asset is AssetRecord => Boolean(asset)),
+    assets: getAssetsByIds(db, assetIds),
     updated: assetIds.length
   };
+}
+
+function getAssetsByIds(db: AetherDatabase, assetIds: string[]): AssetRecord[] {
+  if (assetIds.length === 0) {
+    return [];
+  }
+
+  const placeholders = assetIds.map(() => "?").join(", ");
+  const rows = db
+    .prepare(
+      `SELECT
+        ${ASSET_SELECT_COLUMNS}
+       FROM assets a
+       LEFT JOIN asset_annotations aa ON aa.asset_id = a.id
+       LEFT JOIN asset_rankings ar ON ar.asset_id = a.id
+       WHERE a.id IN (${placeholders})`
+    )
+    .all(...assetIds) as AssetRow[];
+  const assetsById = new Map(
+    attachTagsToAssets(db, rows.map(mapAssetRow)).map((asset) => [
+      asset.id,
+      asset
+    ])
+  );
+
+  return assetIds.flatMap((assetId) => {
+    const asset = assetsById.get(assetId);
+    return asset ? [asset] : [];
+  });
 }
 
 function defaultSortDirectionFor(
@@ -446,7 +611,22 @@ function uniqueAssetIds(assetIds: string[]): string[] {
 }
 
 function allAssetsExist(db: AetherDatabase, assetIds: string[]): boolean {
-  const findAsset = db.prepare("SELECT id FROM assets WHERE id = ?");
+  if (assetIds.length === 0) {
+    return true;
+  }
 
-  return assetIds.every((assetId) => Boolean(findAsset.get(assetId)));
+  const placeholders = assetIds.map(() => "?").join(", ");
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS asset_count
+       FROM assets
+       WHERE id IN (${placeholders})`
+    )
+    .get(...assetIds) as { asset_count: number };
+
+  return row.asset_count === assetIds.length;
+}
+
+function assetExists(db: AetherDatabase, assetId: string): boolean {
+  return Boolean(db.prepare("SELECT 1 FROM assets WHERE id = ?").get(assetId));
 }

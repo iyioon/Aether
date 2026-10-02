@@ -1,13 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   updateAssetScore,
   type AssetRecord,
   type TagRecord
 } from "../../api/client";
 import {
-  optimisticScoreAsset,
   scoreActionErrorMessage
 } from "../app/app-helpers";
+import {
+  createAssetScoreMutationQueue,
+  type AssetScoreMutationQueue
+} from "./asset-score-mutation-queue";
 
 interface UseMediaActionsOptions {
   assets: AssetRecord[];
@@ -35,6 +38,57 @@ export function useMediaActions({
   const [savingScoreAssetIds, setSavingScoreAssetIds] = useState<Set<string>>(
     () => new Set()
   );
+  const mutationCallbacksRef = useRef({
+    onAssetError,
+    onAssetsUpdated,
+    onReloadAssets,
+    shouldReloadAfterScoreChange
+  });
+  mutationCallbacksRef.current = {
+    onAssetError,
+    onAssetsUpdated,
+    onReloadAssets,
+    shouldReloadAfterScoreChange
+  };
+  const scoreMutationQueueRef = useRef<AssetScoreMutationQueue | null>(null);
+
+  if (!scoreMutationQueueRef.current) {
+    scoreMutationQueueRef.current = createAssetScoreMutationQueue({
+      persist: async (assetId, input) => {
+        const { asset: updatedAsset } = await updateAssetScore(assetId, input);
+        return updatedAsset;
+      },
+      onAssetUpdated: (updatedAsset) => {
+        updateViewerAssetFallback(updatedAsset);
+        mutationCallbacksRef.current.onAssetsUpdated([updatedAsset]);
+      },
+      onPendingChange: (assetId, isPending) => {
+        setSavingScoreAssetIds((current) => {
+          const next = new Set(current);
+
+          if (isPending) {
+            next.add(assetId);
+          } else {
+            next.delete(assetId);
+          }
+
+          return next;
+        });
+      },
+      onPersistedChanges: () => {
+        const callbacks = mutationCallbacksRef.current;
+
+        if (callbacks.shouldReloadAfterScoreChange) {
+          callbacks.onReloadAssets();
+        }
+      },
+      onError: (caught) => {
+        mutationCallbacksRef.current.onAssetError(
+          scoreActionErrorMessage(caught)
+        );
+      }
+    });
+  }
   const selectedAsset = useMemo(
     () => resolveViewerAsset(selectedAssetId, viewerAssetFallback, assets),
     [assets, selectedAssetId, viewerAssetFallback]
@@ -106,40 +160,12 @@ export function useMediaActions({
     );
   }
 
-  async function saveAssetScore(
+  function saveAssetScore(
     asset: AssetRecord,
     input: { score?: number; favorite?: boolean }
   ) {
     onAssetError(null);
-    setSavingScoreAssetIds((current) => {
-      const next = new Set(current);
-      next.add(asset.id);
-      return next;
-    });
-
-    const optimisticAsset = optimisticScoreAsset(asset, input);
-    updateViewerAssetFallback(optimisticAsset);
-    onAssetsUpdated([optimisticAsset]);
-
-    try {
-      const { asset: updatedAsset } = await updateAssetScore(asset.id, input);
-      updateViewerAssetFallback(updatedAsset);
-      onAssetsUpdated([updatedAsset]);
-
-      if (shouldReloadAfterScoreChange) {
-        onReloadAssets();
-      }
-    } catch (caught) {
-      updateViewerAssetFallback(asset);
-      onAssetsUpdated([asset]);
-      onAssetError(scoreActionErrorMessage(caught));
-    } finally {
-      setSavingScoreAssetIds((current) => {
-        const next = new Set(current);
-        next.delete(asset.id);
-        return next;
-      });
-    }
+    scoreMutationQueueRef.current?.enqueue(asset, input);
   }
 
   return {

@@ -47,6 +47,7 @@ export function useAssetList({
   const [assetReloadToken, setAssetReloadToken] = useState(0);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const loadMoreInFlightRef = useRef(false);
+  const loadMoreRequestRef = useRef<AbortController | null>(null);
   const listQueryKey = useMemo(
     () =>
       buildAssetListQueryKey({
@@ -61,24 +62,27 @@ export function useAssetList({
     [folderId, sort, sortDirection, mediaType, search, tagFilters, scoreFilter]
   );
   const listQueryKeyRef = useRef(listQueryKey);
+  listQueryKeyRef.current = listQueryKey;
   const hasMoreAssets = assets.length < totalAssets;
 
   useEffect(() => {
-    listQueryKeyRef.current = listQueryKey;
-  }, [listQueryKey]);
+    loadMoreRequestRef.current?.abort();
+    loadMoreRequestRef.current = null;
+    loadMoreInFlightRef.current = false;
+    setIsLoadingMore(false);
 
-  useEffect(() => {
     if (!tree || !folderId) {
       setAssets([]);
       setTotalAssets(0);
       setLoadedQueryKey(null);
+      setIsLoadingAssets(false);
       return;
     }
 
     let active = true;
+    const controller = new AbortController();
     const requestQueryKey = listQueryKey;
     setIsLoadingAssets(true);
-    setIsLoadingMore(false);
     setAssetError(null);
     setLoadedQueryKey(null);
 
@@ -92,30 +96,36 @@ export function useAssetList({
       recursive: true,
       search,
       tags: tagFilters,
-      score: scoreFilter
+      score: scoreFilter,
+      signal: controller.signal
     })
       .then((response) => {
-        if (active) {
+        if (active && listQueryKeyRef.current === requestQueryKey) {
           setAssets(response.items);
           setTotalAssets(response.page.total);
           setLoadedQueryKey(requestQueryKey);
         }
       })
       .catch((caught) => {
-        if (active) {
+        if (
+          active &&
+          listQueryKeyRef.current === requestQueryKey &&
+          !isAbortError(caught)
+        ) {
           const message =
             caught instanceof ApiError ? caught.code : "Unable to load assets.";
           setAssetError(message);
         }
       })
       .finally(() => {
-        if (active) {
+        if (active && listQueryKeyRef.current === requestQueryKey) {
           setIsLoadingAssets(false);
         }
       });
 
     return () => {
       active = false;
+      controller.abort();
     };
   }, [
     tree,
@@ -139,9 +149,21 @@ export function useAssetList({
       updatedAssets.map((asset) => [asset.id, asset])
     );
 
-    setAssets((currentAssets) =>
-      currentAssets.map((asset) => updatedAssetById.get(asset.id) ?? asset)
-    );
+    setAssets((currentAssets) => {
+      let didChange = false;
+      const nextAssets = currentAssets.map((asset) => {
+        const updatedAsset = updatedAssetById.get(asset.id);
+
+        if (!updatedAsset || updatedAsset === asset) {
+          return asset;
+        }
+
+        didChange = true;
+        return updatedAsset;
+      });
+
+      return didChange ? nextAssets : currentAssets;
+    });
   }, []);
 
   const updateAssetTags = useCallback((assetId: string, tags: TagRecord[]) => {
@@ -167,7 +189,9 @@ export function useAssetList({
     }
 
     const requestQueryKey = listQueryKey;
+    const controller = new AbortController();
     loadMoreInFlightRef.current = true;
+    loadMoreRequestRef.current = controller;
     setIsLoadingMore(true);
     setAssetError(null);
 
@@ -182,10 +206,15 @@ export function useAssetList({
         recursive: true,
         search,
         tags: tagFilters,
-        score: scoreFilter
+        score: scoreFilter,
+        signal: controller.signal
       });
 
-      if (listQueryKeyRef.current !== requestQueryKey) {
+      if (
+        controller.signal.aborted ||
+        loadMoreRequestRef.current !== controller ||
+        listQueryKeyRef.current !== requestQueryKey
+      ) {
         return;
       }
 
@@ -199,14 +228,25 @@ export function useAssetList({
       });
       setTotalAssets(response.page.total);
     } catch (caught) {
+      if (
+        isAbortError(caught) ||
+        loadMoreRequestRef.current !== controller ||
+        listQueryKeyRef.current !== requestQueryKey
+      ) {
+        return;
+      }
+
       const message =
         caught instanceof ApiError
           ? caught.code
           : "Unable to load more assets.";
       setAssetError(message);
     } finally {
-      loadMoreInFlightRef.current = false;
-      setIsLoadingMore(false);
+      if (loadMoreRequestRef.current === controller) {
+        loadMoreRequestRef.current = null;
+        loadMoreInFlightRef.current = false;
+        setIsLoadingMore(false);
+      }
     }
   }, [
     assets.length,
@@ -221,6 +261,15 @@ export function useAssetList({
     tagFilters,
     totalAssets
   ]);
+
+  useEffect(
+    () => () => {
+      loadMoreRequestRef.current?.abort();
+      loadMoreRequestRef.current = null;
+      loadMoreInFlightRef.current = false;
+    },
+    []
+  );
 
   return {
     assetError,
@@ -238,4 +287,13 @@ export function useAssetList({
     totalAssets,
     updateAssetTags
   };
+}
+
+function isAbortError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    error.name === "AbortError"
+  );
 }

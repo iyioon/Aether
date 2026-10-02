@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   clearSessionScrollPositions,
   findScrollAnchorItem,
+  flushSessionScrollPositions,
   readSessionScrollPosition,
   scaleScrollAnchorOffset,
   writeSessionScrollPosition
@@ -9,18 +10,25 @@ import {
 
 function installSessionStorage() {
   const values = new Map<string, string>();
+  const setItem = vi.fn((key: string, value: string) => values.set(key, value));
 
   vi.stubGlobal("window", {
     sessionStorage: {
       getItem: (key: string) => values.get(key) ?? null,
       removeItem: (key: string) => values.delete(key),
-      setItem: (key: string, value: string) => values.set(key, value)
+      setItem
     }
   });
+
+  return { setItem, values };
 }
 
 describe("session scroll restoration", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    clearSessionScrollPositions();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
 
   it("stores a rounded, non-negative position", () => {
     installSessionStorage();
@@ -64,6 +72,48 @@ describe("session scroll restoration", () => {
 
     expect(readSessionScrollPosition("library-content")).toBeNull();
     expect(readSessionScrollPosition("folder-tree")).toBeNull();
+  });
+
+  it("coalesces frequent writes while keeping the latest position readable", () => {
+    vi.useFakeTimers();
+    const { setItem, values } = installSessionStorage();
+
+    for (let scrollTop = 1; scrollTop <= 40; scrollTop += 1) {
+      writeSessionScrollPosition("library-content", {
+        contextKey: "folder-1",
+        scrollTop
+      });
+    }
+
+    expect(setItem).not.toHaveBeenCalled();
+    expect(readSessionScrollPosition("library-content")?.scrollTop).toBe(40);
+
+    vi.advanceTimersByTime(120);
+
+    expect(setItem).toHaveBeenCalledOnce();
+    expect(
+      JSON.parse(values.get("aether.scroll.v2.library-content") ?? "null")
+    ).toMatchObject({ contextKey: "folder-1", scrollTop: 40 });
+  });
+
+  it("can synchronously flush a pending position before the page is hidden", () => {
+    vi.useFakeTimers();
+    const { setItem, values } = installSessionStorage();
+
+    writeSessionScrollPosition("folder-tree", {
+      contextKey: "library",
+      scrollTop: 96
+    });
+    flushSessionScrollPositions("folder-tree");
+
+    expect(setItem).toHaveBeenCalledOnce();
+    expect(
+      JSON.parse(values.get("aether.scroll.v2.folder-tree") ?? "null")
+    ).toMatchObject({ contextKey: "library", scrollTop: 96 });
+    expect(readSessionScrollPosition("folder-tree")?.scrollTop).toBe(96);
+
+    vi.advanceTimersByTime(120);
+    expect(setItem).toHaveBeenCalledOnce();
   });
 });
 

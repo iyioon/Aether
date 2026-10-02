@@ -1,4 +1,5 @@
 import {
+  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -19,6 +20,7 @@ import { MediaPreview } from "../media/MediaPreview";
 import { downloadUrl } from "../media/media-urls";
 import {
   findScrollAnchorItem,
+  flushSessionScrollPositions,
   readSessionScrollPosition,
   scaleScrollAnchorOffset,
   writeSessionScrollPosition
@@ -57,6 +59,25 @@ interface GalleryGridProps {
   selectedAssetIds: ReadonlySet<string>;
   onLoadMore: () => void;
   onActiveAssetChange: (assetId: string) => void;
+  onFavoriteAsset: (asset: AssetRecord, favorite: boolean) => void;
+  onMediaDimensionsKnown: (
+    assetId: string,
+    width: number,
+    height: number
+  ) => void;
+  onScoreAsset: (asset: AssetRecord, score: number) => void;
+  onSelectAsset: (assetId: string) => void;
+  onToggleSelection: (assetId: string) => void;
+}
+
+interface GalleryAssetCardProps {
+  asset: AssetRecord;
+  aspect: AspectMode;
+  isSavingScore: boolean;
+  isSelected: boolean;
+  isSelectionMode: boolean;
+  measuredAspectRatio?: string;
+  metadataFields: ReadonlySet<GalleryMetadataField>;
   onFavoriteAsset: (asset: AssetRecord, favorite: boolean) => void;
   onMediaDimensionsKnown: (
     assetId: string,
@@ -108,12 +129,47 @@ export function GalleryGrid({
   const layoutSignatureRef = useRef<string | null>(null);
   const scrollTopVisibleRef = useRef(false);
   const onActiveAssetChangeRef = useRef(onActiveAssetChange);
+  const galleryActionsRef = useRef({
+    onFavoriteAsset,
+    onMediaDimensionsKnown,
+    onScoreAsset,
+    onSelectAsset,
+    onToggleSelection
+  });
   contextKeyRef.current = scrollContextKey;
   assetsRef.current = assets;
   onActiveAssetChangeRef.current = onActiveAssetChange;
+  galleryActionsRef.current = {
+    onFavoriteAsset,
+    onMediaDimensionsKnown,
+    onScoreAsset,
+    onSelectAsset,
+    onToggleSelection
+  };
   const [containerWidth, setContainerWidth] = useState(0);
   const [isScrollPositionReady, setIsScrollPositionReady] = useState(false);
   const [isScrollTopVisible, setIsScrollTopVisible] = useState(false);
+  const handleFavoriteAsset = useCallback(
+    (asset: AssetRecord, favorite: boolean) => {
+      galleryActionsRef.current.onFavoriteAsset(asset, favorite);
+    },
+    []
+  );
+  const handleMediaDimensionsKnown = useCallback(
+    (assetId: string, width: number, height: number) => {
+      galleryActionsRef.current.onMediaDimensionsKnown(assetId, width, height);
+    },
+    []
+  );
+  const handleScoreAsset = useCallback((asset: AssetRecord, score: number) => {
+    galleryActionsRef.current.onScoreAsset(asset, score);
+  }, []);
+  const handleSelectAsset = useCallback((assetId: string) => {
+    galleryActionsRef.current.onSelectAsset(assetId);
+  }, []);
+  const handleToggleSelection = useCallback((assetId: string) => {
+    galleryActionsRef.current.onToggleSelection(assetId);
+  }, []);
   const minTileWidth = galleryMinTileWidth(gridSize);
   const columnCount = galleryColumnCount(containerWidth, minTileWidth);
   const layoutSignature = [
@@ -153,7 +209,7 @@ export function GalleryGrid({
     estimateSize: estimateRowSize,
     getItemKey: (index) => rows[index]?.[0]?.id ?? index,
     gap: GALLERY_GRID_GAP,
-    overscan: 7
+    overscan: 4
   });
   const rowVirtualizerRef = useRef(rowVirtualizer);
   rowVirtualizerRef.current = rowVirtualizer;
@@ -649,8 +705,13 @@ export function GalleryGrid({
   );
 
   useEffect(() => {
-    window.addEventListener("pagehide", saveScrollPosition);
-    return () => window.removeEventListener("pagehide", saveScrollPosition);
+    const handlePageHide = () => {
+      saveScrollPosition();
+      flushSessionScrollPositions("library-content");
+    };
+
+    window.addEventListener("pagehide", handlePageHide);
+    return () => window.removeEventListener("pagehide", handlePageHide);
   }, [saveScrollPosition]);
 
   useAutoLoadSentinel({
@@ -869,110 +930,23 @@ export function GalleryGrid({
                   transform: `translateY(${virtualRow.start}px)`
                 }}
               >
-                {rowAssets.map((asset) => {
-                  const isSelected = selectedAssetIds.has(asset.id);
-                  const secondaryMetadata = gallerySecondaryMetadata(
-                    asset,
-                    metadataFields
-                  );
-                  const tagBadges = metadataFields.has("tags")
-                    ? asset.tags.slice(0, 2)
-                    : [];
-                  const hiddenTagCount = metadataFields.has("tags")
-                    ? Math.max(0, asset.tags.length - tagBadges.length)
-                    : 0;
-                  const hasTitle = metadataFields.has("title");
-                  const hasSecondaryMetadata = secondaryMetadata.length > 0;
-                  const showScoreControl = metadataFields.has("score");
-                  const showFavoriteControl = metadataFields.has("favorite");
-                  const hasCuration =
-                    showScoreControl ||
-                    showFavoriteControl ||
-                    tagBadges.length > 0 ||
-                    hiddenTagCount > 0;
-                  const hasCardInfo =
-                    hasTitle || hasSecondaryMetadata || hasCuration;
-                  const isSavingScore = savingScoreAssetIds.has(asset.id);
-                  const tileStyle = mediaTileStyle(
-                    asset,
-                    aspect,
-                    measuredAspectRatios
-                  );
-
-                  return (
-                    <Card
-                      className={[
-                        "media-tile gap-0 py-0",
-                        isSelectionMode ? "selection-mode" : "",
-                        isSelected ? "selected" : ""
-                      ]
-                        .filter(Boolean)
-                        .join(" ")}
-                      key={asset.id}
-                      style={tileStyle}
-                    >
-                      {isSelectionMode ? (
-                        <button
-                          className="tile-selection-surface"
-                          type="button"
-                          aria-label={`${isSelected ? "Deselect" : "Select"} ${asset.name}`}
-                          aria-pressed={isSelected}
-                          onClick={() => onToggleSelection(asset.id)}
-                        />
-                      ) : null}
-                      <button
-                        className="media-preview-button"
-                        type="button"
-                        disabled={isSelectionMode}
-                        onClick={() => onSelectAsset(asset.id)}
-                      >
-                        <MediaPreview
-                          asset={asset}
-                          onDimensionsKnown={onMediaDimensionsKnown}
-                        />
-                      </button>
-                      <a
-                        className="icon-link tile-download"
-                        href={downloadUrl(asset.id)}
-                        aria-label="Download media"
-                        aria-disabled={isSelectionMode || undefined}
-                        tabIndex={isSelectionMode ? -1 : undefined}
-                        title="Download"
-                      >
-                        <Download size={15} />
-                      </a>
-                      {hasCardInfo ? (
-                        <div className="tile-info">
-                          {hasTitle ? (
-                            <div className="tile-meta">
-                              <span title={asset.name}>{asset.name}</span>
-                            </div>
-                          ) : null}
-                          {hasSecondaryMetadata ? (
-                            <div className="tile-submeta">
-                              {secondaryMetadata.map((entry) => (
-                                <span key={entry}>{entry}</span>
-                              ))}
-                            </div>
-                          ) : null}
-                          {hasCuration ? (
-                            <GalleryCardCuration
-                              asset={asset}
-                              disabled={isSelectionMode || isSavingScore}
-                              hiddenTagCount={hiddenTagCount}
-                              isBusy={isSavingScore}
-                              showFavorite={showFavoriteControl}
-                              showScore={showScoreControl}
-                              tags={tagBadges}
-                              onFavoriteChange={onFavoriteAsset}
-                              onScoreChange={onScoreAsset}
-                            />
-                          ) : null}
-                        </div>
-                      ) : null}
-                    </Card>
-                  );
-                })}
+                {rowAssets.map((asset) => (
+                  <GalleryAssetCard
+                    asset={asset}
+                    aspect={aspect}
+                    isSavingScore={savingScoreAssetIds.has(asset.id)}
+                    isSelected={selectedAssetIds.has(asset.id)}
+                    isSelectionMode={isSelectionMode}
+                    key={asset.id}
+                    measuredAspectRatio={measuredAspectRatios[asset.id]}
+                    metadataFields={metadataFields}
+                    onFavoriteAsset={handleFavoriteAsset}
+                    onMediaDimensionsKnown={handleMediaDimensionsKnown}
+                    onScoreAsset={handleScoreAsset}
+                    onSelectAsset={handleSelectAsset}
+                    onToggleSelection={handleToggleSelection}
+                  />
+                ))}
               </div>
             );
           })}
@@ -1006,3 +980,108 @@ export function GalleryGrid({
     </div>
   );
 }
+
+const GalleryAssetCard = memo(function GalleryAssetCard({
+  asset,
+  aspect,
+  isSavingScore,
+  isSelected,
+  isSelectionMode,
+  measuredAspectRatio,
+  metadataFields,
+  onFavoriteAsset,
+  onMediaDimensionsKnown,
+  onScoreAsset,
+  onSelectAsset,
+  onToggleSelection
+}: GalleryAssetCardProps) {
+  const secondaryMetadata = gallerySecondaryMetadata(asset, metadataFields);
+  const tagBadges = metadataFields.has("tags") ? asset.tags.slice(0, 2) : [];
+  const hiddenTagCount = metadataFields.has("tags")
+    ? Math.max(0, asset.tags.length - tagBadges.length)
+    : 0;
+  const hasTitle = metadataFields.has("title");
+  const hasSecondaryMetadata = secondaryMetadata.length > 0;
+  const showScoreControl = metadataFields.has("score");
+  const showFavoriteControl = metadataFields.has("favorite");
+  const hasCuration =
+    showScoreControl ||
+    showFavoriteControl ||
+    tagBadges.length > 0 ||
+    hiddenTagCount > 0;
+  const hasCardInfo = hasTitle || hasSecondaryMetadata || hasCuration;
+  const tileStyle = mediaTileStyle(asset, aspect, measuredAspectRatio);
+
+  return (
+    <Card
+      className={[
+        "media-tile gap-0 py-0",
+        isSelectionMode ? "selection-mode" : "",
+        isSelected ? "selected" : ""
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      style={tileStyle}
+    >
+      {isSelectionMode ? (
+        <button
+          className="tile-selection-surface"
+          type="button"
+          aria-label={`${isSelected ? "Deselect" : "Select"} ${asset.name}`}
+          aria-pressed={isSelected}
+          onClick={() => onToggleSelection(asset.id)}
+        />
+      ) : null}
+      <button
+        className="media-preview-button"
+        type="button"
+        disabled={isSelectionMode}
+        onClick={() => onSelectAsset(asset.id)}
+      >
+        <MediaPreview
+          asset={asset}
+          onDimensionsKnown={onMediaDimensionsKnown}
+        />
+      </button>
+      <a
+        className="icon-link tile-download"
+        href={downloadUrl(asset.id)}
+        aria-label="Download media"
+        aria-disabled={isSelectionMode || undefined}
+        tabIndex={isSelectionMode ? -1 : undefined}
+        title="Download"
+      >
+        <Download size={15} />
+      </a>
+      {hasCardInfo ? (
+        <div className="tile-info">
+          {hasTitle ? (
+            <div className="tile-meta">
+              <span title={asset.name}>{asset.name}</span>
+            </div>
+          ) : null}
+          {hasSecondaryMetadata ? (
+            <div className="tile-submeta">
+              {secondaryMetadata.map((entry) => (
+                <span key={entry}>{entry}</span>
+              ))}
+            </div>
+          ) : null}
+          {hasCuration ? (
+            <GalleryCardCuration
+              asset={asset}
+              disabled={isSelectionMode || isSavingScore}
+              hiddenTagCount={hiddenTagCount}
+              isBusy={isSavingScore}
+              showFavorite={showFavoriteControl}
+              showScore={showScoreControl}
+              tags={tagBadges}
+              onFavoriteChange={onFavoriteAsset}
+              onScoreChange={onScoreAsset}
+            />
+          ) : null}
+        </div>
+      ) : null}
+    </Card>
+  );
+});

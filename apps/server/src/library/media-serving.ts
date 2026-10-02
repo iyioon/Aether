@@ -4,10 +4,23 @@ import { createHash } from "node:crypto";
 import type { FastifyReply } from "fastify";
 import type { AetherDatabase } from "../db/database.js";
 import { UnsafePathError, resolveMediaPath } from "../security/path-safety.js";
-import { getAssetSource, type AssetSourceRecord } from "./repository.js";
+import type { MediaType } from "./media-types.js";
+
+export interface ResolvedAssetRecord {
+  id: string;
+  name: string;
+  mediaType: MediaType;
+  mimeType: string | null;
+  indexedMtimeMs: number;
+  indexedSizeBytes: number;
+  width: number | null;
+  height: number | null;
+  durationMs: number | null;
+  codec: string | null;
+}
 
 export interface ResolvedAssetFile {
-  asset: AssetSourceRecord;
+  asset: ResolvedAssetRecord;
   sourcePath: string;
   sizeBytes: number;
   mtimeMs: number;
@@ -29,15 +42,49 @@ export async function resolveAssetFile(
   db: AetherDatabase,
   assetId: string
 ): Promise<ResolvedAssetFile | null> {
-  const asset = getAssetSource(db, assetId);
+  const row = db
+    .prepare(
+      `SELECT
+         a.id,
+         a.name,
+         a.media_type,
+         a.mime_type,
+         a.mtime_ms,
+         a.size_bytes,
+         a.width,
+         a.height,
+         a.duration_ms,
+         a.codec,
+         a.relative_path,
+         roots.real_path AS root_real_path
+       FROM assets a
+       JOIN roots ON roots.id = a.root_id
+       WHERE a.id = ?`
+    )
+    .get(assetId) as
+    | {
+        id: string;
+        name: string;
+        media_type: MediaType;
+        mime_type: string | null;
+        mtime_ms: number;
+        size_bytes: number;
+        width: number | null;
+        height: number | null;
+        duration_ms: number | null;
+        codec: string | null;
+        relative_path: string;
+        root_real_path: string;
+      }
+    | undefined;
 
-  if (!asset) {
+  if (!row) {
     return null;
   }
 
   const sourcePath = await resolveMediaPath(
-    asset.rootRealPath,
-    asset.relativePath
+    row.root_real_path,
+    row.relative_path
   );
   const fileStat = await stat(sourcePath).catch(() => null);
 
@@ -46,7 +93,18 @@ export async function resolveAssetFile(
   }
 
   return {
-    asset,
+    asset: {
+      id: row.id,
+      name: row.name,
+      mediaType: row.media_type,
+      mimeType: row.mime_type,
+      indexedMtimeMs: row.mtime_ms,
+      indexedSizeBytes: row.size_bytes,
+      width: row.width,
+      height: row.height,
+      durationMs: row.duration_ms,
+      codec: row.codec
+    },
     sourcePath,
     sizeBytes: fileStat.size,
     mtimeMs: Math.trunc(fileStat.mtimeMs)

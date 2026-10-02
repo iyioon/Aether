@@ -216,8 +216,8 @@ export class ApiError extends Error {
   }
 }
 
-export async function getMe(): Promise<AuthState> {
-  return request<AuthState>("/api/auth/me");
+export async function getMe(signal?: AbortSignal): Promise<AuthState> {
+  return request<AuthState>("/api/auth/me", { signal });
 }
 
 export async function login(password: string): Promise<AuthState> {
@@ -233,8 +233,8 @@ export async function logout(): Promise<AuthState> {
   });
 }
 
-export async function getTree(): Promise<TreeResponse> {
-  return request<TreeResponse>("/api/tree");
+export async function getTree(signal?: AbortSignal): Promise<TreeResponse> {
+  return request<TreeResponse>("/api/tree", { signal });
 }
 
 export async function getAssets(options: {
@@ -329,20 +329,26 @@ export async function startScan(): Promise<{ status: string; jobId: string }> {
   });
 }
 
-export async function getScanJobs(): Promise<{ jobs: ScanJob[] }> {
-  return request<{ jobs: ScanJob[] }>("/api/admin/jobs");
+export async function getScanJobs(
+  signal?: AbortSignal
+): Promise<{ jobs: ScanJob[] }> {
+  return request<{ jobs: ScanJob[] }>("/api/admin/jobs", { signal });
 }
 
-export async function getWatchStatus(): Promise<LibraryWatchStatus> {
-  return request<LibraryWatchStatus>("/api/admin/watch");
+export async function getWatchStatus(
+  signal?: AbortSignal
+): Promise<LibraryWatchStatus> {
+  return request<LibraryWatchStatus>("/api/admin/watch", { signal });
 }
 
-export async function getAiStatus(): Promise<AiStatus> {
-  return request<AiStatus>("/api/admin/ai");
+export async function getAiStatus(signal?: AbortSignal): Promise<AiStatus> {
+  return request<AiStatus>("/api/admin/ai", { signal });
 }
 
-export async function getSettings(): Promise<SettingsSummary> {
-  return request<SettingsSummary>("/api/admin/settings");
+export async function getSettings(
+  signal?: AbortSignal
+): Promise<SettingsSummary> {
+  return request<SettingsSummary>("/api/admin/settings", { signal });
 }
 
 export async function resetLibraryData(
@@ -403,10 +409,12 @@ export async function updateAssetScoresBatch(
 }
 
 export async function getAssetTags(
-  assetId: string
+  assetId: string,
+  signal?: AbortSignal
 ): Promise<{ tags: TagRecord[] }> {
   return request<{ tags: TagRecord[] }>(
-    `/api/assets/${encodeURIComponent(assetId)}/tags`
+    `/api/assets/${encodeURIComponent(assetId)}/tags`,
+    { signal }
   );
 }
 
@@ -473,13 +481,16 @@ export async function updateAssetTagsBatch(
 export async function suggestTags(options: {
   query: string;
   limit?: number;
+  signal?: AbortSignal;
 }): Promise<{ tags: TagRecord[] }> {
   const params = new URLSearchParams({
     q: options.query,
     limit: String(options.limit ?? 8)
   });
 
-  return request<{ tags: TagRecord[] }>(`/api/tags/suggest?${params}`);
+  return request<{ tags: TagRecord[] }>(`/api/tags/suggest?${params}`, {
+    signal: options.signal
+  });
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {

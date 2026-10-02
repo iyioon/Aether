@@ -8,8 +8,10 @@ import { detectMediaType } from "./media-types.js";
 import {
   folderIdFor,
   refreshFolderAssetCounts,
+  repairAssetSearchIndexForRoot,
   removeUnseenRootEntries,
   syncConfiguredRoots,
+  touchAssetIfUnchanged,
   updateAssetDimensions,
   upsertAsset,
   upsertFolder
@@ -246,6 +248,7 @@ export async function scanLibrary(
     const removed = removeUnseenRootEntries(db, root.id, startedAt);
     counters.removedAssets += removed.removedAssets;
     counters.removedFolders += removed.removedFolders;
+    repairAssetSearchIndexForRoot(db, root.id);
     refreshFolderAssetCounts(db, root.id);
   }
 
@@ -339,7 +342,7 @@ async function scanDiscoveredDirectory(
       continue;
     }
 
-    const assetId = upsertAsset(db, {
+    const assetInput = {
       rootId: root.id,
       folderId,
       relativePath,
@@ -351,9 +354,16 @@ async function scanDiscoveredDirectory(
       mtimeMs: Math.trunc(fileStat.mtimeMs),
       fingerprint: `${fileStat.size}:${Math.trunc(fileStat.mtimeMs)}`,
       seenAt
-    });
+    };
+    const unchangedAsset = touchAssetIfUnchanged(db, assetInput);
+    const assetId = unchangedAsset?.id ?? upsertAsset(db, assetInput);
 
-    if (mediaInfo.mediaType === "image") {
+    if (
+      mediaInfo.mediaType === "image" &&
+      (!unchangedAsset ||
+        unchangedAsset.width === null ||
+        unchangedAsset.height === null)
+    ) {
       const dimensions = await readImageDimensions(absoluteFilePath);
 
       if (dimensions) {

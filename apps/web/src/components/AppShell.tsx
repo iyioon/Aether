@@ -1,4 +1,12 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from "react";
 import { toast } from "sonner";
 import {
   getSettings,
@@ -31,8 +39,33 @@ interface AppShellProps {
   onLogout: () => void;
 }
 
+const loadComparisonView = () => import("./compare/ComparisonView");
+const loadFeedPreview = () => import("./feed/FeedPreview");
+const loadGalleryGrid = () => import("./gallery/GalleryGrid");
+const loadSettingsPage = () => import("./settings/SettingsPage");
+const loadUserGuidePage = () => import("./guide/UserGuidePage");
+
+function preloadGuide() {
+  void loadUserGuidePage().catch(() => undefined);
+}
+
+function preloadSettings() {
+  void loadSettingsPage().catch(() => undefined);
+}
+
+function preloadView(view: ViewMode) {
+  const request =
+    view === "gallery"
+      ? loadGalleryGrid()
+      : view === "feed"
+        ? loadFeedPreview()
+        : loadComparisonView();
+
+  void request.catch(() => undefined);
+}
+
 const ComparisonView = lazy(() =>
-  import("./compare/ComparisonView").then(({ ComparisonView }) => ({
+  loadComparisonView().then(({ ComparisonView }) => ({
     default: ComparisonView
   }))
 );
@@ -42,12 +75,12 @@ const BatchActionsBar = lazy(() =>
   }))
 );
 const FeedPreview = lazy(() =>
-  import("./feed/FeedPreview").then(({ FeedPreview }) => ({
+  loadFeedPreview().then(({ FeedPreview }) => ({
     default: FeedPreview
   }))
 );
 const GalleryGrid = lazy(() =>
-  import("./gallery/GalleryGrid").then(({ GalleryGrid }) => ({
+  loadGalleryGrid().then(({ GalleryGrid }) => ({
     default: GalleryGrid
   }))
 );
@@ -62,12 +95,12 @@ const MediaViewer = lazy(() =>
   }))
 );
 const SettingsPage = lazy(() =>
-  import("./settings/SettingsPage").then(({ SettingsPage }) => ({
+  loadSettingsPage().then(({ SettingsPage }) => ({
     default: SettingsPage
   }))
 );
 const UserGuidePage = lazy(() =>
-  import("./guide/UserGuidePage").then(({ UserGuidePage }) => ({
+  loadUserGuidePage().then(({ UserGuidePage }) => ({
     default: UserGuidePage
   }))
 );
@@ -92,6 +125,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     useState<SettingsSummary | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [isLoadingSettings, setIsLoadingSettings] = useState(false);
+  const settingsRequestAbortRef = useRef<AbortController | null>(null);
   const {
     accent,
     accentOptions,
@@ -255,9 +289,14 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     }
   }, [batchError, batchStatus]);
 
-  const allSelectedAssetsFavorite =
-    selectedAssetCount > 0 &&
-    assets.every((asset) => !selectedAssetIds.has(asset.id) || asset.favorite);
+  const allSelectedAssetsFavorite = useMemo(
+    () =>
+      selectedAssetCount > 0 &&
+      assets.every(
+        (asset) => !selectedAssetIds.has(asset.id) || asset.favorite
+      ),
+    [assets, selectedAssetCount, selectedAssetIds]
+  );
 
   function mergeMediaActionAssets(updatedAssets: AssetRecord[]) {
     mergeUpdatedAssets(updatedAssets);
@@ -297,6 +336,13 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     onReloadAssets: reloadAssets,
     shouldReloadAfterScoreChange
   });
+  const selectedAssetIndex = useMemo(
+    () =>
+      selectedAsset
+        ? assets.findIndex((asset) => asset.id === selectedAsset.id)
+        : -1,
+    [assets, selectedAsset]
+  );
 
   useEffect(() => {
     if (selectedAssetId) {
@@ -309,6 +355,18 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     activeMediaAnchorIdRef.current = null;
     setSyncedMediaAnchorId(null);
   }, [listQueryKey]);
+  const selectFolder = useCallback(
+    (folderId: string) => {
+      setActivePage("library");
+      setSelectedFolderId(folderId);
+      setOpenControlMenu(null);
+      setAnnotationAssetId(null);
+      if (view === "feed") {
+        setIsFeedChromeHidden(false);
+      }
+    },
+    [setAnnotationAssetId, setOpenControlMenu, setSelectedFolderId, view]
+  );
   const {
     collapseAllFolders,
     expandableFolderIds,
@@ -339,16 +397,6 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     }
 
     closeSelectionMode();
-  }
-
-  function selectFolder(folderId: string) {
-    setActivePage("library");
-    setSelectedFolderId(folderId);
-    setOpenControlMenu(null);
-    setAnnotationAssetId(null);
-    if (view === "feed") {
-      setIsFeedChromeHidden(false);
-    }
   }
 
   function switchView(nextView: ViewMode) {
@@ -399,18 +447,37 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     setIsFeedChromeHidden(isHidden);
   }
 
-  async function refreshSettingsSummary() {
+  const refreshSettingsSummary = useCallback(async () => {
+    settingsRequestAbortRef.current?.abort();
+    const controller = new AbortController();
+    settingsRequestAbortRef.current = controller;
     setIsLoadingSettings(true);
     setSettingsError(null);
 
     try {
-      setSettingsSummary(await getSettings());
+      const nextSettings = await getSettings(controller.signal);
+
+      if (!controller.signal.aborted) {
+        setSettingsSummary(nextSettings);
+      }
     } catch {
-      setSettingsError("Settings could not be loaded.");
+      if (!controller.signal.aborted) {
+        setSettingsError("Settings could not be loaded.");
+      }
     } finally {
-      setIsLoadingSettings(false);
+      if (settingsRequestAbortRef.current === controller) {
+        settingsRequestAbortRef.current = null;
+        setIsLoadingSettings(false);
+      }
     }
-  }
+  }, []);
+
+  useEffect(
+    () => () => {
+      settingsRequestAbortRef.current?.abort();
+    },
+    []
+  );
 
   function openSettings() {
     setActivePage("settings");
@@ -504,6 +571,8 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
         onLogout={() => void handleLogout()}
         onOpenGuide={openGuide}
         onOpenSettings={openSettings}
+        onPreloadGuide={preloadGuide}
+        onPreloadSettings={preloadSettings}
         onScan={() => void handleScan()}
         onSelectFolder={selectFolder}
         onToggleFolderExpansion={toggleFolderExpansion}
@@ -529,6 +598,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
           onBackToLibrary={backToLibrary}
           onSearchDraftChange={setSearchDraft}
           onSelectFolder={selectFolder}
+          onPreloadView={preloadView}
           onSwitchView={switchView}
         />
         <main
@@ -691,13 +761,10 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
         {selectedAsset ? (
           <MediaViewer
             asset={selectedAsset}
-            hasNext={assets.some(
-              (asset, index) =>
-                asset.id === selectedAsset.id && index < assets.length - 1
-            )}
-            hasPrevious={assets.some(
-              (asset, index) => asset.id === selectedAsset.id && index > 0
-            )}
+            hasNext={
+              selectedAssetIndex >= 0 && selectedAssetIndex < assets.length - 1
+            }
+            hasPrevious={selectedAssetIndex > 0}
             isInfoOpen={annotationAsset !== null}
             onClose={closeAnchoredAsset}
             onScoreChange={(score) =>

@@ -62,13 +62,17 @@ export function useFolderNavigation({
     () => getExpandableFolderIds(tree, folderChildrenByParentId),
     [folderChildrenByParentId, tree]
   );
-  const expandedFolderCount = useMemo(
-    () =>
-      [...expandedFolderIds].filter((folderId) =>
-        expandableFolderIds.has(folderId)
-      ).length,
-    [expandableFolderIds, expandedFolderIds]
-  );
+  const expandedFolderCount = useMemo(() => {
+    let count = 0;
+
+    for (const folderId of expandedFolderIds) {
+      if (expandableFolderIds.has(folderId)) {
+        count += 1;
+      }
+    }
+
+    return count;
+  }, [expandableFolderIds, expandedFolderIds]);
   const treeTabStopId =
     visibleFolderItems.find((item) => item.id === selectedFolderId)?.id ??
     visibleFolderItems[0]?.id ??

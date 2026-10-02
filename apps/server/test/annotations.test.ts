@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import type { FastifyInstance } from "fastify";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { hashPassword } from "../src/auth/password.js";
 import { loadConfig, type AppConfig } from "../src/config/config.js";
 import { openDatabase, type AetherDatabase } from "../src/db/database.js";
@@ -515,6 +515,7 @@ describe("annotations", () => {
 
     expect(firstDecision.statusCode).toBe(200);
     expect(firstDecision.json().replacedDecision).toBe(false);
+    expect(firstDecision.json()).not.toHaveProperty("nextPair");
     const firstAssets = firstDecision.json().assets as Array<{
       id: string;
       score: number;
@@ -578,6 +579,123 @@ describe("annotations", () => {
         }
       ).total
     ).toBe(3);
+  });
+
+  it("returns the next filtered pair with a recorded decision", async () => {
+    for (const name of [
+      "pipeline-one.jpg",
+      "pipeline-two.jpg",
+      "pipeline-three.jpg",
+      "unrelated.jpg"
+    ]) {
+      await writeFile(path.join(cwd, "media", name), name);
+    }
+    await scanLibrary(db, config.mediaRoots);
+    const folderId = folderIdFor(config.mediaRoots[0]!.id, "");
+    const auth = await login();
+    const pairResponse = await app.inject({
+      method: "GET",
+      url: `/api/folders/${folderId}/comparisons/next?search=pipeline`,
+      cookies: auth.cookies
+    });
+    const pair = pairResponse.json() as {
+      left: { id: string };
+      right: { id: string };
+    };
+
+    const decision = await app.inject({
+      method: "POST",
+      url: "/api/comparisons",
+      cookies: auth.cookies,
+      headers: { "x-csrf-token": auth.csrfToken },
+      payload: {
+        leftAssetId: pair.left.id,
+        rightAssetId: pair.right.id,
+        winnerAssetId: pair.left.id,
+        pairContext: {
+          folderId,
+          type: "image",
+          recursive: true,
+          search: "pipeline",
+          tags: [],
+          score: "all"
+        }
+      }
+    });
+
+    expect(decision.statusCode).toBe(200);
+    const nextPair = decision.json().nextPair as {
+      left: { id: string; name: string };
+      right: { id: string; name: string };
+      progress: { candidateCount: number };
+    };
+    expect(nextPair.progress.candidateCount).toBe(3);
+    expect([nextPair.left.name, nextPair.right.name]).toEqual([
+      expect.stringContaining("pipeline"),
+      expect.stringContaining("pipeline")
+    ]);
+    expect(
+      [nextPair.left.id, nextPair.right.id].sort().join("\u0000")
+    ).not.toBe([pair.left.id, pair.right.id].sort().join("\u0000"));
+  });
+
+  it("keeps a saved decision successful when next-pair preparation fails", async () => {
+    for (const name of [
+      "fallback-one.jpg",
+      "fallback-two.jpg",
+      "fallback-three.jpg"
+    ]) {
+      await writeFile(path.join(cwd, "media", name), name);
+    }
+    await scanLibrary(db, config.mediaRoots);
+    const folderId = folderIdFor(config.mediaRoots[0]!.id, "");
+    const assets = listAssets(db, {
+      folderId,
+      offset: 0,
+      limit: 10,
+      sort: "filename",
+      type: "all",
+      recursive: true
+    })!.items;
+    const auth = await login();
+    const random = vi.spyOn(Math, "random").mockImplementation(() => {
+      throw new Error("forced next-pair failure");
+    });
+
+    let decision;
+    try {
+      decision = await app.inject({
+        method: "POST",
+        url: "/api/comparisons",
+        cookies: auth.cookies,
+        headers: { "x-csrf-token": auth.csrfToken },
+        payload: {
+          leftAssetId: assets[0]!.id,
+          rightAssetId: assets[1]!.id,
+          winnerAssetId: assets[0]!.id,
+          pairContext: {
+            folderId,
+            type: "all",
+            recursive: true,
+            search: "",
+            tags: [],
+            score: "all"
+          }
+        }
+      });
+    } finally {
+      random.mockRestore();
+    }
+
+    expect(decision.statusCode).toBe(200);
+    expect(decision.json()).not.toHaveProperty("nextPair");
+    expect(
+      (
+        db.prepare("SELECT COUNT(*) AS total FROM pair_preferences").get() as {
+          total: number;
+        }
+      ).total
+    ).toBe(1);
   });
 
   it("preserves manual scores when ranking begins and when its last choice is undone", async () => {

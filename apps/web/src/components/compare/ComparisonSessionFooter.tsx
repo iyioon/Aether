@@ -8,6 +8,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 interface ComparisonSessionFooterProps {
   canUndo: boolean;
   isLoading: boolean;
+  isPairCommitted: boolean;
   isSubmitting: boolean;
   progress: ComparisonPairResponse["progress"];
   onExit: () => void;
@@ -18,6 +19,7 @@ interface ComparisonSessionFooterProps {
 export function ComparisonSessionFooter({
   canUndo,
   isLoading,
+  isPairCommitted,
   isSubmitting,
   progress,
   onExit,
@@ -77,7 +79,7 @@ export function ComparisonSessionFooter({
           <TooltipTrigger asChild>
             <Button
               aria-label="Skip this pair"
-              disabled={isSubmitting || isLoading}
+              disabled={isSubmitting || isLoading || isPairCommitted}
               size="icon-sm"
               variant="ghost"
               onClick={onSkip}

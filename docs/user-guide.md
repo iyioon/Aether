@@ -19,7 +19,7 @@ The gallery view is the default browser. Use it when you want to scan many items
 
 The feed view shows one item at a time in a vertical scroll flow. It uses the same filtered collection as the gallery, so search and filters carry across both views. Static images appear immediately from a cached thumbnail, then crossfade to the original after the browser finishes decoding it. If the original format cannot be displayed, the thumbnail remains available as the fallback.
 
-The comparison view presents two items from the same filtered collection. Choose the item that should rank higher, or skip a pair when there is no useful preference. The left and right arrow keys choose the corresponding item on a keyboard. The most recent choice can be undone, and choosing the same pair again replaces the earlier active preference rather than counting twice.
+The comparison view opens on a leaderboard for the same filtered collection. Select **Rank media** to compare two items at their largest practical size. Choose the item that should rank higher, or skip a pair when there is no useful preference. The left and right arrow keys choose the corresponding item on a keyboard. The most recent choice can be undone, and choosing the same pair again replaces the earlier active preference rather than counting twice.
 
 ## Viewing Media
 
@@ -28,6 +28,8 @@ Click a gallery item to open the fullscreen viewer. Use the previous and next co
 In feed view, click or tap the media to hide or show the browsing chrome. Press and hold a video to pause it temporarily; playback resumes when the press ends. Use the bottom timeline to seek, the sound control to toggle audio, and the expand control to open the fullscreen viewer. Select the media title to open scores, favorites, and tags.
 
 Feed videos try the authenticated original stream first. If the browser cannot decode the source codec or container, Aether falls back to a generated browser-compatible preview. Videos begin muted so autoplay remains reliable after loading or refreshing the page.
+
+Comparison videos use their decoded poster while the original stream starts and while a replay seeks back to the beginning. This avoids exposing an empty video frame on mobile devices. Use the fullscreen button on either item when you want to inspect it before choosing.
 
 ## Scores, Favorites, And Tags
 

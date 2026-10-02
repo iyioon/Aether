@@ -12,6 +12,7 @@ interface ComparisonCardProps {
   direction: ComparisonDirection;
   disabled: boolean;
   isChosen: boolean;
+  playbackPaused: boolean;
   onChoose: () => void;
   onOpenFullscreen: () => void;
 }
@@ -21,13 +22,19 @@ export function ComparisonCard({
   direction,
   disabled,
   isChosen,
+  playbackPaused,
   onChoose,
   onOpenFullscreen
 }: ComparisonCardProps) {
   return (
     <Card className="comparison-card" data-chosen={isChosen ? "true" : "false"}>
       <CardContent className="comparison-media">
-        <MediaPreview asset={asset} useOriginalVideo />
+        <MediaPreview
+          key={asset.id}
+          asset={asset}
+          playbackPaused={playbackPaused || disabled}
+          useOriginalVideo
+        />
         <button
           className="comparison-choose-surface"
           type="button"

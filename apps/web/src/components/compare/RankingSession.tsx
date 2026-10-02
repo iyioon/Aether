@@ -1,5 +1,5 @@
 import { useCallback, useEffect } from "react";
-import { RefreshCw } from "lucide-react";
+import { CornerUpLeft, RefreshCw } from "lucide-react";
 import type {
   AssetRecord,
   MediaTypeFilter,
@@ -31,6 +31,7 @@ interface RankingSessionProps {
   assetUpdate: AssetRecord | null;
   folderId: string | null;
   mediaType: MediaTypeFilter;
+  isPlaybackPaused: boolean;
   scoreFilter: ScoreFilter;
   search: string;
   tagFilters: string[];
@@ -44,6 +45,7 @@ export function RankingSession({
   assetUpdate,
   folderId,
   mediaType,
+  isPlaybackPaused,
   scoreFilter,
   search,
   tagFilters,
@@ -58,6 +60,7 @@ export function RankingSession({
     chooseAsset,
     error,
     isLoading,
+    isPairCommitted,
     isSubmitting,
     pair,
     retry,
@@ -101,7 +104,7 @@ export function RankingSession({
         return;
       }
 
-      if (!pair || isSubmitting || isLoading) {
+      if (!pair || isSubmitting || isLoading || isPairCommitted) {
         return;
       }
 
@@ -116,7 +119,7 @@ export function RankingSession({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleChoice, isLoading, isSubmitting, onExit, pair]);
+  }, [handleChoice, isLoading, isPairCommitted, isSubmitting, onExit, pair]);
 
   return (
     <section className="comparison-view" aria-label="Rank media">
@@ -129,7 +132,7 @@ export function RankingSession({
           <Alert variant="destructive">
             <AlertTitle>Comparison unavailable</AlertTitle>
             <AlertDescription>
-              <span>{friendlyComparisonError(error)}</span>
+              <span>{friendlyComparisonError(error, isPairCommitted)}</span>
               <span className="comparison-error-actions">
                 <Button size="sm" variant="ghost" onClick={onExit}>
                   Leaderboard
@@ -151,42 +154,39 @@ export function RankingSession({
           <ComparisonSkeleton />
         ) : pair ? (
           <div
-            className={["comparison-pair", isSubmitting ? "is-submitting" : ""]
+            className={[
+              "comparison-pair",
+              isSubmitting || isLoading || isPairCommitted ? "is-busy" : ""
+            ]
               .filter(Boolean)
               .join(" ")}
           >
             <ComparisonCard
               asset={pair.left}
               direction="left"
-              disabled={isSubmitting || isLoading}
+              disabled={isSubmitting || isLoading || isPairCommitted}
               isChosen={chosenAssetId === pair.left.id}
+              playbackPaused={isPlaybackPaused}
               onChoose={() => handleChoice(pair.left.id, "left")}
               onOpenFullscreen={() => onOpenFullscreen(pair.left)}
             />
             <ComparisonCard
               asset={pair.right}
               direction="right"
-              disabled={isSubmitting || isLoading}
+              disabled={isSubmitting || isLoading || isPairCommitted}
               isChosen={chosenAssetId === pair.right.id}
+              playbackPaused={isPlaybackPaused}
               onChoose={() => handleChoice(pair.right.id, "right")}
               onOpenFullscreen={() => onOpenFullscreen(pair.right)}
             />
           </div>
-        ) : !error && !isLoading ? (
-          <Card className="comparison-empty">
-            <CardHeader>
-              <CardTitle>Two items are needed</CardTitle>
-              <CardDescription>
-                Adjust the current filters or choose a folder containing at
-                least two media items.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button variant="outline" onClick={onExit}>
-                Return to leaderboard
-              </Button>
-            </CardContent>
-          </Card>
+        ) : !isLoading && (!error || canUndo) ? (
+          <ComparisonEmptyState
+            canUndo={canUndo}
+            isSubmitting={isSubmitting}
+            onExit={onExit}
+            onUndo={() => void undoLastDecision()}
+          />
         ) : null}
       </div>
 
@@ -194,6 +194,7 @@ export function RankingSession({
         <ComparisonSessionFooter
           canUndo={canUndo}
           isLoading={isLoading}
+          isPairCommitted={isPairCommitted}
           isSubmitting={isSubmitting}
           progress={pair.progress}
           onExit={onExit}
@@ -202,6 +203,42 @@ export function RankingSession({
         />
       ) : null}
     </section>
+  );
+}
+
+function ComparisonEmptyState({
+  canUndo,
+  isSubmitting,
+  onExit,
+  onUndo
+}: {
+  canUndo: boolean;
+  isSubmitting: boolean;
+  onExit: () => void;
+  onUndo: () => void;
+}) {
+  return (
+    <Card className="comparison-empty">
+      <CardHeader>
+        <CardTitle>
+          {canUndo ? "No more pairs available" : "Two items are needed"}
+        </CardTitle>
+        <CardDescription aria-live="polite">
+          {canUndo
+            ? "There is not another pair under the current filters. You can undo your last choice or return to the leaderboard."
+            : "Adjust the current filters or choose a folder containing at least two media items."}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="comparison-empty-actions">
+        {canUndo ? (
+          <Button disabled={isSubmitting} variant="outline" onClick={onUndo}>
+            <CornerUpLeft aria-hidden="true" />
+            {isSubmitting ? "Undoing…" : "Undo last choice"}
+          </Button>
+        ) : null}
+        <Button onClick={onExit}>Return to leaderboard</Button>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -221,7 +258,14 @@ function ComparisonSkeleton() {
   );
 }
 
-function friendlyComparisonError(error: string): string {
+function friendlyComparisonError(
+  error: string,
+  isPairCommitted: boolean
+): string {
+  if (isPairCommitted) {
+    return "Your choice was saved, but the next pair could not be prepared. Try again or undo the choice.";
+  }
+
   switch (error) {
     case "comparison_changed":
       return "That decision changed elsewhere. Load a fresh pair and try again.";

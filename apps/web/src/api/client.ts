@@ -131,8 +131,18 @@ export interface ComparisonDecisionResponse {
   eventId: string;
   assetIds: [string, string];
   assets: AssetRecord[];
+  nextPair?: ComparisonPairResponse | null;
   replacedDecision?: boolean;
   restoredDecision?: boolean;
+}
+
+export interface ComparisonPairContext {
+  folderId: string;
+  type: MediaTypeFilter;
+  recursive: boolean;
+  search: string;
+  tags: string[];
+  score: ScoreFilter;
 }
 
 export interface ScanJob {
@@ -238,6 +248,7 @@ export async function getAssets(options: {
   search?: string;
   tags?: string[];
   score?: ScoreFilter;
+  signal?: AbortSignal;
 }): Promise<AssetListResponse> {
   const sort = options.sort ?? "date";
   const params = new URLSearchParams({
@@ -256,7 +267,8 @@ export async function getAssets(options: {
   }
 
   return request<AssetListResponse>(
-    `/api/folders/${encodeURIComponent(options.folderId)}/assets?${params}`
+    `/api/folders/${encodeURIComponent(options.folderId)}/assets?${params}`,
+    { signal: options.signal }
   );
 }
 
@@ -268,6 +280,7 @@ export async function getNextComparisonPair(options: {
   tags?: string[];
   score?: ScoreFilter;
   excludeAssetIds?: string[];
+  signal?: AbortSignal;
 }): Promise<ComparisonPairResponse> {
   const params = new URLSearchParams({
     type: options.type ?? "all",
@@ -284,7 +297,8 @@ export async function getNextComparisonPair(options: {
   }
 
   return request<ComparisonPairResponse>(
-    `/api/folders/${encodeURIComponent(options.folderId)}/comparisons/next?${params}`
+    `/api/folders/${encodeURIComponent(options.folderId)}/comparisons/next?${params}`,
+    { signal: options.signal }
   );
 }
 
@@ -292,6 +306,7 @@ export async function recordComparison(input: {
   leftAssetId: string;
   rightAssetId: string;
   winnerAssetId: string;
+  pairContext?: ComparisonPairContext;
 }): Promise<ComparisonDecisionResponse> {
   return request<ComparisonDecisionResponse>("/api/comparisons", {
     method: "POST",

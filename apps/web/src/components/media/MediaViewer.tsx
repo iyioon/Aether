@@ -1,13 +1,13 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type CSSProperties,
   type TouchEvent as ReactTouchEvent
 } from "react";
-import { flushSync } from "react-dom";
 import {
   ArrowDown,
   ArrowUp,
@@ -35,7 +35,9 @@ import {
   DialogContent,
   DialogTitle
 } from "../ui/dialog";
+import { markMediaImageReady } from "./media-image-cache";
 import { downloadUrl, mediaUrl, thumbnailUrl } from "./media-urls";
+import { requestPresentedVideoFrame } from "./video-frame-presentation";
 
 interface MediaViewerProps {
   asset: AssetRecord;
@@ -90,6 +92,8 @@ export function MediaViewer({
 }: MediaViewerProps) {
   const viewerStageRef = useRef<HTMLDivElement | null>(null);
   const viewerVideoRef = useRef<HTMLVideoElement | null>(null);
+  const activeAssetIdRef = useRef(asset.id);
+  const cancelVideoRevealRef = useRef<(() => void) | null>(null);
   const controlsTimerRef = useRef<number | null>(null);
   const closeTimerRef = useRef<number | null>(null);
   const displayedScoreRef = useRef<number>(asset.score);
@@ -99,8 +103,15 @@ export function MediaViewer({
   const scoreFeedbackRemovalTimerRef = useRef<number | null>(null);
   const scoreFeedbackTimerRef = useRef<number | null>(null);
   const touchStartRef = useRef<ViewerTouchStart | null>(null);
+  const videoFrameRequestSequenceRef = useRef(0);
+  const lastReadyVideoPosterSourceRef = useRef<string | null>(null);
+  const previousViewedAssetRef = useRef({
+    id: asset.id,
+    mediaType: asset.mediaType
+  });
   const [isOpen, setIsOpen] = useState(true);
   const [controlsVisible, setControlsVisible] = useState(true);
+  const [isViewerVideoMuted, setIsViewerVideoMuted] = useState(true);
   const [readyAssetId, setReadyAssetId] = useState<string | null>(null);
   const [readyVideoAssetId, setReadyVideoAssetId] = useState<string | null>(
     null
@@ -110,6 +121,9 @@ export function MediaViewer({
   );
   const [viewerPosterState, setViewerPosterState] =
     useState<ViewerPosterState | null>(null);
+  const [fallbackVideoPosterSource, setFallbackVideoPosterSource] = useState<
+    string | null
+  >(null);
   const [viewerStageSize, setViewerStageSize] =
     useState<ViewerStageSize | null>(null);
   const [viewerVideoSize, setViewerVideoSize] =
@@ -132,20 +146,31 @@ export function MediaViewer({
     () => mediaViewerFrameStyle(viewerMediaSize, viewerStageSize),
     [viewerMediaSize, viewerStageSize]
   );
+  const viewerPosterSource =
+    asset.mediaType === "video" ? thumbnailUrl(asset.id) : "";
   const isViewerPosterSettled = viewerPosterState?.assetId === asset.id;
   const isViewerPosterReady =
     isViewerPosterSettled && viewerPosterState.status === "ready";
+  const isViewerPosterFailed =
+    isViewerPosterSettled && viewerPosterState.status === "error";
   const isViewerVideoReady = readyVideoAssetId === asset.id;
   const isViewerVideoFailed = failedVideoAssetId === asset.id;
+  const hasFallbackVideoPoster =
+    asset.mediaType === "video" &&
+    fallbackVideoPosterSource !== null &&
+    !isViewerPosterReady &&
+    !isViewerVideoReady &&
+    !(isViewerPosterFailed && isViewerVideoFailed);
   const isMediaReady =
     asset.mediaType === "image"
       ? readyAssetId === asset.id
-      : isViewerPosterReady ||
-        (isViewerPosterSettled &&
-          (isViewerVideoReady || isViewerVideoFailed));
-  const isViewerVideoVisible =
-    isViewerPosterSettled && isViewerVideoReady;
+      : hasFallbackVideoPoster ||
+        isViewerPosterReady ||
+        isViewerVideoReady ||
+        (isViewerPosterSettled && isViewerVideoFailed);
+  const isViewerVideoVisible = isViewerVideoReady;
 
+  activeAssetIdRef.current = asset.id;
   onCloseRef.current = onClose;
 
   const requestClose = useCallback(() => {
@@ -177,8 +202,47 @@ export function MediaViewer({
     hideControlsLater();
   }, [hideControlsLater]);
 
+  const cancelPendingVideoReveal = useCallback(() => {
+    cancelVideoRevealRef.current?.();
+    cancelVideoRevealRef.current = null;
+  }, []);
+
+  const revealVideoAfterPresentedFrame = useCallback(
+    (video: HTMLVideoElement, assetId: string) => {
+      cancelPendingVideoReveal();
+      const requestSequence = videoFrameRequestSequenceRef.current + 1;
+      videoFrameRequestSequenceRef.current = requestSequence;
+
+      cancelVideoRevealRef.current = requestPresentedVideoFrame(video, () => {
+        cancelVideoRevealRef.current = null;
+
+        if (
+          videoFrameRequestSequenceRef.current === requestSequence &&
+          viewerVideoRef.current === video &&
+          activeAssetIdRef.current === assetId
+        ) {
+          setReadyVideoAssetId(assetId);
+        }
+      });
+    },
+    [cancelPendingVideoReveal]
+  );
+
   const playViewerVideo = useCallback(() => {
-    viewerVideoRef.current?.play().catch(() => undefined);
+    const video = viewerVideoRef.current;
+
+    if (!video) {
+      return;
+    }
+
+    video.play().catch(() => {
+      if (viewerVideoRef.current !== video || video.muted) {
+        return;
+      }
+
+      video.muted = true;
+      video.play().catch(() => undefined);
+    });
   }, []);
 
   const toggleViewerVideoPlayback = useCallback(() => {
@@ -209,14 +273,16 @@ export function MediaViewer({
       return;
     }
 
-    video.muted = !video.muted;
+    const nextMuted = !video.muted;
+    video.muted = nextMuted;
+    setIsViewerVideoMuted(nextMuted);
 
-    if (!video.muted && video.volume === 0) {
+    if (!nextMuted && video.volume === 0) {
       video.volume = 1;
     }
 
     revealControls();
-    setKeyboardAnnouncement(video.muted ? "Sound muted" : "Sound on");
+    setKeyboardAnnouncement(nextMuted ? "Sound muted" : "Sound on");
   }, [revealControls]);
 
   const adjustViewerScore = useCallback(
@@ -274,19 +340,15 @@ export function MediaViewer({
 
   const navigateAndPlayViewerVideo = useCallback(
     (direction: -1 | 1) => {
-      flushSync(() => {
-        if (direction > 0) {
-          onNext();
-        } else {
-          onPrevious();
-        }
-      });
+      if (direction > 0) {
+        onNext();
+      } else {
+        onPrevious();
+      }
 
       revealControls();
-      playViewerVideo();
-      window.requestAnimationFrame(playViewerVideo);
     },
-    [onNext, onPrevious, playViewerVideo, revealControls]
+    [onNext, onPrevious, revealControls]
   );
 
   useEffect(() => {
@@ -375,9 +437,42 @@ export function MediaViewer({
     };
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    const previousAsset = previousViewedAssetRef.current;
+    const canReusePreviousPoster =
+      previousAsset.id !== asset.id &&
+      previousAsset.mediaType === "video" &&
+      asset.mediaType === "video" &&
+      lastReadyVideoPosterSourceRef.current !== viewerPosterSource;
+
+    setFallbackVideoPosterSource(
+      canReusePreviousPoster ? lastReadyVideoPosterSourceRef.current : null
+    );
     setViewerVideoSize(null);
-  }, [asset.id]);
+    setReadyVideoAssetId(null);
+    setFailedVideoAssetId(null);
+    setViewerPosterState(null);
+    cancelPendingVideoReveal();
+    videoFrameRequestSequenceRef.current += 1;
+    previousViewedAssetRef.current = {
+      id: asset.id,
+      mediaType: asset.mediaType
+    };
+  }, [
+    asset.id,
+    asset.mediaType,
+    cancelPendingVideoReveal,
+    viewerPosterSource
+  ]);
+
+  useEffect(
+    () => () => {
+      activeAssetIdRef.current = "";
+      cancelPendingVideoReveal();
+      videoFrameRequestSequenceRef.current += 1;
+    },
+    [cancelPendingVideoReveal]
+  );
 
   useEffect(() => {
     displayedScoreRef.current = asset.score;
@@ -645,39 +740,77 @@ export function MediaViewer({
                 />
               ) : (
                 <>
+                  {hasFallbackVideoPoster ? (
+                    <img
+                      className="viewer-video-poster viewer-video-poster-fallback"
+                      src={fallbackVideoPosterSource}
+                      alt=""
+                      aria-hidden="true"
+                    />
+                  ) : null}
                   <img
                     className="viewer-video-poster"
-                    src={thumbnailUrl(asset.id)}
+                    src={viewerPosterSource}
                     alt=""
                     aria-hidden="true"
                     width={asset.width ?? undefined}
                     height={asset.height ?? undefined}
-                    onLoad={() =>
-                      setViewerPosterState({
-                        assetId: asset.id,
-                        status: "ready"
-                      })
-                    }
-                    onError={() =>
-                      setViewerPosterState({
-                        assetId: asset.id,
-                        status: "error"
-                      })
-                    }
+                    loading="eager"
+                    fetchPriority="high"
+                    decoding="async"
+                    onLoad={(event) => {
+                      const image = event.currentTarget;
+                      const assetId = asset.id;
+                      const posterSource = viewerPosterSource;
+                      const markPosterReady = () => {
+                        if (activeAssetIdRef.current !== assetId) {
+                          return;
+                        }
+
+                        lastReadyVideoPosterSourceRef.current = posterSource;
+                        setViewerPosterState({
+                          assetId,
+                          status: "ready"
+                        });
+                      };
+
+                      void image.decode().then(
+                        () => {
+                          markMediaImageReady(posterSource);
+                          markPosterReady();
+                        },
+                        markPosterReady
+                      );
+                    }}
+                    onError={() => {
+                      if (activeAssetIdRef.current === asset.id) {
+                        setViewerPosterState({
+                          assetId: asset.id,
+                          status: "error"
+                        });
+                      }
+                    }}
                   />
                   <video
                     key={asset.id}
                     ref={viewerVideoRef}
                     className="viewer-video"
                     src={mediaUrl(asset.id)}
-                    poster={thumbnailUrl(asset.id)}
                     width={asset.width ?? undefined}
                     height={asset.height ?? undefined}
                     controls
                     autoPlay
-                    loop
+                    muted={isViewerVideoMuted}
                     playsInline
                     preload="auto"
+                    onVolumeChange={(event) => {
+                      setIsViewerVideoMuted(event.currentTarget.muted);
+                    }}
+                    onLoadStart={() => {
+                      cancelPendingVideoReveal();
+                      videoFrameRequestSequenceRef.current += 1;
+                      setReadyVideoAssetId(null);
+                    }}
                     onLoadedMetadata={(event) => {
                       const { videoHeight, videoWidth } = event.currentTarget;
 
@@ -688,12 +821,34 @@ export function MediaViewer({
                         });
                       }
                     }}
-                    onLoadedData={() => {
-                      setReadyVideoAssetId(asset.id);
+                    onPlaying={(event) => {
+                      revealVideoAfterPresentedFrame(
+                        event.currentTarget,
+                        asset.id
+                      );
+                    }}
+                    onSeeked={(event) => {
+                      if (!event.currentTarget.paused) {
+                        revealVideoAfterPresentedFrame(
+                          event.currentTarget,
+                          asset.id
+                        );
+                      }
+                    }}
+                    onEnded={(event) => {
+                      const video = event.currentTarget;
+                      cancelPendingVideoReveal();
+                      videoFrameRequestSequenceRef.current += 1;
+                      setReadyVideoAssetId(null);
+                      video.currentTime = 0;
                       playViewerVideo();
                     }}
-                    onCanPlay={playViewerVideo}
-                    onError={() => setFailedVideoAssetId(asset.id)}
+                    onError={() => {
+                      cancelPendingVideoReveal();
+                      videoFrameRequestSequenceRef.current += 1;
+                      setReadyVideoAssetId(null);
+                      setFailedVideoAssetId(asset.id);
+                    }}
                   />
                 </>
               )}

@@ -336,18 +336,19 @@
 .media-video-poster {
   background: #18181b;
   opacity: 1;
-  transition: opacity var(--aether-motion-fast) ease;
+  transition: none;
 }
 
 .media-video {
   background: transparent;
   opacity: 0;
   pointer-events: none;
-  transition: opacity var(--aether-motion-fast) ease;
+  transition: none;
 }
 
 .media-video-shell.ready .media-video {
   opacity: 1;
+  transition: opacity var(--aether-motion-fast) ease;
 }
 
 .media-video-shell.poster-ready .media-video-poster {
@@ -356,6 +357,7 @@
 
 .media-video-shell.ready .media-video-poster {
   opacity: 0;
+  transition: opacity var(--aether-motion-fast) ease;
 }
 
 .media-video-shell.poster-ready .media-video-loading,

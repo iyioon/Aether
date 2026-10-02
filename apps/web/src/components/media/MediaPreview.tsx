@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Image, Video } from "lucide-react";
 import type { AssetRecord } from "../../api/client";
+import { markMediaImageReady } from "./media-image-cache";
 import { mediaUrl, thumbnailUrl, videoPreviewUrl } from "./media-urls";
+import { requestPresentedVideoFrame } from "./video-frame-presentation";
 
 const ANIMATED_IMAGE_EXTENSIONS = new Set([".gif", ".webp", ".avif", ".apng"]);
 const VIDEO_HOLD_DELAY_MS = 320;
-type VideoPosterStatus = "loading" | "ready" | "error";
 
 interface MediaPreviewProps {
   asset: AssetRecord;
@@ -19,12 +20,14 @@ interface MediaPreviewProps {
   playbackPaused?: boolean;
   preloadPreview?: boolean;
   showVideoTimeline?: boolean;
+  staticPreview?: boolean;
   tall?: boolean;
+  thumbnailSize?: number;
   useOriginalImage?: boolean;
   useOriginalVideo?: boolean;
 }
 
-export function MediaPreview({
+export const MediaPreview = memo(function MediaPreview({
   asset,
   audiblePlaybackRequest = 0,
   isActive = true,
@@ -36,7 +39,9 @@ export function MediaPreview({
   playbackPaused = false,
   preloadPreview = false,
   showVideoTimeline = false,
+  staticPreview = false,
   tall = false,
+  thumbnailSize = 640,
   useOriginalImage = false,
   useOriginalVideo = false
 }: MediaPreviewProps) {
@@ -44,7 +49,9 @@ export function MediaPreview({
   const imageRef = useRef<HTMLImageElement | null>(null);
   const holdTimerRef = useRef<number | null>(null);
   const holdTriggeredRef = useRef(false);
-  const isAnimatedImage = isAnimatedImagePreview(asset);
+  const videoFrameRequestSequenceRef = useRef(0);
+  const cancelVideoRevealRef = useRef<(() => void) | null>(null);
+  const isAnimatedImage = !staticPreview && isAnimatedImagePreview(asset);
   const [hasError, setHasError] = useState(false);
   const [animatedImageFailed, setAnimatedImageFailed] = useState(false);
   const [originalImageFailed, setOriginalImageFailed] = useState(false);
@@ -52,19 +59,23 @@ export function MediaPreview({
   const [videoPreviewFailed, setVideoPreviewFailed] = useState(false);
   const [videoPlaybackFailed, setVideoPlaybackFailed] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
-  const [isVideoReady, setIsVideoReady] = useState(false);
+  const [readyVideoSource, setReadyVideoSource] = useState<string | null>(null);
   const [isVideoHoldPaused, setIsVideoHoldPaused] = useState(false);
   const [videoCurrentTime, setVideoCurrentTime] = useState(0);
   const [videoDuration, setVideoDuration] = useState(0);
-  const [videoPosterStatus, setVideoPosterStatus] =
-    useState<VideoPosterStatus>("loading");
+  const [loadedVideoPosterSource, setLoadedVideoPosterSource] = useState<
+    string | null
+  >(null);
+  const [failedVideoPosterSource, setFailedVideoPosterSource] = useState<
+    string | null
+  >(null);
   const [loadedImageSource, setLoadedImageSource] = useState<string | null>(
     null
   );
   const [loadedThumbnailSource, setLoadedThumbnailSource] = useState<
     string | null
   >(null);
-  const posterSource = thumbnailUrl(asset.id);
+  const posterSource = thumbnailUrl(asset.id, thumbnailSize);
   const videoSource =
     asset.mediaType === "video"
       ? useOriginalVideo
@@ -75,17 +86,23 @@ export function MediaPreview({
           ? mediaUrl(asset.id)
           : videoPreviewUrl(asset.id, tall ? 720 : 480)
       : "";
+
   const isVideoPlaybackVisible =
     isVisible || (showVideoTimeline && isActive);
   const shouldLoadVideo =
     asset.mediaType === "video" &&
+    !staticPreview &&
     (isVideoPlaybackVisible || preloadPreview);
   const shouldAutoplayVideo =
     asset.mediaType === "video" &&
+    !staticPreview &&
     isActive &&
     isVideoPlaybackVisible &&
     !playbackPaused &&
     !isVideoHoldPaused;
+  const isVideoReady = readyVideoSource === videoSource;
+  const isVideoPosterReady = loadedVideoPosterSource === posterSource;
+  const didVideoPosterFail = failedVideoPosterSource === posterSource;
 
   const playVisibleVideo = useCallback(() => {
     if (!shouldAutoplayVideo) {
@@ -122,6 +139,45 @@ export function MediaPreview({
     shouldAutoplayVideo
   ]);
 
+  const cancelPendingVideoReveal = useCallback(() => {
+    cancelVideoRevealRef.current?.();
+    cancelVideoRevealRef.current = null;
+  }, []);
+
+  const revealVideoAfterPresentedFrame = useCallback(
+    (video: HTMLVideoElement) => {
+      cancelPendingVideoReveal();
+      const requestSequence = videoFrameRequestSequenceRef.current + 1;
+      videoFrameRequestSequenceRef.current = requestSequence;
+
+      const reveal = () => {
+        cancelVideoRevealRef.current = null;
+        if (
+          videoFrameRequestSequenceRef.current === requestSequence &&
+          videoRef.current === video
+        ) {
+          setReadyVideoSource(videoSource);
+        }
+      };
+
+      cancelVideoRevealRef.current = requestPresentedVideoFrame(video, reveal);
+    },
+    [cancelPendingVideoReveal, videoSource]
+  );
+
+  useEffect(
+    () => () => {
+      cancelPendingVideoReveal();
+    },
+    [cancelPendingVideoReveal]
+  );
+
+  useEffect(() => {
+    cancelPendingVideoReveal();
+    videoFrameRequestSequenceRef.current += 1;
+    setReadyVideoSource(null);
+  }, [cancelPendingVideoReveal, videoSource]);
+
   useEffect(() => {
     setHasError(false);
     setAnimatedImageFailed(false);
@@ -130,14 +186,24 @@ export function MediaPreview({
     setVideoPreviewFailed(false);
     setVideoPlaybackFailed(false);
     setIsVisible(false);
-    setIsVideoReady(false);
+    setReadyVideoSource(null);
     setIsVideoHoldPaused(false);
     setVideoCurrentTime(0);
     setVideoDuration(0);
-    setVideoPosterStatus("loading");
+    setLoadedVideoPosterSource(null);
+    setFailedVideoPosterSource(null);
     setLoadedImageSource(null);
     setLoadedThumbnailSource(null);
-  }, [asset.id, isAnimatedImage, tall]);
+    cancelPendingVideoReveal();
+    videoFrameRequestSequenceRef.current += 1;
+  }, [
+    asset.id,
+    cancelPendingVideoReveal,
+    isAnimatedImage,
+    tall,
+    thumbnailSize,
+    staticPreview
+  ]);
 
   useEffect(() => {
     if (!isActive) {
@@ -155,7 +221,10 @@ export function MediaPreview({
   );
 
   useEffect(() => {
-    if (asset.mediaType !== "video" && !isAnimatedImage) {
+    if (
+      (asset.mediaType === "video" && staticPreview) ||
+      (asset.mediaType !== "video" && !isAnimatedImage)
+    ) {
       return;
     }
 
@@ -196,7 +265,7 @@ export function MediaPreview({
         video?.pause();
       }
     };
-  }, [asset.id, asset.mediaType, isAnimatedImage]);
+  }, [asset.id, asset.mediaType, isAnimatedImage, staticPreview]);
 
   useEffect(() => {
     if (asset.mediaType !== "video") {
@@ -330,15 +399,17 @@ export function MediaPreview({
 
   useEffect(() => {
     if (asset.mediaType === "video" && !shouldLoadVideo) {
-      setIsVideoReady(false);
+      cancelPendingVideoReveal();
+      videoFrameRequestSequenceRef.current += 1;
+      setReadyVideoSource(null);
     }
-  }, [asset.mediaType, shouldLoadVideo]);
+  }, [asset.mediaType, cancelPendingVideoReveal, shouldLoadVideo]);
 
   if (
     hasError ||
     (asset.mediaType === "video" &&
-      videoPlaybackFailed &&
-      videoPosterStatus === "error")
+      (videoPlaybackFailed || staticPreview) &&
+      didVideoPosterFail)
   ) {
     return (
       <div className={tall ? "media-placeholder tall" : "media-placeholder"}>
@@ -353,8 +424,9 @@ export function MediaPreview({
     const shouldUseOriginalImage =
       isProgressiveImage ||
       (isAnimatedImage && isVisible && !animatedImageFailed);
-    const previewSource =
-      shouldUseOriginalImage ? originalSource : thumbnailUrl(asset.id);
+    const previewSource = shouldUseOriginalImage
+      ? originalSource
+      : thumbnailUrl(asset.id, thumbnailSize);
     const isImageReady = loadedImageSource === previewSource;
     const isThumbnailReady =
       isProgressiveImage && loadedThumbnailSource === posterSource;
@@ -387,10 +459,13 @@ export function MediaPreview({
             loading={isActive ? "eager" : "lazy"}
             onLoad={(event) => {
               const image = event.currentTarget;
-              void image
-                .decode()
-                .catch(() => undefined)
-                .then(() => setLoadedThumbnailSource(posterSource));
+              void image.decode().then(
+                () => {
+                  markMediaImageReady(posterSource);
+                  setLoadedThumbnailSource(posterSource);
+                },
+                () => setLoadedThumbnailSource(posterSource)
+              );
             }}
           />
         ) : null}
@@ -417,17 +492,27 @@ export function MediaPreview({
           fetchPriority={useOriginalImage && isActive ? "high" : "auto"}
           onLoad={(event) => {
             const image = event.currentTarget;
-            void image
-              .decode()
-              .catch(() => undefined)
-              .then(() => {
+            void image.decode().then(
+              () => {
+                if (!shouldUseOriginalImage) {
+                  markMediaImageReady(previewSource);
+                }
                 setLoadedImageSource(previewSource);
                 onDimensionsKnown?.(
                   asset.id,
                   image.naturalWidth,
                   image.naturalHeight
                 );
-              });
+              },
+              () => {
+                setLoadedImageSource(previewSource);
+                onDimensionsKnown?.(
+                  asset.id,
+                  image.naturalWidth,
+                  image.naturalHeight
+                );
+              }
+            );
           }}
           onError={() => {
             if (useOriginalImage && !originalImageFailed) {
@@ -453,8 +538,8 @@ export function MediaPreview({
       className={[
         "media-video-shell",
         tall ? "tall" : "",
-        videoPosterStatus === "ready" ? "poster-ready" : "",
-        videoPosterStatus === "error" ? "poster-error" : "",
+        isVideoPosterReady ? "poster-ready" : "",
+        didVideoPosterFail ? "poster-error" : "",
         isVideoReady ? "ready" : ""
       ]
         .filter(Boolean)
@@ -469,77 +554,114 @@ export function MediaPreview({
         loading={tall || preloadPreview ? "eager" : "lazy"}
         fetchPriority={isActive ? "high" : "auto"}
         decoding="async"
-        onLoad={() => setVideoPosterStatus("ready")}
-        onError={() => setVideoPosterStatus("error")}
-      />
-      <video
-        ref={videoRef}
-        className={tall ? "media-video tall" : "media-video"}
-        src={shouldLoadVideo ? videoSource : undefined}
-        poster={posterSource}
-        autoPlay={shouldAutoplayVideo}
-        data-preview-source={
-          shouldLoadVideo
-            ? useOriginalVideo
-              ? originalVideoFailed
-                ? "preview-fallback"
-                : "original"
-              : videoPreviewFailed
-                ? "original"
-                : "preview"
-            : "poster"
-        }
-        muted={muted}
-        loop
-        playsInline
-        preload={
-          shouldLoadVideo ? (preloadPreview ? "auto" : "metadata") : "none"
-        }
-        onLoadStart={() => setIsVideoReady(false)}
-        onLoadedMetadata={(event) => {
-          setVideoDuration(
-            Number.isFinite(event.currentTarget.duration)
-              ? event.currentTarget.duration
-              : 0
-          );
-          setVideoCurrentTime(event.currentTarget.currentTime);
-          onDimensionsKnown?.(
-            asset.id,
-            event.currentTarget.videoWidth,
-            event.currentTarget.videoHeight
+        onLoad={(event) => {
+          const image = event.currentTarget;
+          void image.decode().then(
+            () => {
+              markMediaImageReady(posterSource);
+              setLoadedVideoPosterSource(posterSource);
+            },
+            () => setLoadedVideoPosterSource(posterSource)
           );
         }}
-        onLoadedData={() => {
-          if (shouldAutoplayVideo) {
-            playVisibleVideo();
-          }
-        }}
-        onCanPlay={() => {
-          if (shouldAutoplayVideo) {
-            playVisibleVideo();
-          }
-        }}
-        onPlaying={() => setIsVideoReady(true)}
-        onTimeUpdate={(event) => {
-          setVideoCurrentTime(event.currentTarget.currentTime);
-        }}
-        onError={() => {
-          setIsVideoReady(false);
-
-          if (useOriginalVideo && !originalVideoFailed) {
-            setOriginalVideoFailed(true);
-            return;
-          }
-
-          if (!useOriginalVideo && !videoPreviewFailed) {
-            setVideoPreviewFailed(true);
-            return;
-          }
-
-          setVideoPlaybackFailed(true);
-        }}
+        onError={() => setFailedVideoPosterSource(posterSource)}
       />
-      {showVideoTimeline ? (
+      {!staticPreview ? (
+        <video
+          ref={videoRef}
+          className={tall ? "media-video tall" : "media-video"}
+          src={shouldLoadVideo ? videoSource : undefined}
+          autoPlay={shouldAutoplayVideo}
+          data-preview-source={
+            shouldLoadVideo
+              ? useOriginalVideo
+                ? originalVideoFailed
+                  ? "preview-fallback"
+                  : "original"
+                : videoPreviewFailed
+                  ? "original"
+                  : "preview"
+              : "poster"
+          }
+          muted={muted}
+          playsInline
+          preload={
+            shouldLoadVideo ? (preloadPreview ? "auto" : "metadata") : "none"
+          }
+          onLoadStart={() => {
+            cancelPendingVideoReveal();
+            videoFrameRequestSequenceRef.current += 1;
+            setReadyVideoSource(null);
+          }}
+          onLoadedMetadata={(event) => {
+            if (showVideoTimeline) {
+              setVideoDuration(
+                Number.isFinite(event.currentTarget.duration)
+                  ? event.currentTarget.duration
+                  : 0
+              );
+              setVideoCurrentTime(event.currentTarget.currentTime);
+            }
+            onDimensionsKnown?.(
+              asset.id,
+              event.currentTarget.videoWidth,
+              event.currentTarget.videoHeight
+            );
+          }}
+          onLoadedData={() => {
+            if (shouldAutoplayVideo) {
+              playVisibleVideo();
+            }
+          }}
+          onPlaying={(event) => {
+            if (shouldAutoplayVideo) {
+              revealVideoAfterPresentedFrame(event.currentTarget);
+            }
+          }}
+          onSeeked={(event) => {
+            if (shouldAutoplayVideo) {
+              revealVideoAfterPresentedFrame(event.currentTarget);
+            }
+          }}
+          onTimeUpdate={
+            showVideoTimeline
+              ? (event) => setVideoCurrentTime(event.currentTarget.currentTime)
+              : undefined
+          }
+          onEnded={(event) => {
+            const video = event.currentTarget;
+            cancelPendingVideoReveal();
+            videoFrameRequestSequenceRef.current += 1;
+            setReadyVideoSource(null);
+            if (showVideoTimeline) {
+              setVideoCurrentTime(0);
+            }
+            video.currentTime = 0;
+
+            if (shouldAutoplayVideo) {
+              playVisibleVideo();
+            }
+          }}
+          onError={() => {
+            cancelPendingVideoReveal();
+            videoFrameRequestSequenceRef.current += 1;
+            setReadyVideoSource(null);
+
+            if (useOriginalVideo && !originalVideoFailed) {
+              setOriginalVideoFailed(true);
+              return;
+            }
+
+            if (!useOriginalVideo && !videoPreviewFailed) {
+              setVideoPreviewFailed(true);
+              return;
+            }
+
+            setVideoPlaybackFailed(true);
+          }}
+        />
+      ) : null}
+      {showVideoTimeline && !staticPreview ? (
         <>
           <button
             className="media-video-playback-toggle"
@@ -591,7 +713,7 @@ export function MediaPreview({
       ) : null}
     </span>
   );
-}
+});
 
 function formatVideoTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) {

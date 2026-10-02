@@ -83,12 +83,13 @@
 .viewer-media-frame .viewer-video {
   opacity: 0;
   pointer-events: none;
-  transition: opacity var(--aether-motion-fast) ease;
+  transition: none;
 }
 
 .viewer-media-frame.is-video-ready .viewer-video {
   opacity: 1;
   pointer-events: auto;
+  transition: opacity var(--aether-motion-fast) ease;
 }
 
 .viewer-actions {

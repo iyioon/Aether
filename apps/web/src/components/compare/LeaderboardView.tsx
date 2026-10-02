@@ -33,6 +33,7 @@ interface LeaderboardViewProps {
   search: string;
   tagFilters: string[];
   onOpenFullscreen: (asset: AssetRecord) => void;
+  onPrepareRanking: () => void;
   onStartRanking: () => void;
 }
 
@@ -45,6 +46,7 @@ export function LeaderboardView({
   search,
   tagFilters,
   onOpenFullscreen,
+  onPrepareRanking,
   onStartRanking
 }: LeaderboardViewProps) {
   const {
@@ -97,7 +99,13 @@ export function LeaderboardView({
             filters apply.
           </p>
         </div>
-        <Button size="lg" onClick={onStartRanking}>
+        <Button
+          size="lg"
+          onFocus={onPrepareRanking}
+          onPointerDown={onPrepareRanking}
+          onPointerEnter={onPrepareRanking}
+          onClick={onStartRanking}
+        >
           <GitCompareArrows aria-hidden="true" />
           Rank media
           <ArrowRight aria-hidden="true" />
@@ -131,6 +139,7 @@ export function LeaderboardView({
       ) : error && entries.length === 0 ? null : entries.length === 0 ? (
         <LeaderboardEmptyState
           hasFolder={folderId !== null}
+          onPrepareRanking={onPrepareRanking}
           onStartRanking={onStartRanking}
         />
       ) : (
@@ -186,7 +195,7 @@ function FeaturedEntry({
   return (
     <Card className="leaderboard-featured-card">
       <CardContent className="leaderboard-featured-media">
-        <MediaPreview asset={entry.asset} playbackPaused />
+        <MediaPreview asset={entry.asset} staticPreview />
       </CardContent>
       <div className="leaderboard-featured-details">
         <Badge className="leaderboard-rank-badge" variant="secondary">
@@ -226,7 +235,12 @@ function LeaderboardRow({
           {entry.rank === null ? "—" : entry.rank}
         </span>
         <div className="leaderboard-row-media">
-          <MediaPreview asset={entry.asset} playbackPaused />
+          <MediaPreview
+            asset={entry.asset}
+            isActive={false}
+            staticPreview
+            thumbnailSize={192}
+          />
         </div>
         <div className="leaderboard-row-details">
           <strong title={entry.asset.name}>{entry.asset.name}</strong>
@@ -260,9 +274,11 @@ function ScoreBadge({ asset }: { asset: AssetRecord }) {
 
 function LeaderboardEmptyState({
   hasFolder,
+  onPrepareRanking,
   onStartRanking
 }: {
   hasFolder: boolean;
+  onPrepareRanking: () => void;
   onStartRanking: () => void;
 }) {
   return (
@@ -275,7 +291,12 @@ function LeaderboardEmptyState({
           : "Select a folder to see its leaderboard and begin ranking."}
       </p>
       {hasFolder ? (
-        <Button onClick={onStartRanking}>
+        <Button
+          onFocus={onPrepareRanking}
+          onPointerDown={onPrepareRanking}
+          onPointerEnter={onPrepareRanking}
+          onClick={onStartRanking}
+        >
           <GitCompareArrows aria-hidden="true" />
           Rank media
         </Button>

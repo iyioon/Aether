@@ -31,63 +31,73 @@ export function fitRankingModel(
     return new Map();
   }
 
-  const comparisonCounts = countComparisons(preferences);
-  const skills = new Map([...activeIds].map((assetId) => [assetId, 0]));
+  const assetIds = [...activeIds];
+  const indexByAssetId = new Map(
+    assetIds.map((assetId, index) => [assetId, index])
+  );
+  const comparisonCounts = new Uint32Array(assetIds.length);
+  const winnerIndexes = new Uint32Array(preferences.length);
+  const loserIndexes = new Uint32Array(preferences.length);
+
+  preferences.forEach((preference, index) => {
+    const lowIndex = indexByAssetId.get(preference.assetLowId)!;
+    const highIndex = indexByAssetId.get(preference.assetHighId)!;
+    const winnerIndex = indexByAssetId.get(preference.winnerId)!;
+    winnerIndexes[index] = winnerIndex;
+    loserIndexes[index] = winnerIndex === lowIndex ? highIndex : lowIndex;
+    comparisonCounts[lowIndex] = comparisonCounts[lowIndex]! + 1;
+    comparisonCounts[highIndex] = comparisonCounts[highIndex]! + 1;
+  });
+
+  const skills = new Float64Array(assetIds.length);
+  const gradients = new Float64Array(assetIds.length);
+  const curvatures = new Float64Array(assetIds.length);
 
   for (let iteration = 0; iteration < FIT_ITERATIONS; iteration += 1) {
-    const gradients = new Map([...activeIds].map((assetId) => [assetId, 0]));
-    const curvatures = new Map(
-      [...activeIds].map((assetId) => [assetId, REGULARIZATION])
-    );
+    gradients.fill(0);
+    curvatures.fill(REGULARIZATION);
 
-    for (const preference of preferences) {
-      const loserId =
-        preference.winnerId === preference.assetLowId
-          ? preference.assetHighId
-          : preference.assetLowId;
-      const probability = logistic(
-        (skills.get(preference.winnerId) ?? 0) - (skills.get(loserId) ?? 0)
-      );
+    for (let index = 0; index < preferences.length; index += 1) {
+      const winnerIndex = winnerIndexes[index]!;
+      const loserIndex = loserIndexes[index]!;
+      const probability = logistic(skills[winnerIndex]! - skills[loserIndex]!);
       const residual = 1 - probability;
       const curvature = probability * (1 - probability);
 
-      gradients.set(
-        preference.winnerId,
-        (gradients.get(preference.winnerId) ?? 0) + residual
-      );
-      gradients.set(loserId, (gradients.get(loserId) ?? 0) - residual);
-      curvatures.set(
-        preference.winnerId,
-        (curvatures.get(preference.winnerId) ?? REGULARIZATION) + curvature
-      );
-      curvatures.set(
-        loserId,
-        (curvatures.get(loserId) ?? REGULARIZATION) + curvature
-      );
+      gradients[winnerIndex] = gradients[winnerIndex]! + residual;
+      gradients[loserIndex] = gradients[loserIndex]! - residual;
+      curvatures[winnerIndex] = curvatures[winnerIndex]! + curvature;
+      curvatures[loserIndex] = curvatures[loserIndex]! + curvature;
     }
 
     let maxChange = 0;
-    for (const assetId of activeIds) {
-      const skill = skills.get(assetId) ?? 0;
-      const gradient = (gradients.get(assetId) ?? 0) - REGULARIZATION * skill;
-      const change = (FIT_DAMPING * gradient) / (curvatures.get(assetId) ?? 1);
-      skills.set(assetId, skill + change);
+    let skillTotal = 0;
+    for (let index = 0; index < skills.length; index += 1) {
+      const skill = skills[index]!;
+      const gradient = gradients[index]! - REGULARIZATION * skill;
+      const change = (FIT_DAMPING * gradient) / curvatures[index]!;
+      skills[index] = skill + change;
+      skillTotal += skills[index]!;
       maxChange = Math.max(maxChange, Math.abs(change));
     }
 
-    centerSkills(skills);
+    const meanSkill = skillTotal / skills.length;
+    for (let index = 0; index < skills.length; index += 1) {
+      skills[index] = skills[index]! - meanSkill;
+    }
+
     if (maxChange < CONVERGENCE_THRESHOLD) {
       break;
     }
   }
 
   return new Map(
-    [...skills].map(([assetId, skill]) => [
+    assetIds.map((assetId, index) => [
       assetId,
       {
-        comparisonCount: comparisonCounts.get(assetId) ?? 0,
-        comparisonScore: Math.round(logistic(skill) * 100),
-        skill
+        comparisonCount: comparisonCounts[index]!,
+        comparisonScore: Math.round(logistic(skills[index]!) * 100),
+        skill: skills[index]!
       }
     ])
   );
@@ -103,9 +113,10 @@ export function selectInformativePair(
     throw new Error("At least two candidates are required.");
   }
 
-  const minimumCount = Math.min(
-    ...candidates.map((candidate) => candidate.comparisonCount ?? 0)
-  );
+  let minimumCount = Number.POSITIVE_INFINITY;
+  for (const candidate of candidates) {
+    minimumCount = Math.min(minimumCount, candidate.comparisonCount ?? 0);
+  }
   const anchorPool = candidates.filter(
     (candidate) => (candidate.comparisonCount ?? 0) <= minimumCount + 1
   );
@@ -114,26 +125,36 @@ export function selectInformativePair(
     excludedAssetIds.length === 2
       ? comparisonPairKey(excludedAssetIds[0]!, excludedAssetIds[1]!)
       : null;
-  const opponents = candidates.filter(
-    (candidate) => candidate.id !== anchor.id
-  );
-  const eligibleOpponents = opponents.filter(
-    (candidate) => comparisonPairKey(anchor.id, candidate.id) !== excludedPair
-  );
+  const opponents: ComparisonCandidate[] = [];
+  const eligibleOpponents: ComparisonCandidate[] = [];
+  for (const candidate of candidates) {
+    if (candidate.id === anchor.id) {
+      continue;
+    }
+
+    opponents.push(candidate);
+    if (comparisonPairKey(anchor.id, candidate.id) !== excludedPair) {
+      eligibleOpponents.push(candidate);
+    }
+  }
   const pool = eligibleOpponents.length > 0 ? eligibleOpponents : opponents;
 
   if (random() < 0.15) {
     return [anchor.id, randomEntry(pool, random).id];
   }
 
-  const ranked = pool
-    .map((opponent) => ({
-      opponent,
-      cost: opponentCost(anchor, opponent, decidedPairs, random)
-    }))
-    .sort((left, right) => left.cost - right.cost);
+  let bestOpponent = pool[0]!;
+  let bestCost = opponentCost(anchor, bestOpponent, decidedPairs, random);
+  for (let index = 1; index < pool.length; index += 1) {
+    const opponent = pool[index]!;
+    const cost = opponentCost(anchor, opponent, decidedPairs, random);
+    if (cost < bestCost) {
+      bestOpponent = opponent;
+      bestCost = cost;
+    }
+  }
 
-  return [anchor.id, ranked[0]!.opponent.id];
+  return [anchor.id, bestOpponent.id];
 }
 
 export function comparisonPairKey(leftAssetId: string, rightAssetId: string) {
@@ -147,32 +168,6 @@ function collectActiveIds(preferences: RankingPreference[]): Set<string> {
     activeIds.add(preference.assetHighId);
   }
   return activeIds;
-}
-
-function countComparisons(
-  preferences: RankingPreference[]
-): Map<string, number> {
-  const counts = new Map<string, number>();
-  for (const preference of preferences) {
-    counts.set(
-      preference.assetLowId,
-      (counts.get(preference.assetLowId) ?? 0) + 1
-    );
-    counts.set(
-      preference.assetHighId,
-      (counts.get(preference.assetHighId) ?? 0) + 1
-    );
-  }
-  return counts;
-}
-
-function centerSkills(skills: Map<string, number>): void {
-  const mean =
-    [...skills.values()].reduce((total, value) => total + value, 0) /
-    skills.size;
-  for (const [assetId, skill] of skills) {
-    skills.set(assetId, skill - mean);
-  }
 }
 
 function opponentCost(

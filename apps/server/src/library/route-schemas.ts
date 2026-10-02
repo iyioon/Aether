@@ -47,6 +47,15 @@ export const ComparisonPairQuery = AssetListQuery.pick({
   )
 });
 
+const ComparisonPairContext = z.object({
+  folderId: z.string().min(1).max(256),
+  type: z.enum(["all", "image", "video"]).default("all"),
+  recursive: z.boolean().default(true),
+  search: z.string().max(128).default(""),
+  tags: z.array(z.string().max(64)).max(20).default([]),
+  score: z.enum(["all", "favorites", "ranked", "unranked"]).default("all")
+});
+
 function normalizeArrayQueryValue(value: unknown): unknown[] {
   if (value === undefined) {
     return [];
@@ -59,7 +68,8 @@ export const ComparisonDecisionBody = z
   .object({
     leftAssetId: z.string().min(1).max(256),
     rightAssetId: z.string().min(1).max(256),
-    winnerAssetId: z.string().min(1).max(256)
+    winnerAssetId: z.string().min(1).max(256),
+    pairContext: ComparisonPairContext.optional()
   })
   .refine((data) => data.leftAssetId !== data.rightAssetId)
   .refine((data) =>

@@ -26,7 +26,7 @@ export function registerComparisonRoutes(
       return reply.code(400).send({ error: "invalid_request" });
     }
 
-    const pair = getNextComparisonPair(db, {
+    const pair = getHydratedComparisonPair(db, {
       folderId: params.data.folderId,
       type: query.data.type,
       recursive: query.data.recursive,
@@ -40,13 +40,7 @@ export function registerComparisonRoutes(
       return reply.code(404).send({ error: "comparison_pair_unavailable" });
     }
 
-    const left = getAsset(db, pair.leftAssetId);
-    const right = getAsset(db, pair.rightAssetId);
-    if (!left || !right) {
-      return reply.code(404).send({ error: "asset_not_indexed" });
-    }
-
-    return { left, right, progress: pair.progress };
+    return pair;
   });
 
   app.post("/api/comparisons", async (request, reply) => {
@@ -56,19 +50,48 @@ export function registerComparisonRoutes(
     }
 
     try {
+      const { pairContext, ...decision } = body.data;
       const result = recordComparisonDecision(db, {
-        ...body.data,
+        ...decision,
         createdAt: new Date().toISOString()
       });
       if (!result) {
         return reply.code(404).send({ error: "asset_not_indexed" });
       }
 
-      return {
+      const response = {
         ...result,
         assets: result.assetIds
           .map((assetId) => getAsset(db, assetId))
           .filter(Boolean)
+      };
+
+      if (!pairContext) {
+        return response;
+      }
+
+      let nextPair;
+      try {
+        nextPair = getHydratedComparisonPair(db, {
+          folderId: pairContext.folderId,
+          type: pairContext.type,
+          recursive: pairContext.recursive,
+          search: pairContext.search,
+          tags: pairContext.tags,
+          scoreFilter: pairContext.score,
+          excludeAssetIds: [decision.leftAssetId, decision.rightAssetId]
+        });
+      } catch (error) {
+        request.log.warn(
+          { err: error },
+          "Comparison saved, but the next pair could not be prepared"
+        );
+        return response;
+      }
+
+      return {
+        ...response,
+        nextPair
       };
     } catch (error) {
       if (error instanceof ComparisonConflictError) {
@@ -107,4 +130,22 @@ export function registerComparisonRoutes(
       throw error;
     }
   });
+}
+
+function getHydratedComparisonPair(
+  db: AetherDatabase,
+  options: Parameters<typeof getNextComparisonPair>[1]
+) {
+  const pair = getNextComparisonPair(db, options);
+  if (!pair) {
+    return null;
+  }
+
+  const left = getAsset(db, pair.leftAssetId);
+  const right = getAsset(db, pair.rightAssetId);
+  if (!left || !right) {
+    return null;
+  }
+
+  return { left, right, progress: pair.progress };
 }

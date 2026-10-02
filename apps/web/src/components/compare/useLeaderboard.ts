@@ -36,6 +36,7 @@ export function useLeaderboard({
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [reloadRevision, setReloadRevision] = useState(0);
   const loadMoreInFlightRef = useRef(false);
+  const loadMoreAbortRef = useRef<AbortController | null>(null);
   const queryKey = useMemo(
     () =>
       [
@@ -61,6 +62,10 @@ export function useLeaderboard({
   queryKeyRef.current = queryKey;
 
   useEffect(() => {
+    loadMoreAbortRef.current?.abort();
+    loadMoreAbortRef.current = null;
+    loadMoreInFlightRef.current = false;
+
     if (!folderId) {
       setAssets([]);
       setTotal(0);
@@ -70,7 +75,7 @@ export function useLeaderboard({
       return;
     }
 
-    let active = true;
+    const controller = new AbortController();
     const requestQueryKey = queryKey;
     setAssets([]);
     setTotal(0);
@@ -88,16 +93,23 @@ export function useLeaderboard({
       recursive: true,
       search,
       tags: tagFilters,
-      score: scoreFilter
+      score: scoreFilter,
+      signal: controller.signal
     })
       .then((response) => {
-        if (active && queryKeyRef.current === requestQueryKey) {
+        if (
+          !controller.signal.aborted &&
+          queryKeyRef.current === requestQueryKey
+        ) {
           setAssets(response.items);
           setTotal(response.page.total);
         }
       })
       .catch((caught) => {
-        if (active && queryKeyRef.current === requestQueryKey) {
+        if (
+          !controller.signal.aborted &&
+          queryKeyRef.current === requestQueryKey
+        ) {
           setError(
             caught instanceof ApiError
               ? caught.code
@@ -106,13 +118,19 @@ export function useLeaderboard({
         }
       })
       .finally(() => {
-        if (active && queryKeyRef.current === requestQueryKey) {
+        if (
+          !controller.signal.aborted &&
+          queryKeyRef.current === requestQueryKey
+        ) {
           setIsLoading(false);
         }
       });
 
     return () => {
-      active = false;
+      controller.abort();
+      loadMoreAbortRef.current?.abort();
+      loadMoreAbortRef.current = null;
+      loadMoreInFlightRef.current = false;
     };
   }, [folderId, mediaType, queryKey, scoreFilter, search, tagFilters]);
 
@@ -146,7 +164,9 @@ export function useLeaderboard({
     }
 
     const requestQueryKey = queryKey;
+    const controller = new AbortController();
     loadMoreInFlightRef.current = true;
+    loadMoreAbortRef.current = controller;
     setIsLoadingMore(true);
     setError(null);
 
@@ -161,10 +181,14 @@ export function useLeaderboard({
         recursive: true,
         search,
         tags: tagFilters,
-        score: scoreFilter
+        score: scoreFilter,
+        signal: controller.signal
       });
 
-      if (queryKeyRef.current !== requestQueryKey) {
+      if (
+        controller.signal.aborted ||
+        queryKeyRef.current !== requestQueryKey
+      ) {
         return;
       }
 
@@ -177,7 +201,10 @@ export function useLeaderboard({
       });
       setTotal(response.page.total);
     } catch (caught) {
-      if (queryKeyRef.current === requestQueryKey) {
+      if (
+        !controller.signal.aborted &&
+        queryKeyRef.current === requestQueryKey
+      ) {
         setError(
           caught instanceof ApiError
             ? caught.code
@@ -185,8 +212,11 @@ export function useLeaderboard({
         );
       }
     } finally {
-      loadMoreInFlightRef.current = false;
-      setIsLoadingMore(false);
+      if (loadMoreAbortRef.current === controller) {
+        loadMoreAbortRef.current = null;
+        loadMoreInFlightRef.current = false;
+        setIsLoadingMore(false);
+      }
     }
   }, [
     assets.length,

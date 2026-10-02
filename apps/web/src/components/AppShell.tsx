@@ -182,6 +182,8 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     selectedFolderId,
     tree
   });
+  const currentViewRef = useRef(view);
+  currentViewRef.current = view;
   const shouldReloadAfterScoreChange =
     scoreFilter !== "all" || sort === "score";
   const {
@@ -263,6 +265,15 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     const latestUpdatedAsset = updatedAssets.at(-1);
     if (latestUpdatedAsset) {
       setComparisonAssetUpdate(latestUpdatedAsset);
+    }
+  }
+
+  function handleComparisonRankingChanged() {
+    rankingChangedRef.current = true;
+
+    if (currentViewRef.current !== "compare") {
+      rankingChangedRef.current = false;
+      reloadAssets();
     }
   }
 
@@ -660,15 +671,14 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
                   <ComparisonView
                     assetUpdate={comparisonAssetUpdate}
                     folderId={selectedFolderId}
+                    isPlaybackPaused={selectedAssetId !== null}
                     mediaType={mediaType}
                     scoreFilter={scoreFilter}
                     search={search}
                     tagFilters={tagFilters}
                     onAssetsUpdated={mergeUpdatedAssets}
                     onOpenFullscreen={openComparisonAsset}
-                    onRankingChanged={() => {
-                      rankingChangedRef.current = true;
-                    }}
+                    onRankingChanged={handleComparisonRankingChanged}
                   />
                 )}
               </>

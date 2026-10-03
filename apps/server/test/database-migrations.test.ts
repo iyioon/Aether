@@ -38,11 +38,27 @@ describe("database migrations", () => {
         CREATE INDEX idx_asset_rankings_score
           ON asset_rankings(score DESC, comparison_count DESC);
 
+        CREATE TABLE comparison_events (
+          id TEXT PRIMARY KEY,
+          event_type TEXT NOT NULL CHECK(event_type IN ('decision', 'undo')),
+          asset_low_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+          asset_high_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+          winner_id TEXT REFERENCES assets(id) ON DELETE CASCADE,
+          previous_event_id TEXT REFERENCES comparison_events(id) ON DELETE SET NULL,
+          target_event_id TEXT REFERENCES comparison_events(id) ON DELETE SET NULL,
+          created_at TEXT NOT NULL,
+          CHECK(asset_low_id < asset_high_id),
+          CHECK(
+            (event_type = 'decision' AND winner_id IN (asset_low_id, asset_high_id)) OR
+            (event_type = 'undo' AND winner_id IS NULL AND target_event_id IS NOT NULL)
+          )
+        );
+
         CREATE TABLE pair_preferences (
           asset_low_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
           asset_high_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
           winner_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
-          event_id TEXT NOT NULL,
+          event_id TEXT NOT NULL REFERENCES comparison_events(id) ON DELETE CASCADE,
           updated_at TEXT NOT NULL,
           PRIMARY KEY(asset_low_id, asset_high_id)
         );
@@ -55,6 +71,16 @@ describe("database migrations", () => {
         INSERT INTO asset_rankings
           (asset_id, skill, score, manual_offset, comparison_count, updated_at)
         VALUES ('asset-one', 0.75, 64, 61, 8, '2026-09-28T00:00:00.000Z');
+        INSERT INTO comparison_events
+          (id, event_type, asset_low_id, asset_high_id, winner_id,
+           previous_event_id, target_event_id, created_at)
+        VALUES
+          ('event-1', 'decision', 'asset-one', 'asset-two', 'asset-one',
+           NULL, NULL, '2026-09-28T00:00:00.000Z'),
+          ('event-2', 'decision', 'asset-one', 'asset-two', 'asset-two',
+           'event-1', NULL, '2026-09-28T00:01:00.000Z'),
+          ('undo-2', 'undo', 'asset-one', 'asset-two', NULL,
+           'event-1', 'event-2', '2026-09-28T00:02:00.000Z');
         INSERT INTO pair_preferences
           (asset_low_id, asset_high_id, winner_id, event_id, updated_at)
         VALUES
@@ -127,6 +153,17 @@ describe("database migrations", () => {
           .prepare("SELECT name FROM schema_migrations WHERE version = 12")
           .get()
       ).toEqual({ name: "rebuild_comparison_projections" });
+      expect(
+        db
+          .prepare("SELECT name FROM schema_migrations WHERE version = 13")
+          .get()
+      ).toEqual({ name: "cascade_deleted_comparison_targets" });
+      expect(
+        db.prepare("SELECT COUNT(*) AS total FROM comparison_events").get()
+      ).toEqual({ total: 3 });
+      expect(() =>
+        db.prepare("DELETE FROM assets WHERE id = 'asset-two'").run()
+      ).not.toThrow();
     } finally {
       db.close();
     }
@@ -153,11 +190,27 @@ describe("database migrations", () => {
           updated_at TEXT NOT NULL
         );
 
+        CREATE TABLE comparison_events (
+          id TEXT PRIMARY KEY,
+          event_type TEXT NOT NULL CHECK(event_type IN ('decision', 'undo')),
+          asset_low_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+          asset_high_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+          winner_id TEXT REFERENCES assets(id) ON DELETE CASCADE,
+          previous_event_id TEXT REFERENCES comparison_events(id) ON DELETE SET NULL,
+          target_event_id TEXT REFERENCES comparison_events(id) ON DELETE SET NULL,
+          created_at TEXT NOT NULL,
+          CHECK(asset_low_id < asset_high_id),
+          CHECK(
+            (event_type = 'decision' AND winner_id IN (asset_low_id, asset_high_id)) OR
+            (event_type = 'undo' AND winner_id IS NULL AND target_event_id IS NOT NULL)
+          )
+        );
+
         CREATE TABLE pair_preferences (
           asset_low_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
           asset_high_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
           winner_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
-          event_id TEXT NOT NULL,
+          event_id TEXT NOT NULL REFERENCES comparison_events(id) ON DELETE CASCADE,
           updated_at TEXT NOT NULL,
           PRIMARY KEY(asset_low_id, asset_high_id)
         );
@@ -173,6 +226,15 @@ describe("database migrations", () => {
 
         INSERT INTO assets (id)
         VALUES ('asset-a'), ('asset-b'), ('asset-c'), ('stale-orphan');
+
+        INSERT INTO comparison_events
+          (id, event_type, asset_low_id, asset_high_id, winner_id,
+           previous_event_id, target_event_id, created_at)
+        VALUES
+          ('event-1', 'decision', 'asset-a', 'asset-b', 'asset-a',
+           NULL, NULL, '2026-09-28T00:00:00.000Z'),
+          ('event-2', 'decision', 'asset-a', 'asset-c', 'asset-c',
+           NULL, NULL, '2026-09-28T00:00:00.000Z');
 
         INSERT INTO pair_preferences
           (asset_low_id, asset_high_id, winner_id, event_id, updated_at)

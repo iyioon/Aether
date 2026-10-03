@@ -355,6 +355,64 @@ const migrations: Migration[] = [
     version: 12,
     name: "rebuild_comparison_projections",
     apply: (db, appliedAt) => recomputeAssetRankings(db, appliedAt)
+  },
+  {
+    version: 13,
+    name: "cascade_deleted_comparison_targets",
+    sql: `
+      CREATE TABLE comparison_events_next (
+        id TEXT PRIMARY KEY,
+        event_type TEXT NOT NULL CHECK(event_type IN ('decision', 'undo')),
+        asset_low_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+        asset_high_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+        winner_id TEXT REFERENCES assets(id) ON DELETE CASCADE,
+        previous_event_id TEXT REFERENCES comparison_events_next(id) ON DELETE SET NULL,
+        target_event_id TEXT REFERENCES comparison_events_next(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL,
+        CHECK(asset_low_id < asset_high_id),
+        CHECK(
+          (event_type = 'decision' AND winner_id IN (asset_low_id, asset_high_id)) OR
+          (event_type = 'undo' AND winner_id IS NULL AND target_event_id IS NOT NULL)
+        )
+      );
+
+      INSERT INTO comparison_events_next
+        (id, event_type, asset_low_id, asset_high_id, winner_id,
+         previous_event_id, target_event_id, created_at)
+      SELECT
+        id, event_type, asset_low_id, asset_high_id, winner_id,
+        previous_event_id, target_event_id, created_at
+      FROM comparison_events;
+
+      CREATE TABLE pair_preferences_next (
+        asset_low_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+        asset_high_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+        winner_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+        event_id TEXT NOT NULL REFERENCES comparison_events_next(id) ON DELETE CASCADE,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY(asset_low_id, asset_high_id),
+        CHECK(asset_low_id < asset_high_id),
+        CHECK(winner_id IN (asset_low_id, asset_high_id))
+      );
+
+      INSERT INTO pair_preferences_next
+        (asset_low_id, asset_high_id, winner_id, event_id, updated_at)
+      SELECT asset_low_id, asset_high_id, winner_id, event_id, updated_at
+      FROM pair_preferences;
+
+      DROP TABLE pair_preferences;
+      DELETE FROM comparison_events WHERE event_type = 'undo';
+      DROP TABLE comparison_events;
+
+      ALTER TABLE comparison_events_next RENAME TO comparison_events;
+      ALTER TABLE pair_preferences_next RENAME TO pair_preferences;
+
+      CREATE INDEX idx_comparison_events_pair
+        ON comparison_events(asset_low_id, asset_high_id, created_at);
+
+      CREATE INDEX idx_pair_preferences_winner
+        ON pair_preferences(winner_id);
+    `
   }
 ];
 

@@ -17,7 +17,8 @@ import {
   getAsset,
   listAssets,
   listFolders,
-  recordComparisonDecision
+  recordComparisonDecision,
+  undoComparisonDecision
 } from "../src/library/repository.js";
 import { scanLibrary } from "../src/library/scanner.js";
 import type { ScanProgress } from "../src/library/scanner.js";
@@ -361,12 +362,21 @@ describe("library scanner", () => {
     const opponentId = assetId("opponent.jpg");
     const decidedAt = new Date().toISOString();
 
-    recordComparisonDecision(db, {
+    const firstRemovedAssetDecision = recordComparisonDecision(db, {
       leftAssetId: removedId,
       rightAssetId: survivorId,
       winnerAssetId: survivorId,
       createdAt: decidedAt
     });
+    const changedRemovedAssetDecision = recordComparisonDecision(db, {
+      leftAssetId: removedId,
+      rightAssetId: survivorId,
+      winnerAssetId: removedId,
+      createdAt: decidedAt
+    });
+    expect(firstRemovedAssetDecision).not.toBeNull();
+    expect(changedRemovedAssetDecision).not.toBeNull();
+    undoComparisonDecision(db, changedRemovedAssetDecision!.eventId, decidedAt);
     recordComparisonDecision(db, {
       leftAssetId: survivorId,
       rightAssetId: opponentId,

@@ -20,8 +20,13 @@ interface MediaAnnotationDrawerProps {
   aiStatus: AiStatus | null;
   asset: AssetRecord;
   isAboveViewer?: boolean;
+  isScoreSaving: boolean;
   onClose: () => void;
   onRankingChanged: () => void;
+  onScoreChange: (
+    asset: AssetRecord,
+    input: { score?: number; favorite?: boolean }
+  ) => void;
   onAssetUpdated: (asset: AssetRecord) => void;
   onAssetTagsUpdated: (assetId: string, tags: TagRecord[]) => void;
 }
@@ -30,8 +35,10 @@ export function MediaAnnotationDrawer({
   aiStatus,
   asset,
   isAboveViewer = false,
+  isScoreSaving,
   onClose,
   onRankingChanged,
+  onScoreChange,
   onAssetUpdated,
   onAssetTagsUpdated
 }: MediaAnnotationDrawerProps) {
@@ -98,7 +105,9 @@ export function MediaAnnotationDrawer({
           <AssetAnnotationPanel
             aiStatus={aiStatus}
             asset={asset}
+            isScoreSaving={isScoreSaving}
             onRankingChanged={onRankingChanged}
+            onScoreChange={onScoreChange}
             onAssetTagsUpdated={onAssetTagsUpdated}
             onAssetUpdated={onAssetUpdated}
           />

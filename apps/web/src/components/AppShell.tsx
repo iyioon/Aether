@@ -42,6 +42,8 @@ interface AppShellProps {
 const loadComparisonView = () => import("./compare/ComparisonView");
 const loadFeedPreview = () => import("./feed/FeedPreview");
 const loadGalleryGrid = () => import("./gallery/GalleryGrid");
+const loadMediaAnnotationDrawer = () => import("./media/MediaAnnotationDrawer");
+const loadMediaViewer = () => import("./media/MediaViewer");
 const loadSettingsPage = () => import("./settings/SettingsPage");
 const loadUserGuidePage = () => import("./guide/UserGuidePage");
 
@@ -85,12 +87,12 @@ const GalleryGrid = lazy(() =>
   }))
 );
 const MediaAnnotationDrawer = lazy(() =>
-  import("./media/MediaAnnotationDrawer").then(({ MediaAnnotationDrawer }) => ({
+  loadMediaAnnotationDrawer().then(({ MediaAnnotationDrawer }) => ({
     default: MediaAnnotationDrawer
   }))
 );
 const MediaViewer = lazy(() =>
-  import("./media/MediaViewer").then(({ MediaViewer }) => ({
+  loadMediaViewer().then(({ MediaViewer }) => ({
     default: MediaViewer
   }))
 );
@@ -316,6 +318,19 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     }
   }
 
+  const handleMediaActionError = useCallback(
+    (message: string | null) => {
+      setAssetError(message);
+      if (message) {
+        toast.error("Media update failed", {
+          description: message,
+          id: "media-action-status"
+        });
+      }
+    },
+    [setAssetError]
+  );
+
   const {
     annotationAsset,
     handleAssetTagsUpdated,
@@ -330,7 +345,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     setSelectedAssetId
   } = useMediaActions({
     assets,
-    onAssetError: setAssetError,
+    onAssetError: handleMediaActionError,
     onAssetsUpdated: mergeMediaActionAssets,
     onAssetTagsUpdated: updateAssetTags,
     onReloadAssets: reloadAssets,
@@ -348,6 +363,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     if (selectedAssetId) {
       activeMediaAnchorIdRef.current = selectedAssetId;
       setSyncedMediaAnchorId(selectedAssetId);
+      void loadMediaAnnotationDrawer().catch(() => undefined);
     }
   }, [selectedAssetId]);
 
@@ -757,8 +773,8 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
         </main>
       </SidebarInset>
 
-      <Suspense fallback={null}>
-        {selectedAsset ? (
+      {selectedAsset ? (
+        <Suspense fallback={null}>
           <MediaViewer
             asset={selectedAsset}
             hasNext={
@@ -778,13 +794,16 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
             onNext={() => selectAdjacentAsset(1)}
             onPrevious={() => selectAdjacentAsset(-1)}
           />
-        ) : null}
+        </Suspense>
+      ) : null}
 
-        {annotationAsset ? (
+      {annotationAsset ? (
+        <Suspense fallback={null}>
           <MediaAnnotationDrawer
             aiStatus={aiStatus}
             asset={annotationAsset}
             isAboveViewer={selectedAssetId !== null}
+            isScoreSaving={savingScoreAssetIds.has(annotationAsset.id)}
             onAssetTagsUpdated={handleAssetTagsUpdated}
             onAssetUpdated={handleAssetUpdated}
             onClose={() => setAnnotationAssetId(null)}
@@ -792,9 +811,10 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
               rankingChangedRef.current = true;
               reloadAssets();
             }}
+            onScoreChange={saveAssetScore}
           />
-        ) : null}
-      </Suspense>
+        </Suspense>
+      ) : null}
     </SidebarProvider>
   );
 }

@@ -96,7 +96,10 @@ export function fitRankingModel(
       assetId,
       {
         comparisonCount: comparisonCounts[index]!,
-        comparisonScore: Math.round(logistic(skills[index]!) * 100),
+        comparisonScore: Math.max(
+          1,
+          Math.round(logistic(skills[index]!) * 100)
+        ),
         skill: skills[index]!
       }
     ])

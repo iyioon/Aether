@@ -26,25 +26,28 @@ export function ComparisonSessionFooter({
   onSkip,
   onUndo
 }: ComparisonSessionFooterProps) {
-  const rankedPercent =
+  const comparedPercent =
     progress.candidateCount === 0
       ? 0
-      : (progress.rankedCount / progress.candidateCount) * 100;
+      : (progress.comparedCount / progress.candidateCount) * 100;
 
   return (
     <footer className="comparison-session-footer">
-      <div className="comparison-progress" aria-label="Ranking coverage">
+      <div className="comparison-progress" aria-label="Comparison coverage">
         <div className="comparison-progress-track">
-          <Progress value={rankedPercent} />
+          <Progress value={comparedPercent} />
           <span className="comparison-progress-mobile-count">
-            {progress.rankedCount}/{progress.candidateCount}
+            {progress.comparedCount}/{progress.candidateCount}
           </span>
         </div>
         <div className="comparison-progress-details">
           <Badge variant="secondary">
-            {progress.rankedCount} of {progress.candidateCount} ranked
+            {progress.comparedCount} of {progress.candidateCount} compared
           </Badge>
-          <span>{progress.decidedPairCount} pair decisions</span>
+          <span>
+            {progress.decidedPairCount} active{" "}
+            {progress.decidedPairCount === 1 ? "pair" : "pairs"}
+          </span>
         </div>
       </div>
       <div className="comparison-session-actions">

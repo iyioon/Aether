@@ -145,9 +145,14 @@
 .batch-score-editor {
   display: flex;
   align-self: end;
-  align-items: flex-end;
+  align-items: center;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.batch-score-option {
+  display: grid;
+  gap: 4px;
 }
 
 .batch-tag-mode {

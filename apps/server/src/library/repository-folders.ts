@@ -2,6 +2,7 @@ import type { MediaRootConfig } from "../config/config.js";
 import type { AetherDatabase } from "../db/database.js";
 import { stableId } from "./ids.js";
 import { mapFolderRow } from "./repository-mappers.js";
+import { recomputeAssetRankings } from "./repository-rankings.js";
 import type {
   FolderRecord,
   FolderRow,
@@ -66,6 +67,10 @@ export function syncConfiguredRoots(
         deleteRoot.run(row.id);
       }
     }
+
+    if (existingRoots.some((row) => !configuredIds.has(row.id))) {
+      recomputeAssetRankings(db, now);
+    }
   });
 
   transaction();
@@ -104,26 +109,34 @@ export function removeUnseenRootEntries(
   rootId: string,
   seenAt: string
 ): { removedAssets: number; removedFolders: number } {
-  db.prepare(
-    `DELETE FROM asset_search
-     WHERE asset_id IN (
-       SELECT id
-       FROM assets
-       WHERE root_id = ? AND indexed_at <> ?
-     )`
-  ).run(rootId, seenAt);
+  const transaction = db.transaction(() => {
+    db.prepare(
+      `DELETE FROM asset_search
+       WHERE asset_id IN (
+         SELECT id
+         FROM assets
+         WHERE root_id = ? AND indexed_at <> ?
+       )`
+    ).run(rootId, seenAt);
 
-  const removedAssets = db
-    .prepare("DELETE FROM assets WHERE root_id = ? AND indexed_at <> ?")
-    .run(rootId, seenAt).changes;
+    const removedAssets = db
+      .prepare("DELETE FROM assets WHERE root_id = ? AND indexed_at <> ?")
+      .run(rootId, seenAt).changes;
 
-  const removedFolders = db
-    .prepare(
-      "DELETE FROM folders WHERE root_id = ? AND relative_path <> '' AND updated_at <> ?"
-    )
-    .run(rootId, seenAt).changes;
+    const removedFolders = db
+      .prepare(
+        "DELETE FROM folders WHERE root_id = ? AND relative_path <> '' AND updated_at <> ?"
+      )
+      .run(rootId, seenAt).changes;
 
-  return { removedAssets, removedFolders };
+    if (removedAssets > 0) {
+      recomputeAssetRankings(db, seenAt);
+    }
+
+    return { removedAssets, removedFolders };
+  });
+
+  return transaction();
 }
 
 export function refreshFolderAssetCounts(

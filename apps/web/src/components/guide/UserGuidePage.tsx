@@ -67,7 +67,10 @@ const browsingViews = [
 const shortcuts = [
   ["/", "Focus search"],
   ["⌘/Ctrl + B", "Show or hide the sidebar"],
-  ["Arrow keys", "Move through media or choose in Compare"],
+  ["↑ / ↓ or Page keys", "Move through the feed"],
+  ["← / → in viewer", "Open the previous or next item"],
+  ["↑ / ↓ in viewer", "Increase or decrease the score"],
+  ["← / → in Compare", "Choose the left or right item"],
   ["Enter", "Open the selected media"],
   ["Space", "Play or pause a video"],
   ["M", "Mute or unmute"],
@@ -189,6 +192,13 @@ export function UserGuidePage() {
                   Undo restores your previous choice. If the same pair appears
                   again, the new choice replaces the old one instead of being
                   counted twice.
+                </p>
+                <h3>Progress measures comparison coverage</h3>
+                <p>
+                  Compared counts media used in at least one active pair. Active
+                  pairs reports the number of unique current matchups. These are
+                  separate from the Ranked filter, which includes media with a
+                  positive final score.
                 </p>
                 <h3>Scores still work by hand</h3>
                 <p>

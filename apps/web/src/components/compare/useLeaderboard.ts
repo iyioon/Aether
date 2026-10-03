@@ -6,7 +6,7 @@ import {
   type MediaTypeFilter,
   type ScoreFilter
 } from "../../api/client";
-import { compareLeaderboardAssets } from "./leaderboard-model";
+import { leaderboardUpdateRequiresReload } from "./leaderboard-model";
 
 const LEADERBOARD_PAGE_LIMIT = 48;
 
@@ -35,6 +35,8 @@ export function useLeaderboard({
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [reloadRevision, setReloadRevision] = useState(0);
+  const assetsRef = useRef(assets);
+  assetsRef.current = assets;
   const loadMoreInFlightRef = useRef(false);
   const loadMoreAbortRef = useRef<AbortController | null>(null);
   const queryKey = useMemo(
@@ -139,22 +141,20 @@ export function useLeaderboard({
       return;
     }
 
-    if (!matchesScoreFilter(assetUpdate, scoreFilter)) {
+    const currentAsset = assetsRef.current.find(
+      (asset) => asset.id === assetUpdate.id
+    );
+    if (
+      leaderboardUpdateRequiresReload(currentAsset, assetUpdate, scoreFilter)
+    ) {
       setReloadRevision((current) => current + 1);
       return;
     }
 
     setAssets((currentAssets) => {
-      const currentIndex = currentAssets.findIndex(
-        (asset) => asset.id === assetUpdate.id
+      return currentAssets.map((asset) =>
+        asset.id === assetUpdate.id ? assetUpdate : asset
       );
-      if (currentIndex === -1) {
-        return currentAssets;
-      }
-
-      return currentAssets
-        .map((asset) => (asset.id === assetUpdate.id ? assetUpdate : asset))
-        .sort(compareLeaderboardAssets);
     });
   }, [assetUpdate, scoreFilter]);
 
@@ -239,20 +239,4 @@ export function useLeaderboard({
     reload: () => setReloadRevision((current) => current + 1),
     total
   };
-}
-
-function matchesScoreFilter(
-  asset: AssetRecord,
-  scoreFilter: ScoreFilter
-): boolean {
-  switch (scoreFilter) {
-    case "favorites":
-      return asset.favorite;
-    case "ranked":
-      return asset.score > 0;
-    case "unranked":
-      return asset.score === 0;
-    case "all":
-      return true;
-  }
 }

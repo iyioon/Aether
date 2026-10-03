@@ -1,6 +1,7 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
+import { recomputeAssetRankings } from "../library/repository-rankings.js";
 import { searchNgramText } from "../library/search-text.js";
 
 export type AetherDatabase = Database.Database;
@@ -8,7 +9,8 @@ export type AetherDatabase = Database.Database;
 interface Migration {
   version: number;
   name: string;
-  sql: string;
+  sql?: string;
+  apply?: (db: AetherDatabase, appliedAt: string) => void;
 }
 
 const migrations: Migration[] = [
@@ -348,6 +350,11 @@ const migrations: Migration[] = [
       CREATE INDEX idx_asset_annotations_sort
         ON asset_annotations(favorite, manual_score);
     `
+  },
+  {
+    version: 12,
+    name: "rebuild_comparison_projections",
+    apply: (db, appliedAt) => recomputeAssetRankings(db, appliedAt)
   }
 ];
 
@@ -391,10 +398,14 @@ export function applyMigrations(db: AetherDatabase): void {
 
     db.exec("BEGIN;");
     try {
-      db.exec(migration.sql);
+      const appliedAt = new Date().toISOString();
+      if (migration.sql) {
+        db.exec(migration.sql);
+      }
+      migration.apply?.(db, appliedAt);
       db.prepare(
         "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)"
-      ).run(migration.version, migration.name, new Date().toISOString());
+      ).run(migration.version, migration.name, appliedAt);
       db.exec("COMMIT;");
     } catch (error) {
       db.exec("ROLLBACK;");

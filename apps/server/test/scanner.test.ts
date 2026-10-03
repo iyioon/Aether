@@ -14,8 +14,10 @@ import { loadConfig, type AppConfig } from "../src/config/config.js";
 import { openDatabase, type AetherDatabase } from "../src/db/database.js";
 import {
   folderIdFor,
+  getAsset,
   listAssets,
-  listFolders
+  listFolders,
+  recordComparisonDecision
 } from "../src/library/repository.js";
 import { scanLibrary } from "../src/library/scanner.js";
 import type { ScanProgress } from "../src/library/scanner.js";
@@ -337,6 +339,104 @@ describe("library scanner", () => {
     expect(result.skipped).toBeGreaterThanOrEqual(1);
     expect(assets?.page.total).toBe(1);
     expect(assets?.items[0]?.name).toBe("photo.jpg");
+  });
+
+  it("recomputes surviving rankings when a missing asset is removed", async () => {
+    const mediaDir = path.join(cwd, "media");
+    await Promise.all([
+      writeFile(path.join(mediaDir, "removed.jpg"), "removed"),
+      writeFile(path.join(mediaDir, "survivor.jpg"), "survivor"),
+      writeFile(path.join(mediaDir, "opponent.jpg"), "opponent")
+    ]);
+    await scanLibrary(db, config.mediaRoots);
+
+    const indexed = db.prepare("SELECT id, name FROM assets").all() as Array<{
+      id: string;
+      name: string;
+    }>;
+    const assetId = (name: string) =>
+      indexed.find((asset) => asset.name === name)?.id ?? "";
+    const removedId = assetId("removed.jpg");
+    const survivorId = assetId("survivor.jpg");
+    const opponentId = assetId("opponent.jpg");
+    const decidedAt = new Date().toISOString();
+
+    recordComparisonDecision(db, {
+      leftAssetId: removedId,
+      rightAssetId: survivorId,
+      winnerAssetId: survivorId,
+      createdAt: decidedAt
+    });
+    recordComparisonDecision(db, {
+      leftAssetId: survivorId,
+      rightAssetId: opponentId,
+      winnerAssetId: survivorId,
+      createdAt: decidedAt
+    });
+    expect(getAsset(db, survivorId)?.ranking?.comparisonCount).toBe(2);
+
+    await rm(path.join(mediaDir, "removed.jpg"));
+    await scanLibrary(db, config.mediaRoots);
+
+    const survivor = getAsset(db, survivorId);
+    const opponent = getAsset(db, opponentId);
+    expect(getAsset(db, removedId)).toBeNull();
+    expect(survivor?.ranking?.comparisonCount).toBe(1);
+    expect(opponent?.ranking?.comparisonCount).toBe(1);
+    expect(survivor?.score).toBeGreaterThan(opponent?.score ?? 0);
+  });
+
+  it("recomputes surviving rankings when a configured root is removed", async () => {
+    const otherRoot = path.join(cwd, "other-media");
+    await mkdir(otherRoot);
+    await Promise.all([
+      writeFile(path.join(cwd, "media", "removed-root.jpg"), "removed"),
+      writeFile(path.join(otherRoot, "survivor.jpg"), "survivor"),
+      writeFile(path.join(otherRoot, "opponent.jpg"), "opponent")
+    ]);
+    config = await loadConfig(
+      {
+        AETHER_MEDIA_ROOTS: "./media,./other-media",
+        AETHER_CONFIG_DIR: "./config",
+        AETHER_CACHE_DIR: "./cache"
+      },
+      cwd
+    );
+    await scanLibrary(db, config.mediaRoots);
+
+    const indexed = db.prepare("SELECT id, name FROM assets").all() as Array<{
+      id: string;
+      name: string;
+    }>;
+    const assetId = (name: string) =>
+      indexed.find((asset) => asset.name === name)?.id ?? "";
+    const removedId = assetId("removed-root.jpg");
+    const survivorId = assetId("survivor.jpg");
+    const opponentId = assetId("opponent.jpg");
+    const decidedAt = new Date().toISOString();
+
+    recordComparisonDecision(db, {
+      leftAssetId: removedId,
+      rightAssetId: survivorId,
+      winnerAssetId: survivorId,
+      createdAt: decidedAt
+    });
+    recordComparisonDecision(db, {
+      leftAssetId: survivorId,
+      rightAssetId: opponentId,
+      winnerAssetId: survivorId,
+      createdAt: decidedAt
+    });
+    expect(getAsset(db, survivorId)?.ranking?.comparisonCount).toBe(2);
+
+    const remainingRoots = config.mediaRoots.filter(
+      (root) => root.label === "other-media"
+    );
+    await scanLibrary(db, remainingRoots);
+
+    expect(getAsset(db, removedId)).toBeNull();
+    expect(getAsset(db, survivorId)?.ranking?.comparisonCount).toBe(1);
+    expect(getAsset(db, opponentId)?.ranking?.comparisonCount).toBe(1);
   });
 
   it("matches Korean filename substrings in search", async () => {

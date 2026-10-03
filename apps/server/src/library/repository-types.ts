@@ -217,7 +217,7 @@ export interface ComparisonPairResult {
   rightAssetId: string;
   progress: {
     candidateCount: number;
-    rankedCount: number;
+    comparedCount: number;
     decidedPairCount: number;
   };
 }

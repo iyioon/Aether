@@ -377,55 +377,59 @@ export function updateAssetScore(
   db: AetherDatabase,
   input: ScoreUpdateInput
 ): AssetRecord | null {
-  if (!assetExists(db, input.assetId)) {
-    return null;
-  }
+  const transaction = db.transaction(() => {
+    if (!assetExists(db, input.assetId)) {
+      return null;
+    }
 
-  const current = db
-    .prepare(
-      "SELECT manual_score, favorite FROM asset_annotations WHERE asset_id = ?"
-    )
-    .get(input.assetId) as
-    { manual_score: number; favorite: number } | undefined;
-  const ranking = db
-    .prepare("SELECT comparison_score FROM asset_rankings WHERE asset_id = ?")
-    .get(input.assetId) as { comparison_score: number } | undefined;
-  const score =
-    input.score !== undefined ? input.score : (current?.manual_score ?? 0);
-  const favorite =
-    input.favorite !== undefined ? input.favorite : current?.favorite === 1;
+    const current = db
+      .prepare(
+        "SELECT manual_score, favorite FROM asset_annotations WHERE asset_id = ?"
+      )
+      .get(input.assetId) as
+      { manual_score: number; favorite: number } | undefined;
+    const ranking = db
+      .prepare("SELECT comparison_score FROM asset_rankings WHERE asset_id = ?")
+      .get(input.assetId) as { comparison_score: number } | undefined;
+    const score =
+      input.score !== undefined ? input.score : (current?.manual_score ?? 0);
+    const favorite =
+      input.favorite !== undefined ? input.favorite : current?.favorite === 1;
 
-  db.prepare(
-    `
-    INSERT INTO asset_annotations (asset_id, manual_score, favorite, updated_at)
-    VALUES (@assetId, @score, @favorite, @updatedAt)
-    ON CONFLICT(asset_id) DO UPDATE SET
-      manual_score = excluded.manual_score,
-      favorite = excluded.favorite,
-      updated_at = excluded.updated_at
-  `
-  ).run({
-    assetId: input.assetId,
-    score,
-    favorite: favorite ? 1 : 0,
-    updatedAt: input.updatedAt
-  });
-
-  if (ranking && input.score !== undefined) {
     db.prepare(
       `
-      UPDATE asset_rankings
-      SET manual_adjustment = @manualAdjustment, updated_at = @updatedAt
-      WHERE asset_id = @assetId
+      INSERT INTO asset_annotations (asset_id, manual_score, favorite, updated_at)
+      VALUES (@assetId, @score, @favorite, @updatedAt)
+      ON CONFLICT(asset_id) DO UPDATE SET
+        manual_score = excluded.manual_score,
+        favorite = excluded.favorite,
+        updated_at = excluded.updated_at
     `
     ).run({
       assetId: input.assetId,
-      manualAdjustment: input.score - ranking.comparison_score,
+      score,
+      favorite: favorite ? 1 : 0,
       updatedAt: input.updatedAt
     });
-  }
 
-  return getAsset(db, input.assetId);
+    if (ranking && input.score !== undefined) {
+      db.prepare(
+        `
+        UPDATE asset_rankings
+        SET manual_adjustment = @manualAdjustment, updated_at = @updatedAt
+        WHERE asset_id = @assetId
+      `
+      ).run({
+        assetId: input.assetId,
+        manualAdjustment: input.score - ranking.comparison_score,
+        updatedAt: input.updatedAt
+      });
+    }
+
+    return getAsset(db, input.assetId);
+  });
+
+  return transaction();
 }
 
 export function clearAssetManualAdjustment(
@@ -566,14 +570,14 @@ function orderClauseFor(
   const direction = sortDirection === "asc" ? "ASC" : "DESC";
   switch (sort) {
     case "filename":
-      return `a.name COLLATE NOCASE ${direction}, a.mtime_ms DESC`;
+      return `a.name COLLATE NOCASE ${direction}, a.mtime_ms DESC, a.id ASC`;
     case "score":
-      return `${FINAL_SCORE_SQL} = 0 ASC, ${FINAL_SCORE_SQL} ${direction}, COALESCE(aa.favorite, 0) DESC, a.mtime_ms DESC`;
+      return `${FINAL_SCORE_SQL} = 0 ASC, ${FINAL_SCORE_SQL} ${direction}, COALESCE(aa.favorite, 0) DESC, a.mtime_ms DESC, a.id ASC`;
     case "random":
       return "RANDOM()";
     case "date":
     default:
-      return `a.mtime_ms ${direction}, a.name COLLATE NOCASE ASC`;
+      return `a.mtime_ms ${direction}, a.name COLLATE NOCASE ASC, a.id ASC`;
   }
 }
 

@@ -9,7 +9,6 @@ import {
   resetAssetComparisons,
   setAssetTags,
   suggestTags,
-  updateAssetScore,
   type AiStatus,
   type AssetRecord,
   type TagRecord,
@@ -29,7 +28,12 @@ import { AssetScoreBreakdown } from "./AssetScoreBreakdown";
 interface AssetAnnotationPanelProps {
   aiStatus: AiStatus | null;
   asset: AssetRecord;
+  isScoreSaving: boolean;
   onRankingChanged: () => void;
+  onScoreChange: (
+    asset: AssetRecord,
+    input: { score?: number; favorite?: boolean }
+  ) => void;
   onAssetUpdated: (asset: AssetRecord) => void;
   onAssetTagsUpdated: (assetId: string, tags: TagRecord[]) => void;
 }
@@ -37,7 +41,9 @@ interface AssetAnnotationPanelProps {
 export function AssetAnnotationPanel({
   aiStatus,
   asset,
+  isScoreSaving,
   onRankingChanged,
+  onScoreChange,
   onAssetUpdated,
   onAssetTagsUpdated
 }: AssetAnnotationPanelProps) {
@@ -48,7 +54,7 @@ export function AssetAnnotationPanel({
     TagSuggestion[]
   >([]);
   const [annotationError, setAnnotationError] = useState<string | null>(null);
-  const [isSavingScore, setIsSavingScore] = useState(false);
+  const [isRunningScoreAction, setIsRunningScoreAction] = useState(false);
   const [isResetComparisonOpen, setIsResetComparisonOpen] = useState(false);
   const [isSavingTags, setIsSavingTags] = useState(false);
   const [isLoadingSmartTags, setIsLoadingSmartTags] = useState(false);
@@ -116,25 +122,16 @@ export function AssetAnnotationPanel({
     };
   }, [tagInput, tags]);
 
-  async function saveScore(input: {
+  function saveScore(input: {
     score?: number;
     favorite?: boolean;
   }) {
-    setIsSavingScore(true);
     setAnnotationError(null);
-
-    try {
-      const { asset: updatedAsset } = await updateAssetScore(asset.id, input);
-      onAssetUpdated(updatedAsset);
-    } catch {
-      setAnnotationError("Unable to save score.");
-    } finally {
-      setIsSavingScore(false);
-    }
+    onScoreChange(asset, input);
   }
 
   async function clearManualAdjustment() {
-    setIsSavingScore(true);
+    setIsRunningScoreAction(true);
     setAnnotationError(null);
 
     try {
@@ -144,12 +141,12 @@ export function AssetAnnotationPanel({
     } catch {
       setAnnotationError("Unable to remove the manual adjustment.");
     } finally {
-      setIsSavingScore(false);
+      setIsRunningScoreAction(false);
     }
   }
 
   async function resetComparisons() {
-    setIsSavingScore(true);
+    setIsRunningScoreAction(true);
     setAnnotationError(null);
 
     try {
@@ -159,7 +156,7 @@ export function AssetAnnotationPanel({
     } catch {
       setAnnotationError("Unable to reset comparisons.");
     } finally {
-      setIsSavingScore(false);
+      setIsRunningScoreAction(false);
     }
   }
 
@@ -240,13 +237,13 @@ export function AssetAnnotationPanel({
         <span className="annotation-label">Score</span>
         <div className="annotation-curation-controls">
           <MediaScoreControl
-            disabled={isSavingScore}
+            disabled={isScoreSaving || isRunningScoreAction}
             mediaName={asset.name}
             score={asset.score}
             onChange={(score) => void saveScore({ score })}
           />
           <MediaFavoriteButton
-            disabled={isSavingScore}
+            disabled={isScoreSaving || isRunningScoreAction}
             favorite={asset.favorite}
             mediaName={asset.name}
             onChange={(favorite) => void saveScore({ favorite })}
@@ -257,7 +254,7 @@ export function AssetAnnotationPanel({
       <AssetScoreBreakdown
         asset={asset}
         isResetOpen={isResetComparisonOpen}
-        isSaving={isSavingScore}
+        isSaving={isScoreSaving || isRunningScoreAction}
         onClearAdjustment={() => void clearManualAdjustment()}
         onReset={() => void resetComparisons()}
         onResetOpenChange={setIsResetComparisonOpen}

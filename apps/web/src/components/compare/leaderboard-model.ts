@@ -1,4 +1,4 @@
-import type { AssetRecord } from "../../api/client";
+import type { AssetRecord, ScoreFilter } from "../../api/client";
 
 export interface LeaderboardEntry {
   asset: AssetRecord;
@@ -36,6 +36,60 @@ export function compareLeaderboardAssets(
     right.score - left.score ||
     Number(right.favorite) - Number(left.favorite) ||
     right.mtimeMs - left.mtimeMs ||
-    left.name.localeCompare(right.name)
+    compareIds(left.id, right.id)
   );
+}
+
+function compareIds(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+export function leaderboardUpdateRequiresReload(
+  currentAsset: AssetRecord | undefined,
+  updatedAsset: AssetRecord,
+  scoreFilter: ScoreFilter
+): boolean {
+  if (!currentAsset || !matchesScoreFilter(updatedAsset, scoreFilter)) {
+    return true;
+  }
+
+  return (
+    currentAsset.score !== updatedAsset.score ||
+    currentAsset.favorite !== updatedAsset.favorite ||
+    currentAsset.mtimeMs !== updatedAsset.mtimeMs ||
+    currentAsset.name !== updatedAsset.name ||
+    rankingProjectionChanged(currentAsset.ranking, updatedAsset.ranking)
+  );
+}
+
+function rankingProjectionChanged(
+  current: AssetRecord["ranking"],
+  updated: AssetRecord["ranking"]
+): boolean {
+  if (!current || !updated) {
+    return current !== updated;
+  }
+
+  return (
+    current.skill !== updated.skill ||
+    current.comparisonScore !== updated.comparisonScore ||
+    current.manualAdjustment !== updated.manualAdjustment ||
+    current.comparisonCount !== updated.comparisonCount
+  );
+}
+
+function matchesScoreFilter(
+  asset: AssetRecord,
+  scoreFilter: ScoreFilter
+): boolean {
+  switch (scoreFilter) {
+    case "favorites":
+      return asset.favorite;
+    case "ranked":
+      return asset.score > 0;
+    case "unranked":
+      return asset.score === 0;
+    case "all":
+      return true;
+  }
 }

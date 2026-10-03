@@ -21,6 +21,8 @@ The feed view shows one item at a time in a vertical scroll flow. It uses the sa
 
 The comparison view opens on a leaderboard for the same filtered collection. Select **Rank media** to compare two items at their largest practical size. Choose the item that should rank higher, or skip a pair when there is no useful preference. The left and right arrow keys choose the corresponding item on a keyboard. The most recent choice can be undone, and choosing the same pair again replaces the earlier active preference rather than counting twice.
 
+During a comparison session, **Compared** counts media that currently appears in at least one active pair, while **Active pairs** counts the unique current matchups. These describe comparison coverage; they are separate from the **Ranked** filter, which means a positive final score.
+
 ## Viewing Media
 
 Click a gallery item to open the fullscreen viewer. Use the previous and next controls to move through the current filtered collection. Videos support seeking when the browser and source format support it.
@@ -37,7 +39,7 @@ Aether stores a non-negative media score without a fixed scale such as 1–5 or 
 
 Pairwise choices are fitted into a relative score using the active comparison graph. The comparison workspace gives priority to items with less evidence and to close matchups, so rankings improve without requiring every possible pair. Direct score changes are retained as a separate manual adjustment.
 
-For a ranked item, open media details to see its comparison score, manual adjustment, and final score. **Use comparison score** removes the manual adjustment without changing pairwise choices. **Reset comparisons** removes every active pair involving that item after confirmation, preserves its manual score, and recalculates related media.
+For an item with comparisons, open media details to see its comparison score, manual adjustment, and final score. **Use comparison score** removes the manual adjustment without changing pairwise choices. **Reset comparisons** removes every active pair involving that item after confirmation, preserves its manual score, and recalculates related media.
 
 Favorites are stored separately from score. Use them for quick filtering regardless of score.
 

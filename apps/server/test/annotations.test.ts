@@ -10,7 +10,9 @@ import { buildApp } from "../src/http/app.js";
 import {
   folderIdFor,
   getAsset,
-  listAssets
+  listAssets,
+  recordComparisonDecision,
+  updateAssetScore
 } from "../src/library/repository.js";
 import { scanLibrary } from "../src/library/scanner.js";
 
@@ -115,6 +117,58 @@ describe("annotations", () => {
     });
 
     expect(invalid.statusCode).toBe(400);
+  });
+
+  it("atomically stores a manual score and its ranking adjustment", async () => {
+    await Promise.all([
+      writeFile(path.join(cwd, "media", "atomic-one.jpg"), "one"),
+      writeFile(path.join(cwd, "media", "atomic-two.jpg"), "two")
+    ]);
+    await scanLibrary(db, config.mediaRoots);
+    const indexed = listAssets(db, {
+      folderId: folderIdFor(config.mediaRoots[0]!.id, ""),
+      offset: 0,
+      limit: 10,
+      sort: "filename",
+      type: "all",
+      recursive: true
+    })?.items;
+    const first = indexed?.find((asset) => asset.name === "atomic-one.jpg");
+    const second = indexed?.find((asset) => asset.name === "atomic-two.jpg");
+
+    if (!first || !second) {
+      throw new Error("Expected indexed atomic score fixtures.");
+    }
+
+    recordComparisonDecision(db, {
+      leftAssetId: first.id,
+      rightAssetId: second.id,
+      winnerAssetId: first.id,
+      createdAt: new Date().toISOString()
+    });
+    db.exec(`
+      CREATE TRIGGER reject_manual_adjustment_update
+      BEFORE UPDATE OF manual_adjustment ON asset_rankings
+      BEGIN
+        SELECT RAISE(ABORT, 'manual adjustment rejected');
+      END;
+    `);
+
+    expect(() =>
+      updateAssetScore(db, {
+        assetId: first.id,
+        score: 200,
+        updatedAt: new Date().toISOString()
+      })
+    ).toThrow(/manual adjustment rejected/);
+    expect(
+      db
+        .prepare(
+          "SELECT manual_score FROM asset_annotations WHERE asset_id = ?"
+        )
+        .get(first.id)
+    ).toBeUndefined();
+    expect(getAsset(db, first.id)?.ranking?.manualAdjustment).toBe(0);
   });
 
   it("sets tags, deduplicates normalized names, and suggests by prefix", async () => {
@@ -481,6 +535,46 @@ describe("annotations", () => {
     }
   });
 
+  it("keeps score pagination stable when every visible tie-breaker matches", async () => {
+    await Promise.all(
+      ["tie-one.jpg", "tie-two.jpg", "tie-three.jpg"].map((name) =>
+        writeFile(path.join(cwd, "media", name), name)
+      )
+    );
+    await scanLibrary(db, config.mediaRoots);
+    const folderId = folderIdFor(config.mediaRoots[0]!.id, "");
+    const indexed = listAssets(db, {
+      folderId,
+      offset: 0,
+      limit: 10,
+      sort: "filename",
+      type: "all",
+      recursive: true
+    })!.items;
+    const updatedAt = new Date().toISOString();
+
+    for (const asset of indexed) {
+      updateAssetScore(db, { assetId: asset.id, score: 25, updatedAt });
+    }
+    db.prepare("UPDATE assets SET mtime_ms = ?").run(1_000);
+
+    const pagedIds = indexed.map((_, offset) => {
+      const page = listAssets(db, {
+        folderId,
+        offset,
+        limit: 1,
+        sort: "score",
+        sortDirection: "desc",
+        type: "all",
+        recursive: true
+      });
+
+      return page!.items[0]!.id;
+    });
+
+    expect(pagedIds).toEqual(indexed.map((asset) => asset.id).sort());
+  });
+
   it("rejects a batch when any selected asset is missing", async () => {
     const asset = await createIndexedAsset("photo.jpg");
     const auth = await login();
@@ -519,9 +613,17 @@ describe("annotations", () => {
     const pair = pairResponse.json() as {
       left: { id: string };
       right: { id: string };
-      progress: { candidateCount: number };
+      progress: {
+        candidateCount: number;
+        comparedCount: number;
+        decidedPairCount: number;
+      };
     };
-    expect(pair.progress.candidateCount).toBe(2);
+    expect(pair.progress).toEqual({
+      candidateCount: 2,
+      comparedCount: 0,
+      decidedPairCount: 0
+    });
 
     const firstDecision = await app.inject({
       method: "POST",
@@ -649,9 +751,17 @@ describe("annotations", () => {
     const nextPair = decision.json().nextPair as {
       left: { id: string; name: string };
       right: { id: string; name: string };
-      progress: { candidateCount: number };
+      progress: {
+        candidateCount: number;
+        comparedCount: number;
+        decidedPairCount: number;
+      };
     };
-    expect(nextPair.progress.candidateCount).toBe(3);
+    expect(nextPair.progress).toEqual({
+      candidateCount: 3,
+      comparedCount: 2,
+      decidedPairCount: 1
+    });
     expect([nextPair.left.name, nextPair.right.name]).toEqual([
       expect.stringContaining("pipeline"),
       expect.stringContaining("pipeline")

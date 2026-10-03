@@ -31,6 +31,23 @@ describe("ranking model", () => {
     expect(fitRankingModel([]).size).toBe(0);
   });
 
+  it("reserves zero for assets without an active ranking projection", () => {
+    const preferences = Array.from({ length: 5_000 }, (_, index) => {
+      const winnerId = `winner-${index.toString().padStart(4, "0")}`;
+      return {
+        assetLowId: "loser",
+        assetHighId: winnerId,
+        winnerId
+      };
+    });
+    const rankings = fitRankingModel(preferences);
+
+    expect(rankings.get("loser")?.comparisonScore).toBe(1);
+    expect(
+      [...rankings.values()].every((ranking) => ranking.comparisonScore >= 1)
+    ).toBe(true);
+  });
+
   it("prefers under-compared candidates and avoids the previous pair", () => {
     const candidates = [
       { id: "a", skill: 0, comparisonCount: 0 },

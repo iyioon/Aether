@@ -122,7 +122,7 @@ export interface ComparisonPairResponse {
   right: AssetRecord;
   progress: {
     candidateCount: number;
-    rankedCount: number;
+    comparedCount: number;
     decidedPairCount: number;
   };
 }

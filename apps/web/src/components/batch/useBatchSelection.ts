@@ -103,7 +103,10 @@ export function useBatchSelection({
   }
 
   async function saveBatchScore(input: { score?: number; favorite?: boolean }) {
-    if (selectedAssetIdList.length === 0) {
+    if (
+      selectedAssetIdList.length === 0 ||
+      (input.score === undefined && input.favorite === undefined)
+    ) {
       return;
     }
 

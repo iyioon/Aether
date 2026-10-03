@@ -14,6 +14,10 @@ import { PANEL_MOTION_DURATION_MS } from "../../lib/motion";
 import { MediaScoreControl } from "../MediaCurationControls";
 import { selectedMediaLabel } from "../media/media-format";
 import {
+  buildBatchCurationInput,
+  type BatchCurationInput
+} from "./batch-curation-model";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -27,6 +31,7 @@ import {
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Card, CardContent, CardHeader } from "../ui/card";
+import { Checkbox } from "../ui/checkbox";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { RadioGroup, RadioGroupItem } from "../ui/radio-group";
@@ -44,7 +49,7 @@ interface BatchActionsBarProps {
   isSaving: boolean;
   onClear: () => void;
   onClose: () => void;
-  onApplyCuration: (input: { score: number; favorite?: boolean }) => void;
+  onApplyCuration: (input: BatchCurationInput) => void;
   onTagDraftChange: (value: string) => void;
   onAddTag: () => void;
   onReplaceTags: () => void;
@@ -69,7 +74,7 @@ export function BatchActionsBar({
   onSelectLoaded,
   onClearTags
 }: BatchActionsBarProps) {
-  const [batchScoreValue, setBatchScoreValue] = useState(0);
+  const [batchScoreValue, setBatchScoreValue] = useState<number | undefined>();
   const [batchFavoriteValue, setBatchFavoriteValue] =
     useState(allSelectedFavorite);
   const [isFavoriteDirty, setIsFavoriteDirty] = useState(false);
@@ -79,6 +84,11 @@ export function BatchActionsBar({
   const lastSelectedCountRef = useRef(selectedCount);
   const hasTagDraft = tagDraft.trim().length > 0;
   const displayedSelectedCount = selectedCount || lastSelectedCountRef.current;
+  const curationInput = buildBatchCurationInput({
+    score: batchScoreValue,
+    favorite: batchFavoriteValue,
+    isFavoriteDirty
+  });
 
   useEffect(() => {
     if (selectedCount > 0) {
@@ -87,6 +97,7 @@ export function BatchActionsBar({
   }, [selectedCount]);
 
   useEffect(() => {
+    setBatchScoreValue(undefined);
     setBatchFavoriteValue(allSelectedFavorite);
     setIsFavoriteDirty(false);
   }, [allSelectedFavorite, selectedCount]);
@@ -207,13 +218,37 @@ export function BatchActionsBar({
               </div>
 
               <div className="batch-score-editor">
-                <MediaScoreControl
-                  disabled={isSaving}
-                  mediaName="selected media"
-                  score={batchScoreValue}
-                  size="md"
-                  onChange={setBatchScoreValue}
-                />
+                <div className="batch-score-option">
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="batch-change-score"
+                      checked={batchScoreValue !== undefined}
+                      disabled={isSaving}
+                      aria-describedby="batch-score-description"
+                      onCheckedChange={(checked) =>
+                        setBatchScoreValue(checked === true ? 0 : undefined)
+                      }
+                    />
+                    <Label htmlFor="batch-change-score">Change score</Label>
+                  </div>
+                  <span
+                    id="batch-score-description"
+                    className="text-xs text-muted-foreground"
+                  >
+                    {batchScoreValue === undefined
+                      ? "Existing scores stay unchanged."
+                      : "Set one score for the entire selection."}
+                  </span>
+                </div>
+                {batchScoreValue === undefined ? null : (
+                  <MediaScoreControl
+                    disabled={isSaving}
+                    mediaName="selected media"
+                    score={batchScoreValue}
+                    size="md"
+                    onChange={setBatchScoreValue}
+                  />
+                )}
                 <Button
                   className="favorite-button"
                   type="button"
@@ -237,15 +272,12 @@ export function BatchActionsBar({
                 <Button
                   type="button"
                   size="sm"
-                  disabled={isSaving}
-                  onClick={() =>
-                    onApplyCuration({
-                      score: batchScoreValue,
-                      ...(isFavoriteDirty
-                        ? { favorite: batchFavoriteValue }
-                        : {})
-                    })
-                  }
+                  disabled={isSaving || curationInput === null}
+                  onClick={() => {
+                    if (curationInput) {
+                      onApplyCuration(curationInput);
+                    }
+                  }}
                 >
                   Apply
                 </Button>

@@ -584,6 +584,7 @@ export const MediaPreview = memo(function MediaPreview({
               : "poster"
           }
           muted={muted}
+          loop
           playsInline
           preload={
             shouldLoadVideo ? (preloadPreview ? "auto" : "metadata") : "none"
@@ -628,20 +629,6 @@ export const MediaPreview = memo(function MediaPreview({
               ? (event) => setVideoCurrentTime(event.currentTarget.currentTime)
               : undefined
           }
-          onEnded={(event) => {
-            const video = event.currentTarget;
-            cancelPendingVideoReveal();
-            videoFrameRequestSequenceRef.current += 1;
-            setReadyVideoSource(null);
-            if (showVideoTimeline) {
-              setVideoCurrentTime(0);
-            }
-            video.currentTime = 0;
-
-            if (shouldAutoplayVideo) {
-              playVisibleVideo();
-            }
-          }}
           onError={() => {
             cancelPendingVideoReveal();
             videoFrameRequestSequenceRef.current += 1;

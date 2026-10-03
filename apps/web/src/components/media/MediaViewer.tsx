@@ -393,14 +393,8 @@ export function MediaViewer({
     let animationFrame: number | null = null;
     const measureStage = () => {
       const rect = stage.getBoundingClientRect();
-      const styles = window.getComputedStyle(stage);
-      const horizontalPadding =
-        cssPixelValue(styles.paddingLeft) +
-        cssPixelValue(styles.paddingRight);
-      const verticalPadding =
-        cssPixelValue(styles.paddingTop) + cssPixelValue(styles.paddingBottom);
-      const width = Math.max(0, Math.floor(rect.width - horizontalPadding));
-      const height = Math.max(0, Math.floor(rect.height - verticalPadding));
+      const width = Math.max(0, Math.floor(rect.width));
+      const height = Math.max(0, Math.floor(rect.height));
 
       setViewerStageSize((current) =>
         current?.width === width && current.height === height
@@ -935,11 +929,6 @@ function mediaViewerFrameStyle(
     width: `${Math.max(1, Math.floor(frameWidth))}px`,
     height: `${Math.max(1, Math.floor(frameHeight))}px`
   };
-}
-
-function cssPixelValue(value: string): number {
-  const parsedValue = Number.parseFloat(value);
-  return Number.isFinite(parsedValue) ? parsedValue : 0;
 }
 
 function isInteractiveTarget(target: EventTarget | null): boolean {

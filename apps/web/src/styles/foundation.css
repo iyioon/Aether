@@ -1,0 +1,271 @@
+:root {
+  --panel-motion-duration: 180ms;
+  --panel-motion-easing: cubic-bezier(0.16, 1, 0.3, 1);
+  color: var(--foreground);
+  background: var(--background);
+  font-synthesis: none;
+  text-rendering: geometricPrecision;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  min-height: 0;
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  overflow: hidden;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.boot-screen,
+.login-page {
+  display: grid;
+  min-height: 100vh;
+  min-height: 100dvh;
+  place-items: center;
+  padding: 24px;
+}
+
+.boot-screen {
+  background:
+    linear-gradient(
+      rgba(var(--aether-background-rgb), 0.72),
+      rgba(var(--aether-background-rgb), 0.9)
+    ),
+    url("data:image/svg+xml,%3Csvg width='240' height='240' viewBox='0 0 240 240' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' stroke='%23fafafa' stroke-opacity='0.07'%3E%3Cpath d='M0 80h240M0 160h240M80 0v240M160 0v240'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+.login-page {
+  background: url("/login-bg.png");
+  background-position: center;
+  background-size: cover;
+}
+
+.boot-mark {
+  width: 40px;
+  height: 40px;
+  border: 2px solid rgba(var(--aether-foreground-rgb), 0.18);
+  border-top-color: var(--aether-accent);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+.brand-logo {
+  display: block;
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  padding: 4px;
+  object-fit: contain;
+  border: 1px solid rgba(var(--aether-accent-rgb), 0.26);
+  border-radius: 50%;
+  background: transparent;
+}
+
+.login-brand-logo {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  filter: grayscale(1);
+}
+
+.control-strip > label > span,
+.menu-field > span,
+.menu-field > label,
+.menu-section-title {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 650;
+  text-transform: uppercase;
+}
+
+.search-box input {
+  min-height: 42px;
+  color: var(--foreground);
+  border: 1px solid rgba(var(--aether-foreground-rgb), 0.13);
+  border-radius: 6px;
+  background: rgba(var(--aether-overlay-rgb), 0.045);
+  outline: none;
+}
+
+.search-box:focus-within {
+  border-color: rgba(var(--aether-accent-rgb), 0.62);
+}
+
+.inline-error {
+  color: var(--destructive);
+  font-size: 14px;
+}
+
+.inline-error {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid rgba(var(--aether-destructive-rgb), 0.28);
+  border-radius: 6px;
+  background: rgba(var(--aether-destructive-rgb), 0.08);
+}
+
+.ghost-action,
+.segmented,
+.icon-button {
+  min-height: 38px;
+  color: var(--foreground);
+  border: 1px solid rgba(var(--aether-foreground-rgb), 0.12);
+  border-radius: 6px;
+  background: rgba(var(--aether-overlay-rgb), 0.05);
+}
+
+/* Shared translucent button states adapt to the surface beneath them. */
+.aether-button[data-variant="outline"] {
+  color: var(--foreground);
+  border-color: rgba(var(--aether-foreground-rgb), 0.14);
+  background: rgba(var(--aether-background-rgb), 0.58);
+  backdrop-filter: blur(10px) saturate(1.08);
+}
+
+.aether-button[data-variant="outline"]:hover:not(:disabled) {
+  border-color: rgba(var(--aether-foreground-rgb), 0.24);
+  background: rgba(var(--aether-foreground-rgb), 0.1);
+}
+
+.aether-button[data-variant="ghost"]:hover:not(:disabled) {
+  background: rgba(var(--aether-foreground-rgb), 0.09);
+}
+
+.media-overlay-button.media-overlay-button {
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0;
+  color: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(3, 4, 4, 0.48);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
+  transition:
+    color var(--aether-motion-fast) ease,
+    border-color var(--aether-motion-fast) ease,
+    background-color var(--aether-motion-fast) ease,
+    box-shadow var(--aether-motion-fast) ease;
+  backdrop-filter: blur(12px) saturate(1.12);
+}
+
+.media-overlay-button.media-overlay-button:hover:not(:disabled) {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.34);
+  background: rgba(3, 4, 4, 0.68);
+}
+
+.aether-button[data-variant="secondary"],
+.aether-button[aria-pressed="true"] {
+  color: var(--foreground);
+  border: 1px solid var(--aether-active-border);
+  background: var(--aether-active-background);
+  backdrop-filter: blur(10px) saturate(1.08);
+}
+
+.aether-button[data-variant="secondary"]:hover:not(:disabled),
+.aether-button[aria-pressed="true"]:hover:not(:disabled) {
+  border-color: var(--aether-active-border-hover);
+  background: var(--aether-active-background-hover);
+}
+
+.aether-button.favorite-button {
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+}
+
+.aether-button.favorite-button svg {
+  transition:
+    color var(--aether-motion-fast) ease,
+    fill var(--aether-motion-fast) ease,
+    transform var(--aether-motion-fast) ease;
+}
+
+.aether-button.favorite-button:hover:not(:disabled) svg {
+  transform: scale(1.06);
+}
+
+.aether-button.favorite-button:active:not(:disabled) svg {
+  transform: scale(0.94);
+}
+
+:root[data-accent] .aether-button.favorite-button[aria-pressed="true"] {
+  color: var(--destructive);
+  border: 1px solid var(--border);
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+:root[data-accent] .aether-button.favorite-button:hover:not(:disabled),
+:root[data-accent]
+  .aether-button.favorite-button[aria-pressed="true"]:hover:not(:disabled) {
+  color: var(--destructive);
+  border: 1px solid var(--border);
+  background: transparent;
+  box-shadow: none;
+}
+
+:root[data-accent] .aether-button.favorite-button[aria-pressed="true"] svg {
+  fill: currentColor;
+}
+
+/* One inset focus treatment avoids doubled or clipped focus borders. */
+:is(
+  .aether-button,
+  .icon-button,
+  .score-control,
+  [data-slot="input"],
+  [data-slot="tabs-trigger"],
+  [data-slot="radio-group-item"],
+  [data-slot="select-trigger"],
+  [data-slot="checkbox"],
+  [data-slot="badge"],
+  [data-slot="sidebar-group-label"],
+  [data-slot="sidebar-group-action"],
+  [data-slot="sidebar-menu-button"],
+  [data-slot="sidebar-menu-action"],
+  [data-slot="sidebar-menu-sub-button"]
+):focus-visible,
+.score-control:focus-within {
+  border-color: transparent;
+  outline: 2px solid color-mix(in srgb, var(--ring) 78%, transparent);
+  outline-offset: -2px;
+  box-shadow: none;
+}
+
+:is(
+  .aether-button[data-variant="destructive"],
+  [aria-invalid="true"]
+):focus-visible {
+  outline-color: var(--destructive);
+}
+
+.media-overlay-button.media-overlay-button:focus-visible {
+  outline-color: rgba(255, 255, 255, 0.88);
+}
+
+.score-control .aether-button:focus-visible {
+  border-color: transparent;
+  outline: none;
+  box-shadow: none;
+}

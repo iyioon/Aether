@@ -1,0 +1,8 @@
+**/dist
+**/node_modules
+.e2e
+.playwright-cli
+aether-data
+media
+test-results
+package-lock.json

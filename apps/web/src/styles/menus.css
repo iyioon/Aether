@@ -1,0 +1,20 @@
+.control-strip {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.control-menu {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.control-menu-trigger {
+  width: 36px;
+  min-width: 36px;
+  max-width: 36px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0;
+}

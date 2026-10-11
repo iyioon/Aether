@@ -1,4 +1,4 @@
-FROM node:24-bookworm-slim AS build-deps
+FROM node:25-bookworm-slim AS build-deps
 WORKDIR /app
 
 RUN apt-get update \
@@ -15,7 +15,7 @@ WORKDIR /app
 COPY . .
 RUN npm run build
 
-FROM node:24-bookworm-slim AS production-deps
+FROM node:25-bookworm-slim AS production-deps
 WORKDIR /app
 
 RUN apt-get update \
@@ -28,7 +28,7 @@ COPY apps/web/package.json apps/web/package.json
 RUN npm ci --omit=dev --workspace=@aether/server --include-workspace-root=false \
   && npm cache clean --force
 
-FROM node:24-bookworm-slim AS runtime
+FROM node:25-bookworm-slim AS runtime
 WORKDIR /app
 
 ENV NODE_ENV=production

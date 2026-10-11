@@ -1,0 +1,22 @@
+{
+  "name": "Aether",
+  "short_name": "Aether",
+  "description": "A private gallery for your local photo and video library.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f7f7f8",
+  "theme_color": "#f7f7f8",
+  "icons": [
+    {
+      "src": "/aether-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/aether-logo.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "name": "aether",
+  "version": "0.1.0",
+  "description": "Private self-hosted media gallery for local photo and video libraries.",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/iyioon/Aether.git"
+  },
+  "type": "module",
+  "workspaces": [
+    "apps/server",
+    "apps/web"
+  ],
+  "scripts": {
+    "start": "npm run start -w @aether/server",
+    "dev": "concurrently -k -n server,web -c cyan,green \"npm run dev -w @aether/server\" \"npm run dev -w @aether/web\"",
+    "dev:lan": "AETHER_HOST=0.0.0.0 AETHER_WEB_HOST=0.0.0.0 AETHER_API_PROXY_HOST=127.0.0.1 npm run dev",
+    "dev:server": "npm run dev -w @aether/server",
+    "dev:web": "npm run dev -w @aether/web",
+    "e2e:server": "tsx tests/e2e/server.ts",
+    "backup": "npm run backup -w @aether/server",
+    "data:status": "node --import tsx apps/server/src/cli/data.ts status",
+    "data:rebuild": "node --import tsx apps/server/src/cli/data.ts rebuild",
+    "data:restore": "node --import tsx apps/server/src/cli/data.ts restore",
+    "data:wipe": "node --import tsx apps/server/src/cli/data.ts wipe",
+    "build": "npm run build --workspaces --if-present",
+    "format": "prettier --write \"apps/**/*.{ts,tsx,css}\" \"tests/**/*.ts\" \"docs/**/*.md\" \".github/**/*.{md,yml,yaml}\" \"*.{ts,md,json,yml,yaml}\"",
+    "format:check": "prettier --check \"apps/**/*.{ts,tsx,css}\" \"tests/**/*.ts\" \"docs/**/*.md\" \".github/**/*.{md,yml,yaml}\" \"*.{ts,md,json,yml,yaml}\"",
+    "lint": "eslint .",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "test:e2e": "playwright test",
+    "check": "npm run lint && npm run format:check && npm run typecheck && npm run test",
+    "verify": "npm run check && npm run build"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@playwright/test": "^1.62.1",
+    "@types/node": "^24.3.0",
+    "concurrently": "^9.2.1",
+    "eslint": "^9.39.5",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.7",
+    "globals": "^17.12.0",
+    "prettier": "^3.9.9",
+    "tsx": "^4.20.4",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.70.1",
+    "vitest": "^4.1.11"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}

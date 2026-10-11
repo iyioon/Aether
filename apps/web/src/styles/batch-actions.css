@@ -1,0 +1,231 @@
+.batch-actions-bar {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  z-index: 24;
+  display: grid;
+  width: min(1040px, calc(100% - 40px));
+  max-height: min(64dvh, 560px);
+  gap: 0;
+  margin: 0;
+  overflow: auto;
+  opacity: 1;
+  transform: translateX(-50%) translateY(0) scale(1);
+  transform-origin: bottom center;
+  transition:
+    opacity 150ms ease-out,
+    transform var(--panel-motion-duration) var(--panel-motion-easing);
+  will-change: opacity, transform;
+}
+
+.batch-actions-bar[data-state="closed"] {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%) translateY(12px) scale(0.985);
+}
+
+.batch-actions-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 64px;
+  padding: 10px 10px 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.batch-summary {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+}
+
+.batch-summary-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.batch-summary-copy strong {
+  color: var(--foreground);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.batch-summary-copy span {
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.batch-selection-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.batch-selection-empty {
+  display: grid;
+  min-height: 156px;
+  place-items: center;
+  align-content: center;
+  gap: 6px;
+  padding: 24px;
+  text-align: center;
+}
+
+.batch-selection-empty-icon {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  margin-bottom: 2px;
+  place-items: center;
+  color: var(--muted-foreground);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.batch-selection-empty-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.batch-selection-empty strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.batch-selection-empty span {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.batch-editor-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr);
+}
+
+.batch-editor-section {
+  display: grid;
+  align-content: start;
+  min-width: 0;
+  gap: 12px;
+  padding: 14px;
+}
+
+.batch-editor-section + .batch-editor-section {
+  border-left: 1px solid var(--border);
+}
+
+.batch-section-heading h3 {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.batch-curation-section {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.batch-inline-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.batch-score-editor {
+  display: flex;
+  align-self: end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.batch-score-option {
+  display: grid;
+  gap: 4px;
+}
+
+.batch-tag-mode {
+  grid-template-columns: repeat(2, minmax(0, max-content));
+  gap: 20px;
+}
+
+.batch-tag-control {
+  position: relative;
+  min-width: 0;
+}
+
+.batch-tag-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.batch-tag-suggestions {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 18;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  width: min(360px, 90vw);
+  gap: 6px;
+  padding: 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--popover);
+  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.24);
+}
+
+.batch-tag-suggestions button {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 1100px) {
+  .batch-actions-bar {
+    max-height: min(58dvh, 520px);
+  }
+
+  .batch-editor-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .batch-editor-section + .batch-editor-section {
+    border-top: 1px solid var(--border);
+    border-left: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .batch-actions-header {
+    align-items: flex-start;
+  }
+
+  .batch-summary-copy span {
+    display: none;
+  }
+
+  .batch-selection-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .batch-actions-bar {
+    transition-duration: 0.01ms;
+  }
+}

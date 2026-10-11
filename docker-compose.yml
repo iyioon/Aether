@@ -1,0 +1,38 @@
+services:
+  aether:
+    build:
+      context: .
+    restart: unless-stopped
+    init: true
+    user: "${AETHER_UID:-1000}:${AETHER_GID:-1000}"
+    stop_grace_period: 2m
+    ports:
+      # Local-only by default. Use a reverse proxy for HTTPS or change to
+      # "3030:3030" only for direct LAN access on a firewalled host.
+      - "127.0.0.1:3030:3030"
+    environment:
+      AETHER_HOST: 0.0.0.0
+      AETHER_PORT: 3030
+      AETHER_MEDIA_ROOTS: library=/media
+      AETHER_DATA_DIR: /data
+      AETHER_WEB_DIST: /app/apps/web/dist
+    volumes:
+      - ./media:/media:ro
+      - ./aether-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "Promise.all([fetch('http://127.0.0.1:3030/api/health'), fetch('http://127.0.0.1:3030/')]).then((responses) => process.exit(responses.every((response) => response.ok) ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

@@ -1,0 +1,341 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ApiError,
+  getAssets,
+  type AssetRecord,
+  type MediaTypeFilter,
+  type ScoreFilter,
+  type SortDirection,
+  type SortMode,
+  type TagRecord,
+  type TreeResponse
+} from "../../api/client";
+import {
+  buildAssetListQueryKey,
+  canRequestMoreAssets
+} from "../gallery-loading";
+
+const ASSET_PAGE_LIMIT = 80;
+
+interface UseAssetListOptions {
+  folderId: string | null;
+  mediaType: MediaTypeFilter;
+  scoreFilter: ScoreFilter;
+  search: string;
+  sort: SortMode;
+  sortDirection: SortDirection;
+  tagFilters: string[];
+  tree: TreeResponse | null;
+}
+
+export function useAssetList({
+  folderId,
+  mediaType,
+  scoreFilter,
+  search,
+  sort,
+  sortDirection,
+  tagFilters,
+  tree
+}: UseAssetListOptions) {
+  const [assets, setAssets] = useState<AssetRecord[]>([]);
+  const [totalAssets, setTotalAssets] = useState(0);
+  const [assetError, setAssetError] = useState<string | null>(null);
+  const [isLoadingAssets, setIsLoadingAssets] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [loadedQueryKey, setLoadedQueryKey] = useState<string | null>(null);
+  const [assetReloadToken, setAssetReloadToken] = useState(0);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  const loadMoreInFlightRef = useRef(false);
+  const loadMoreRequestRef = useRef<AbortController | null>(null);
+  const randomSeedBasis = buildAssetListQueryKey({
+    folderId,
+    sort,
+    sortDirection,
+    mediaType,
+    search,
+    tagFilters,
+    scoreFilter
+  });
+  const randomSeed = useMemo(
+    () => createRandomSeedForQuery(sort, randomSeedBasis),
+    [randomSeedBasis, sort]
+  );
+  const listQueryKey = useMemo(
+    () =>
+      buildAssetListQueryKey({
+        folderId,
+        randomSeed,
+        sort,
+        sortDirection,
+        mediaType,
+        search,
+        tagFilters,
+        scoreFilter
+      }),
+    [
+      folderId,
+      sort,
+      randomSeed,
+      sortDirection,
+      mediaType,
+      search,
+      tagFilters,
+      scoreFilter
+    ]
+  );
+  const listQueryKeyRef = useRef(listQueryKey);
+  listQueryKeyRef.current = listQueryKey;
+  const hasMoreAssets = assets.length < totalAssets;
+
+  useEffect(() => {
+    loadMoreRequestRef.current?.abort();
+    loadMoreRequestRef.current = null;
+    loadMoreInFlightRef.current = false;
+    setIsLoadingMore(false);
+
+    if (!tree || !folderId) {
+      setAssets([]);
+      setTotalAssets(0);
+      setLoadedQueryKey(null);
+      setIsLoadingAssets(false);
+      return;
+    }
+
+    let active = true;
+    const controller = new AbortController();
+    const requestQueryKey = listQueryKey;
+    setIsLoadingAssets(true);
+    setAssetError(null);
+    setLoadedQueryKey(null);
+
+    getAssets({
+      folderId,
+      offset: 0,
+      limit: ASSET_PAGE_LIMIT,
+      sort,
+      order: sortDirection,
+      type: mediaType,
+      recursive: true,
+      search,
+      tags: tagFilters,
+      score: scoreFilter,
+      seed: randomSeed,
+      signal: controller.signal
+    })
+      .then((response) => {
+        if (active && listQueryKeyRef.current === requestQueryKey) {
+          setAssets(response.items);
+          setTotalAssets(response.page.total);
+          setLoadedQueryKey(requestQueryKey);
+        }
+      })
+      .catch((caught) => {
+        if (
+          active &&
+          listQueryKeyRef.current === requestQueryKey &&
+          !isAbortError(caught)
+        ) {
+          const message =
+            caught instanceof ApiError ? caught.code : "Unable to load assets.";
+          setAssetError(message);
+        }
+      })
+      .finally(() => {
+        if (active && listQueryKeyRef.current === requestQueryKey) {
+          setIsLoadingAssets(false);
+        }
+      });
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [
+    tree,
+    folderId,
+    sort,
+    sortDirection,
+    mediaType,
+    search,
+    tagFilters,
+    scoreFilter,
+    randomSeed,
+    assetReloadToken,
+    listQueryKey
+  ]);
+
+  const reloadAssets = useCallback(() => {
+    setAssetReloadToken((current) => current + 1);
+  }, []);
+
+  const mergeUpdatedAssets = useCallback((updatedAssets: AssetRecord[]) => {
+    const updatedAssetById = new Map(
+      updatedAssets.map((asset) => [asset.id, asset])
+    );
+
+    setAssets((currentAssets) => {
+      let didChange = false;
+      const nextAssets = currentAssets.map((asset) => {
+        const updatedAsset = updatedAssetById.get(asset.id);
+
+        if (!updatedAsset || updatedAsset === asset) {
+          return asset;
+        }
+
+        didChange = true;
+        return updatedAsset;
+      });
+
+      return didChange ? nextAssets : currentAssets;
+    });
+  }, []);
+
+  const updateAssetTags = useCallback((assetId: string, tags: TagRecord[]) => {
+    setAssets((currentAssets) =>
+      currentAssets.map((asset) =>
+        asset.id === assetId ? { ...asset, tags } : asset
+      )
+    );
+  }, []);
+
+  const handleLoadMore = useCallback(async () => {
+    if (
+      !folderId ||
+      !canRequestMoreAssets({
+        folderId,
+        isLoadingMore,
+        isRequestInFlight: loadMoreInFlightRef.current,
+        loadedCount: assets.length,
+        totalCount: totalAssets
+      })
+    ) {
+      return;
+    }
+
+    const requestQueryKey = listQueryKey;
+    const controller = new AbortController();
+    loadMoreInFlightRef.current = true;
+    loadMoreRequestRef.current = controller;
+    setIsLoadingMore(true);
+    setAssetError(null);
+
+    try {
+      const response = await getAssets({
+        folderId,
+        offset: assets.length,
+        limit: ASSET_PAGE_LIMIT,
+        sort,
+        order: sortDirection,
+        type: mediaType,
+        recursive: true,
+        search,
+        tags: tagFilters,
+        score: scoreFilter,
+        seed: randomSeed,
+        signal: controller.signal
+      });
+
+      if (
+        controller.signal.aborted ||
+        loadMoreRequestRef.current !== controller ||
+        listQueryKeyRef.current !== requestQueryKey
+      ) {
+        return;
+      }
+
+      setAssets((currentAssets) => {
+        const existingIds = new Set(currentAssets.map((asset) => asset.id));
+        const nextAssets = response.items.filter(
+          (asset) => !existingIds.has(asset.id)
+        );
+
+        return [...currentAssets, ...nextAssets];
+      });
+      setTotalAssets(response.page.total);
+    } catch (caught) {
+      if (
+        isAbortError(caught) ||
+        loadMoreRequestRef.current !== controller ||
+        listQueryKeyRef.current !== requestQueryKey
+      ) {
+        return;
+      }
+
+      const message =
+        caught instanceof ApiError
+          ? caught.code
+          : "Unable to load more assets.";
+      setAssetError(message);
+    } finally {
+      if (loadMoreRequestRef.current === controller) {
+        loadMoreRequestRef.current = null;
+        loadMoreInFlightRef.current = false;
+        setIsLoadingMore(false);
+      }
+    }
+  }, [
+    assets.length,
+    folderId,
+    isLoadingMore,
+    listQueryKey,
+    mediaType,
+    scoreFilter,
+    randomSeed,
+    search,
+    sort,
+    sortDirection,
+    tagFilters,
+    totalAssets
+  ]);
+
+  useEffect(
+    () => () => {
+      loadMoreRequestRef.current?.abort();
+      loadMoreRequestRef.current = null;
+      loadMoreInFlightRef.current = false;
+    },
+    []
+  );
+
+  return {
+    assetError,
+    assets,
+    handleLoadMore,
+    hasMoreAssets,
+    isLoadingAssets,
+    isLoadingMore,
+    listQueryKey,
+    loadedQueryKey,
+    loadMoreRef,
+    mergeUpdatedAssets,
+    reloadAssets,
+    setAssetError,
+    totalAssets,
+    updateAssetTags
+  };
+}
+
+function createRandomSeed(): number {
+  const values = new Uint32Array(1);
+  globalThis.crypto.getRandomValues(values);
+  return values[0] ?? 0;
+}
+
+function createRandomSeedForQuery(
+  sort: SortMode,
+  queryKey: string
+): number | undefined {
+  return sort === "random"
+    ? (createRandomSeed() ^ queryKey.length) >>> 0
+    : undefined;
+}
+
+function isAbortError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    error.name === "AbortError"
+  );
+}

@@ -1,0 +1,125 @@
+# Architecture
+
+Aether is a TypeScript workspace with two applications:
+
+- **apps/server**: Fastify API, SQLite database, scanner, authentication, and
+  media processing
+- **apps/web**: React and Vite browser interface
+
+```text
+read-only media folders
+          |
+          v
+ scanner and identity matching
+          |
+          +----> SQLite metadata
+          |
+          +----> generated media cache
+                         |
+                         v
+               authenticated Fastify API
+                         |
+                         v
+                    React web app
+```
+
+## Server
+
+The server owns all filesystem and database access.
+
+- **auth** handles password checks, sessions, CSRF, and failed-sign-in limits.
+- **config** resolves environment settings, the data directory, and media roots.
+- **db** creates SQLite tables and applies migrations.
+- **library** scans files, stores metadata, runs searches, updates annotations,
+  produces previews, and serves media.
+- **security** checks that resolved files stay inside an allowed media root.
+
+HTTP route modules validate requests and turn known failures into clear
+responses. Repository modules own database queries and transactions. Media
+processors receive an already validated source record; they never accept a raw
+path from the browser.
+
+## Media Identity
+
+Each named media root has a stable identity that does not depend on its current
+path. Files also receive a content digest. During a complete scan, Aether uses
+the digest and the known paths to match renamed or moved files to existing asset
+records.
+
+When the match is safe, the asset keeps its ID, scores, favorites, tags, and
+comparison history. Duplicate files are kept as separate assets and use their
+known locations to avoid swapping metadata. A file that no longer has a match
+is removed along with its Aether-managed metadata and generated derivatives.
+
+Reconciliation happens only after every configured root has been read
+successfully. If a root is disconnected or unreadable, the scan fails without
+treating that entire library as deleted.
+
+## Database
+
+SQLite stores:
+
+- media roots, folders, names, relative paths, and technical metadata
+- content digests and scan state
+- scores, favorites, tags, and search text
+- comparison decisions and calculated rankings
+- sessions and failed-sign-in records
+- generated-derivative records
+
+Source files are not copied into SQLite. Changes that affect several records use
+a transaction so a partial update is not left behind.
+
+Search uses SQLite FTS5. A small CJK substring index supports partial filename
+search for Korean and similar writing systems.
+
+## Generated Media
+
+The cache contains data that Aether can recreate from source files:
+
+- WebP image thumbnails
+- JPEG video posters
+- short browser-friendly video previews
+
+Concurrent requests for the same preview share one generation job. When a scan
+removes an asset, its generated files are removed. A startup sweep also clears
+cache entries that no longer belong to a database asset.
+
+## Web App
+
+The browser application is split by feature:
+
+- **gallery**: virtualized media grid and card details
+- **feed**: one-item vertical browsing
+- **compare**: leaderboard and pairwise ranking
+- **media**: previews, fullscreen viewing, and annotations
+- **folders**: folder tree and navigation
+- **toolbar**: sorting, layout, search, and filters
+- **settings**: appearance, status, and selective database resets
+
+The server remains authoritative for library data. The browser cancels obsolete
+reads and uses records returned by the server after a change. Scroll position
+and appearance choices are browser-local conveniences, not part of the library
+database.
+
+## Pairwise Ranking
+
+Aether keeps the latest active choice for each pair while retaining reversible
+decision events. A regularized Bradley-Terry model turns the active comparison
+graph into relative scores. Direct score edits are stored separately so they do
+not disappear when comparisons change.
+
+Zero is the only unranked score. Positive scores are ranked.
+
+## Data Directory
+
+**AETHER_DATA_DIR** contains the database, generated cache, internal backups,
+private settings, and a safety marker. Docker mounts the same directory at
+**/data**. Source media remains on separate read-only mounts.
+
+See [Data management](data-management.md) for backup, rebuild, and wipe
+behavior.
+
+## Deliberate Limits
+
+Aether does not include multi-user accounts, public sharing links, cloud sync,
+source-file editing, or automatic cloud analysis.

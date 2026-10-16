@@ -17,6 +17,8 @@
 
 ## Work on Aether
 
+- [Repository guide](../AGENTS.md): development workflow, project constraints,
+  and accompanying updates.
 - [Architecture](architecture.md): the main parts of the app and how data moves
   between them.
 - [Development](development.md): repository layout, commands, and testing.

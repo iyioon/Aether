@@ -41,7 +41,10 @@ test("retries an aborted out-of-list fullscreen lookup on browser Back", async (
   page
 }) => {
   await loginAndScan(page);
-  await page.locator(".gallery-viewport img").first().click();
+  await page
+    .locator(".gallery-viewport img:not([aria-hidden='true'])")
+    .first()
+    .click();
   await expect(page.locator(".viewer-dialog")).toBeVisible();
   const url = new URL(page.url());
   const assetId = url.searchParams.get("asset")!;
@@ -74,7 +77,10 @@ test("preserves a newer viewer score when a delayed foreground lookup finishes",
   page
 }) => {
   await loginAndScan(page);
-  await page.locator(".gallery-viewport img").first().click();
+  await page
+    .locator(".gallery-viewport img:not([aria-hidden='true'])")
+    .first()
+    .click();
   const viewer = page.locator(".viewer-dialog");
   await expect(viewer).toBeVisible();
   const assetId = new URL(page.url()).searchParams.get("asset")!;
@@ -330,7 +336,7 @@ test("restores random Gallery anchors in a fresh page and retains the fullscreen
   ).toBe(anchor);
   await reopened.close();
   await gallery.evaluate((node) => node.scrollTo(0, 0));
-  await gallery.locator("img").first().click();
+  await gallery.locator("img:not([aria-hidden='true'])").first().click();
   await expect(page.locator(".viewer-dialog")).toBeVisible();
   const asset = new URL(page.url()).searchParams.get("asset");
   expect(asset).toBeTruthy();

@@ -423,15 +423,16 @@ export const MediaPreview = memo(function MediaPreview({
 
   if (asset.mediaType === "image") {
     const originalSource = mediaUrl(asset.id);
-    const isProgressiveImage = useOriginalImage && !originalImageFailed;
     const shouldUseOriginalImage =
-      isProgressiveImage ||
+      (useOriginalImage && !originalImageFailed) ||
       (isAnimatedImage && isVisible && !animatedImageFailed);
+    const isProgressiveImage = shouldUseOriginalImage;
     const previewSource = shouldUseOriginalImage
       ? originalSource
       : thumbnailUrl(asset.id, thumbnailSize);
     const isImageReady =
-      loadedImageSource === previewSource || isMediaImageReady(previewSource);
+      loadedImageSource === previewSource ||
+      (!shouldUseOriginalImage && isMediaImageReady(previewSource));
     const isThumbnailReady =
       isProgressiveImage &&
       (loadedThumbnailSource === posterSource ||

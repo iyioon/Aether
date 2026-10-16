@@ -68,12 +68,14 @@ async function rankingReady(page: Page): Promise<void> {
 }
 
 async function visiblePairIds(page: Page): Promise<string[]> {
-  return page.locator(".comparison-card .media-image").evaluateAll((images) =>
-    images.map((image) => {
-      const source = new URL((image as HTMLImageElement).src);
-      return source.pathname.split("/")[3];
-    })
-  );
+  return page
+    .locator(".comparison-card .media-image[data-preview-source]")
+    .evaluateAll((images) =>
+      images.map((image) => {
+        const source = new URL((image as HTMLImageElement).src);
+        return source.pathname.split("/")[3];
+      })
+    );
 }
 
 function pairIds(pair: ComparisonPairResponse): [string, string] {
@@ -223,6 +225,74 @@ test("decodes upcoming comparisons before a choice and swaps only after the vote
   await expect(
     page.getByRole("button", { name: "Undo last choice" })
   ).toBeEnabled();
+});
+
+test("keeps decoded thumbnails visible while animated originals are delayed, then handles loading and failure", async ({
+  page
+}) => {
+  const folderId = await signInAndScan(page);
+  const originals: Route[] = [];
+  let releaseOriginals = false;
+  const finishOriginal = (route: Route) =>
+    new URL(route.request().url()).pathname.includes(`/${failingId}/`)
+      ? route.abort("failed")
+      : route.continue();
+  const holdOriginal = async (route: Route) => {
+    if (releaseOriginals) {
+      await finishOriginal(route);
+      return;
+    }
+    originals.push(route);
+    trackHeldRoute(page, route);
+  };
+  await page.route("**/api/assets/*/media", holdOriginal);
+  await page.goto(
+    `/?folder=${encodeURIComponent(folderId)}&view=compare&workspace=ranking&q=candidate`
+  );
+  await rankingReady(page);
+  const shells = page.locator(".comparison-card .media-image-shell");
+  await expect(shells).toHaveCount(2);
+  await expect(
+    page.locator(
+      ".comparison-card .media-image-shell.thumbnail-ready:not(.ready)"
+    )
+  ).toHaveCount(2);
+  await expect.poll(() => originals.length).toBeGreaterThanOrEqual(2);
+  const thumbnailState = await shells.evaluateAll((elements) =>
+    elements.map((shell) => {
+      const thumbnail = shell.querySelector<HTMLImageElement>(
+        ".media-image-thumbnail"
+      )!;
+      return {
+        decoded: thumbnail.complete && thumbnail.naturalWidth > 0,
+        thumbnailOpacity: getComputedStyle(thumbnail).opacity,
+        loadingOpacity: getComputedStyle(
+          shell.querySelector(".media-image-loading")!
+        ).opacity
+      };
+    })
+  );
+  expect(thumbnailState).toEqual([
+    { decoded: true, thumbnailOpacity: "1", loadingOpacity: "0" },
+    { decoded: true, thumbnailOpacity: "1", loadingOpacity: "0" }
+  ]);
+  const failingId = (await visiblePairIds(page))[0];
+  releaseOriginals = true;
+  await Promise.all(
+    originals.map((route) => finishOriginal(route).catch(() => undefined))
+  );
+  await expect(
+    page.locator(".comparison-card .media-image-shell.ready")
+  ).toHaveCount(2);
+  await expect(
+    page.locator(".comparison-card img[data-preview-source='original']")
+  ).toHaveCount(1);
+  await expect(
+    page.locator(".comparison-card img[data-preview-source='thumbnail']")
+  ).toHaveCount(1);
+  await expect(page.locator(".comparison-card .media-placeholder")).toHaveCount(
+    0
+  );
 });
 
 test("retries a lost vote response with the same prepared pair and restores Undo", async ({

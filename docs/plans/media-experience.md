@@ -8,30 +8,35 @@ Code baseline: `1e5c13c`.
 
 Deliver usable video controls above the iPhone Home indicator, clear video
 loading states, working HEIC display, saved highlights, and remembered media
-framing across Gallery, Feed, and Comparison. Keep source files unchanged and
-preserve navigation, ranking, privacy, and bounded media preparation.
+framing across Gallery, Feed, and Comparison. The first release includes
+highlights, playback speed, forward section looping, and bounce for both videos
+and animated GIF, WebP, APNG, and AVIF. Keep source files unchanged and preserve
+navigation, ranking, privacy, and bounded media preparation.
 
 Start with playback controls and safe-area layout. Establish saved-edit and
-rendition contracts before adding highlights or framing. HEIC can proceed in
-parallel with highlight work after those contracts. Add bounce after ordinary
-section playback works reliably. Device checks apply to every interface phase.
+rendition contracts before adding highlights or framing. Establish controlled
+animated-media playback before completing highlights and speed. HEIC can proceed
+in parallel after the rendition contracts. Add bounce after ordinary section
+playback works reliably. Device checks apply to every interface phase.
 
-| ID  | Deliverable                                                    | Depends on                               | Status      | Exit criterion                                                                                           |
-| --- | -------------------------------------------------------------- | ---------------------------------------- | ----------- | -------------------------------------------------------------------------------------------------------- |
-| M0  | Capability and design checks                                   | —                                        | Not started | Production HEIC decoder selected; playback/rendition timing and bounce resource budgets proven           |
-| M1  | Shared playback, controls, video status, and safe areas        | M0 playback decisions                    | Not started | Feed and viewer controls work on keyboard, touch, and installed iPhone PWA                               |
-| M2  | Saved presentation, revisioned renditions, and reset contracts | M0 presentation/rendition decisions      | Not started | Migration, authoritative API updates, cache invalidation, and selective reset tests pass                 |
-| M3  | HEIC/HEIF display                                              | M0 decoder proof, M2                     | Not started | Real HEVC images decode in the production container and display in every media surface                   |
-| M4  | Highlights, speed, and forward section looping                 | M1, M2                                   | Not started | Save/Cancel/Reset, highlight-only playback, posters, and source-time labels are consistent               |
-| M5  | Framing and Comparison aspect settings                         | M1, M2; integrate M3                     | Not started | One geometry model preserves saved focus/zoom across surfaces and orientations                           |
-| M6  | Bounce playback and animated-media timing extension            | M4, M0 bounce proof                      | Not started | Bounded forward/reverse rendition works across target browsers with clear preparation and audio behavior |
-| M7  | Cross-feature and release verification                         | Milestones in the accepted release scope | Not started | Regression suite, packaging, accessibility, and actual-device acceptance pass                            |
+| ID  | Deliverable                                                    | Depends on                          | Status      | Exit criterion                                                                                                           |
+| --- | -------------------------------------------------------------- | ----------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------ |
+| M0  | Capability and design checks                                   | —                                   | Not started | Production HEIC and animation decoders selected; timing, transparency, and bounce budgets proven                         |
+| M1  | Shared playback, controls, video status, and safe areas        | M0 playback decisions               | Not started | Feed and viewer controls work on keyboard, touch, and installed iPhone PWA                                               |
+| M2  | Saved presentation, revisioned renditions, and reset contracts | M0 presentation/rendition decisions | Not started | Migration, authoritative API updates, cache invalidation, and selective reset tests pass                                 |
+| M2a | Controlled animated-media playback                             | M0 animation proof, M2              | Not started | GIF/WebP/APNG/AVIF have verified timelines and controllable playback with correct composition and transparency           |
+| M3  | HEIC/HEIF display                                              | M0 decoder proof, M2                | Not started | Real HEVC images decode in the production container and display in every media surface                                   |
+| M4  | Highlights, speed, and forward section looping                 | M1, M2, M2a                         | Not started | Videos and all four animated formats pass Save/Cancel/Reset, highlight-only playback, posters, and source-time checks    |
+| M5  | Framing and Comparison aspect settings                         | M1, M2; integrate M2a/M3            | Not started | One geometry model preserves saved focus/zoom across surfaces and orientations                                           |
+| M6  | Bounce playback for videos and animated media                  | M4, M0 bounce proof                 | Not started | Both media groups pass bounded forward/reverse playback across target browsers with clear preparation and audio behavior |
+| M7  | Cross-feature and release verification                         | M0–M6, including M2a                | Not started | Full agreed scope, regression suite, packaging, accessibility, and actual-device acceptance pass                         |
 
 M1 and the M0 codec experiments can run independently. M3 and M4 need not block
 each other. Do not wait for M7 to correct phone layout or lifecycle defects.
 M0 checks gate only their consumers; bounce experiments must not delay ordinary
-controls or saved-edit work. Deferred extensions remain open and do not count
-as delivered when an earlier release passes M7.
+controls or saved-edit work. Incremental changes can land separately, but the
+first feature release requires animated-media timing and bounce as well as video
+support; neither is a deferred extension.
 
 ## Current Constraints
 
@@ -43,6 +48,7 @@ module names refer to the corresponding web/server feature directories.
 | Feed seek input is 18 px high, visible line is 2 px, and both sit at `bottom: 0`               | `apps/web/src/styles/feed.css`, `components/media/MediaPreview.tsx` under web source | Replace the edge line with a usable control region; making only the visible line thicker is insufficient |
 | Phone CSS insets feed metadata/actions but hides the desktop navigation/heart rail             | `apps/web/src/styles/responsive.css`, `components/feed/FeedNavRail.tsx`              | Edit below the heart requires a mobile action layout too                                                 |
 | Preview, feed, and viewer duplicate playback commands/state; viewer uses native controls       | `MediaPreview.tsx`, `MediaViewer.tsx`, `FeedPreview.tsx` under web components        | Share playback behavior before adding range, rate, and loop behavior                                     |
+| Animated-image playback is selected by extension rather than verified timing                   | `apps/web/src/components/media/media-urls.ts`, `MediaPreview.tsx`                    | Replace extension-only behavior with authoritative capabilities, including existing indexed files        |
 | Loading shimmer disappears once the poster is ready                                            | `apps/web/src/styles/gallery.css`                                                    | A poster currently hides the distinction between an image and a video awaiting playback                  |
 | HEIC/HEIF are recognized, but actual HEVC decoding fails in the installed sharp runtime        | `apps/server/src/library/media-types.ts`, `thumbnails.ts`, `Dockerfile`              | Extension recognition and successful metadata inspection are not working HEIC support                    |
 | Gallery video previews are short clips beginning at zero; Feed and Comparison prefer originals | `media-urls.ts`, `video-derivatives.ts`, media call sites                            | Source timestamps cannot be applied directly to an unrelated preview's local timeline                    |
@@ -61,16 +67,15 @@ decision changes; do not build competing interpretations in different views.
 - **View preferences:** “Play highlights only” belongs to Gallery/Feed view
   settings, defaults off, and uses the existing URL/browser restoration layer.
   It changes playback, not filtering, counts, pagination, or ranking eligibility.
-  Videos without a highlight continue normally; images remain visible.
-- **Highlight:** start with one temporal range per video. Still-image regions
-  belong to Framing. Timing control for animated GIF/WebP/APNG/AVIF needs a
-  controlled video rendition; ordinary image elements cannot supply it.
-  Planning assumes videos first while the requested animated-media scope is
-  clarified. If animated timing is required in the first release, move that
-  conversion work ahead of M4 completion rather than silently omitting it.
+  Timed media without a highlight continue normally; still images remain visible.
+- **Highlight:** one temporal range per video or animated image in the first
+  release. Still-image regions belong to Framing. Animated GIF/WebP/APNG/AVIF
+  need controlled playback; ordinary image elements do not expose seeking or
+  playback rate through the [image API](https://developer.mozilla.org/en-US/docs/Web/API/HTMLImageElement).
+  Animation detection and normalization are mandatory prerequisites in M2a.
 - **Playback defaults:** forward repeat and 1× speed. Offer 0.5×, 0.75×, 1×,
-  1.25×, 1.5×, and 2×. Save a preferred rate/loop mode with video presentation;
-  temporary player changes need not save until explicitly requested.
+  1.25×, 1.5×, and 2×. Save a preferred rate/loop mode with timed-media
+  presentation; temporary player changes need not save until explicitly requested.
 - **Framing:** one shared normalized focal point and bounded zoom per asset.
   An unset fit policy retains current surface defaults: Gallery/Feed Fill,
   Comparison/viewer Fit. An explicit saved Fit/Fill choice applies across
@@ -79,7 +84,8 @@ decision changes; do not build competing interpretations in different views.
 - **Comparison:** keep full-source, 1×, forward playback independently of saved
   highlight/rate/bounce settings. Add aspect settings and apply saved framing;
   an unedited asset keeps Fit. Do not inherit Gallery's highlight-only setting
-  silently; what is being compared must remain clear.
+  silently; what is being compared must remain clear. Use the verified full
+  animation timeline for animated images, retaining their image classification.
 - **Controls:** build shared custom controls for Feed and the expanded viewer.
   Keep Gallery tiles lightweight, with clear video state and compact hover/focus
   actions. Full seeking, speed, and fullscreen controls belong in the viewer
@@ -99,13 +105,19 @@ milestone. Keep experimental scripts and downloaded samples out of the repo.
    Adding an arbitrary distro libvips package may not meet sharp's required
    version. See [sharp's HEIF requirements](https://sharp.pixelplumbing.com/api-output/#heif)
    and [custom libvips installation](https://sharp.pixelplumbing.com/install/#custom-libvips).
-2. Establish the playback contract for original, fallback preview, complete
-   highlight, and bounce sources: duration, source-time offset, and mapping back
-   to original timestamps. Identify where a short preview is insufficient.
-3. Measure a bounded forward/reverse prototype on representative server hardware.
+2. Prove actual timed decoding for animated GIF, WebP, APNG, and AVIF in the
+   intended native/container runtimes. Include still files in the same formats,
+   variable frame delays, transparency, and frame composition. Select a playback
+   representation that supports seeking/rate and preserves appearance across
+   target browsers; do not assume one opaque video codec covers every animation.
+3. Establish the playback contract for original, normalized animation, fallback
+   preview, complete highlight, and bounce sources: verified duration, source-time
+   offset, frame-boundary rounding, and mapping back to original timestamps.
+   Identify where a short preview is insufficient.
+4. Measure a bounded forward/reverse prototype on representative server hardware.
    Choose and record duration, dimensions, frame-rate, memory, output-byte,
    timeout, concurrency, and cache limits before enabling bounce.
-4. Validate the control dock and editing gestures in an installed iPhone PWA,
+5. Validate the control dock and editing gestures in an installed iPhone PWA,
    including portrait, short landscape, VoiceOver, and rotation. Distinguish
    the application viewer from browser/native fullscreen in labels and behavior.
 
@@ -115,9 +127,11 @@ milestone. Keep experimental scripts and downloaded samples out of the repo.
 
 Extract one focused event-driven playback hook/controller under
 `apps/web/src/components/media`. Let the actual media element own playback
-truth. Expose play/pause, current time/duration, seekable/buffered ranges,
-seeking, mute, rate, initial loading, rebuffering, errors, and presentation
-capabilities. Reuse it from Preview and Viewer, and replace Feed's direct video
+truth for video-backed playback; integrate M2a's animation representation through
+that same capability contract. Expose play/pause, current time/duration,
+seekable/buffered ranges, seeking, mute, rate, initial loading, rebuffering,
+errors, and presentation capabilities. Reuse it from Preview and Viewer, and
+replace Feed's direct video
 DOM-query commands as the shared commands land. Avoid a new player framework.
 
 Preserve poster-to-first-presented-frame behavior, original/preview fallback,
@@ -176,6 +190,9 @@ Use media events and current readiness; [waiting](https://developer.mozilla.org/
 and [stalled](https://developer.mozilla.org/en-US/docs/Web/API/HTMLMediaElement/stalled_event)
 are different signals. Debounce transient decoration, retain the poster, support
 reduced motion, and avoid live-region announcements for every timeline tick.
+Apply the same readiness states to controlled animations with an accurate
+“Animated” identifier; playing through a video rendition must not relabel the
+source as a video.
 
 ## M2 — Saved Presentation And Rendition Foundation
 
@@ -226,6 +243,37 @@ reduced motion, and avoid live-region announcements for every timeline tick.
   changed source bytes a new asset ID; retain that policy rather than matching
   edits by filename.
 
+## M2a — Controlled Animated-Media Playback
+
+Complete this milestone before M4.
+
+- Detect a timed animation from its container/decoder information, not its
+  extension or page count alone. Keep animated assets classified as images for
+  filters, counts, ranking, identity, and downloads. Expose authoritative timing
+  capabilities and verified duration separately; still WebP/AVIF must not acquire
+  temporal controls. Replace the client's extension-only classifier. Backfill
+  existing records from an explicit unknown state using bounded lazy probes,
+  without requiring a rebuild or changing asset IDs.
+  Detect APNG inside `.png` as well as `.apng`; exclude a separate fallback image
+  from its timeline, following the [PNG animation structure](https://www.w3.org/TR/png-3/#structure).
+- Normalize one animation cycle into the shared source-time model. Preserve
+  variable frame delays, composition/disposal/blending, transparency, orientation,
+  and color. Define invalid/zero delay handling and frame-boundary rounding in
+  M0. Distinguish original repetition metadata from the selected app loop mode.
+  [sharp metadata](https://sharp.pixelplumbing.com/api-input/) exposes frame,
+  delay, loop, and alpha information, but a successful header read does not prove
+  that the installed decoder can render every required format.
+- Build bounded, authenticated playback renditions using the M0-tested path.
+  Prefer video-backed playback where it preserves appearance; verify an
+  alpha-preserving path on the target browsers rather than silently flattening
+  transparency. Reuse M2 identities, jobs, status, pruning, and reset contracts.
+  Include frame count and total decoded pixels in processing limits.
+- Wire the resulting source into shared controls, posters, fallback, lifecycle,
+  and Comparison preparation. Preserve a valid poster while preparing or after
+  failure. An original-image fallback keeps browsing usable, but does not count
+  as delivered seeking, speed, highlights, or bounce. Cover every required
+  animated format in the production container and browser acceptance tests.
+
 ## M3 — HEIC/HEIF Display
 
 Decode the primary still image server-side to browser-compatible display
@@ -244,6 +292,10 @@ Live Photo video, depth maps, and multi-image animation are separate from
 primary-still support and must be described accurately.
 
 ## M4 — Highlights, Speed, And Forward Loops
+
+Apply this milestone to videos and M2a's controlled animated images together.
+Use their verified source timeline for the same editor, saved settings, poster
+selection, and Gallery/Feed highlight-only behavior.
 
 Use one explicit media editor with **Highlight** and **Framing** sections rather
 than separate competing editors. Pause background playback and shortcuts while
@@ -310,18 +362,20 @@ Transform only the media layer, never controls, badges, or captions.
   contain/Fit behavior. Recompute row geometry without clearing pair or Undo.
 
 Apply framing client-side to the canonical uncropped derivatives. Framing alone
-normally needs no thumbnail regeneration; changing the selected video frame
-does. Select rendition resolution according to display size/zoom within caps,
+normally needs no thumbnail regeneration; changing the selected timed-media
+frame does. Select rendition resolution according to display size/zoom within caps,
 rather than downloading full-resolution originals for every grid card.
 
-## M6 — Bounce And Animated Timing
+## M6 — Bounce For Videos And Animated Media
 
-Implement bounce through a bounded forward-plus-reversed rendition played
-normally. Do not simulate reverse with timer-driven repeated seeks or depend
+Apply bounce to both videos and the verified animation timelines from M2a.
+Implement it through a bounded forward-plus-reversed rendition played normally.
+Do not simulate reverse with timer-driven repeated seeks or depend
 on `playbackRate = -1`. Trim and scale before reversing: the
 [FFmpeg filter documentation](https://raw.githubusercontent.com/FFmpeg/FFmpeg/master/doc/filters.texi)
 states that reverse buffers the clip. Avoid duplicate turnaround frames and map
-both legs back to source time for the controls.
+both legs back to source time for the controls. Reverse composed animation
+frames with their timing intact; do not reverse raw partial-frame instructions.
 
 Use the M0 measured duration/resolution/frame-rate/memory/output limits. Show
 preparing, failed, and unsupported-range states; keep forward repeat available.
@@ -329,10 +383,10 @@ Do not silently reverse an arbitrarily long original or truncate a selection.
 Proposed initial policy: bounce is muted, visibly labeled, and long selections
 request a shorter highlight. Final limits and audio policy are release decisions.
 
-If animated-image timing is included, detect actual animation rather than
-treating every WebP/AVIF as animated, build a controlled video rendition, and
-reuse the same range/rate/loop model. Framing remains available for all images
-without requiring this extension.
+Use the same preparation, cancellation, retry, and reset behavior for both
+media groups. Verify variable-delay animation timing and transparency through
+the reverse leg and turnaround, including unequal frame delays and long endpoint
+holds. Require the same timing and transparency acceptance for both legs.
 
 ## Settings Reset And Cross-Feature Effects
 
@@ -342,7 +396,8 @@ per-item reset in the editor as well. State exactly which metadata and derived
 variants will change; update the current promise that previews are untouched.
 Reset highlights/playback to no range, 1×, and forward repeat; reset framing to
 centered, 1×, and unset fit. Count assets with nondefault values, not retained
-revision-only records.
+revision-only records. Apply these resets to both video and animated-image
+presentation metadata.
 
 Reset metadata transactionally, advance edit revisions, and invalidate only
 affected renditions. Clean obsolete generated files after commit; unchanged
@@ -359,19 +414,23 @@ the service worker's public shell cache or persisted ranking checkpoints.
 
 ## Verification And Release Gate
 
-| Layer              | Required coverage                                                                                                                                                                                                                                                                                                                                          |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Pure models        | Range validation and clamping; unknown/short duration; rate presets; source/clip/bounce mapping; oriented Fit/Fill/zoom geometry; URL/storage migration                                                                                                                                                                                                    |
-| Database/API       | Fresh/upgrade/restore schema; auth/CSRF; atomic validated updates; editor-open → reset → old-save conflicts; selective resets; safe moves and content replacement; no N+1 hydration                                                                                                                                                                        |
-| Processing/cache   | Real HEVC decode in built Docker image; rotation/SAR/mirroring/color/multi-image/corrupt fixtures; later-scene poster; normal/highlight variants; changed output gets a new URL while framing/rate preserves bytes; database-scoped shared jobs; reset/delete during jobs; old failure after new success; timeout/limit cleanup; authenticated HEAD/ranges |
-| Playback/browser   | Poster/loading/first frame; pause, seek, buffering, autoplay rejection, mute, speed, source fallback; complete highlight and no-highlight fallback; Save/Cancel/Reset/failure/retry; bounds after resume; bounce order/audio/preparation; original download unchanged                                                                                      |
-| Interaction/layout | Scrub/edit gestures never navigate, score, or vote; focused controls never auto-hide; Gallery virtualization/anchors survive edits; cross-view updates; prepared Comparison media uses current revisions; no horizontal overflow or overlapping controls                                                                                                   |
-| Privacy/PWA        | New private URLs absent from CacheStorage; offline shell and reconnection; no saved media bytes; session expiry versus logout; old async results cannot overwrite newer edits                                                                                                                                                                              |
+| Layer              | Required coverage                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pure models        | Range validation and clamping; unknown/short duration; animation detection versus still/multi-image sources; frame-delay normalization; rate presets; source/clip/bounce mapping; oriented Fit/Fill/zoom geometry; URL/storage migration                                                                                                                                                                                                           |
+| Database/API       | Fresh/upgrade/restore schema; auth/CSRF; atomic validated updates; editor-open → reset → old-save conflicts; selective resets; safe moves and content replacement; no N+1 hydration                                                                                                                                                                                                                                                                |
+| Processing/cache   | Real HEVC and all four animation formats decode in built Docker image; rotation/SAR/mirroring/color/multi-image/corrupt fixtures; animation frame composition, variable timing, and alpha; later-scene poster; normal/highlight variants; changed output gets a new URL while framing/rate preserves bytes; database-scoped shared jobs; reset/delete during jobs; old failure after new success; timeout/limit cleanup; authenticated HEAD/ranges |
+| Playback/browser   | Poster/loading/first frame; pause, seek, buffering, autoplay rejection, mute, speed, source fallback; complete highlight and no-highlight fallback; Save/Cancel/Reset/failure/retry; bounds after resume; bounce order/audio/preparation; video and animation parity; still files have no temporal controls; original download unchanged                                                                                                           |
+| Interaction/layout | Scrub/edit gestures never navigate, score, or vote; focused controls never auto-hide; Gallery virtualization/anchors survive edits; cross-view updates; prepared Comparison media uses current revisions; no horizontal overflow or overlapping controls                                                                                                                                                                                           |
+| Privacy/PWA        | New private URLs absent from CacheStorage; offline shell and reconnection; no saved media bytes; session expiry versus logout; old async results cannot overwrite newer edits                                                                                                                                                                                                                                                                      |
 
 Use disposable real fixtures, including a multi-scene video, portrait/rotated
-video, very short video, and actual iPhone HEVC images. Verify fixture provenance
-and redistribution before committing samples; use generated or suitably licensed
-files, not personal media. Tests must assert decoded/rendered outcomes rather
+video, very short video, and actual iPhone HEVC images. Add animated GIF, WebP,
+APNG, and AVIF with variable frame delays, partial-frame composition, and
+transparency, plus still counterparts and multi-image files that are not timed
+animations. Include APNG's separate fallback and animation in `.png`, and backfill
+of already indexed assets. Verify fixture provenance and redistribution before
+committing samples; use generated or suitably licensed files, not personal
+media. Tests must assert decoded/rendered outcomes rather
 than extension recognition or arbitrary elapsed-time claims.
 
 Exercise narrow 320 px screens, iPhone portrait, short coarse-pointer landscape,
@@ -391,7 +450,9 @@ Run `npm run verify`, production-build browser scenarios, dependency audit, and
 the container build/health checks in the [release checklist](../release-checklist.md).
 Record device/OS/browser tested and any unavailable checks; emulation is not an
 actual-device pass. Agree numeric processing budgets and loop-boundary tolerance
-from M0 measurements before marking their milestones complete.
+from M0 measurements before marking their milestones complete. M7 cannot pass
+with animated highlights, speed, or bounce deferred; successful video tests alone
+are insufficient for the agreed first release.
 
 ## Keeping This Plan Useful
 

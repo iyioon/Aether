@@ -19,6 +19,8 @@
 
 - [Repository guide](../AGENTS.md): development workflow, project constraints,
   and accompanying updates.
+- [Media playback and presentation plan](plans/media-experience.md): active
+  milestones for controls, HEIC, highlights, framing, and device compatibility.
 - [Architecture](architecture.md): the main parts of the app and how data moves
   between them.
 - [Development](development.md): repository layout, commands, and testing.

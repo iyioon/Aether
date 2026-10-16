@@ -1,9 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type {
-  AiStatus,
-  AssetRecord,
-  TagRecord
-} from "../../api/client";
+import type { AiStatus, AssetRecord, TagRecord } from "../../api/client";
 import { useIsMobile } from "../../hooks/use-mobile";
 import { panelExitDurationMs } from "../../lib/motion";
 import {

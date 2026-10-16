@@ -29,12 +29,7 @@ import {
 } from "../../lib/keyboard";
 import { panelExitDurationMs } from "../../lib/motion";
 import { Button } from "../ui/button";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogTitle
-} from "../ui/dialog";
+import { Dialog, DialogClose, DialogContent, DialogTitle } from "../ui/dialog";
 import { markMediaImageReady } from "./media-image-cache";
 import { downloadUrl, mediaUrl, thumbnailUrl } from "./media-urls";
 import { requestPresentedVideoFrame } from "./video-frame-presentation";
@@ -132,7 +127,12 @@ export function MediaViewer({
   const [scoreFeedback, setScoreFeedback] =
     useState<ViewerScoreFeedback | null>(null);
   const storedMediaSize = useMemo<ViewerStageSize | null>(() => {
-    if (!asset.width || !asset.height || asset.width <= 0 || asset.height <= 0) {
+    if (
+      !asset.width ||
+      !asset.height ||
+      asset.width <= 0 ||
+      asset.height <= 0
+    ) {
       return null;
     }
 
@@ -140,7 +140,7 @@ export function MediaViewer({
   }, [asset.height, asset.width]);
   const viewerMediaSize =
     asset.mediaType === "video"
-      ? viewerVideoSize ?? storedMediaSize
+      ? (viewerVideoSize ?? storedMediaSize)
       : storedMediaSize;
   const viewerMediaFrameStyle = useMemo(
     () => mediaViewerFrameStyle(viewerMediaSize, viewerStageSize),
@@ -458,12 +458,7 @@ export function MediaViewer({
       id: asset.id,
       mediaType: asset.mediaType
     };
-  }, [
-    asset.id,
-    asset.mediaType,
-    cancelPendingVideoReveal,
-    viewerPosterSource
-  ]);
+  }, [asset.id, asset.mediaType, cancelPendingVideoReveal, viewerPosterSource]);
 
   useEffect(
     () => () => {
@@ -513,7 +508,10 @@ export function MediaViewer({
 
       const command = viewerKeyboardCommand(event.key);
 
-      if (!command || (event.repeat && !["next", "previous"].includes(command))) {
+      if (
+        !command ||
+        (event.repeat && !["next", "previous"].includes(command))
+      ) {
         return;
       }
 
@@ -588,7 +586,9 @@ export function MediaViewer({
     }
 
     const touch = event.changedTouches[0];
-    touchStartRef.current = touch ? { x: touch.clientX, y: touch.clientY } : null;
+    touchStartRef.current = touch
+      ? { x: touch.clientX, y: touch.clientY }
+      : null;
   }
 
   function handleTouchEnd(event: ReactTouchEvent<HTMLDivElement>) {
@@ -658,7 +658,12 @@ export function MediaViewer({
           className="viewer-actions viewer-chrome"
           aria-label="Viewer controls"
         >
-          <Button className="media-overlay-button" size="icon" variant="outline" asChild>
+          <Button
+            className="media-overlay-button"
+            size="icon"
+            variant="outline"
+            asChild
+          >
             <a
               href={downloadUrl(asset.id)}
               aria-label={`Download ${asset.name}`}
@@ -704,11 +709,7 @@ export function MediaViewer({
         ) : null}
 
         <figure className="viewer-stage">
-          <div
-            className="viewer-fit-area"
-            ref={viewerStageRef}
-            tabIndex={-1}
-          >
+          <div className="viewer-fit-area" ref={viewerStageRef} tabIndex={-1}>
             {!isMediaReady ? (
               <div
                 className="viewer-loading"
@@ -774,13 +775,10 @@ export function MediaViewer({
                         });
                       };
 
-                      void image.decode().then(
-                        () => {
-                          markMediaImageReady(posterSource);
-                          markPosterReady();
-                        },
-                        markPosterReady
-                      );
+                      void image.decode().then(() => {
+                        markMediaImageReady(posterSource);
+                        markPosterReady();
+                      }, markPosterReady);
                     }}
                     onError={() => {
                       if (activeAssetIdRef.current === asset.id) {
@@ -866,9 +864,7 @@ export function MediaViewer({
           <div
             className={[
               "viewer-score-feedback",
-              scoreFeedback.direction > 0
-                ? "is-increasing"
-                : "is-decreasing",
+              scoreFeedback.direction > 0 ? "is-increasing" : "is-decreasing",
               scoreFeedback.isExiting ? "is-exiting" : ""
             ]
               .filter(Boolean)

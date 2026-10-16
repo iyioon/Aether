@@ -61,8 +61,8 @@ export function AssetScoreBreakdown({
               <AlertDialogDescription>
                 This removes {asset.ranking.comparisonCount} active pair
                 {asset.ranking.comparisonCount === 1 ? "" : "s"} involving this
-                item and recalculates related scores. Manual scores stay in place.
-                This action cannot be undone.
+                item and recalculates related scores. Manual scores stay in
+                place. This action cannot be undone.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

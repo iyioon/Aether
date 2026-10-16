@@ -123,10 +123,7 @@ export function AssetAnnotationPanel({
     };
   }, [tagInput, tags]);
 
-  function saveScore(input: {
-    score?: number;
-    favorite?: boolean;
-  }) {
+  function saveScore(input: { score?: number; favorite?: boolean }) {
     setAnnotationError(null);
     onScoreChange(asset, input);
   }
@@ -136,7 +133,9 @@ export function AssetAnnotationPanel({
     setAnnotationError(null);
 
     try {
-      const { asset: updatedAsset } = await clearAssetManualAdjustment(asset.id);
+      const { asset: updatedAsset } = await clearAssetManualAdjustment(
+        asset.id
+      );
       onAssetUpdated(updatedAsset);
       onRankingChanged();
     } catch {
@@ -167,7 +166,10 @@ export function AssetAnnotationPanel({
     setAnnotationError(null);
 
     try {
-      const response = await setAssetTags(asset.id, uniqueTagNames(nextTagNames));
+      const response = await setAssetTags(
+        asset.id,
+        uniqueTagNames(nextTagNames)
+      );
       setTags(response.tags);
       onAssetTagsUpdated(asset.id, response.tags);
       setSmartTagSuggestions((currentSuggestions) =>
@@ -194,9 +196,7 @@ export function AssetAnnotationPanel({
 
   function removeTag(tagId: string) {
     void saveTags(
-      tags
-        .filter((tag) => tag.id !== tagId)
-        .map((tag) => tag.displayName)
+      tags.filter((tag) => tag.id !== tagId).map((tag) => tag.displayName)
     );
   }
 
@@ -206,7 +206,9 @@ export function AssetAnnotationPanel({
 
     try {
       const response = await getAssetTagSuggestions(asset.id, 8);
-      setSmartTagSuggestions(filterSavedSuggestions(response.suggestions, tags));
+      setSmartTagSuggestions(
+        filterSavedSuggestions(response.suggestions, tags)
+      );
     } catch {
       setAnnotationError("Unable to load suggestions.");
     } finally {

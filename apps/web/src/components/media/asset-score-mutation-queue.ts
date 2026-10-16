@@ -17,10 +17,7 @@ interface AssetScoreMutationQueueOptions {
   onError: (error: unknown) => void;
   onPendingChange: (assetId: string, isPending: boolean) => void;
   onPersistedChanges: () => void;
-  persist: (
-    assetId: string,
-    update: AssetScoreUpdate
-  ) => Promise<AssetRecord>;
+  persist: (assetId: string, update: AssetScoreUpdate) => Promise<AssetRecord>;
 }
 
 export interface AssetScoreMutationQueue {
@@ -65,10 +62,7 @@ export function createAssetScoreMutationQueue({
     void drain(asset.id, nextPending);
   }
 
-  async function drain(
-    assetId: string,
-    pending: PendingAssetScoreMutation
-  ) {
+  async function drain(assetId: string, pending: PendingAssetScoreMutation) {
     let didPersistUpdate = false;
 
     try {

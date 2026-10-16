@@ -258,6 +258,11 @@ export interface ComparisonPairResult {
   };
 }
 
+export type ComparisonPairOptions = Pick<
+  AssetListOptions,
+  "folderId" | "type" | "recursive" | "search" | "tags" | "scoreFilter"
+>;
+
 export interface DerivativeRow {
   id: string;
   asset_id: string;

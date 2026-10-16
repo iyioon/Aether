@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   isMediaImageReady,
   markMediaImageReady,
-  preloadMediaImage
+  acquireMediaImagePreload
 } from "./media-image-cache";
 
 class MockImage {
@@ -28,6 +28,12 @@ class MockImage {
   get src(): string {
     return this.source;
   }
+
+  removeAttribute(name: string) {
+    if (name === "src") {
+      this.source = "";
+    }
+  }
 }
 
 function installImageWindow() {
@@ -44,6 +50,7 @@ function installImageWindow() {
       return timerId;
     }
   });
+  return activeTimers;
 }
 
 describe("media image cache", () => {
@@ -63,30 +70,151 @@ describe("media image cache", () => {
   it("deduplicates preloads and resolves after the image is decoded", async () => {
     installImageWindow();
     const source = "/next-comparison-poster.jpg";
-    const firstPreload = preloadMediaImage(source);
-    const secondPreload = preloadMediaImage(source);
+    const firstPreload = acquireMediaImagePreload(source);
+    const secondPreload = acquireMediaImagePreload(source);
 
-    expect(secondPreload).toBe(firstPreload);
     expect(MockImage.instances).toHaveLength(1);
 
     MockImage.instances[0]?.onload?.();
     MockImage.instances[0]?.onload?.();
-    await firstPreload;
+    await expect(firstPreload.promise).resolves.toBe(true);
+    await expect(secondPreload.promise).resolves.toBe(true);
 
     expect(MockImage.instances[0]?.decode).toHaveBeenCalledOnce();
     expect(isMediaImageReady(source)).toBe(true);
+    firstPreload.release();
+    secondPreload.release();
   });
 
   it("does not mark an image ready when decoding fails", async () => {
     installImageWindow();
     const source = "/invalid-poster.jpg";
-    const preload = preloadMediaImage(source);
+    const preload = acquireMediaImagePreload(source);
     const image = MockImage.instances[0];
 
     image?.decode.mockRejectedValueOnce(new Error("decode failed"));
     image?.onload?.();
-    await preload;
+    await expect(preload.promise).resolves.toBe(false);
 
     expect(isMediaImageReady(source)).toBe(false);
+    preload.release();
+  });
+
+  it("releases one consumer without cancelling a shared image", async () => {
+    installImageWindow();
+    const source = "/shared-comparison-image.jpg";
+    const first = acquireMediaImagePreload(source);
+    const second = acquireMediaImagePreload(source);
+    first.release();
+
+    await expect(first.promise).resolves.toBe(false);
+    expect(MockImage.instances[0]?.src).toBe(source);
+    MockImage.instances[0]?.onload?.();
+    await expect(second.promise).resolves.toBe(true);
+    second.release();
+    expect(MockImage.instances[0]?.src).toBe("");
+  });
+
+  it("aborts the last consumer and retries with a new image", async () => {
+    installImageWindow();
+    const source = "/cancelled-comparison-image.jpg";
+    const controller = new AbortController();
+    const first = acquireMediaImagePreload(source, {
+      signal: controller.signal
+    });
+    const staleLoad = MockImage.instances[0]?.onload;
+    controller.abort();
+    staleLoad?.();
+    await expect(first.promise).resolves.toBe(false);
+    expect(isMediaImageReady(source)).toBe(false);
+    expect(MockImage.instances[0]?.src).toBe("");
+
+    const second = acquireMediaImagePreload(source);
+    expect(MockImage.instances).toHaveLength(2);
+    MockImage.instances[1]?.onload?.();
+    await expect(second.promise).resolves.toBe(true);
+    second.release();
+  });
+
+  it("times out stalled image and decode operations", async () => {
+    const timers = installImageWindow();
+    const first = acquireMediaImagePreload("/timed-out-comparison-image.jpg");
+    const second = acquireMediaImagePreload("/timed-out-comparison-decode.jpg");
+    MockImage.instances[1]?.decode.mockReturnValueOnce(
+      new Promise(() => undefined)
+    );
+    MockImage.instances[1]?.onload?.();
+    for (const timeout of [...timers.values()]) {
+      timeout();
+    }
+
+    await expect(first.promise).resolves.toBe(false);
+    await expect(second.promise).resolves.toBe(false);
+    expect(MockImage.instances.every((image) => image.src === "")).toBe(true);
+    first.release();
+    second.release();
+  });
+
+  it("ignores an already aborted consumer", async () => {
+    installImageWindow();
+    const controller = new AbortController();
+    controller.abort();
+    const handle = acquireMediaImagePreload("/never-requested.jpg", {
+      signal: controller.signal
+    });
+
+    await expect(handle.promise).resolves.toBe(false);
+    expect(MockImage.instances).toHaveLength(0);
+    handle.release();
+  });
+
+  it("rechecks an old readiness hint instead of assuming the browser retained the image", async () => {
+    installImageWindow();
+    const source = "/previously-decoded-comparison-image.jpg";
+    markMediaImageReady(source);
+    const handle = acquireMediaImagePreload(source);
+
+    expect(MockImage.instances).toHaveLength(1);
+    expect(isMediaImageReady(source)).toBe(false);
+    MockImage.instances[0]?.onload?.();
+    await expect(handle.promise).resolves.toBe(true);
+    expect(isMediaImageReady(source)).toBe(true);
+    handle.release();
+
+    const next = acquireMediaImagePreload(source);
+    expect(MockImage.instances).toHaveLength(2);
+    next.release();
+    await expect(next.promise).resolves.toBe(false);
+  });
+
+  it("shares a decoded image while at least one consumer retains it", async () => {
+    installImageWindow();
+    const source = "/retained-decoded-comparison-image.jpg";
+    const first = acquireMediaImagePreload(source);
+    MockImage.instances[0]?.onload?.();
+    await expect(first.promise).resolves.toBe(true);
+    const second = acquireMediaImagePreload(source);
+    await expect(second.promise).resolves.toBe(true);
+
+    expect(MockImage.instances).toHaveLength(1);
+    first.release();
+    expect(MockImage.instances[0]?.src).toBe(source);
+    second.release();
+    expect(MockImage.instances[0]?.src).toBe("");
+  });
+
+  it("bounds readiness hints and refreshes recently used sources", () => {
+    const oldest = "/oldest-readiness-hint.jpg";
+    const reused = "/reused-readiness-hint.jpg";
+    markMediaImageReady(oldest);
+    markMediaImageReady(reused);
+    for (let index = 0; index < 767; index += 1) {
+      markMediaImageReady(`/bounded-readiness-hint-${index}.jpg`);
+    }
+    expect(isMediaImageReady(oldest)).toBe(false);
+    expect(isMediaImageReady(reused)).toBe(true);
+    markMediaImageReady(reused);
+    markMediaImageReady("/last-readiness-hint.jpg");
+    expect(isMediaImageReady(reused)).toBe(true);
   });
 });

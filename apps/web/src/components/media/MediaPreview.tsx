@@ -1,11 +1,15 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Image, Video } from "lucide-react";
 import type { AssetRecord } from "../../api/client";
-import { markMediaImageReady } from "./media-image-cache";
-import { mediaUrl, thumbnailUrl, videoPreviewUrl } from "./media-urls";
+import { isMediaImageReady, markMediaImageReady } from "./media-image-cache";
+import {
+  isAnimatedImagePreview,
+  mediaUrl,
+  thumbnailUrl,
+  videoPreviewUrl
+} from "./media-urls";
 import { requestPresentedVideoFrame } from "./video-frame-presentation";
 
-const ANIMATED_IMAGE_EXTENSIONS = new Set([".gif", ".webp", ".avif", ".apng"]);
 const VIDEO_HOLD_DELAY_MS = 320;
 
 interface MediaPreviewProps {
@@ -87,8 +91,7 @@ export const MediaPreview = memo(function MediaPreview({
           : videoPreviewUrl(asset.id, tall ? 720 : 480)
       : "";
 
-  const isVideoPlaybackVisible =
-    isVisible || (showVideoTimeline && isActive);
+  const isVideoPlaybackVisible = isVisible || (showVideoTimeline && isActive);
   const shouldLoadVideo =
     asset.mediaType === "video" &&
     !staticPreview &&
@@ -101,7 +104,8 @@ export const MediaPreview = memo(function MediaPreview({
     !playbackPaused &&
     !isVideoHoldPaused;
   const isVideoReady = readyVideoSource === videoSource;
-  const isVideoPosterReady = loadedVideoPosterSource === posterSource;
+  const isVideoPosterReady =
+    loadedVideoPosterSource === posterSource || isMediaImageReady(posterSource);
   const didVideoPosterFail = failedVideoPosterSource === posterSource;
 
   const playVisibleVideo = useCallback(() => {
@@ -283,12 +287,7 @@ export const MediaPreview = memo(function MediaPreview({
     } else {
       video.pause();
     }
-  }, [
-    asset.id,
-    asset.mediaType,
-    playVisibleVideo,
-    shouldAutoplayVideo
-  ]);
+  }, [asset.id, asset.mediaType, playVisibleVideo, shouldAutoplayVideo]);
 
   useEffect(() => {
     if (asset.mediaType !== "video" || audiblePlaybackRequest <= 0) {
@@ -413,7 +412,11 @@ export const MediaPreview = memo(function MediaPreview({
   ) {
     return (
       <div className={tall ? "media-placeholder tall" : "media-placeholder"}>
-        {asset.mediaType === "video" ? <Video size={30} /> : <Image size={30} />}
+        {asset.mediaType === "video" ? (
+          <Video size={30} />
+        ) : (
+          <Image size={30} />
+        )}
       </div>
     );
   }
@@ -427,9 +430,12 @@ export const MediaPreview = memo(function MediaPreview({
     const previewSource = shouldUseOriginalImage
       ? originalSource
       : thumbnailUrl(asset.id, thumbnailSize);
-    const isImageReady = loadedImageSource === previewSource;
+    const isImageReady =
+      loadedImageSource === previewSource || isMediaImageReady(previewSource);
     const isThumbnailReady =
-      isProgressiveImage && loadedThumbnailSource === posterSource;
+      isProgressiveImage &&
+      (loadedThumbnailSource === posterSource ||
+        isMediaImageReady(posterSource));
 
     return (
       <span
@@ -494,9 +500,7 @@ export const MediaPreview = memo(function MediaPreview({
             const image = event.currentTarget;
             void image.decode().then(
               () => {
-                if (!shouldUseOriginalImage) {
-                  markMediaImageReady(previewSource);
-                }
+                markMediaImageReady(previewSource);
                 setLoadedImageSource(previewSource);
                 onDimensionsKnown?.(
                   asset.id,
@@ -711,11 +715,4 @@ function formatVideoTime(seconds: number): string {
   const minutes = Math.floor(roundedSeconds / 60);
   const remainingSeconds = roundedSeconds % 60;
   return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
-}
-
-function isAnimatedImagePreview(asset: AssetRecord): boolean {
-  return (
-    asset.mediaType === "image" &&
-    ANIMATED_IMAGE_EXTENSIONS.has(asset.extension.toLocaleLowerCase("en-US"))
-  );
 }

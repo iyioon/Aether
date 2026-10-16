@@ -5,7 +5,7 @@ coverage
 playwright-report
 test-results
 .e2e
-/.codex-test-tmp
+/.local-test-artifacts
 /aether-data
 /.aether-preserve
 /backups
@@ -19,8 +19,6 @@ test-results
 *.db-*
 
 .git
-.codex
-.agents
 
 apps/server/dist
 apps/web/dist

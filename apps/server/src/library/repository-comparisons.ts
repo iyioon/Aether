@@ -13,9 +13,9 @@ import {
 import { getFolder } from "./repository-folders.js";
 import { recomputeAssetRankings } from "./repository-rankings.js";
 import type {
-  AssetListOptions,
   ComparisonDecisionInput,
   ComparisonDecisionResult,
+  ComparisonPairOptions,
   ComparisonPairResult,
   ComparisonUndoResult
 } from "./repository-types.js";
@@ -49,11 +49,9 @@ export class ComparisonConflictError extends Error {
 
 export function getNextComparisonPair(
   db: AetherDatabase,
-  options: Omit<
-    AssetListOptions,
-    "offset" | "limit" | "sort" | "sortDirection"
-  > & {
+  options: ComparisonPairOptions & {
     excludeAssetIds?: string[];
+    preferredPairAssetIds?: [string, string];
   }
 ): ComparisonPairResult | null {
   const folder = getFolder(db, options.folderId);
@@ -68,6 +66,25 @@ export function getNextComparisonPair(
   }
 
   const preferences = readComparisonPreferences(db);
+  const preferredPair = options.preferredPairAssetIds;
+  if (
+    preferredPair &&
+    preferredPair[0] !== preferredPair[1] &&
+    preferredPair.every((id) => candidates.some((asset) => asset.id === id)) &&
+    (candidates.length === 2 ||
+      options.excludeAssetIds?.length !== 2 ||
+      comparisonPairKey(...preferredPair) !==
+        comparisonPairKey(
+          options.excludeAssetIds[0]!,
+          options.excludeAssetIds[1]!
+        ))
+  ) {
+    return {
+      leftAssetId: preferredPair[0],
+      rightAssetId: preferredPair[1],
+      progress: comparisonProgress(candidates, preferences)
+    };
+  }
   const decidedPairs = new Set(
     preferences.map((preference) =>
       comparisonPairKey(preference.asset_low_id, preference.asset_high_id)
@@ -93,6 +110,62 @@ export function getNextComparisonPair(
     rightAssetId,
     progress: comparisonProgress(candidates, preferences)
   };
+}
+
+export function prefetchComparisonPairs(
+  db: AetherDatabase,
+  options: ComparisonPairOptions & {
+    count: number;
+    excludePairs?: [string, string][];
+  }
+): ComparisonPairResult[] {
+  const folder = getFolder(db, options.folderId);
+  if (!folder) {
+    return [];
+  }
+  const candidates = readComparisonCandidates(db, folder, options);
+  if (candidates.length < 2) {
+    return [];
+  }
+  const candidateIds = new Set(candidates.map((candidate) => candidate.id));
+  const excludedPairKeys = new Set(
+    (options.excludePairs ?? [])
+      .filter(
+        ([left, right]) =>
+          left !== right && candidateIds.has(left) && candidateIds.has(right)
+      )
+      .map(([left, right]) => comparisonPairKey(left, right))
+  );
+  const availablePairCount =
+    (candidates.length * (candidates.length - 1)) / 2 - excludedPairKeys.size;
+  const count = Math.min(3, Math.max(0, options.count), availablePairCount);
+  const preferences = readComparisonPreferences(db);
+  const decidedPairs = new Set(
+    preferences.map((preference) =>
+      comparisonPairKey(preference.asset_low_id, preference.asset_high_id)
+    )
+  );
+  const candidateModels = candidates.map((candidate) => ({
+    id: candidate.id,
+    skill: candidate.skill,
+    comparisonCount: candidate.comparison_count
+  }));
+  const progress = comparisonProgress(candidates, preferences);
+  const pairs: ComparisonPairResult[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const selected = selectInformativePair(
+      candidateModels,
+      decidedPairs,
+      [],
+      Math.random,
+      excludedPairKeys
+    );
+    excludedPairKeys.add(comparisonPairKey(...selected));
+    const [leftAssetId, rightAssetId] =
+      Math.random() < 0.5 ? selected : [selected[1], selected[0]];
+    pairs.push({ leftAssetId, rightAssetId, progress });
+  }
+  return pairs;
 }
 
 export function resumeComparisonSession(

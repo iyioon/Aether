@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ApiError,
+  getComparisonPrefetch,
   getNextComparisonPair,
   recordComparison,
   resumeComparison,
@@ -11,8 +12,8 @@ import {
   type MediaTypeFilter,
   type ScoreFilter
 } from "../../api/client";
-import { preloadMediaImage } from "../media/media-image-cache";
-import { thumbnailUrl } from "../media/media-urls";
+import { createComparisonMediaPreloader } from "./comparison-media-preloader";
+import { createComparisonPrefetchQueue } from "./comparison-prefetch-queue";
 
 import {
   completeRankingMutation,
@@ -24,8 +25,6 @@ import {
   type PendingRankingMutation,
   type RankingResumeState
 } from "./ranking-resume-state";
-
-const PAIR_POSTER_PRELOAD_BUDGET_MS = 1_200;
 
 interface UseComparisonSessionOptions {
   assetUpdate: AssetRecord | null;
@@ -40,7 +39,7 @@ interface UseComparisonSessionOptions {
 
 interface PreviousDecision {
   eventId: string;
-  pair: ComparisonPairResponse;
+  pairAssetIds: [string, string];
 }
 
 export function useComparisonSession({
@@ -75,7 +74,14 @@ export function useComparisonSession({
   const requestSequenceRef = useRef(0);
   const pairRequestAbortRef = useRef<AbortController | null>(null);
   const submissionInFlightRef = useRef(false);
+  const revalidationPendingRef = useRef(false);
   const checkpointRef = useRef<RankingResumeState | null>(null);
+  const mediaPreloaderRef = useRef<ReturnType<
+    typeof createComparisonMediaPreloader
+  > | null>(null);
+  const prefetchRef = useRef<ReturnType<
+    typeof createComparisonPrefetchQueue
+  > | null>(null);
   const callbacksRef = useRef({ onAssetsUpdated, onRankingChanged });
   callbacksRef.current = { onAssetsUpdated, onRankingChanged };
   const restoreRef = useRef<() => Promise<void>>(async () => undefined);
@@ -97,14 +103,31 @@ export function useComparisonSession({
 
   useEffect(() => {
     isMountedRef.current = true;
+    const media = createComparisonMediaPreloader();
+    const prefetch = createComparisonPrefetchQueue({
+      fetchPairs: getComparisonPrefetch,
+      media,
+      onGenerationChange: () => {
+        if (!isMountedRef.current) return;
+        if (submissionInFlightRef.current)
+          revalidationPendingRef.current = true;
+        else void restoreRef.current();
+      }
+    });
+    mediaPreloaderRef.current = media;
+    prefetchRef.current = prefetch;
     return () => {
       isMountedRef.current = false;
+      prefetch.dispose();
+      if (prefetchRef.current === prefetch) prefetchRef.current = null;
+      if (mediaPreloaderRef.current === media) mediaPreloaderRef.current = null;
     };
   }, []);
 
   useEffect(
     () =>
       subscribeToRankingResumeReset(() => {
+        prefetchRef.current?.clear();
         setResetRevision((current) => current + 1);
       }),
     []
@@ -113,6 +136,9 @@ export function useComparisonSession({
   useEffect(() => {
     if (assetUpdate) {
       setPair((current) => replacePairAsset(current, assetUpdate));
+      prefetchRef.current?.clear();
+      if (submissionInFlightRef.current) revalidationPendingRef.current = true;
+      else void restoreRef.current();
     }
   }, [assetUpdate]);
 
@@ -121,6 +147,8 @@ export function useComparisonSession({
     if (!requestContext || submissionInFlightRef.current) {
       return;
     }
+    revalidationPendingRef.current = false;
+    prefetchRef.current?.clear();
     const requestQueryKey = queryKeyRef.current;
     const generation = rankingResumeGeneration();
     let checkpoint = readRankingResumeState(requestQueryKey) ?? {
@@ -194,16 +222,16 @@ export function useComparisonSession({
       };
       writeRankingResumeState(checkpoint, generation);
       checkpointRef.current = checkpoint;
-      setPreviousDecision(restoredDecision);
+      setPreviousDecision(checkpoint.previousDecision);
       if (nextPair) {
-        await waitForPosterPreloads(
-          [thumbnailUrl(nextPair.left.id), thumbnailUrl(nextPair.right.id)],
-          controller.signal
-        );
+        await mediaPreloaderRef.current?.waitForPair(nextPair, {
+          signal: controller.signal
+        });
       }
       if (isCurrent()) {
         setPair(nextPair);
         setIsPairCommitted(false);
+        if (nextPair) prefetchRef.current?.refill(requestContext, nextPair);
       }
     } catch (caught) {
       if (isCurrent()) {
@@ -232,6 +260,8 @@ export function useComparisonSession({
       if (!checkpoint || checkpoint.pending?.mutationId !== pending.mutationId)
         return;
       submissionInFlightRef.current = true;
+      prefetchRef.current?.cancelRequest();
+      if (pending.kind === "undo") prefetchRef.current?.clear();
       pairRequestAbortRef.current?.abort();
       pairRequestAbortRef.current = null;
       ++requestSequenceRef.current;
@@ -256,6 +286,7 @@ export function useComparisonSession({
                 mutationId: pending.mutationId,
                 comparisonGeneration:
                   checkpoint.comparisonGeneration ?? undefined,
+                nextPairAssetIds: pending.nextPairAssetIds,
                 pairContext: requestContext
               })
             : await undoComparison(
@@ -299,8 +330,31 @@ export function useComparisonSession({
         callbacksRef.current.onAssetsUpdated(response.assets);
         callbacksRef.current.onRankingChanged();
         if (isCurrent()) {
-          submissionInFlightRef.current = false;
-          await restoreRef.current();
+          if (pending.kind === "choice" && response.nextPair !== undefined) {
+            setPreviousDecision(nextCheckpoint.previousDecision);
+            const nextPair = response.nextPair;
+            const controller = new AbortController();
+            pairRequestAbortRef.current = controller;
+            try {
+              if (nextPair)
+                await mediaPreloaderRef.current?.waitForPair(nextPair, {
+                  signal: controller.signal
+                });
+              if (isCurrent() && !controller.signal.aborted) {
+                setPair(nextPair);
+                setIsPairCommitted(false);
+                if (nextPair)
+                  prefetchRef.current?.refill(requestContext, nextPair);
+                else prefetchRef.current?.clear();
+              }
+            } finally {
+              if (pairRequestAbortRef.current === controller)
+                pairRequestAbortRef.current = null;
+            }
+          } else {
+            submissionInFlightRef.current = false;
+            await restoreRef.current();
+          }
         }
       } catch (caught) {
         if (isCurrent()) {
@@ -335,6 +389,12 @@ export function useComparisonSession({
         if (isCurrent()) {
           setChosenAssetId(null);
           setIsSubmitting(false);
+          if (
+            revalidationPendingRef.current &&
+            document.visibilityState === "visible" &&
+            navigator.onLine !== false
+          )
+            void restoreRef.current();
         } else if (isMountedRef.current) {
           void restoreRef.current();
         }
@@ -351,6 +411,7 @@ export function useComparisonSession({
   }, []);
 
   useEffect(() => {
+    prefetchRef.current?.clear();
     setPair(null);
     setPreviousDecision(null);
     setIsPairCommitted(false);
@@ -364,8 +425,19 @@ export function useComparisonSession({
 
   useEffect(() => {
     let timer: number | undefined;
+    const pause = () => {
+      window.clearTimeout(timer);
+      if (submissionInFlightRef.current) revalidationPendingRef.current = true;
+      prefetchRef.current?.pause();
+      cancelPairRequest();
+    };
     const scheduleRestore = () => {
-      if (document.visibilityState !== "visible") return;
+      if (document.visibilityState !== "visible") {
+        pause();
+        return;
+      }
+      prefetchRef.current?.resume();
+      prefetchRef.current?.clear();
       window.clearTimeout(timer);
       timer = window.setTimeout(() => {
         if (
@@ -379,13 +451,17 @@ export function useComparisonSession({
     document.addEventListener("visibilitychange", scheduleRestore);
     window.addEventListener("pageshow", scheduleRestore);
     window.addEventListener("online", scheduleRestore);
+    window.addEventListener("offline", pause);
+    window.addEventListener("pagehide", pause);
     return () => {
       window.clearTimeout(timer);
       document.removeEventListener("visibilitychange", scheduleRestore);
       window.removeEventListener("pageshow", scheduleRestore);
       window.removeEventListener("online", scheduleRestore);
+      window.removeEventListener("offline", pause);
+      window.removeEventListener("pagehide", pause);
     };
-  }, []);
+  }, [cancelPairRequest]);
 
   const chooseAsset = useCallback(
     async (winnerAssetId: string) => {
@@ -393,17 +469,20 @@ export function useComparisonSession({
       if (
         !pair ||
         !checkpoint ||
+        checkpoint.contextKey !== queryKeyRef.current ||
         checkpoint.pending ||
         isPairCommitted ||
         submissionInFlightRef.current ||
         pairRequestAbortRef.current !== null
       )
         return;
+      const prepared = prefetchRef.current?.peek();
       const pending: PendingRankingMutation = {
         kind: "choice",
         mutationId: createRankingMutationId(),
         pairAssetIds: pairIds(pair)!,
-        winnerAssetId
+        winnerAssetId,
+        nextPairAssetIds: prepared ? pairIds(prepared)! : undefined
       };
       const next = { ...checkpoint, pending };
       checkpointRef.current = next;
@@ -422,6 +501,7 @@ export function useComparisonSession({
     if (
       !pair ||
       !checkpoint ||
+      checkpoint.contextKey !== queryKeyRef.current ||
       !requestContext ||
       checkpoint.pending ||
       isPairCommitted ||
@@ -429,6 +509,8 @@ export function useComparisonSession({
       pairRequestAbortRef.current !== null
     )
       return;
+    prefetchRef.current?.cancelRequest();
+    const prepared = prefetchRef.current?.peek();
     const controller = new AbortController();
     pairRequestAbortRef.current = controller;
     const sequence = ++requestSequenceRef.current;
@@ -442,11 +524,32 @@ export function useComparisonSession({
       requestQueryKey === queryKeyRef.current;
     setIsLoading(true);
     setError(null);
-    void getNextComparisonPair({
-      ...requestContext,
-      excludeAssetIds: [pair.left.id, pair.right.id],
-      signal: controller.signal
-    })
+    let validatedPreviousDecision = checkpoint.previousDecision;
+    let validatedGeneration = checkpoint.comparisonGeneration;
+    const loadPair = async () => {
+      if (prepared) {
+        const restored = await resumeComparison({
+          ...requestContext,
+          pairAssetIds: pairIds(prepared),
+          previousDecision: checkpoint.previousDecision,
+          signal: controller.signal
+        });
+        validatedGeneration = restored.comparisonGeneration;
+        validatedPreviousDecision = restored.previousDecision
+          ? {
+              eventId: restored.previousDecision.eventId,
+              pairAssetIds: pairIds(restored.previousDecision.pair)!
+            }
+          : null;
+        if (restored.pair) return restored.pair;
+      }
+      return getNextComparisonPair({
+        ...requestContext,
+        excludeAssetIds: [pair.left.id, pair.right.id],
+        signal: controller.signal
+      });
+    };
+    void loadPair()
       .then(async (nextPair) => {
         if (!isCurrent()) return;
         const next = {
@@ -455,17 +558,19 @@ export function useComparisonSession({
           pairAssetIds: pairIds(nextPair),
           previousDecision:
             nextPair.comparisonGeneration === checkpoint.comparisonGeneration
-              ? checkpoint.previousDecision
+              ? validatedPreviousDecision
               : null
         };
         writeRankingResumeState(next, generation);
         checkpointRef.current = next;
-        if (next.previousDecision === null) setPreviousDecision(null);
-        await waitForPosterPreloads(
-          [thumbnailUrl(nextPair.left.id), thumbnailUrl(nextPair.right.id)],
-          controller.signal
-        );
-        if (isCurrent()) setPair(nextPair);
+        setPreviousDecision(next.previousDecision);
+        await mediaPreloaderRef.current?.waitForPair(nextPair, {
+          signal: controller.signal
+        });
+        if (isCurrent()) {
+          setPair(nextPair);
+          prefetchRef.current?.refill(requestContext, nextPair);
+        }
       })
       .catch((caught: unknown) => {
         if (isCurrent()) {
@@ -475,11 +580,15 @@ export function useComparisonSession({
           ) {
             const next = {
               ...checkpoint,
-              pairAssetIds: null
+              comparisonGeneration: validatedGeneration,
+              pairAssetIds: null,
+              previousDecision: validatedPreviousDecision
             };
             writeRankingResumeState(next, generation);
             checkpointRef.current = next;
+            setPreviousDecision(next.previousDecision);
             setPair(null);
+            prefetchRef.current?.clear();
           } else {
             setError(
               caught instanceof ApiError
@@ -502,6 +611,7 @@ export function useComparisonSession({
     if (
       !previousDecision ||
       !checkpoint ||
+      checkpoint.contextKey !== queryKeyRef.current ||
       checkpoint.pending ||
       submissionInFlightRef.current ||
       pairRequestAbortRef.current !== null
@@ -511,7 +621,7 @@ export function useComparisonSession({
       kind: "undo",
       mutationId: createRankingMutationId(),
       eventId: previousDecision.eventId,
-      pairAssetIds: pairIds(previousDecision.pair)!
+      pairAssetIds: previousDecision.pairAssetIds
     };
     const next = { ...checkpoint, pending };
     checkpointRef.current = next;
@@ -539,37 +649,6 @@ export function useComparisonSession({
 
 function pairIds(pair: ComparisonPairResponse | null): [string, string] | null {
   return pair ? [pair.left.id, pair.right.id] : null;
-}
-
-async function waitForPosterPreloads(
-  sources: string[],
-  signal: AbortSignal
-): Promise<void> {
-  if (signal.aborted) {
-    return;
-  }
-
-  await new Promise<void>((resolve) => {
-    let settled = false;
-    const timeoutId = window.setTimeout(finish, PAIR_POSTER_PRELOAD_BUDGET_MS);
-
-    function finish() {
-      if (settled) {
-        return;
-      }
-
-      settled = true;
-      window.clearTimeout(timeoutId);
-      signal.removeEventListener("abort", finish);
-      resolve();
-    }
-
-    signal.addEventListener("abort", finish, { once: true });
-    void Promise.all(sources.map((source) => preloadMediaImage(source))).then(
-      finish,
-      finish
-    );
-  });
 }
 
 function replacePairAsset(

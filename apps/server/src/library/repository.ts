@@ -43,6 +43,7 @@ export {
 export {
   ComparisonConflictError,
   getNextComparisonPair,
+  prefetchComparisonPairs,
   recordComparisonDecision,
   resumeComparisonSession,
   resetAssetComparisons,
@@ -74,6 +75,7 @@ export type {
   ComparisonDecisionInput,
   ComparisonDecisionResult,
   ComparisonPairResult,
+  ComparisonPairOptions,
   ComparisonUndoResult,
   DerivativeRecord,
   FolderRecord,
@@ -632,7 +634,10 @@ export function updateAssetScoresBatch(
   };
 }
 
-function getAssetsByIds(db: AetherDatabase, assetIds: string[]): AssetRecord[] {
+export function getAssetsByIds(
+  db: AetherDatabase,
+  assetIds: string[]
+): AssetRecord[] {
   if (assetIds.length === 0) {
     return [];
   }

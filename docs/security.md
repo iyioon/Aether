@@ -47,6 +47,10 @@ positions in local storage. Signing out clears that state. Appearance
 preferences remain in this browser. The service worker caches only public
 application files; private API responses and media bypass it.
 
+Comparison preloading requests a small number of upcoming items through the
+same authenticated media routes. Its queue stays in memory and stops when the
+page is hidden; it does not create a separate persistent media store.
+
 Metadata responses are marked `no-store`. Media files and generated previews
 use private browser caching so the gallery remains responsive. Signing out or
 deleting a source file cannot immediately revoke bytes that a browser already

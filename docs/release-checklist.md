@@ -53,6 +53,10 @@ Never test rebuild or wipe against the only copy of a real library database.
   no private API or media responses.
 - Verify that vote/Undo retries do not create duplicate changes, and comparison
   resets invalidate pending requests from other tabs or devices.
+- Check prepared comparison transitions, skipped pairs, Undo, filter changes,
+  small libraries, and lost vote responses. Verify bounded background requests,
+  data-saving behavior, cancellation while hidden, and video loading on a slow
+  connection.
 
 ## Security
 

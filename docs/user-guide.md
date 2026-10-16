@@ -28,6 +28,14 @@ In comparison mode, select the item that should rank higher or skip the pair.
 The left and right arrow keys choose the matching side. You can undo the most
 recent choice. Choosing the same pair again replaces the earlier choice.
 
+While you compare, Aether prepares up to three upcoming pairs and their display
+images in the background. Your choice is confirmed by the server before the
+next pair appears. Ready images can appear immediately after confirmation;
+video playback and uncached media can still take time to load. Large originals
+load when displayed to limit memory use. Aether reduces
+preloading when the browser reports a slow connection or data-saving mode, and
+stops background preparation while the app is hidden.
+
 **Compared** is the number of items included in at least one current pair.
 **Active pairs** is the number of unique pair choices. These numbers show how
 much comparison evidence you have collected; they are not a completion target.

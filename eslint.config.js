@@ -15,6 +15,7 @@ export default tseslint.config(
       "**/node_modules/**",
       ".aether-preserve/**",
       ".e2e/**",
+      ".local-test-artifacts/**",
       ".playwright-cli/**",
       "aether-data/**",
       "media/**",

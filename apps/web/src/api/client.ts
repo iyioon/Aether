@@ -156,6 +156,11 @@ export interface ComparisonSessionResumeResponse {
   } | null;
 }
 
+export interface ComparisonPrefetchResponse {
+  comparisonGeneration: string;
+  pairs: ComparisonPairResponse[];
+}
+
 export type ScanWarning = "derivative_cache_cleanup_failed";
 
 export interface ScanResult {
@@ -376,11 +381,26 @@ export async function recordComparison(input: {
   pairContext?: ComparisonPairContext;
   mutationId?: string;
   comparisonGeneration?: string;
+  nextPairAssetIds?: [string, string];
 }): Promise<ComparisonDecisionResponse> {
   return request<ComparisonDecisionResponse>("/api/comparisons", {
     method: "POST",
     body: JSON.stringify(input)
   });
+}
+
+export async function getComparisonPrefetch(
+  input: ComparisonPairContext & {
+    count: number;
+    excludePairs: [string, string][];
+    signal?: AbortSignal;
+  }
+): Promise<ComparisonPrefetchResponse> {
+  const { folderId, signal, ...body } = input;
+  return request<ComparisonPrefetchResponse>(
+    `/api/folders/${encodeURIComponent(folderId)}/comparisons/prefetch`,
+    { method: "POST", body: JSON.stringify(body), signal }
+  );
 }
 
 export async function undoComparison(

@@ -54,6 +54,32 @@ describe("ranking resume checkpoint", () => {
     }
   });
 
+  it("retains a prepared next pair with an uncertain choice across reloads", async () => {
+    const resume = await import("./ranking-resume-state");
+    const pending = {
+      kind: "choice" as const,
+      mutationId,
+      winnerAssetId: "left",
+      pairAssetIds: ["left", "right"] as [string, string],
+      nextPairAssetIds: ["next-right", "next-left"] as [string, string]
+    };
+    const serialize = (proposal: unknown) =>
+      JSON.stringify({ version: 1, ...checkpoint, pending: proposal });
+    expect(resume.parseRankingResumeState(serialize(pending))?.pending).toEqual(
+      pending
+    );
+    const { nextPairAssetIds: _proposal, ...legacyPending } = pending;
+    expect(
+      resume.parseRankingResumeState(serialize(legacyPending))?.pending
+    ).toEqual(legacyPending);
+    for (const invalid of [["same", "same"], ["only-one"], null, [1, 2]])
+      expect(
+        resume.parseRankingResumeState(
+          serialize({ ...pending, nextPairAssetIds: invalid })
+        )
+      ).toBeNull();
+  });
+
   it("keeps working in memory when storage reads and writes fail", async () => {
     vi.stubGlobal("window", {
       localStorage: {

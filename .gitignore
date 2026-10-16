@@ -9,7 +9,7 @@ playwright-report/
 test-results/
 .playwright-cli/
 .e2e/
-/.codex-test-tmp/
+/.local-test-artifacts/
 aether-data/
 backups/
 .aether-preserve/

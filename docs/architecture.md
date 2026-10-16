@@ -126,6 +126,35 @@ decision events. A regularized Bradley-Terry model turns the active comparison
 graph into relative scores. Direct score edits are stored separately so they do
 not disappear when comparisons change.
 
+The ranking session keeps a lookahead of up to three distinct pairs in memory.
+A bounded, authenticated prefetch request excludes the visible pair and pairs
+already queued. Selection still follows the server's ranking policy. After a
+choice, the vote request offers the next prepared pair; the server validates it
+against the updated filters and comparison generation before accepting it.
+Invalid candidates fall back to a new server-selected pair. The client waits
+for the vote acknowledgement, uses the returned records and progress, and
+refills the queue. It never displays an unconfirmed vote as saved.
+
+Preparation loads the sources used by comparison cards: thumbnails for still
+images and video posters, original animated images, and a request for at most
+the first 512 KiB of a video. This does not guarantee immediate video playback.
+Original-image preparation requires known dimensions and file size. Each file
+is limited to 8 MiB and 4 million pixels, with a queue budget of 16 MiB and
+8 million pixels. Larger or unknown originals load when displayed, using the
+prepared thumbnail while they load.
+When the browser reports data-saving mode, a 2G connection, or an estimated
+downlink below 1 Mb/s, only the first queued pair's thumbnails are prepared;
+original images and video bytes are not requested. Hidden pages cancel preparation.
+Changing filters, undoing, resetting comparisons, or restoring the session
+discards outdated candidates. Prefetched records and media are not persisted
+in ranking checkpoints or the service worker's public cache; media uses the
+existing authenticated private browser cache.
+
+The lifecycle and loading behavior follows the browser guidance for
+[hidden pages](https://developer.chrome.com/docs/web-platform/page-lifecycle-api),
+[image decoding](https://developer.mozilla.org/en-US/docs/Web/API/HTMLImageElement/decode),
+and [HTTP range requests](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Range_requests).
+
 Zero is the only unranked score. Positive scores are ranked.
 
 ## Data Directory

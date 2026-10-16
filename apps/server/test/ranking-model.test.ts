@@ -70,4 +70,63 @@ describe("ranking model", () => {
       comparisonPairKey("right", "left")
     );
   });
+
+  it("uses an available anchor when every pair for the least-exposed asset is excluded", () => {
+    const candidates = [
+      { id: "a", skill: 0, comparisonCount: 0 },
+      { id: "b", skill: 0, comparisonCount: 5 },
+      { id: "c", skill: 0, comparisonCount: 5 }
+    ];
+    const pair = selectInformativePair(
+      candidates,
+      new Set(),
+      [],
+      () => 0,
+      new Set([comparisonPairKey("a", "b"), comparisonPairKey("a", "c")])
+    );
+    expect(comparisonPairKey(...pair)).toBe(comparisonPairKey("b", "c"));
+  });
+
+  it("never returns a blocked pair in either selection branch", () => {
+    const candidates = ["a", "b", "c", "d"].map((id) => ({
+      id,
+      skill: 0,
+      comparisonCount: 0
+    }));
+    const excluded = new Set([
+      comparisonPairKey("a", "b"),
+      comparisonPairKey("a", "c"),
+      comparisonPairKey("b", "d")
+    ]);
+    for (const randomValue of [0, 0.5, 0.99]) {
+      const pair = selectInformativePair(
+        candidates,
+        new Set(),
+        [],
+        () => randomValue,
+        excluded
+      );
+      expect(excluded.has(comparisonPairKey(...pair))).toBe(false);
+    }
+  });
+
+  it("retains the two-asset fallback for ordinary selection and rejects an exhausted batch", () => {
+    const candidates = ["a", "b"].map((id) => ({
+      id,
+      skill: 0,
+      comparisonCount: 0
+    }));
+    expect(
+      selectInformativePair(candidates, new Set(), ["a", "b"], () => 0)
+    ).toEqual(["a", "b"]);
+    expect(() =>
+      selectInformativePair(
+        candidates,
+        new Set(),
+        [],
+        () => 0,
+        new Set([comparisonPairKey("a", "b")])
+      )
+    ).toThrow("No comparison pairs remain");
+  });
 });

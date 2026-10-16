@@ -7,6 +7,7 @@ export type PendingRankingMutation =
       kind: "choice";
       mutationId: string;
       winnerAssetId: string;
+      nextPairAssetIds?: [string, string];
     })
   | (RankingPairIds & {
       kind: "undo";
@@ -228,7 +229,8 @@ function isPendingMutation(value: unknown): value is PendingRankingMutation {
   }
   return value.kind === "choice"
     ? typeof value.winnerAssetId === "string" &&
-        value.pairAssetIds.includes(value.winnerAssetId)
+        value.pairAssetIds.includes(value.winnerAssetId) &&
+        (value.nextPairAssetIds === undefined || isPair(value.nextPairAssetIds))
     : value.kind === "undo" && isUuid(value.eventId);
 }
 

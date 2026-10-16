@@ -4,7 +4,9 @@ import { getComparisonGeneration } from "./comparison-generation.js";
 import {
   ComparisonConflictError,
   getAsset,
+  getAssetsByIds,
   getNextComparisonPair,
+  prefetchComparisonPairs,
   recordComparisonDecision,
   resumeComparisonSession,
   undoComparisonDecision
@@ -13,6 +15,7 @@ import {
   ComparisonDecisionBody,
   ComparisonEventParams,
   ComparisonPairQuery,
+  ComparisonPrefetchBody,
   ComparisonResumeBody,
   ComparisonUndoBody,
   FolderParams
@@ -46,6 +49,44 @@ export function registerComparisonRoutes(
 
     return pair;
   });
+
+  app.post(
+    "/api/folders/:folderId/comparisons/prefetch",
+    async (request, reply) => {
+      const params = FolderParams.safeParse(request.params);
+      const body = ComparisonPrefetchBody.safeParse(request.body);
+      if (!params.success || !body.success) {
+        return reply.code(400).send({ error: "invalid_request" });
+      }
+      const pairs = prefetchComparisonPairs(db, {
+        folderId: params.data.folderId,
+        type: body.data.type,
+        recursive: body.data.recursive,
+        search: body.data.search,
+        tags: body.data.tags,
+        scoreFilter: body.data.score,
+        count: body.data.count,
+        excludePairs: body.data.excludePairs
+      });
+      const assetsById = new Map(
+        getAssetsByIds(
+          db,
+          pairs.flatMap((pair) => [pair.leftAssetId, pair.rightAssetId])
+        ).map((asset) => [asset.id, asset])
+      );
+      const comparisonGeneration = getComparisonGeneration(db);
+      return {
+        comparisonGeneration,
+        pairs: pairs.flatMap((pair) => {
+          const left = assetsById.get(pair.leftAssetId);
+          const right = assetsById.get(pair.rightAssetId);
+          return left && right
+            ? [{ left, right, progress: pair.progress, comparisonGeneration }]
+            : [];
+        })
+      };
+    }
+  );
 
   app.post(
     "/api/folders/:folderId/comparisons/resume",
@@ -85,7 +126,7 @@ export function registerComparisonRoutes(
     }
 
     try {
-      const { pairContext, ...decision } = body.data;
+      const { pairContext, nextPairAssetIds, ...decision } = body.data;
       const result = recordComparisonDecision(db, {
         ...decision,
         createdAt: new Date().toISOString()
@@ -114,6 +155,7 @@ export function registerComparisonRoutes(
           search: pairContext.search,
           tags: pairContext.tags,
           scoreFilter: pairContext.score,
+          preferredPairAssetIds: nextPairAssetIds,
           excludeAssetIds: [decision.leftAssetId, decision.rightAssetId]
         });
       } catch (error) {

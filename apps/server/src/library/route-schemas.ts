@@ -61,6 +61,13 @@ const OrderedComparisonPair = z
   .tuple([z.string().min(1).max(256), z.string().min(1).max(256)])
   .refine(([left, right]) => left !== right);
 
+export const ComparisonPrefetchBody = ComparisonPairContext.omit({
+  folderId: true
+}).extend({
+  count: z.number().int().min(1).max(3).default(3),
+  excludePairs: z.array(OrderedComparisonPair).max(4).default([])
+});
+
 export const ComparisonResumeBody = ComparisonPairContext.omit({
   folderId: true
 }).extend({
@@ -94,10 +101,15 @@ export const ComparisonDecisionBody = z
     winnerAssetId: z.string().min(1).max(256),
     mutationId: z.uuid().optional(),
     comparisonGeneration: z.uuid().optional(),
+    nextPairAssetIds: OrderedComparisonPair.optional(),
     pairContext: ComparisonPairContext.optional()
   })
   .refine((data) => data.leftAssetId !== data.rightAssetId)
   .refine((data) => !data.mutationId || data.comparisonGeneration !== undefined)
+  .refine(
+    (data) =>
+      !data.nextPairAssetIds || Boolean(data.pairContext && data.mutationId)
+  )
   .refine((data) =>
     [data.leftAssetId, data.rightAssetId].includes(data.winnerAssetId)
   );

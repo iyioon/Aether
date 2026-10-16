@@ -4,6 +4,8 @@ Notable changes to Aether are recorded here.
 
 ## Unreleased
 
+- Prepare upcoming comparison pairs and media in the background, limit requests
+  on slow connections, and check each transition on the server.
 - Restore navigation, comparison pairs and Undo, Settings tabs, fullscreen items,
   and scroll positions after reopening the app.
 - Recover interrupted comparison requests without duplicate changes, and clear

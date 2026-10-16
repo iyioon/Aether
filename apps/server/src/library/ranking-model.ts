@@ -110,17 +110,35 @@ export function selectInformativePair(
   candidates: ComparisonCandidate[],
   decidedPairs: ReadonlySet<string>,
   excludedAssetIds: string[],
-  random: RandomSource = Math.random
+  random: RandomSource = Math.random,
+  excludedPairKeys: ReadonlySet<string> = new Set()
 ): [string, string] {
   if (candidates.length < 2) {
     throw new Error("At least two candidates are required.");
   }
 
+  // Exclusions are bounded by the caller. The first available opponent ends
+  // each search, so this does not enumerate every possible pair.
+  const eligibleCandidates =
+    excludedPairKeys.size === 0
+      ? candidates
+      : candidates.filter((candidate) =>
+          candidates.some(
+            (opponent) =>
+              opponent.id !== candidate.id &&
+              !excludedPairKeys.has(
+                comparisonPairKey(candidate.id, opponent.id)
+              )
+          )
+        );
+  if (eligibleCandidates.length < 2) {
+    throw new Error("No comparison pairs remain after exclusions.");
+  }
   let minimumCount = Number.POSITIVE_INFINITY;
-  for (const candidate of candidates) {
+  for (const candidate of eligibleCandidates) {
     minimumCount = Math.min(minimumCount, candidate.comparisonCount ?? 0);
   }
-  const anchorPool = candidates.filter(
+  const anchorPool = eligibleCandidates.filter(
     (candidate) => (candidate.comparisonCount ?? 0) <= minimumCount + 1
   );
   const anchor = randomEntry(anchorPool, random);
@@ -131,7 +149,10 @@ export function selectInformativePair(
   const opponents: ComparisonCandidate[] = [];
   const eligibleOpponents: ComparisonCandidate[] = [];
   for (const candidate of candidates) {
-    if (candidate.id === anchor.id) {
+    if (
+      candidate.id === anchor.id ||
+      excludedPairKeys.has(comparisonPairKey(anchor.id, candidate.id))
+    ) {
       continue;
     }
 

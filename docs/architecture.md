@@ -101,6 +101,24 @@ reads and uses records returned by the server after a change. Scroll position
 and appearance choices are browser-local conveniences, not part of the library
 database.
 
+The web app saves the page, library query, comparison workspace, Settings tab
+and optional viewer asset ID. Explicit links take precedence; Home Screen
+launches resume the saved location. Scroll positions use bounded localStorage
+records, with migration from older sessionStorage records. Foreground refreshes
+preserve loaded depth and anchors; `visibilitychange` and `pagehide` save pending
+position changes when the page is hidden.
+
+Ranking saves ordered asset IDs, the last choice that can be undone, and IDs for
+requests with an unknown result. The server validates resumed IDs against
+current filters and uses request IDs to apply each vote or Undo once. Resetting
+comparisons invalidates older pending requests. Server records remain authoritative.
+
+Production builds emit a service worker with a cache name derived from the
+build's public assets. It precaches only the static application shell and lazy
+chunks, bypasses all private API requests, and provides navigation recovery when
+the network fails. Worker updates wait for previous clients to close; they do
+not force a running session to reload. Development runs do not register it.
+
 ## Pairwise Ranking
 
 Aether keeps the latest active choice for each pair while retaining reversible

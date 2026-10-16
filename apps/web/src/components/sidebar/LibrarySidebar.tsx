@@ -206,9 +206,14 @@ function ResizableSidebarRail() {
 
   useLayoutEffect(() => {
     const wrapper = sidebarWrapperFor(railRef.current);
-    const storedWidth = Number.parseFloat(
-      window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY) ?? ""
-    );
+    let storedWidth = Number.NaN;
+    try {
+      storedWidth = Number.parseFloat(
+        window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY) ?? ""
+      );
+    } catch {
+      // The default width works when browser storage is unavailable.
+    }
 
     if (wrapper && Number.isFinite(storedWidth)) {
       applySidebarWidth(wrapper, storedWidth, railRef.current);
@@ -262,10 +267,7 @@ function ResizableSidebarRail() {
       return;
     }
 
-    window.localStorage.setItem(
-      SIDEBAR_WIDTH_STORAGE_KEY,
-      String(Math.round(activeResize.width))
-    );
+    persistSidebarWidth(Math.round(activeResize.width));
     resizeRef.current = null;
     delete document.documentElement.dataset.sidebarResizing;
 
@@ -295,7 +297,7 @@ function ResizableSidebarRail() {
       sidebar.getBoundingClientRect().width + direction * 16,
       event.currentTarget
     );
-    window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(width));
+    persistSidebarWidth(width);
   }
 
   function resetWidth(event: ReactPointerEvent<HTMLButtonElement>) {
@@ -306,7 +308,7 @@ function ResizableSidebarRail() {
     }
 
     applySidebarWidth(wrapper, DEFAULT_SIDEBAR_WIDTH, event.currentTarget);
-    window.localStorage.removeItem(SIDEBAR_WIDTH_STORAGE_KEY);
+    persistSidebarWidth(null);
   }
 
   return (
@@ -334,6 +336,18 @@ function ResizableSidebarRail() {
 
 function sidebarWrapperFor(element: HTMLElement | null): HTMLElement | null {
   return element?.closest<HTMLElement>('[data-slot="sidebar-wrapper"]') ?? null;
+}
+
+function persistSidebarWidth(width: number | null): void {
+  try {
+    if (width === null) {
+      window.localStorage.removeItem(SIDEBAR_WIDTH_STORAGE_KEY);
+    } else {
+      window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(width));
+    }
+  } catch {
+    // Resizing must finish even when the preference cannot be saved.
+  }
 }
 
 function applySidebarWidth(

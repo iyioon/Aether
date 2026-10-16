@@ -14,7 +14,9 @@ import type { AssetRecord } from "../../api/client";
 import { useAutoLoadSentinel } from "../../hooks/useAutoLoadSentinel";
 import { feedKeyboardCommand, hasShortcutModifier } from "../../lib/keyboard";
 import {
+  checkpointScrollPositionOnPageLifecycle,
   flushSessionScrollPositions,
+  hasScrollOrderChanged,
   readSessionScrollPosition,
   writeSessionScrollPosition
 } from "../scroll-restoration";
@@ -93,6 +95,12 @@ export function FeedPreview({
   const contextKeyRef = useRef(scrollContextKey);
   const assetsRef = useRef(assets);
   const lastReportedAssetIdRef = useRef<string | null>(null);
+  const observedSyncedAssetIdRef = useRef(syncedAssetId);
+  const pendingSyncedAssetIdRef = useRef(syncedAssetId);
+  const pendingRefreshRef = useRef<{
+    contextKey: string;
+    assetIds: string[];
+  } | null>(null);
   const onActiveAssetChangeRef = useRef(onActiveAssetChange);
   const onOpenAnnotationsRef = useRef(onOpenAnnotations);
   const onOpenAssetRef = useRef(onOpenAsset);
@@ -101,6 +109,10 @@ export function FeedPreview({
   onActiveAssetChangeRef.current = onActiveAssetChange;
   onOpenAnnotationsRef.current = onOpenAnnotations;
   onOpenAssetRef.current = onOpenAsset;
+  if (observedSyncedAssetIdRef.current !== syncedAssetId) {
+    observedSyncedAssetIdRef.current = syncedAssetId;
+    pendingSyncedAssetIdRef.current = syncedAssetId;
+  }
   const wheelLockUntilRef = useRef(0);
   const touchStartRef = useRef<FeedTouchStart | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -180,6 +192,33 @@ export function FeedPreview({
   }, []);
 
   useLayoutEffect(() => {
+    if (!isContentReady) {
+      if (restoredContextRef.current === scrollContextKey) {
+        saveFeedPosition();
+        pendingRefreshRef.current = {
+          contextKey: scrollContextKey,
+          assetIds: assetsRef.current.map((asset) => asset.id)
+        };
+      } else {
+        pendingRefreshRef.current = null;
+      }
+      return;
+    }
+
+    const pendingRefresh = pendingRefreshRef.current;
+    pendingRefreshRef.current = null;
+    if (
+      pendingRefresh?.contextKey === scrollContextKey &&
+      hasScrollOrderChanged(
+        pendingRefresh.assetIds,
+        assetsRef.current.map((asset) => asset.id)
+      )
+    ) {
+      restoredContextRef.current = null;
+    }
+  }, [isContentReady, saveFeedPosition, scrollContextKey]);
+
+  useLayoutEffect(() => {
     const feedElement = feedRef.current;
 
     if (
@@ -192,8 +231,9 @@ export function FeedPreview({
     }
 
     const storedPosition = readSessionScrollPosition("library-content");
-    const syncedIndex = syncedAssetId
-      ? assets.findIndex((asset) => asset.id === syncedAssetId)
+    const requestedSyncAssetId = pendingSyncedAssetIdRef.current;
+    const syncedIndex = requestedSyncAssetId
+      ? assets.findIndex((asset) => asset.id === requestedSyncAssetId)
       : -1;
     let intendedIndex = Math.max(0, syncedIndex);
 
@@ -231,6 +271,9 @@ export function FeedPreview({
       restoreFrameRef.current = null;
       isRestoringRef.current = false;
       saveFeedPosition(nextIndex);
+      if (pendingSyncedAssetIdRef.current === requestedSyncAssetId) {
+        pendingSyncedAssetIdRef.current = null;
+      }
       didCompleteRestoration = true;
       setIsScrollPositionReady(true);
     });
@@ -263,7 +306,7 @@ export function FeedPreview({
   useEffect(() => {
     if (
       !syncedAssetId ||
-      syncedAssetId === lastReportedAssetIdRef.current ||
+      pendingSyncedAssetIdRef.current !== syncedAssetId ||
       !isContentReady ||
       isRestoringRef.current ||
       restoredContextRef.current !== scrollContextKey
@@ -282,6 +325,7 @@ export function FeedPreview({
     setActiveIndex(syncedIndex);
     latestActiveIndexRef.current = syncedIndex;
     lastReportedAssetIdRef.current = syncedAssetId;
+    pendingSyncedAssetIdRef.current = null;
 
     if (!feedElement || !syncedItem) {
       return;
@@ -326,19 +370,19 @@ export function FeedPreview({
         window.cancelAnimationFrame(syncFrameRef.current);
       }
       saveFeedPosition();
+      flushSessionScrollPositions("library-content");
     },
     [saveFeedPosition]
   );
 
-  useEffect(() => {
-    const handlePageHide = () => {
-      saveFeedPosition();
-      flushSessionScrollPositions("library-content");
-    };
-
-    window.addEventListener("pagehide", handlePageHide);
-    return () => window.removeEventListener("pagehide", handlePageHide);
-  }, [saveFeedPosition]);
+  useEffect(
+    () =>
+      checkpointScrollPositionOnPageLifecycle(
+        "library-content",
+        saveFeedPosition
+      ),
+    [saveFeedPosition]
+  );
 
   const syncActiveFeedIndex = useCallback(() => {
     const nextIndex = nearestFeedIndexFromScroll(

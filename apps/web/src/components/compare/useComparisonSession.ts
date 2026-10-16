@@ -3,14 +3,27 @@ import {
   ApiError,
   getNextComparisonPair,
   recordComparison,
+  resumeComparison,
   undoComparison,
   type AssetRecord,
   type ComparisonPairResponse,
+  type ComparisonPairContext,
   type MediaTypeFilter,
   type ScoreFilter
 } from "../../api/client";
 import { preloadMediaImage } from "../media/media-image-cache";
 import { thumbnailUrl } from "../media/media-urls";
+
+import {
+  completeRankingMutation,
+  createRankingMutationId,
+  rankingResumeGeneration,
+  readRankingResumeState,
+  subscribeToRankingResumeReset,
+  writeRankingResumeState,
+  type PendingRankingMutation,
+  type RankingResumeState
+} from "./ranking-resume-state";
 
 const PAIR_POSTER_PRELOAD_BUDGET_MS = 1_200;
 
@@ -41,347 +54,473 @@ export function useComparisonSession({
   onRankingChanged
 }: UseComparisonSessionOptions) {
   const [pair, setPair] = useState<ComparisonPairResponse | null>(null);
+  const [previousDecision, setPreviousDecision] =
+    useState<PreviousDecision | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isPairCommitted, setIsPairCommitted] = useState(false);
   const [chosenAssetId, setChosenAssetId] = useState<string | null>(null);
-  const [previousDecision, setPreviousDecision] =
-    useState<PreviousDecision | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const requestSequenceRef = useRef(0);
-  const pairRequestAbortRef = useRef<AbortController | null>(null);
-  const pairCommittedRef = useRef(false);
-  const submissionInFlightRef = useRef(false);
-  const isMountedRef = useRef(false);
-  const queryKey = [
-    folderId ?? "",
+  const [resetRevision, setResetRevision] = useState(0);
+  const queryKey = JSON.stringify([
+    folderId,
     mediaType,
     scoreFilter,
     search,
-    ...tagFilters
-  ].join("\u0000");
+    tagFilters
+  ]);
   const queryKeyRef = useRef(queryKey);
   queryKeyRef.current = queryKey;
+  const isMountedRef = useRef(false);
+  const requestSequenceRef = useRef(0);
+  const pairRequestAbortRef = useRef<AbortController | null>(null);
+  const submissionInFlightRef = useRef(false);
+  const checkpointRef = useRef<RankingResumeState | null>(null);
+  const callbacksRef = useRef({ onAssetsUpdated, onRankingChanged });
+  callbacksRef.current = { onAssetsUpdated, onRankingChanged };
+  const restoreRef = useRef<() => Promise<void>>(async () => undefined);
+  const mutationRef = useRef<
+    (pending: PendingRankingMutation) => Promise<void>
+  >(async () => undefined);
+  const context: ComparisonPairContext | null = folderId
+    ? {
+        folderId,
+        type: mediaType,
+        recursive: true,
+        search,
+        tags: tagFilters,
+        score: scoreFilter
+      }
+    : null;
+  const contextRef = useRef(context);
+  contextRef.current = context;
 
   useEffect(() => {
     isMountedRef.current = true;
-
     return () => {
       isMountedRef.current = false;
     };
   }, []);
 
+  useEffect(
+    () =>
+      subscribeToRankingResumeReset(() => {
+        setResetRevision((current) => current + 1);
+      }),
+    []
+  );
+
   useEffect(() => {
-    if (!assetUpdate) {
+    if (assetUpdate) {
+      setPair((current) => replacePairAsset(current, assetUpdate));
+    }
+  }, [assetUpdate]);
+
+  const restoreSession = useCallback(async () => {
+    const requestContext = contextRef.current;
+    if (!requestContext || submissionInFlightRef.current) {
+      return;
+    }
+    const requestQueryKey = queryKeyRef.current;
+    const generation = rankingResumeGeneration();
+    let checkpoint = readRankingResumeState(requestQueryKey) ?? {
+      contextKey: requestQueryKey,
+      comparisonGeneration: null,
+      pairAssetIds: null,
+      previousDecision: null,
+      pending: null
+    };
+    checkpointRef.current = checkpoint;
+    writeRankingResumeState(checkpoint, generation);
+    if (checkpoint.pending) {
+      await mutationRef.current(checkpoint.pending);
       return;
     }
 
-    setPair((currentPair) => replacePairAsset(currentPair, assetUpdate));
-  }, [assetUpdate]);
-
-  const presentPair = useCallback(
-    async (
-      nextPair: ComparisonPairResponse | null,
-      requestSequence: number,
-      controller: AbortController
-    ) => {
+    pairRequestAbortRef.current?.abort();
+    const controller = new AbortController();
+    pairRequestAbortRef.current = controller;
+    const sequence = ++requestSequenceRef.current;
+    const isCurrent = () =>
+      !controller.signal.aborted &&
+      isMountedRef.current &&
+      requestSequenceRef.current === sequence &&
+      queryKeyRef.current === requestQueryKey &&
+      rankingResumeGeneration() === generation;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const restored = await resumeComparison({
+        ...requestContext,
+        pairAssetIds: checkpoint.pairAssetIds,
+        previousDecision: checkpoint.previousDecision,
+        signal: controller.signal
+      });
+      if (!isCurrent()) return;
+      let nextPair = restored.pair;
+      if (!nextPair) {
+        try {
+          nextPair = await getNextComparisonPair({
+            ...requestContext,
+            score: requestContext.score,
+            signal: controller.signal
+          });
+        } catch (caught) {
+          if (!(
+            caught instanceof ApiError &&
+            caught.code === "comparison_pair_unavailable"
+          )) {
+            throw caught;
+          }
+        }
+      }
+      if (!isCurrent()) return;
+      const comparisonGeneration =
+        nextPair?.comparisonGeneration ?? restored.comparisonGeneration;
+      const restoredDecision =
+        comparisonGeneration === restored.comparisonGeneration
+          ? restored.previousDecision
+          : null;
+      checkpoint = {
+        ...checkpoint,
+        comparisonGeneration,
+        pairAssetIds: pairIds(nextPair),
+        previousDecision: restoredDecision
+          ? {
+              eventId: restoredDecision.eventId,
+              pairAssetIds: pairIds(restoredDecision.pair)!
+            }
+          : null
+      };
+      writeRankingResumeState(checkpoint, generation);
+      checkpointRef.current = checkpoint;
+      setPreviousDecision(restoredDecision);
       if (nextPair) {
         await waitForPosterPreloads(
           [thumbnailUrl(nextPair.left.id), thumbnailUrl(nextPair.right.id)],
           controller.signal
         );
       }
-
-      if (
-        controller.signal.aborted ||
-        requestSequenceRef.current !== requestSequence
-      ) {
-        return;
+      if (isCurrent()) {
+        setPair(nextPair);
+        setIsPairCommitted(false);
       }
+    } catch (caught) {
+      if (isCurrent()) {
+        setError(
+          caught instanceof ApiError
+            ? caught.code
+            : "comparison_resume_unavailable"
+        );
+      }
+    } finally {
+      if (pairRequestAbortRef.current === controller) {
+        pairRequestAbortRef.current = null;
+        if (isCurrent()) setIsLoading(false);
+      }
+    }
+  }, []);
+  restoreRef.current = restoreSession;
 
-      setPair(nextPair);
-      pairCommittedRef.current = false;
-      setIsPairCommitted(false);
+  const performMutation = useCallback(
+    async (pending: PendingRankingMutation) => {
+      const requestContext = contextRef.current;
+      if (!requestContext || submissionInFlightRef.current) return;
+      const requestQueryKey = queryKeyRef.current;
+      const generation = rankingResumeGeneration();
+      const checkpoint = readRankingResumeState(requestQueryKey);
+      if (!checkpoint || checkpoint.pending?.mutationId !== pending.mutationId)
+        return;
+      submissionInFlightRef.current = true;
+      pairRequestAbortRef.current?.abort();
+      pairRequestAbortRef.current = null;
+      ++requestSequenceRef.current;
+      setIsLoading(false);
+      setIsSubmitting(true);
+      setIsPairCommitted(true);
+      setChosenAssetId(
+        pending.kind === "choice" ? pending.winnerAssetId : null
+      );
+      setError(null);
+      const isCurrent = () =>
+        isMountedRef.current &&
+        queryKeyRef.current === requestQueryKey &&
+        rankingResumeGeneration() === generation;
+      try {
+        const response =
+          pending.kind === "choice"
+            ? await recordComparison({
+                leftAssetId: pending.pairAssetIds[0],
+                rightAssetId: pending.pairAssetIds[1],
+                winnerAssetId: pending.winnerAssetId,
+                mutationId: pending.mutationId,
+                comparisonGeneration:
+                  checkpoint.comparisonGeneration ?? undefined,
+                pairContext: requestContext
+              })
+            : await undoComparison(
+                pending.eventId,
+                pending.mutationId,
+                checkpoint.comparisonGeneration ?? undefined
+              );
+        const nextCheckpoint: RankingResumeState =
+          pending.kind === "choice"
+            ? {
+                ...checkpoint,
+                pending: null,
+                previousDecision: {
+                  eventId: response.eventId,
+                  pairAssetIds: pending.pairAssetIds
+                },
+                pairAssetIds: pairIds(response.nextPair ?? null)
+              }
+            : {
+                ...checkpoint,
+                pending: null,
+                previousDecision: null,
+                pairAssetIds: pending.pairAssetIds
+              };
+        // Only the first completion of a shared pending operation advances it.
+        // Late responses from a view that unmounted cannot overwrite a new session.
+        if (
+          !completeRankingMutation(
+            nextCheckpoint,
+            pending.mutationId,
+            generation
+          )
+        ) {
+          if (isCurrent()) {
+            submissionInFlightRef.current = false;
+            await restoreRef.current();
+          }
+          return;
+        }
+        checkpointRef.current = nextCheckpoint;
+        callbacksRef.current.onAssetsUpdated(response.assets);
+        callbacksRef.current.onRankingChanged();
+        if (isCurrent()) {
+          submissionInFlightRef.current = false;
+          await restoreRef.current();
+        }
+      } catch (caught) {
+        if (isCurrent()) {
+          if (
+            caught instanceof ApiError &&
+            [400, 404, 409].includes(caught.status)
+          ) {
+            const nextCheckpoint = {
+              ...checkpoint,
+              pending: null,
+              pairAssetIds: null,
+              previousDecision:
+                pending.kind === "undo" ? null : checkpoint.previousDecision
+            };
+            completeRankingMutation(
+              nextCheckpoint,
+              pending.mutationId,
+              generation
+            );
+            checkpointRef.current = nextCheckpoint;
+            setPair(null);
+            if (pending.kind === "undo") setPreviousDecision(null);
+            setIsPairCommitted(false);
+            setError(caught.code);
+          } else {
+            // Keep the original identifier and intent until its server outcome is known.
+            setError("comparison_outcome_uncertain");
+          }
+        }
+      } finally {
+        submissionInFlightRef.current = false;
+        if (isCurrent()) {
+          setChosenAssetId(null);
+          setIsSubmitting(false);
+        } else if (isMountedRef.current) {
+          void restoreRef.current();
+        }
+      }
     },
     []
   );
+  mutationRef.current = performMutation;
 
-  const presentReturnedPair = useCallback(
-    async (nextPair: ComparisonPairResponse | null) => {
-      const requestSequence = requestSequenceRef.current + 1;
-      requestSequenceRef.current = requestSequence;
-      pairRequestAbortRef.current?.abort();
-      const controller = new AbortController();
-      pairRequestAbortRef.current = controller;
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        await presentPair(nextPair, requestSequence, controller);
-      } catch (caught) {
-        if (
-          !controller.signal.aborted &&
-          requestSequenceRef.current === requestSequence
-        ) {
-          setError(
-            caught instanceof Error
-              ? caught.message
-              : "comparison_next_pair_unavailable"
-          );
-        }
-      } finally {
-        if (
-          pairRequestAbortRef.current === controller &&
-          requestSequenceRef.current === requestSequence
-        ) {
-          pairRequestAbortRef.current = null;
-          setIsLoading(false);
-        }
-      }
-    },
-    [presentPair]
-  );
-
-  const loadPair = useCallback(
-    async (excludeAssetIds: string[] = []) => {
-      if (!folderId) {
-        requestSequenceRef.current += 1;
-        pairRequestAbortRef.current?.abort();
-        pairRequestAbortRef.current = null;
-        setPair(null);
-        pairCommittedRef.current = false;
-        setIsPairCommitted(false);
-        setIsLoading(false);
-        return;
-      }
-
-      const requestSequence = requestSequenceRef.current + 1;
-      requestSequenceRef.current = requestSequence;
-      pairRequestAbortRef.current?.abort();
-      const controller = new AbortController();
-      pairRequestAbortRef.current = controller;
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        const nextPair = await getNextComparisonPair({
-          folderId,
-          type: mediaType,
-          recursive: true,
-          search,
-          tags: tagFilters,
-          score: scoreFilter,
-          excludeAssetIds,
-          signal: controller.signal
-        });
-
-        if (
-          controller.signal.aborted ||
-          requestSequenceRef.current !== requestSequence
-        ) {
-          return;
-        }
-
-        await presentPair(nextPair, requestSequence, controller);
-      } catch (caught) {
-        if (
-          controller.signal.aborted ||
-          requestSequenceRef.current !== requestSequence
-        ) {
-          return;
-        }
-
-        if (
-          caught instanceof ApiError &&
-          caught.code === "comparison_pair_unavailable"
-        ) {
-          setPair(null);
-          pairCommittedRef.current = false;
-          setIsPairCommitted(false);
-        } else {
-          setError(
-            caught instanceof ApiError
-              ? caught.code
-              : caught instanceof Error
-                ? caught.message
-                : "Unable to load a comparison."
-          );
-        }
-      } finally {
-        if (
-          pairRequestAbortRef.current === controller &&
-          requestSequenceRef.current === requestSequence
-        ) {
-          pairRequestAbortRef.current = null;
-          setIsLoading(false);
-        }
-      }
-    },
-    [folderId, mediaType, presentPair, scoreFilter, search, tagFilters]
-  );
+  const cancelPairRequest = useCallback(() => {
+    ++requestSequenceRef.current;
+    pairRequestAbortRef.current?.abort();
+    pairRequestAbortRef.current = null;
+  }, []);
 
   useEffect(() => {
     setPair(null);
     setPreviousDecision(null);
-    pairCommittedRef.current = false;
     setIsPairCommitted(false);
-    void loadPair();
+    setIsSubmitting(false);
+    setError(null);
+    checkpointRef.current = null;
+    if (folderId) void restoreSession();
+    else setIsLoading(false);
+    return cancelPairRequest;
+  }, [cancelPairRequest, folderId, queryKey, resetRevision, restoreSession]);
 
-    return () => {
-      requestSequenceRef.current += 1;
-      pairRequestAbortRef.current?.abort();
-      pairRequestAbortRef.current = null;
+  useEffect(() => {
+    let timer: number | undefined;
+    const scheduleRestore = () => {
+      if (document.visibilityState !== "visible") return;
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        if (
+          !submissionInFlightRef.current &&
+          pairRequestAbortRef.current === null
+        ) {
+          void restoreRef.current();
+        }
+      }, 180);
     };
-  }, [loadPair]);
+    document.addEventListener("visibilitychange", scheduleRestore);
+    window.addEventListener("pageshow", scheduleRestore);
+    window.addEventListener("online", scheduleRestore);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", scheduleRestore);
+      window.removeEventListener("pageshow", scheduleRestore);
+      window.removeEventListener("online", scheduleRestore);
+    };
+  }, []);
 
   const chooseAsset = useCallback(
     async (winnerAssetId: string) => {
+      const checkpoint = checkpointRef.current;
       if (
         !pair ||
-        !folderId ||
+        !checkpoint ||
+        checkpoint.pending ||
+        isPairCommitted ||
         submissionInFlightRef.current ||
-        pairRequestAbortRef.current !== null ||
-        pairCommittedRef.current
-      ) {
+        pairRequestAbortRef.current !== null
+      )
+        return;
+      const pending: PendingRankingMutation = {
+        kind: "choice",
+        mutationId: createRankingMutationId(),
+        pairAssetIds: pairIds(pair)!,
+        winnerAssetId
+      };
+      const next = { ...checkpoint, pending };
+      checkpointRef.current = next;
+      if (!writeRankingResumeState(next, rankingResumeGeneration())) {
+        setError("ranking_resume_capacity");
         return;
       }
-
-      submissionInFlightRef.current = true;
-      const decidedPair = pair;
-      const decisionQueryKey = queryKeyRef.current;
-      setChosenAssetId(winnerAssetId);
-      setIsSubmitting(true);
-      setError(null);
-
-      try {
-        const response = await recordComparison({
-          leftAssetId: decidedPair.left.id,
-          rightAssetId: decidedPair.right.id,
-          winnerAssetId,
-          pairContext: {
-            folderId,
-            type: mediaType,
-            recursive: true,
-            search,
-            tags: tagFilters,
-            score: scoreFilter
-          }
-        });
-        onAssetsUpdated(response.assets);
-        onRankingChanged();
-        if (isMountedRef.current && queryKeyRef.current === decisionQueryKey) {
-          pairCommittedRef.current = true;
-          setIsPairCommitted(true);
-          setPreviousDecision({ eventId: response.eventId, pair: decidedPair });
-          setChosenAssetId(null);
-          setIsSubmitting(false);
-          submissionInFlightRef.current = false;
-
-          if ("nextPair" in response) {
-            await presentReturnedPair(response.nextPair ?? null);
-          } else {
-            await loadPair([decidedPair.left.id, decidedPair.right.id]);
-          }
-        }
-      } catch (caught) {
-        if (isMountedRef.current && queryKeyRef.current === decisionQueryKey) {
-          setError(
-            caught instanceof ApiError
-              ? caught.code
-              : "Your choice could not be saved."
-          );
-        }
-      } finally {
-        submissionInFlightRef.current = false;
-        if (isMountedRef.current) {
-          setChosenAssetId(null);
-          setIsSubmitting(false);
-        }
-      }
+      await performMutation(pending);
     },
-    [
-      folderId,
-      loadPair,
-      mediaType,
-      onAssetsUpdated,
-      onRankingChanged,
-      pair,
-      presentReturnedPair,
-      scoreFilter,
-      search,
-      tagFilters
-    ]
+    [isPairCommitted, pair, performMutation]
   );
 
   const skipPair = useCallback(() => {
+    const checkpoint = checkpointRef.current;
+    const requestContext = contextRef.current;
     if (
       !pair ||
+      !checkpoint ||
+      !requestContext ||
+      checkpoint.pending ||
+      isPairCommitted ||
       submissionInFlightRef.current ||
-      pairRequestAbortRef.current !== null ||
-      pairCommittedRef.current
-    ) {
+      pairRequestAbortRef.current !== null
+    )
       return;
-    }
-
-    void loadPair([pair.left.id, pair.right.id]);
-  }, [loadPair, pair]);
+    const controller = new AbortController();
+    pairRequestAbortRef.current = controller;
+    const sequence = ++requestSequenceRef.current;
+    const generation = rankingResumeGeneration();
+    const requestQueryKey = queryKeyRef.current;
+    const isCurrent = () =>
+      !controller.signal.aborted &&
+      isMountedRef.current &&
+      sequence === requestSequenceRef.current &&
+      generation === rankingResumeGeneration() &&
+      requestQueryKey === queryKeyRef.current;
+    setIsLoading(true);
+    setError(null);
+    void getNextComparisonPair({
+      ...requestContext,
+      excludeAssetIds: [pair.left.id, pair.right.id],
+      signal: controller.signal
+    })
+      .then(async (nextPair) => {
+        if (!isCurrent()) return;
+        const next = {
+          ...checkpoint,
+          comparisonGeneration: nextPair.comparisonGeneration,
+          pairAssetIds: pairIds(nextPair),
+          previousDecision:
+            nextPair.comparisonGeneration === checkpoint.comparisonGeneration
+              ? checkpoint.previousDecision
+              : null
+        };
+        writeRankingResumeState(next, generation);
+        checkpointRef.current = next;
+        if (next.previousDecision === null) setPreviousDecision(null);
+        await waitForPosterPreloads(
+          [thumbnailUrl(nextPair.left.id), thumbnailUrl(nextPair.right.id)],
+          controller.signal
+        );
+        if (isCurrent()) setPair(nextPair);
+      })
+      .catch((caught: unknown) => {
+        if (isCurrent()) {
+          if (
+            caught instanceof ApiError &&
+            caught.code === "comparison_pair_unavailable"
+          ) {
+            const next = {
+              ...checkpoint,
+              pairAssetIds: null
+            };
+            writeRankingResumeState(next, generation);
+            checkpointRef.current = next;
+            setPair(null);
+          } else {
+            setError(
+              caught instanceof ApiError
+                ? caught.code
+                : "comparison_next_pair_unavailable"
+            );
+          }
+        }
+      })
+      .finally(() => {
+        if (pairRequestAbortRef.current === controller) {
+          pairRequestAbortRef.current = null;
+          if (isCurrent()) setIsLoading(false);
+        }
+      });
+  }, [isPairCommitted, pair]);
 
   const undoLastDecision = useCallback(async () => {
-    if (!previousDecision || submissionInFlightRef.current) {
+    const checkpoint = checkpointRef.current;
+    if (
+      !previousDecision ||
+      !checkpoint ||
+      checkpoint.pending ||
+      submissionInFlightRef.current ||
+      pairRequestAbortRef.current !== null
+    )
+      return;
+    const pending: PendingRankingMutation = {
+      kind: "undo",
+      mutationId: createRankingMutationId(),
+      eventId: previousDecision.eventId,
+      pairAssetIds: pairIds(previousDecision.pair)!
+    };
+    const next = { ...checkpoint, pending };
+    checkpointRef.current = next;
+    if (!writeRankingResumeState(next, rankingResumeGeneration())) {
+      setError("ranking_resume_capacity");
       return;
     }
-
-    submissionInFlightRef.current = true;
-    requestSequenceRef.current += 1;
-    pairRequestAbortRef.current?.abort();
-    pairRequestAbortRef.current = null;
-    const undoQueryKey = queryKeyRef.current;
-    setIsLoading(false);
-    setIsSubmitting(true);
-    setError(null);
-
-    try {
-      const response = await undoComparison(previousDecision.eventId);
-      onAssetsUpdated(response.assets);
-      onRankingChanged();
-      const assetById = new Map(
-        response.assets.map((asset) => [asset.id, asset])
-      );
-      const left = assetById.get(previousDecision.pair.left.id);
-      const right = assetById.get(previousDecision.pair.right.id);
-
-      if (
-        left &&
-        right &&
-        isMountedRef.current &&
-        queryKeyRef.current === undoQueryKey
-      ) {
-        setPair({
-          left,
-          right,
-          progress: previousDecision.pair.progress
-        });
-        pairCommittedRef.current = false;
-        setIsPairCommitted(false);
-      }
-      if (isMountedRef.current && queryKeyRef.current === undoQueryKey) {
-        setPreviousDecision(null);
-      }
-    } catch (caught) {
-      if (isMountedRef.current && queryKeyRef.current === undoQueryKey) {
-        setError(
-          caught instanceof ApiError
-            ? caught.code
-            : "The last choice could not be restored."
-        );
-      }
-    } finally {
-      submissionInFlightRef.current = false;
-      if (isMountedRef.current) {
-        setIsSubmitting(false);
-      }
-    }
-  }, [onAssetsUpdated, onRankingChanged, previousDecision]);
+    await performMutation(pending);
+  }, [performMutation, previousDecision]);
 
   return {
     chosenAssetId,
@@ -392,10 +531,14 @@ export function useComparisonSession({
     pair,
     canUndo: previousDecision !== null,
     chooseAsset,
-    retry: loadPair,
+    retry: restoreSession,
     skipPair,
     undoLastDecision
   };
+}
+
+function pairIds(pair: ComparisonPairResponse | null): [string, string] | null {
+  return pair ? [pair.left.id, pair.right.id] : null;
 }
 
 async function waitForPosterPreloads(

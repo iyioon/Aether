@@ -230,11 +230,17 @@
 }
 
 .media-info-sheet {
+  padding-right: env(safe-area-inset-right);
+  padding-left: env(safe-area-inset-left);
   overscroll-behavior: contain;
   animation-duration: var(--panel-motion-duration) !important;
   transition-duration: var(--panel-motion-duration) !important;
   animation-timing-function: var(--panel-motion-easing) !important;
   transition-timing-function: var(--panel-motion-easing) !important;
+}
+
+.media-info-sheet[data-slot="sheet-content"] > button {
+  right: max(16px, env(safe-area-inset-right));
 }
 
 .annotation-panel {

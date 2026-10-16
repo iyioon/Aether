@@ -7,7 +7,10 @@
   width: min(1440px, 100%);
   height: 100%;
   margin: 0 auto;
-  padding: clamp(20px, 3vw, 44px);
+  padding: clamp(20px, 3vw, 44px)
+    max(clamp(20px, 3vw, 44px), env(safe-area-inset-right))
+    calc(clamp(20px, 3vw, 44px) + env(safe-area-inset-bottom))
+    max(clamp(20px, 3vw, 44px), env(safe-area-inset-left));
   overflow-y: auto;
 }
 
@@ -303,7 +306,10 @@
   height: 100%;
   min-height: 0;
   margin: 0 auto;
-  padding: clamp(10px, 1.5vw, 20px);
+  padding: clamp(10px, 1.5vw, 20px)
+    max(clamp(10px, 1.5vw, 20px), env(safe-area-inset-right))
+    calc(clamp(10px, 1.5vw, 20px) + env(safe-area-inset-bottom))
+    max(clamp(10px, 1.5vw, 20px), env(safe-area-inset-left));
 }
 
 .comparison-stage,
@@ -717,27 +723,28 @@
   }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 767px) {
   .library-main.view-compare {
     overflow-y: auto;
   }
 
   .comparison-view {
-    height: auto;
-    min-height: 100%;
-    padding: 10px 10px 20px;
+    height: 100%;
+    padding: 10px max(10px, env(safe-area-inset-right))
+      calc(20px + env(safe-area-inset-bottom))
+      max(10px, env(safe-area-inset-left));
   }
 
   .comparison-pair {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: repeat(2, minmax(280px, 42dvh));
+    grid-template-rows: repeat(2, minmax(0, 1fr));
     gap: 10px;
   }
 
   .comparison-session-footer {
     position: sticky;
     z-index: 5;
-    bottom: 8px;
+    bottom: max(8px, env(safe-area-inset-bottom));
     padding: 10px;
     border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
     border-radius: var(--radius-lg);
@@ -767,7 +774,9 @@
   }
 
   .leaderboard-view {
-    padding: 18px 12px 28px;
+    padding: 18px max(12px, env(safe-area-inset-right))
+      calc(28px + env(safe-area-inset-bottom))
+      max(12px, env(safe-area-inset-left));
   }
 
   .leaderboard-header {

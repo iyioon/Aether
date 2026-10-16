@@ -14,6 +14,7 @@ import {
   buildAssetListQueryKey,
   canRequestMoreAssets
 } from "../gallery-loading";
+import { randomSeedForQuery } from "./random-order-state";
 
 const ASSET_PAGE_LIMIT = 80;
 
@@ -48,6 +49,11 @@ export function useAssetList({
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const loadMoreInFlightRef = useRef(false);
   const loadMoreRequestRef = useRef<AbortController | null>(null);
+  const loadedWindowRef = useRef({
+    queryKey: loadedQueryKey,
+    count: assets.length
+  });
+  loadedWindowRef.current = { queryKey: loadedQueryKey, count: assets.length };
   const randomSeedBasis = buildAssetListQueryKey({
     folderId,
     sort,
@@ -58,8 +64,11 @@ export function useAssetList({
     scoreFilter
   });
   const randomSeed = useMemo(
-    () => createRandomSeedForQuery(sort, randomSeedBasis),
-    [randomSeedBasis, sort]
+    () =>
+      sort === "random" && folderId
+        ? randomSeedForQuery(randomSeedBasis)
+        : undefined,
+    [folderId, randomSeedBasis, sort]
   );
   const listQueryKey = useMemo(
     () =>
@@ -109,20 +118,42 @@ export function useAssetList({
     setAssetError(null);
     setLoadedQueryKey(null);
 
-    getAssets({
-      folderId,
-      offset: 0,
-      limit: ASSET_PAGE_LIMIT,
-      sort,
-      order: sortDirection,
-      type: mediaType,
-      recursive: true,
-      search,
-      tags: tagFilters,
-      score: scoreFilter,
-      seed: randomSeed,
-      signal: controller.signal
-    })
+    const getPage = (offset: number, limit: number) =>
+      getAssets({
+        folderId,
+        offset,
+        limit,
+        sort,
+        order: sortDirection,
+        type: mediaType,
+        recursive: true,
+        search,
+        tags: tagFilters,
+        score: scoreFilter,
+        seed: randomSeed,
+        signal: controller.signal
+      });
+    const restoreCount =
+      loadedWindowRef.current.queryKey === requestQueryKey
+        ? Math.max(ASSET_PAGE_LIMIT, loadedWindowRef.current.count)
+        : ASSET_PAGE_LIMIT;
+    const refreshLoadedWindow = async () => {
+      const response = await getPage(0, Math.min(250, restoreCount));
+      while (
+        response.items.length < Math.min(restoreCount, response.page.total) &&
+        !controller.signal.aborted
+      ) {
+        const next = await getPage(
+          response.items.length,
+          Math.min(250, restoreCount - response.items.length)
+        );
+        if (next.items.length === 0) break;
+        response.items.push(...next.items);
+        response.page = next.page;
+      }
+      return response;
+    };
+    refreshLoadedWindow()
       .then((response) => {
         if (active && listQueryKeyRef.current === requestQueryKey) {
           setAssets(response.items);
@@ -314,21 +345,6 @@ export function useAssetList({
     totalAssets,
     updateAssetTags
   };
-}
-
-function createRandomSeed(): number {
-  const values = new Uint32Array(1);
-  globalThis.crypto.getRandomValues(values);
-  return values[0] ?? 0;
-}
-
-function createRandomSeedForQuery(
-  sort: SortMode,
-  queryKey: string
-): number | undefined {
-  return sort === "random"
-    ? (createRandomSeed() ^ queryKey.length) >>> 0
-    : undefined;
 }
 
 function isAbortError(error: unknown): boolean {

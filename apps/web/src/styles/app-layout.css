@@ -41,6 +41,7 @@
 }
 
 .library-inset {
+  container: library-workspace / inline-size;
   height: 100vh;
   height: 100dvh;
   min-height: 0;
@@ -64,11 +65,17 @@
   flex: 0 0 auto;
   align-items: center;
   gap: 8px;
-  height: 56px;
+  height: calc(56px + env(safe-area-inset-top));
   min-width: 0;
-  padding: 0 14px;
+  padding: env(safe-area-inset-top) max(14px, env(safe-area-inset-right)) 0
+    max(14px, env(safe-area-inset-left));
   border-bottom: 1px solid var(--border);
   background: var(--background);
+}
+
+[data-slot="sidebar-inner"] {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 .library-path-navigation,

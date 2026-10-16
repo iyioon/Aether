@@ -1,18 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   updateAssetScore,
+  ApiError,
+  getAsset,
   type AssetRecord,
   type TagRecord
 } from "../../api/client";
-import {
-  scoreActionErrorMessage
-} from "../app/app-helpers";
+import { scoreActionErrorMessage } from "../app/app-helpers";
 import {
   createAssetScoreMutationQueue,
   type AssetScoreMutationQueue
 } from "./asset-score-mutation-queue";
+import { usePageLifecycle } from "../../hooks/usePageLifecycle";
 
 interface UseMediaActionsOptions {
+  initialSelectedAssetId?: string | null;
   assets: AssetRecord[];
   shouldReloadAfterScoreChange: boolean;
   onAssetError: (message: string | null) => void;
@@ -22,6 +24,7 @@ interface UseMediaActionsOptions {
 }
 
 export function useMediaActions({
+  initialSelectedAssetId = null,
   assets,
   shouldReloadAfterScoreChange,
   onAssetError,
@@ -29,12 +32,22 @@ export function useMediaActions({
   onAssetTagsUpdated,
   onReloadAssets
 }: UseMediaActionsOptions) {
-  const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
+  const [selectedAssetId, setSelectedAssetId] = useState<string | null>(
+    initialSelectedAssetId
+  );
   const [annotationAssetId, setAnnotationAssetId] = useState<string | null>(
     null
   );
   const [viewerAssetFallback, setViewerAssetFallback] =
     useState<AssetRecord | null>(null);
+  const [viewerRefreshRevision, setViewerRefreshRevision] = useState(0);
+  const validatedViewerRef = useRef<string | null>(null);
+  const viewerMutationRevisionRef = useRef(0);
+  usePageLifecycle({
+    onResume: () => {
+      if (selectedAssetId) setViewerRefreshRevision((current) => current + 1);
+    }
+  });
   const [savingScoreAssetIds, setSavingScoreAssetIds] = useState<Set<string>>(
     () => new Set()
   );
@@ -99,14 +112,44 @@ export function useMediaActions({
   );
 
   useEffect(() => {
-    if (selectedAssetId && !selectedAsset) {
-      setSelectedAssetId(null);
-    }
-
     if (annotationAssetId && !annotationAsset) {
       setAnnotationAssetId(null);
     }
   }, [annotationAsset, annotationAssetId, selectedAsset, selectedAssetId]);
+
+  const hasSelectedAsset = selectedAsset !== null;
+  useEffect(() => {
+    if (!selectedAssetId || (hasSelectedAsset && viewerRefreshRevision === 0))
+      return;
+    const validationKey = `${selectedAssetId}:${viewerRefreshRevision}`;
+    if (hasSelectedAsset && validatedViewerRef.current === validationKey)
+      return;
+    validatedViewerRef.current = validationKey;
+    const mutationRevision = viewerMutationRevisionRef.current;
+    const controller = new AbortController();
+    let completed = false;
+    getAsset(selectedAssetId, controller.signal)
+      .then((asset) => {
+        if (!controller.signal.aborted) {
+          completed = true;
+          if (viewerMutationRevisionRef.current === mutationRevision)
+            setViewerAssetFallback(asset);
+        }
+      })
+      .catch((error: unknown) => {
+        if (
+          !controller.signal.aborted &&
+          error instanceof ApiError &&
+          [400, 404].includes(error.status)
+        )
+          setSelectedAssetId(null);
+      });
+    return () => {
+      controller.abort();
+      if (!completed && validatedViewerRef.current === validationKey)
+        validatedViewerRef.current = null;
+    };
+  }, [hasSelectedAsset, selectedAssetId, viewerRefreshRevision]);
 
   useEffect(() => {
     if (!selectedAssetId && !annotationAssetId) {
@@ -119,7 +162,7 @@ export function useMediaActions({
 
     setViewerAssetFallback(
       typeof assetOrId === "string"
-        ? assets.find((asset) => asset.id === assetOrId) ?? null
+        ? (assets.find((asset) => asset.id === assetOrId) ?? null)
         : assetOrId
     );
     setAnnotationAssetId(null);
@@ -148,6 +191,7 @@ export function useMediaActions({
   }
 
   function handleAssetTagsUpdated(assetId: string, tags: TagRecord[]) {
+    viewerMutationRevisionRef.current += 1;
     setViewerAssetFallback((current) =>
       current?.id === assetId ? { ...current, tags } : current
     );
@@ -155,6 +199,7 @@ export function useMediaActions({
   }
 
   function updateViewerAssetFallback(updatedAsset: AssetRecord) {
+    viewerMutationRevisionRef.current += 1;
     setViewerAssetFallback((current) =>
       current?.id === updatedAsset.id ? updatedAsset : current
     );

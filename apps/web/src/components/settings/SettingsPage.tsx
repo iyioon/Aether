@@ -5,6 +5,7 @@ import type {
   SettingsSummary
 } from "../../api/client";
 import { Button } from "../ui/button";
+import { isSettingsTab, type SettingsTab } from "../app-location-state";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { AppearanceSettingsSection } from "./AppearanceSettingsSection";
 import { DataResetSettingsSection } from "./DataResetSettingsSection";
@@ -21,6 +22,8 @@ import type {
 } from "./useAppearanceSettings";
 
 interface SettingsPageProps {
+  tab: SettingsTab;
+  onTabChange: (tab: SettingsTab) => void;
   accent: AppearanceAccent;
   accentOptions: AppearanceAccentOption[];
   customAccent: string;
@@ -40,6 +43,8 @@ interface SettingsPageProps {
 }
 
 export function SettingsPage({
+  tab,
+  onTabChange,
   accent,
   accentOptions,
   customAccent,
@@ -68,7 +73,12 @@ export function SettingsPage({
           </div>
         </header>
 
-        <Tabs defaultValue="appearance">
+        <Tabs
+          value={tab}
+          onValueChange={(value) => {
+            if (isSettingsTab(value)) onTabChange(value);
+          }}
+        >
           <TabsList className="settings-tabs-list grid w-full grid-cols-3">
             <TabsTrigger value="appearance">
               <Palette />

@@ -1,4 +1,8 @@
 import { randomUUID } from "node:crypto";
+import {
+  advanceComparisonGeneration,
+  getComparisonGeneration
+} from "./comparison-generation.js";
 import type { AetherDatabase } from "../db/database.js";
 import { buildAssetFilterQuery } from "./asset-query.js";
 import {
@@ -31,7 +35,13 @@ interface PreferenceEventRow {
 }
 
 export class ComparisonConflictError extends Error {
-  constructor(public readonly code: "comparison_changed" | "invalid_pair") {
+  constructor(
+    public readonly code:
+      | "comparison_changed"
+      | "invalid_pair"
+      | "comparison_mutation_conflict"
+      | "comparison_session_reset"
+  ) {
     super(code);
     this.name = "ComparisonConflictError";
   }
@@ -51,34 +61,13 @@ export function getNextComparisonPair(
     return null;
   }
 
-  const { whereClause, parameters } = buildAssetFilterQuery(folder, options);
-  const candidates = db
-    .prepare(
-      `SELECT
-        a.id,
-        ar.skill,
-        ar.comparison_count
-      FROM assets a
-      LEFT JOIN asset_annotations aa ON aa.asset_id = a.id
-      LEFT JOIN asset_rankings ar ON ar.asset_id = a.id
-      WHERE ${whereClause}`
-    )
-    .all(parameters) as Array<{
-    id: string;
-    skill: number | null;
-    comparison_count: number | null;
-  }>;
+  const candidates = readComparisonCandidates(db, folder, options);
 
   if (candidates.length < 2) {
     return null;
   }
 
-  const candidateIds = new Set(candidates.map((candidate) => candidate.id));
-  const preferences = db
-    .prepare(
-      "SELECT asset_low_id, asset_high_id, winner_id FROM pair_preferences"
-    )
-    .all() as PreferenceRow[];
+  const preferences = readComparisonPreferences(db);
   const decidedPairs = new Set(
     preferences.map((preference) =>
       comparisonPairKey(preference.asset_low_id, preference.asset_high_id)
@@ -102,24 +91,81 @@ export function getNextComparisonPair(
   return {
     leftAssetId,
     rightAssetId,
-    progress: {
-      candidateCount: candidates.length,
-      comparedCount: candidates.filter(
-        (candidate) => (candidate.comparison_count ?? 0) > 0
-      ).length,
-      decidedPairCount: preferences.filter(
-        (preference) =>
-          candidateIds.has(preference.asset_low_id) &&
-          candidateIds.has(preference.asset_high_id)
-      ).length
-    }
+    progress: comparisonProgress(candidates, preferences)
   };
+}
+
+export function resumeComparisonSession(
+  db: AetherDatabase,
+  options: Parameters<typeof getNextComparisonPair>[1] & {
+    pairAssetIds: [string, string] | null;
+    previousDecision: {
+      eventId: string;
+      pairAssetIds: [string, string];
+    } | null;
+  }
+): {
+  pair: ComparisonPairResult | null;
+  previousDecision: { eventId: string; pair: ComparisonPairResult } | null;
+} {
+  const folder = getFolder(db, options.folderId);
+  if (!folder) {
+    return { pair: null, previousDecision: null };
+  }
+
+  const candidates = readComparisonCandidates(db, folder, options);
+  const candidateIds = new Set(candidates.map((asset) => asset.id));
+  const progress = comparisonProgress(
+    candidates,
+    readComparisonPreferences(db)
+  );
+  const makePair = ([leftAssetId, rightAssetId]: [string, string]) => ({
+    leftAssetId,
+    rightAssetId,
+    progress
+  });
+  const pair =
+    options.pairAssetIds?.every((assetId) => candidateIds.has(assetId)) &&
+    options.pairAssetIds[0] !== options.pairAssetIds[1]
+      ? makePair(options.pairAssetIds)
+      : null;
+  let previousDecision = null;
+  if (options.previousDecision) {
+    const decision = options.previousDecision;
+    const [lowId, highId] = canonicalPair(...decision.pairAssetIds);
+    const active = db
+      .prepare(
+        `SELECT 1 FROM pair_preferences
+         WHERE event_id = ? AND asset_low_id = ? AND asset_high_id = ?`
+      )
+      .get(decision.eventId, lowId, highId);
+    // A confirmed vote can move its assets out of an "unranked" filter.
+    // Undo must remain available while folder/type/search/tag context matches.
+    const undoScoreFilter =
+      options.scoreFilter === "ranked" || options.scoreFilter === "unranked"
+        ? "all"
+        : options.scoreFilter;
+    const undoCandidates = new Set(
+      readComparisonCandidates(db, folder, {
+        ...options,
+        scoreFilter: undoScoreFilter
+      }).map((asset) => asset.id)
+    );
+    if (active && decision.pairAssetIds.every((id) => undoCandidates.has(id))) {
+      previousDecision = {
+        eventId: decision.eventId,
+        pair: makePair(decision.pairAssetIds)
+      };
+    }
+  }
+  return { pair, previousDecision };
 }
 
 export function recordComparisonDecision(
   db: AetherDatabase,
   input: ComparisonDecisionInput
 ): ComparisonDecisionResult | null {
+  assertMutationGeneration(db, input.mutationId, input.comparisonGeneration);
   if (
     input.leftAssetId === input.rightAssetId ||
     ![input.leftAssetId, input.rightAssetId].includes(input.winnerAssetId)
@@ -135,7 +181,28 @@ export function recordComparisonDecision(
     input.leftAssetId,
     input.rightAssetId
   );
-  const eventId = randomUUID();
+  const eventId = input.mutationId ?? randomUUID();
+  const receipt = db
+    .prepare(
+      `SELECT event_type, asset_low_id, asset_high_id, winner_id, previous_event_id
+       FROM comparison_events WHERE id = ?`
+    )
+    .get(eventId) as (PreferenceEventRow & { event_type: string }) | undefined;
+  if (receipt) {
+    if (
+      receipt.event_type !== "decision" ||
+      receipt.asset_low_id !== assetLowId ||
+      receipt.asset_high_id !== assetHighId ||
+      receipt.winner_id !== input.winnerAssetId
+    ) {
+      throw new ComparisonConflictError("comparison_mutation_conflict");
+    }
+    return {
+      eventId,
+      assetIds: [input.leftAssetId, input.rightAssetId],
+      replacedDecision: receipt.previous_event_id !== null
+    };
+  }
   let replacedDecision = false;
 
   const transaction = db.transaction(() => {
@@ -200,8 +267,34 @@ export function recordComparisonDecision(
 export function undoComparisonDecision(
   db: AetherDatabase,
   decisionEventId: string,
-  createdAt: string
+  createdAt: string,
+  mutationId?: string,
+  comparisonGeneration?: string
 ): ComparisonUndoResult | null {
+  assertMutationGeneration(db, mutationId, comparisonGeneration);
+  if (mutationId) {
+    const receipt = db
+      .prepare(
+        `SELECT event_type, target_event_id, asset_low_id, asset_high_id, previous_event_id
+         FROM comparison_events WHERE id = ?`
+      )
+      .get(mutationId) as
+      | (PreferenceEventRow & { event_type: string; target_event_id: string })
+      | undefined;
+    if (receipt) {
+      if (
+        receipt.event_type !== "undo" ||
+        receipt.target_event_id !== decisionEventId
+      ) {
+        throw new ComparisonConflictError("comparison_mutation_conflict");
+      }
+      return {
+        eventId: mutationId,
+        assetIds: [receipt.asset_low_id, receipt.asset_high_id],
+        restoredDecision: receipt.previous_event_id !== null
+      };
+    }
+  }
   const decision = db
     .prepare(
       `SELECT id, asset_low_id, asset_high_id, winner_id, previous_event_id
@@ -227,7 +320,7 @@ export function undoComparisonDecision(
     throw new ComparisonConflictError("comparison_changed");
   }
 
-  const undoEventId = randomUUID();
+  const undoEventId = mutationId ?? randomUUID();
   let restoredDecision = false;
   const transaction = db.transaction(() => {
     const previous = decision.previous_event_id
@@ -311,25 +404,86 @@ export function resetAssetComparisons(
       .get(assetId, assetId) as { total: number }
   ).total;
 
-  if (removedComparisonCount === 0) {
-    return { removedComparisonCount };
-  }
-
   const transaction = db.transaction(() => {
-    db.prepare(
-      `DELETE FROM pair_preferences
-       WHERE asset_low_id = ? OR asset_high_id = ?`
-    ).run(assetId, assetId);
-    recomputeAssetRankings(db, updatedAt);
+    // Invalidate every older uncertain intent conservatively, including one
+    // that never reached the server and has no receipt or active preference.
+    advanceComparisonGeneration(db, updatedAt);
+    if (removedComparisonCount > 0) {
+      db.prepare(
+        `DELETE FROM pair_preferences
+         WHERE asset_low_id = ? OR asset_high_id = ?`
+      ).run(assetId, assetId);
+      recomputeAssetRankings(db, updatedAt);
+    }
   });
 
   transaction();
   return { removedComparisonCount };
 }
 
+function readComparisonCandidates(
+  db: AetherDatabase,
+  folder: NonNullable<ReturnType<typeof getFolder>>,
+  options: Parameters<typeof getNextComparisonPair>[1]
+) {
+  const { whereClause, parameters } = buildAssetFilterQuery(folder, options);
+  return db
+    .prepare(
+      `SELECT
+        a.id,
+        ar.skill,
+        ar.comparison_count
+      FROM assets a
+      LEFT JOIN asset_annotations aa ON aa.asset_id = a.id
+      LEFT JOIN asset_rankings ar ON ar.asset_id = a.id
+      WHERE ${whereClause}`
+    )
+    .all(parameters) as Array<{
+    id: string;
+    skill: number | null;
+    comparison_count: number | null;
+  }>;
+}
+
+function readComparisonPreferences(db: AetherDatabase): PreferenceRow[] {
+  return db
+    .prepare(
+      "SELECT asset_low_id, asset_high_id, winner_id FROM pair_preferences"
+    )
+    .all() as PreferenceRow[];
+}
+
+function comparisonProgress(
+  candidates: ReturnType<typeof readComparisonCandidates>,
+  preferences: PreferenceRow[]
+): ComparisonPairResult["progress"] {
+  const candidateIds = new Set(candidates.map((candidate) => candidate.id));
+  return {
+    candidateCount: candidates.length,
+    comparedCount: candidates.filter(
+      (candidate) => (candidate.comparison_count ?? 0) > 0
+    ).length,
+    decidedPairCount: preferences.filter(
+      (preference) =>
+        candidateIds.has(preference.asset_low_id) &&
+        candidateIds.has(preference.asset_high_id)
+    ).length
+  };
+}
+
 function assetsExist(db: AetherDatabase, assetIds: string[]): boolean {
   const query = db.prepare("SELECT id FROM assets WHERE id = ?");
   return assetIds.every((assetId) => Boolean(query.get(assetId)));
+}
+
+function assertMutationGeneration(
+  db: AetherDatabase,
+  mutationId: string | undefined,
+  comparisonGeneration: string | undefined
+): void {
+  if (mutationId && comparisonGeneration !== getComparisonGeneration(db)) {
+    throw new ComparisonConflictError("comparison_session_reset");
+  }
 }
 
 function canonicalPair(

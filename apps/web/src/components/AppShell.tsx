@@ -16,16 +16,23 @@ import {
   type LibraryDataResetOptions,
   type SettingsSummary
 } from "../api/client";
+import type { AppPage, ComparisonWorkspace } from "./app-navigation-state";
 import {
-  readAppNavigationState,
-  updateAppNavigationState,
-  type AppPage
-} from "./app-navigation-state";
+  clearAppResumeState,
+  readInitialAppLocation,
+  resolveAppLocation,
+  saveAppLocation,
+  writeAppLocationToUrl,
+  type SettingsTab
+} from "./app-location-state";
+import { clearRankingResumeState } from "./compare/ranking-resume-state";
+import { clearRandomOrderState } from "./assets/random-order-state";
+import { usePageLifecycle } from "../hooks/usePageLifecycle";
 import { useLibraryTree } from "./app/useLibraryTree";
 import { scanToastForState } from "./app/scan-status";
 import { useAssetList } from "./assets/useAssetList";
 import { BatchActionsBar } from "./batch/BatchActionsBar";
-import { readInitialLibraryState, type ViewMode } from "./library-state";
+import type { ViewMode } from "./library-state";
 import { useBatchSelection } from "./batch/useBatchSelection";
 import { useFolderNavigation } from "./folders/useFolderNavigation";
 import { isAssetListPending } from "./gallery-loading";
@@ -44,7 +51,7 @@ import { useLibraryControls } from "./toolbar/useLibraryControls";
 
 interface AppShellProps {
   appearance: AppearanceSettings;
-  onLogout: () => void;
+  onLogout: (clearResumeAfterUnmount: () => void) => void;
 }
 
 const loadComparisonView = () => import("./compare/ComparisonView");
@@ -121,20 +128,26 @@ function WorkspaceLoadingFallback() {
 }
 
 export function AppShell({ appearance, onLogout }: AppShellProps) {
-  const initialLibraryState = useMemo(() => readInitialLibraryState(), []);
+  const [initialLocation] = useState(readInitialAppLocation);
+  const initialLibraryState = initialLocation.library;
   const sidebarDefaultOpen = useMemo(() => readSidebarDefaultOpen(), []);
   const [activePage, setActivePage] = useState<AppPage>(
-    () => readAppNavigationState().page
+    initialLocation.navigation.page
   );
+  const [comparisonWorkspace, setComparisonWorkspace] =
+    useState<ComparisonWorkspace>(
+      initialLocation.navigation.comparisonWorkspace
+    );
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>(
+    initialLocation.navigation.settingsTab
+  );
+  const pushLocationRef = useRef(false);
   const [settingsSummary, setSettingsSummary] =
     useState<SettingsSummary | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [isLoadingSettings, setIsLoadingSettings] = useState(false);
   const settingsRequestAbortRef = useRef<AbortController | null>(null);
 
-  useEffect(() => {
-    updateAppNavigationState({ page: activePage });
-  }, [activePage]);
   const {
     accent,
     accentOptions,
@@ -150,6 +163,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     error,
     handleScan,
     isLoadingTree,
+    refreshTree,
     scanProgress,
     scanState,
     selectedFolderId,
@@ -185,6 +199,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     null
   );
   const {
+    applyLibraryState,
     addTagFilter,
     aspect,
     clearTagFilters,
@@ -348,6 +363,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     setAnnotationAssetId,
     setSelectedAssetId
   } = useMediaActions({
+    initialSelectedAssetId: initialLocation.navigation.viewerAssetId,
     assets,
     onAssetError: handleMediaActionError,
     onAssetsUpdated: mergeMediaActionAssets,
@@ -355,6 +371,86 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     onReloadAssets: reloadAssets,
     shouldReloadAfterScoreChange
   });
+  const location = useMemo(
+    () => ({
+      library: {
+        folderId: selectedFolderId,
+        view,
+        gridSize,
+        aspect,
+        sort,
+        sortDirection,
+        mediaType,
+        scoreFilter,
+        search,
+        tags: tagFilters
+      },
+      navigation: {
+        page: activePage,
+        comparisonWorkspace,
+        settingsTab,
+        viewerAssetId: selectedAssetId
+      }
+    }),
+    [
+      selectedFolderId,
+      view,
+      gridSize,
+      aspect,
+      sort,
+      sortDirection,
+      mediaType,
+      scoreFilter,
+      search,
+      tagFilters,
+      activePage,
+      comparisonWorkspace,
+      settingsTab,
+      selectedAssetId
+    ]
+  );
+  useEffect(() => {
+    if (!tree) return;
+    saveAppLocation(location);
+    writeAppLocationToUrl(location, pushLocationRef.current);
+    pushLocationRef.current = false;
+  }, [location, tree]);
+  usePageLifecycle({
+    onHidden: () => {
+      if (tree)
+        saveAppLocation({
+          ...location,
+          library: {
+            ...location.library,
+            search: searchDraft.trim().slice(0, 160)
+          }
+        });
+    },
+    onResume: () => {
+      void refreshTree().catch(() => undefined);
+    }
+  });
+  useEffect(() => {
+    const restore = () => {
+      const next = resolveAppLocation(window.location.search, location);
+      pushLocationRef.current = false;
+      setActivePage(next.navigation.page);
+      setComparisonWorkspace(next.navigation.comparisonWorkspace);
+      setSettingsTab(next.navigation.settingsTab);
+      setSelectedFolderId(next.library.folderId);
+      applyLibraryState(next.library);
+      setSelectedAssetId(next.navigation.viewerAssetId);
+      setAnnotationAssetId(null);
+    };
+    window.addEventListener("popstate", restore);
+    return () => window.removeEventListener("popstate", restore);
+  }, [
+    applyLibraryState,
+    location,
+    setAnnotationAssetId,
+    setSelectedAssetId,
+    setSelectedFolderId
+  ]);
   const selectedAssetIndex = useMemo(
     () =>
       selectedAsset
@@ -420,6 +516,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
   }
 
   function switchView(nextView: ViewMode) {
+    pushLocationRef.current = true;
     setActivePage("library");
     setSyncedMediaAnchorId(activeMediaAnchorIdRef.current);
     setView(nextView);
@@ -438,12 +535,14 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
   }
 
   function openAnchoredAsset(assetId: string) {
+    pushLocationRef.current = true;
     activeMediaAnchorIdRef.current = assetId;
     setSyncedMediaAnchorId(assetId);
     openAssetFullscreen(assetId);
   }
 
   function openComparisonAsset(asset: AssetRecord) {
+    pushLocationRef.current = true;
     activeMediaAnchorIdRef.current = asset.id;
     setSyncedMediaAnchorId(asset.id);
     openAssetFullscreen(asset);
@@ -506,6 +605,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
   );
 
   function openSettings() {
+    pushLocationRef.current = true;
     setActivePage("settings");
     closeSelectionMode();
     setOpenControlMenu(null);
@@ -514,6 +614,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
   }
 
   function openGuide() {
+    pushLocationRef.current = true;
     setActivePage("guide");
     closeSelectionMode();
     setOpenControlMenu(null);
@@ -522,18 +623,23 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
   }
 
   function backToLibrary() {
+    pushLocationRef.current = true;
     setActivePage("library");
   }
 
   async function handleLogout() {
+    const clearResume = () => {
+      clearSessionScrollPositions();
+      clearRankingResumeState();
+      clearRandomOrderState();
+      clearAppResumeState();
+    };
     try {
       await logout();
-      onLogout();
-      window.setTimeout(clearSessionScrollPositions, 0);
+      onLogout(clearResume);
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
-        onLogout();
-        window.setTimeout(clearSessionScrollPositions, 0);
+        onLogout(clearResume);
         return;
       }
 
@@ -662,6 +768,8 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
           <Suspense fallback={<WorkspaceLoadingFallback />}>
             {activePage === "settings" ? (
               <SettingsPage
+                tab={settingsTab}
+                onTabChange={setSettingsTab}
                 accent={accent}
                 accentOptions={accentOptions}
                 customAccent={customAccent}
@@ -673,6 +781,9 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
                 onSetTheme={setTheme}
                 onRefreshSettings={() => void refreshSettingsSummary()}
                 onDataReset={(_result, options: LibraryDataResetOptions) => {
+                  clearSessionScrollPositions();
+                  if (options.comparisons || options.scores)
+                    clearRankingResumeState();
                   if (options.tags) {
                     clearTagFilters();
                   }
@@ -777,6 +888,11 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
                   />
                 ) : (
                   <ComparisonView
+                    workspace={comparisonWorkspace}
+                    onWorkspaceChange={(workspace) => {
+                      pushLocationRef.current = true;
+                      setComparisonWorkspace(workspace);
+                    }}
                     assetUpdate={comparisonAssetUpdate}
                     folderId={selectedFolderId}
                     isPlaybackPaused={selectedAssetId !== null}

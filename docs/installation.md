@@ -109,8 +109,10 @@ Keep Ollama reachable only from machines and containers you trust.
 
 ## HTTPS
 
-For regular access from other devices, put Aether behind an HTTPS reverse proxy
-or use a private VPN. Then set:
+For regular Home Screen web-app access, use a stable HTTPS address behind a
+reverse proxy with a certificate trusted by every device. A VPN can restrict
+access, but plain HTTP over a VPN is not a browser secure context and does not
+support Secure cookies or service workers. Once HTTPS works, set:
 
 ```bash
 AETHER_COOKIE_SECURE=true
@@ -127,6 +129,14 @@ aether.home.arpa {
   reverse_proxy 127.0.0.1:3030
 }
 ```
+
+For a local name, Caddy uses its local certificate authority. Install and trust
+that CA certificate on the iPhone before adding Aether to the Home Screen. A
+manually installed certificate may need full trust enabled in **Settings →
+General → About → Certificate Trust Settings**. Use a publicly trusted
+certificate instead when that is appropriate for your deployment. See
+[Caddy local HTTPS](https://caddyserver.com/docs/automatic-https#local-https) and
+[Apple certificate trust](https://support.apple.com/en-us/102390).
 
 ## Trusted LAN Preview
 

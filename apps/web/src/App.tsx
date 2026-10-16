@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, getMe, subscribeToUnauthorized } from "./api/client";
 import { AppShell } from "./components/AppShell";
 import { CardLoadingPreview } from "./components/dev/CardLoadingPreview";
 import { LoginScreen } from "./components/LoginScreen";
 import { ServerUnavailableScreen } from "./components/ServerUnavailableScreen";
-import { clearSessionScrollPositions } from "./components/scroll-restoration";
+import { usePageLifecycle } from "./hooks/usePageLifecycle";
 import {
   useAppearanceSettings,
   type AppearanceSettings
@@ -27,40 +27,76 @@ function AuthenticatedApp({ appearance }: { appearance: AppearanceSettings }) {
   const [authStatus, setAuthStatus] = useState<AuthStatus>("checking");
   const [authCheckAttempt, setAuthCheckAttempt] = useState(0);
   const [loginNotice, setLoginNotice] = useState<string | null>(null);
+  const [logoutCleanup, setLogoutCleanup] = useState<{
+    run: () => void;
+  } | null>(null);
+  const authGenerationRef = useRef(0);
+  const authCheckControllerRef = useRef<AbortController | null>(null);
+  const cancelAuthCheck = useCallback(() => {
+    authGenerationRef.current += 1;
+    authCheckControllerRef.current?.abort();
+  }, []);
+
+  useEffect(() => {
+    if (authStatus !== "anonymous" || !logoutCleanup) return;
+    // Child unmount effects flush their checkpoints before this effect runs.
+    logoutCleanup.run();
+    setLogoutCleanup(null);
+  }, [authStatus, logoutCleanup]);
 
   useEffect(
     () =>
       subscribeToUnauthorized(() => {
-        clearSessionScrollPositions();
+        cancelAuthCheck();
         setLoginNotice(
           "Your session expired. Enter your password to continue."
         );
         setAuthStatus("anonymous");
       }),
-    []
+    [cancelAuthCheck]
   );
+
+  usePageLifecycle({
+    onResume: () => {
+      if (authStatus === "checking" || authStatus === "anonymous") return;
+      if (authStatus === "unavailable") setAuthStatus("checking");
+      setAuthCheckAttempt((current) => current + 1);
+    }
+  });
 
   useEffect(() => {
     const controller = new AbortController();
+    const generation = authGenerationRef.current;
+    authCheckControllerRef.current = controller;
 
     getMe(controller.signal)
       .then(() => {
-        if (!controller.signal.aborted) {
+        if (
+          !controller.signal.aborted &&
+          generation === authGenerationRef.current
+        ) {
           setAuthStatus("authenticated");
         }
       })
       .catch((error: unknown) => {
-        if (!controller.signal.aborted) {
-          setAuthStatus(
+        if (
+          !controller.signal.aborted &&
+          generation === authGenerationRef.current
+        ) {
+          setAuthStatus((current) =>
             error instanceof ApiError && error.status === 401
               ? "anonymous"
-              : "unavailable"
+              : current === "authenticated"
+                ? current
+                : "unavailable"
           );
         }
       });
 
     return () => {
       controller.abort();
+      if (authCheckControllerRef.current === controller)
+        authCheckControllerRef.current = null;
     };
   }, [authCheckAttempt]);
 
@@ -89,7 +125,7 @@ function AuthenticatedApp({ appearance }: { appearance: AppearanceSettings }) {
       <LoginScreen
         notice={loginNotice}
         onAuthenticated={() => {
-          clearSessionScrollPositions();
+          cancelAuthCheck();
           setLoginNotice(null);
           setAuthStatus("authenticated");
         }}
@@ -101,7 +137,12 @@ function AuthenticatedApp({ appearance }: { appearance: AppearanceSettings }) {
     <>
       <AppShell
         appearance={appearance}
-        onLogout={() => setAuthStatus("anonymous")}
+        onLogout={(clearResumeAfterUnmount) => {
+          setLogoutCleanup({ run: clearResumeAfterUnmount });
+          cancelAuthCheck();
+          setLoginNotice(null);
+          setAuthStatus("anonymous");
+        }}
       />
       <Toaster closeButton position="top-center" theme={appearance.theme} />
     </>

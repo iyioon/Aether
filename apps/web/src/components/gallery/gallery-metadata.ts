@@ -61,8 +61,12 @@ export function writeGalleryMetadataFields(
     return;
   }
 
-  window.localStorage.setItem(
-    GALLERY_METADATA_STORAGE_KEY,
-    JSON.stringify([...fields])
-  );
+  try {
+    window.localStorage.setItem(
+      GALLERY_METADATA_STORAGE_KEY,
+      JSON.stringify([...fields])
+    );
+  } catch {
+    // Metadata visibility remains usable when storage is full or restricted.
+  }
 }

@@ -22,6 +22,16 @@ export default tseslint.config(
     ]
   },
   eslint.configs.recommended,
+  {
+    files: ["apps/web/pwa/*.js", "apps/web/public/offline-retry.js"],
+    languageOptions: {
+      globals: {
+        ...globals.browser,
+        ...globals.serviceworker,
+        __PRECACHE_URLS__: "readonly"
+      }
+    }
+  },
   ...tseslint.configs.recommended.map((config) => ({
     ...config,
     files: typescriptFiles

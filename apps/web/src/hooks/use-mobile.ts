@@ -1,11 +1,12 @@
 import * as React from "react";
 
 const MOBILE_QUERY =
-  "(max-width: 760px), (max-width: 920px) and (hover: none) and (pointer: coarse)";
+  "(max-width: 767px), (max-width: 1024px) and (hover: none) and (pointer: coarse)";
 
 export function useIsMobile() {
-  const [isMobile, setIsMobile] = React.useState<boolean | undefined>(
-    undefined
+  const [isMobile, setIsMobile] = React.useState(
+    () =>
+      typeof window !== "undefined" && window.matchMedia(MOBILE_QUERY).matches
   );
 
   React.useEffect(() => {
@@ -18,5 +19,5 @@ export function useIsMobile() {
     return () => mql.removeEventListener("change", onChange);
   }, []);
 
-  return !!isMobile;
+  return isMobile;
 }

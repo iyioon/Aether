@@ -63,7 +63,8 @@ Open `http://127.0.0.1:5173`, sign in, and start a library scan from the
 sidebar.
 
 For short-lived testing from a phone or tablet on the same trusted network, use
-`npm run dev:lan`. Use Docker behind HTTPS or a VPN for regular remote access.
+`npm run dev:lan`. Use trusted HTTPS for regular Home Screen access. A private
+VPN can restrict network access to your server.
 
 ## Docker
 

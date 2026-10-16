@@ -33,6 +33,8 @@ const config = await loadConfig(
     AETHER_PASSWORD_HASH: await hashPassword(password),
     AETHER_SESSION_SECRET: "e2e-development-session-secret-32chars",
     AETHER_COOKIE_SECURE: "false",
+    // Independent browser scenarios share loopback; exercise throttling in API tests.
+    AETHER_LOGIN_MAX_ATTEMPTS: "100",
     NODE_ENV: "test"
   },
   process.cwd()

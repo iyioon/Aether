@@ -57,6 +57,28 @@ const ComparisonPairContext = z.object({
   score: z.enum(["all", "favorites", "ranked", "unranked"]).default("all")
 });
 
+const OrderedComparisonPair = z
+  .tuple([z.string().min(1).max(256), z.string().min(1).max(256)])
+  .refine(([left, right]) => left !== right);
+
+export const ComparisonResumeBody = ComparisonPairContext.omit({
+  folderId: true
+}).extend({
+  pairAssetIds: OrderedComparisonPair.nullable(),
+  previousDecision: z
+    .object({ eventId: z.uuid(), pairAssetIds: OrderedComparisonPair })
+    .nullable()
+});
+
+export const ComparisonUndoBody = z
+  .object({
+    mutationId: z.uuid().optional(),
+    comparisonGeneration: z.uuid().optional()
+  })
+  .refine(
+    (body) => !body.mutationId || body.comparisonGeneration !== undefined
+  );
+
 function normalizeArrayQueryValue(value: unknown): unknown[] {
   if (value === undefined) {
     return [];
@@ -70,9 +92,12 @@ export const ComparisonDecisionBody = z
     leftAssetId: z.string().min(1).max(256),
     rightAssetId: z.string().min(1).max(256),
     winnerAssetId: z.string().min(1).max(256),
+    mutationId: z.uuid().optional(),
+    comparisonGeneration: z.uuid().optional(),
     pairContext: ComparisonPairContext.optional()
   })
   .refine((data) => data.leftAssetId !== data.rightAssetId)
+  .refine((data) => !data.mutationId || data.comparisonGeneration !== undefined)
   .refine((data) =>
     [data.leftAssetId, data.rightAssetId].includes(data.winnerAssetId)
   );

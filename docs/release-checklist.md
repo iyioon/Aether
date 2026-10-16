@@ -39,15 +39,30 @@ Review any skipped test instead of treating a partial run as a release pass.
 
 Never test rebuild or wipe against the only copy of a real library database.
 
+## Phone And PWA Checks
+
+- Verify exact ranking pair and Undo restoration through Settings, reload,
+  fresh launch, backgrounding, and sign-in after session expiry.
+- Check Gallery, Feed, folder-tree and leaderboard scroll positions, including
+  many loaded items, random sorting, and rotation.
+- Verify explicit links, Settings tabs, fullscreen restoration and browser
+  history.
+- Test portrait and short landscape layouts, safe areas, keyboard entry and
+  zoom on an actual iPhone Home Screen installation.
+- Check offline shell recovery and reconnection; confirm Cache Storage contains
+  no private API or media responses.
+- Verify that vote/Undo retries do not create duplicate changes, and comparison
+  resets invalidate pending requests from other tabs or devices.
+
 ## Security
 
 - A strong password hash and unique session secret are set.
 - Source media is mounted read-only.
 - The service binds to localhost unless direct LAN exposure is deliberate.
-- HTTPS or a VPN protects regular access from other devices.
+- Trusted HTTPS supports regular Home Screen access; a VPN can restrict network access.
 - Secure cookies are enabled only after HTTPS works.
 - Proxy headers are trusted only from the configured reverse proxy.
-- Optional AI suggestions remain disabled unless the destination is understood.
+- Optional tag suggestions remain disabled unless the destination is understood.
 - External backups are tracked and removed separately when required.
 
 ## Release

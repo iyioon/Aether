@@ -44,6 +44,7 @@ export {
   ComparisonConflictError,
   getNextComparisonPair,
   recordComparisonDecision,
+  resumeComparisonSession,
   resetAssetComparisons,
   undoComparisonDecision
 } from "./repository-comparisons.js";

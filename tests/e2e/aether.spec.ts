@@ -239,7 +239,10 @@ test("recovers from server and session interruptions and restores navigation", a
   await expect(
     page.getByRole("heading", { name: "Leaderboard" })
   ).toBeVisible();
-  await page.getByRole("button", { name: "Rank media" }).click();
+  await page
+    .locator(".leaderboard-header")
+    .getByRole("button", { name: "Rank media", exact: true })
+    .click();
   await expect(page.getByRole("button", { name: "Leaderboard" })).toBeVisible();
   await page.reload();
   await expect(page.getByRole("button", { name: "Leaderboard" })).toBeVisible();

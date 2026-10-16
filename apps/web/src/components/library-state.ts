@@ -97,45 +97,22 @@ export const defaultLibraryState: LibraryUrlState = {
   tags: []
 };
 
-export function readLibraryStateFromUrl(): LibraryUrlState {
-  if (typeof window === "undefined") {
-    return defaultLibraryState;
-  }
-
-  return parseLibraryStateSearch(window.location.search);
-}
-
-export function readInitialLibraryState(): LibraryUrlState {
-  if (typeof window === "undefined") {
-    return defaultLibraryState;
-  }
-
-  const urlSearch = window.location.search;
-
-  if (hasExplicitLibraryStateQuery(urlSearch)) {
-    return parseLibraryStateSearch(urlSearch);
-  }
-
-  let storedState: string | null = null;
-
-  try {
-    storedState = window.localStorage.getItem(LIBRARY_STATE_STORAGE_KEY);
-  } catch {
-    // Local persistence is optional, including in Safari private browsing.
-  }
-
-  return resolveInitialLibraryState(urlSearch, storedState);
-}
-
-export function resolveInitialLibraryState(
-  urlSearch: string,
-  serializedStoredState: string | null
-): LibraryUrlState {
-  if (hasExplicitLibraryStateQuery(urlSearch)) {
-    return parseLibraryStateSearch(urlSearch);
-  }
-
-  return parseStoredLibraryState(serializedStoredState) ?? defaultLibraryState;
+export function isResumeLaunch(): boolean {
+  if (typeof window === "undefined") return false;
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("launch") === "resume") return true;
+  // Older iOS installations may launch a gallery/filter URL saved at install time.
+  // Explicit view/page links retain their usual precedence.
+  const standalone =
+    window.matchMedia?.("(display-mode: standalone)").matches ||
+    (typeof navigator !== "undefined" &&
+      "standalone" in navigator &&
+      navigator.standalone === true);
+  return Boolean(
+    standalone &&
+    hasExplicitLibraryStateQuery(window.location.search) &&
+    !["view", "page", "workspace", "asset"].some((key) => params.has(key))
+  );
 }
 
 export function hasExplicitLibraryStateQuery(search: string): boolean {
@@ -192,24 +169,6 @@ export function writeLibraryStateToStorage(state: LibraryUrlState): void {
     );
   } catch {
     // Persistence failure must never interrupt navigation or session changes.
-  }
-}
-
-export function writeLibraryStateToUrl(state: LibraryUrlState): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  const query = buildLibraryStateSearch(state);
-  const nextUrl = `${window.location.pathname}${query ? `?${query}` : ""}${
-    window.location.hash
-  }`;
-  const currentUrl = `${window.location.pathname}${window.location.search}${
-    window.location.hash
-  }`;
-
-  if (nextUrl !== currentUrl) {
-    window.history.replaceState(null, "", nextUrl);
   }
 }
 

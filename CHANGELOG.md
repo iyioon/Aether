@@ -4,6 +4,13 @@ Notable changes to Aether are recorded here.
 
 ## Unreleased
 
+- Restore navigation, comparison pairs and Undo, Settings tabs, fullscreen items,
+  and scroll positions after reopening the app.
+- Recover interrupted comparison requests without duplicate changes, and clear
+  saved state after sign-out or comparison resets.
+- Add offline interface recovery and improve phone layouts, safe areas, and
+  touch controls.
+
 ## 0.1.0 - 2026-10-11
 
 ### Added

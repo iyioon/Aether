@@ -40,6 +40,7 @@ import {
 import { Progress } from "./ui/progress";
 import { Skeleton } from "./ui/skeleton";
 import {
+  checkpointScrollPositionOnPageLifecycle,
   flushSessionScrollPositions,
   readSessionScrollPosition,
   writeSessionScrollPosition
@@ -109,11 +110,26 @@ export function FolderTreePanel({
   const scrollFrameRef = useRef<number | null>(null);
   const latestScrollTopRef = useRef(0);
   const hasRestoredScrollRef = useRef(false);
+  const skipInitialSelectedRevealRef = useRef(false);
 
   const saveTreeScrollPosition = useCallback(() => {
+    if (!hasRestoredScrollRef.current) {
+      return;
+    }
     const treeList = treeListRef.current;
+    const listTop = treeList?.getBoundingClientRect().top;
+    const anchor = treeList
+      ? Array.from(
+          treeList.querySelectorAll<HTMLElement>("[data-folder-id]")
+        ).find((node) => node.getBoundingClientRect().bottom > (listTop ?? 0))
+      : undefined;
 
     writeSessionScrollPosition("folder-tree", {
+      anchorId: anchor?.dataset.folderId,
+      anchorOffset:
+        anchor && listTop !== undefined
+          ? listTop - anchor.getBoundingClientRect().top
+          : undefined,
       contextKey: "library",
       scrollTop: treeList?.scrollTop ?? latestScrollTopRef.current
     });
@@ -142,8 +158,18 @@ export function FolderTreePanel({
     hasRestoredScrollRef.current = true;
     const storedPosition = readSessionScrollPosition("folder-tree");
     if (storedPosition?.contextKey === "library") {
-      latestScrollTopRef.current = storedPosition.scrollTop;
-      treeList.scrollTop = storedPosition.scrollTop;
+      const anchor = storedPosition.anchorId
+        ? document.getElementById(folderTreeItemDomId(storedPosition.anchorId))
+        : null;
+      treeList.scrollTop =
+        anchor && treeList.contains(anchor)
+          ? treeList.scrollTop +
+            anchor.getBoundingClientRect().top -
+            treeList.getBoundingClientRect().top +
+            (storedPosition.anchorOffset ?? 0)
+          : storedPosition.scrollTop;
+      latestScrollTopRef.current = treeList.scrollTop;
+      skipInitialSelectedRevealRef.current = true;
     }
   }, [isLoadingTree, items.length]);
 
@@ -151,6 +177,10 @@ export function FolderTreePanel({
     const treeList = treeListRef.current;
 
     if (!treeList || !selectedFolderId) {
+      return;
+    }
+    if (skipInitialSelectedRevealRef.current) {
+      skipInitialSelectedRevealRef.current = false;
       return;
     }
 
@@ -176,25 +206,25 @@ export function FolderTreePanel({
     return () => window.cancelAnimationFrame(frame);
   }, [items, selectedFolderId]);
 
-  useEffect(
+  useLayoutEffect(
     () => () => {
       if (scrollFrameRef.current !== null) {
         window.cancelAnimationFrame(scrollFrameRef.current);
       }
       saveTreeScrollPosition();
+      flushSessionScrollPositions("folder-tree");
     },
     [saveTreeScrollPosition]
   );
 
-  useEffect(() => {
-    const handlePageHide = () => {
-      saveTreeScrollPosition();
-      flushSessionScrollPositions("folder-tree");
-    };
-
-    window.addEventListener("pagehide", handlePageHide);
-    return () => window.removeEventListener("pagehide", handlePageHide);
-  }, [saveTreeScrollPosition]);
+  useEffect(
+    () =>
+      checkpointScrollPositionOnPageLifecycle(
+        "folder-tree",
+        saveTreeScrollPosition
+      ),
+    [saveTreeScrollPosition]
+  );
 
   return (
     <nav className="tree-panel" aria-label="Media folders">
@@ -361,6 +391,7 @@ const FolderTreeRow = memo(function FolderTreeRow({
         .filter(Boolean)
         .join(" ")}
       id={folderTreeItemDomId(item.id)}
+      data-folder-id={item.id}
       role="treeitem"
       tabIndex={isTabStop ? 0 : -1}
       style={

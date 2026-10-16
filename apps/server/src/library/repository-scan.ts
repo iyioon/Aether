@@ -25,7 +25,7 @@ interface ExistingAssetLocation {
 /**
  * Applies one complete filesystem snapshot as a single database transaction.
  * Asset IDs in the snapshot have already been matched by content, so this
- * function only moves those stable identities and removes genuinely unseen
+ * function only moves those stable identities and removes missing
  * rows after every destination is in place.
  */
 export function reconcileScannedLibrary(

@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  checkpointScrollPositionOnPageLifecycle,
   clearSessionScrollPositions,
   findScrollAnchorItem,
   flushSessionScrollPositions,
+  hasScrollOrderChanged,
   readSessionScrollPosition,
   scaleScrollAnchorOffset,
   writeSessionScrollPosition
@@ -11,16 +13,41 @@ import {
 function installSessionStorage() {
   const values = new Map<string, string>();
   const setItem = vi.fn((key: string, value: string) => values.set(key, value));
-
-  vi.stubGlobal("window", {
-    sessionStorage: {
-      getItem: (key: string) => values.get(key) ?? null,
-      removeItem: (key: string) => values.delete(key),
-      setItem
-    }
+  const durableValues = new Map<string, string>();
+  const durableSetItem = vi.fn((key: string, value: string) =>
+    durableValues.set(key, value)
+  );
+  const windowEvents = new EventTarget();
+  const documentEvents = new EventTarget();
+  const document = Object.assign(documentEvents, {
+    visibilityState: "visible"
   });
 
-  return { setItem, values };
+  vi.stubGlobal(
+    "window",
+    Object.assign(windowEvents, {
+      localStorage: {
+        getItem: (key: string) => durableValues.get(key) ?? null,
+        removeItem: (key: string) => durableValues.delete(key),
+        setItem: durableSetItem
+      },
+      sessionStorage: {
+        getItem: (key: string) => values.get(key) ?? null,
+        removeItem: (key: string) => values.delete(key),
+        setItem
+      }
+    })
+  );
+  vi.stubGlobal("document", document);
+
+  return {
+    document,
+    durableSetItem,
+    durableValues,
+    setItem,
+    values,
+    windowEvents
+  };
 }
 
 describe("session scroll restoration", () => {
@@ -44,6 +71,7 @@ describe("session scroll restoration", () => {
       anchorSize: undefined,
       contextKey: "folder-1",
       index: undefined,
+      loadedCount: undefined,
       scrollTop: 124
     });
   });
@@ -115,6 +143,181 @@ describe("session scroll restoration", () => {
     vi.advanceTimersByTime(120);
     expect(setItem).toHaveBeenCalledOnce();
   });
+
+  it("restores a durable checkpoint in a fresh application context", async () => {
+    const { durableValues, values } = installSessionStorage();
+    writeSessionScrollPosition("leaderboard", {
+      anchorId: "asset-84",
+      anchorOffset: 24,
+      anchorSize: 96,
+      contextKey: "query-1",
+      index: 83,
+      loadedCount: 96,
+      scrollTop: 8123
+    });
+    flushSessionScrollPositions();
+    values.clear();
+    vi.resetModules();
+    const freshContext = await import("./scroll-restoration");
+
+    expect(freshContext.readSessionScrollPosition("leaderboard")).toMatchObject(
+      {
+        anchorId: "asset-84",
+        anchorOffset: 24,
+        anchorSize: 96,
+        index: 83,
+        loadedCount: 96,
+        scrollTop: 8123
+      }
+    );
+    expect(durableValues.size).toBe(1);
+  });
+
+  it("migrates an existing session checkpoint to durable storage", () => {
+    const { durableValues, values } = installSessionStorage();
+    values.set(
+      "aether.scroll.v2.library-content",
+      JSON.stringify({ contextKey: "folder-1", index: 16, scrollTop: 480 })
+    );
+
+    expect(readSessionScrollPosition("library-content")?.index).toBe(16);
+    expect(
+      JSON.parse(
+        durableValues.get("aether.scroll.v3.library-content") ?? "null"
+      )
+    ).toMatchObject({ contextKey: "folder-1", index: 16, scrollTop: 480 });
+  });
+
+  it("ignores invalid durable data and can recover a valid session checkpoint", () => {
+    const { durableValues, values } = installSessionStorage();
+    durableValues.set("aether.scroll.v3.folder-tree", "{invalid");
+    values.set(
+      "aether.scroll.v2.folder-tree",
+      JSON.stringify({ contextKey: "library", scrollTop: 120 })
+    );
+
+    expect(readSessionScrollPosition("folder-tree")?.scrollTop).toBe(120);
+  });
+
+  it.each([
+    "null",
+    "[]",
+    '{"scrollTop":1}',
+    '{"contextKey":"x"}',
+    "x".repeat(20_000)
+  ])("ignores malformed or oversized checkpoints", (stored) => {
+    const { durableValues } = installSessionStorage();
+    durableValues.set("aether.scroll.v3.folder-tree", stored);
+    expect(readSessionScrollPosition("folder-tree")).toBeNull();
+  });
+
+  it("rejects non-finite offsets and normalizes optional restoration fields", () => {
+    installSessionStorage();
+    writeSessionScrollPosition("library-content", {
+      contextKey: "folder-1",
+      scrollTop: Number.NaN
+    });
+    expect(readSessionScrollPosition("library-content")).toBeNull();
+
+    writeSessionScrollPosition("library-content", {
+      contextKey: "folder-1",
+      anchorOffset: Number.POSITIVE_INFINITY,
+      anchorSize: -1,
+      index: -1,
+      loadedCount: 1.5,
+      scrollTop: -20
+    });
+    expect(readSessionScrollPosition("library-content")).toMatchObject({
+      anchorOffset: undefined,
+      anchorSize: undefined,
+      index: undefined,
+      loadedCount: undefined,
+      scrollTop: 0
+    });
+  });
+
+  it("keeps navigation working when localStorage is restricted", () => {
+    const { setItem, values } = installSessionStorage();
+    Object.defineProperty(window, "localStorage", {
+      get: () => {
+        throw new Error("Storage access denied");
+      }
+    });
+    expect(() =>
+      writeSessionScrollPosition("folder-tree", {
+        contextKey: "library",
+        scrollTop: 80
+      })
+    ).not.toThrow();
+    expect(() => flushSessionScrollPositions()).not.toThrow();
+    expect(setItem).toHaveBeenCalledOnce();
+    expect(values.size).toBe(1);
+    expect(readSessionScrollPosition("folder-tree")?.scrollTop).toBe(80);
+    expect(() => clearSessionScrollPositions()).not.toThrow();
+    expect(values.size).toBe(0);
+  });
+
+  it("captures and flushes the latest DOM position synchronously on hidden and pagehide", () => {
+    vi.useFakeTimers();
+    const { document, durableSetItem, durableValues, windowEvents } =
+      installSessionStorage();
+    let scrollTop = 40;
+    const savePosition = vi.fn(() => {
+      writeSessionScrollPosition("folder-tree", {
+        contextKey: "library",
+        scrollTop
+      });
+    });
+    const cleanup = checkpointScrollPositionOnPageLifecycle(
+      "folder-tree",
+      savePosition
+    );
+
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(savePosition).not.toHaveBeenCalled();
+    document.visibilityState = "hidden";
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(durableSetItem).toHaveBeenCalledOnce();
+    expect(
+      JSON.parse(durableValues.get("aether.scroll.v3.folder-tree") ?? "null")
+    ).toMatchObject({ scrollTop: 40 });
+
+    scrollTop = 96;
+    windowEvents.dispatchEvent(new Event("pagehide"));
+    expect(durableSetItem).toHaveBeenCalledTimes(2);
+    expect(
+      JSON.parse(durableValues.get("aether.scroll.v3.folder-tree") ?? "null")
+    ).toMatchObject({ scrollTop: 96 });
+    vi.advanceTimersByTime(120);
+    expect(durableSetItem).toHaveBeenCalledTimes(2);
+
+    cleanup();
+    document.dispatchEvent(new Event("visibilitychange"));
+    windowEvents.dispatchEvent(new Event("pagehide"));
+    expect(savePosition).toHaveBeenCalledTimes(2);
+  });
+
+  it("flushes pending writes on lifecycle teardown and clears all stores on explicit reset", () => {
+    vi.useFakeTimers();
+    const { durableValues, values } = installSessionStorage();
+    values.set("aether.scroll.v1.gallery", "old checkpoint");
+    const cleanup = checkpointScrollPositionOnPageLifecycle(
+      "leaderboard",
+      () => undefined
+    );
+    writeSessionScrollPosition("leaderboard", {
+      contextKey: "query-1",
+      loadedCount: 96,
+      scrollTop: 640
+    });
+    cleanup();
+    expect(durableValues.size).toBe(1);
+    clearSessionScrollPositions();
+    expect(durableValues.size).toBe(0);
+    expect(values.size).toBe(0);
+    vi.advanceTimersByTime(120);
+    expect(durableValues.size).toBe(0);
+  });
 });
 
 describe("findScrollAnchorItem", () => {
@@ -134,6 +337,24 @@ describe("findScrollAnchorItem", () => {
 
   it("does not fall back to the first overscanned row", () => {
     expect(findScrollAnchorItem(items, 900)?.index).toBe(6);
+  });
+});
+
+describe("hasScrollOrderChanged", () => {
+  it("keeps the current location when another page is appended", () => {
+    expect(hasScrollOrderChanged(["a", "b"], ["a", "b", "c"])).toBe(false);
+    expect(hasScrollOrderChanged(["a", "b"], ["a", "b"])).toBe(false);
+  });
+
+  it("requires anchoring after refresh inserts, reorders or replaces entries", () => {
+    expect(hasScrollOrderChanged(["a", "b"], ["new", "a", "b"])).toBe(true);
+    expect(hasScrollOrderChanged(["a", "b"], ["b", "a"])).toBe(true);
+    expect(hasScrollOrderChanged(["a", "b"], ["a", "new"])).toBe(true);
+  });
+
+  it("reapplies the location when a refresh removes previously loaded entries", () => {
+    expect(hasScrollOrderChanged(["a", "b", "c"], ["a", "b"])).toBe(true);
+    expect(hasScrollOrderChanged(["a", "b", "c"], ["b", "c"])).toBe(true);
   });
 });
 

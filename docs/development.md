@@ -49,6 +49,9 @@ The end-to-end suite starts isolated servers and creates disposable files under
 **.e2e**. It expects a local Chrome installation. FFmpeg and ffprobe must be
 available for video tests.
 
+Run `npm run build` before the browser suite. Phone layout and offline checks
+use the production web build.
+
 ## Working Rules
 
 - Keep source media read-only.

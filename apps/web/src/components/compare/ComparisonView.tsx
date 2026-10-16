@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useState } from "react";
 import type {
   AssetRecord,
   MediaTypeFilter,
@@ -7,11 +7,7 @@ import type {
 import { LeaderboardView } from "./LeaderboardView";
 import { Card } from "../ui/card";
 import { Skeleton } from "../ui/skeleton";
-import {
-  readAppNavigationState,
-  updateAppNavigationState,
-  type ComparisonWorkspace
-} from "../app-navigation-state";
+import type { ComparisonWorkspace } from "../app-navigation-state";
 
 const loadRankingSession = () => import("./RankingSession");
 const RankingSession = lazy(() =>
@@ -25,6 +21,8 @@ function preloadRankingSession(): void {
 }
 
 interface ComparisonViewProps {
+  workspace: ComparisonWorkspace;
+  onWorkspaceChange: (workspace: ComparisonWorkspace) => void;
   assetUpdate: AssetRecord | null;
   folderId: string | null;
   isPlaybackPaused: boolean;
@@ -39,19 +37,13 @@ interface ComparisonViewProps {
 
 export function ComparisonView(props: ComparisonViewProps) {
   const onRankingChanged = props.onRankingChanged;
-  const [workspace, setWorkspace] = useState<ComparisonWorkspace>(
-    () => readAppNavigationState().comparisonWorkspace
-  );
+  const { workspace, onWorkspaceChange } = props;
   const [leaderboardRevision, setLeaderboardRevision] = useState(0);
-
-  useEffect(() => {
-    updateAppNavigationState({ comparisonWorkspace: workspace });
-  }, [workspace]);
 
   const openLeaderboard = useCallback(() => {
     setLeaderboardRevision((current) => current + 1);
-    setWorkspace("leaderboard");
-  }, []);
+    onWorkspaceChange("leaderboard");
+  }, [onWorkspaceChange]);
   const handleRankingChanged = useCallback(() => {
     setLeaderboardRevision((current) => current + 1);
     onRankingChanged();
@@ -80,7 +72,7 @@ export function ComparisonView(props: ComparisonViewProps) {
       tagFilters={props.tagFilters}
       onOpenFullscreen={props.onOpenFullscreen}
       onPrepareRanking={preloadRankingSession}
-      onStartRanking={() => setWorkspace("ranking")}
+      onStartRanking={() => onWorkspaceChange("ranking")}
     />
   );
 }

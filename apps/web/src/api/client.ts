@@ -119,6 +119,7 @@ export interface LibraryDataResetResult {
 }
 
 export interface ComparisonPairResponse {
+  comparisonGeneration: string;
   left: AssetRecord;
   right: AssetRecord;
   progress: {
@@ -144,6 +145,15 @@ export interface ComparisonPairContext {
   search: string;
   tags: string[];
   score: ScoreFilter;
+}
+
+export interface ComparisonSessionResumeResponse {
+  comparisonGeneration: string;
+  pair: ComparisonPairResponse | null;
+  previousDecision: {
+    eventId: string;
+    pair: ComparisonPairResponse;
+  } | null;
 }
 
 export type ScanWarning = "derivative_cache_cleanup_failed";
@@ -283,6 +293,15 @@ export async function getTree(signal?: AbortSignal): Promise<TreeResponse> {
   return request<TreeResponse>("/api/tree", { signal });
 }
 
+export async function getAsset(
+  assetId: string,
+  signal?: AbortSignal
+): Promise<AssetRecord> {
+  return request<AssetRecord>(`/api/assets/${encodeURIComponent(assetId)}`, {
+    signal
+  });
+}
+
 export async function getAssets(options: {
   folderId: string;
   offset?: number;
@@ -355,6 +374,8 @@ export async function recordComparison(input: {
   rightAssetId: string;
   winnerAssetId: string;
   pairContext?: ComparisonPairContext;
+  mutationId?: string;
+  comparisonGeneration?: string;
 }): Promise<ComparisonDecisionResponse> {
   return request<ComparisonDecisionResponse>("/api/comparisons", {
     method: "POST",
@@ -363,11 +384,33 @@ export async function recordComparison(input: {
 }
 
 export async function undoComparison(
-  eventId: string
+  eventId: string,
+  mutationId?: string,
+  comparisonGeneration?: string
 ): Promise<ComparisonDecisionResponse> {
   return request<ComparisonDecisionResponse>(
     `/api/comparisons/${encodeURIComponent(eventId)}/undo`,
-    { method: "POST" }
+    {
+      method: "POST",
+      body: JSON.stringify({ mutationId, comparisonGeneration })
+    }
+  );
+}
+
+export async function resumeComparison(
+  input: ComparisonPairContext & {
+    pairAssetIds: [string, string] | null;
+    previousDecision: {
+      eventId: string;
+      pairAssetIds: [string, string];
+    } | null;
+    signal?: AbortSignal;
+  }
+): Promise<ComparisonSessionResumeResponse> {
+  const { folderId, signal, ...body } = input;
+  return request<ComparisonSessionResumeResponse>(
+    `/api/folders/${encodeURIComponent(folderId)}/comparisons/resume`,
+    { method: "POST", body: JSON.stringify(body), signal }
   );
 }
 

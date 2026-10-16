@@ -4,7 +4,7 @@
 
 - [Installation](installation.md): local setup, Docker, updates, and HTTPS.
 - [Configuration](configuration.md): media roots, sign-in, file watching, and
-  optional AI settings.
+  optional tag suggestions.
 - [User guide](user-guide.md): browsing, comparison, scores, favorites, tags,
   and downloads.
 

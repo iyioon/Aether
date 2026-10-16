@@ -1,4 +1,4 @@
-export type ScrollSurface = "folder-tree" | "library-content";
+export type ScrollSurface = "folder-tree" | "library-content" | "leaderboard";
 
 export interface SessionScrollPosition {
   anchorId?: string;
@@ -6,6 +6,7 @@ export interface SessionScrollPosition {
   anchorSize?: number;
   contextKey: string;
   index?: number;
+  loadedCount?: number;
   scrollTop: number;
 }
 
@@ -15,8 +16,27 @@ export interface ScrollAnchorItem {
   start: number;
 }
 
-const STORAGE_PREFIX = "aether.scroll.v2";
+/** Appending another page does not move any previously visible asset. */
+export function hasScrollOrderChanged(
+  previousIds: readonly string[],
+  nextIds: readonly string[]
+): boolean {
+  return (
+    nextIds.length < previousIds.length ||
+    previousIds.some((id, index) => nextIds[index] !== id)
+  );
+}
+
+const STORAGE_PREFIX = "aether.scroll.v3";
+const SESSION_STORAGE_PREFIX = "aether.scroll.v2";
 const STORAGE_WRITE_DELAY_MS = 120;
+const MAX_STORED_STRING_LENGTH = 16_384;
+const MAX_SCROLL_DISTANCE = 100_000_000;
+const SCROLL_SURFACES: ScrollSurface[] = [
+  "folder-tree",
+  "library-content",
+  "leaderboard"
+];
 const LEGACY_STORAGE_KEYS = [
   "aether.scroll.v1.feed",
   "aether.scroll.v1.folder-tree",
@@ -87,59 +107,36 @@ export function readSessionScrollPosition(
     return null;
   }
 
-  try {
-    const stored = window.sessionStorage.getItem(storageKey(surface));
+  const durablePosition = readStoredPosition(() =>
+    window.localStorage.getItem(storageKey(surface))
+  );
+  const position =
+    durablePosition ??
+    readStoredPosition(() =>
+      window.sessionStorage.getItem(sessionStorageKey(surface))
+    );
 
-    if (!stored) {
-      return null;
-    }
-
-    const parsed = JSON.parse(stored) as Partial<SessionScrollPosition>;
-
-    if (
-      typeof parsed.contextKey !== "string" ||
-      typeof parsed.scrollTop !== "number" ||
-      !Number.isFinite(parsed.scrollTop)
-    ) {
-      return null;
-    }
-
-    const position = {
-      anchorId:
-        typeof parsed.anchorId === "string" ? parsed.anchorId : undefined,
-      anchorOffset:
-        typeof parsed.anchorOffset === "number" &&
-        Number.isFinite(parsed.anchorOffset)
-          ? parsed.anchorOffset
-          : undefined,
-      anchorSize:
-        typeof parsed.anchorSize === "number" &&
-        Number.isFinite(parsed.anchorSize) &&
-        parsed.anchorSize > 0
-          ? parsed.anchorSize
-          : undefined,
-      contextKey: parsed.contextKey,
-      index:
-        typeof parsed.index === "number" && Number.isFinite(parsed.index)
-          ? parsed.index
-          : undefined,
-      scrollTop: Math.max(0, parsed.scrollTop)
-    };
+  if (position) {
     cachedPositions.set(surface, position);
+    if (!durablePosition) {
+      // An existing installation's session checkpoint becomes durable on read.
+      dirtySurfaces.add(surface);
+      flushSessionScrollPositions(surface);
+    }
     return { ...position };
-  } catch {
-    return null;
   }
+
+  return null;
 }
 
 export function writeSessionScrollPosition(
   surface: ScrollSurface,
   position: SessionScrollPosition
 ) {
-  const normalizedPosition = {
-    ...position,
-    scrollTop: Math.max(0, Math.round(position.scrollTop))
-  };
+  const normalizedPosition = normalizePosition(position);
+  if (!normalizedPosition) {
+    return;
+  }
   cachedPositions.set(surface, normalizedPosition);
 
   if (typeof window === "undefined") {
@@ -178,15 +175,50 @@ export function flushSessionScrollPositions(surface?: ScrollSurface) {
       continue;
     }
 
-    try {
-      window.sessionStorage.setItem(
-        storageKey(currentSurface),
-        JSON.stringify(position)
-      );
-    } catch {
-      // Scroll restoration is optional and should never block navigation.
+    const serialized = JSON.stringify(position);
+    if (serialized.length > MAX_STORED_STRING_LENGTH) {
+      continue;
+    }
+    for (const storePosition of [
+      () => window.localStorage.setItem(storageKey(currentSurface), serialized),
+      () =>
+        window.sessionStorage.setItem(
+          sessionStorageKey(currentSurface),
+          serialized
+        )
+    ]) {
+      try {
+        storePosition();
+      } catch {
+        // Restricted storage must not block navigation or the other store.
+      }
     }
   }
+}
+
+/** Capture while the DOM is still available, before iOS can suspend timers. */
+export function checkpointScrollPositionOnPageLifecycle(
+  surface: ScrollSurface,
+  savePosition: () => void
+): () => void {
+  const checkpoint = () => {
+    savePosition();
+    flushSessionScrollPositions(surface);
+  };
+  const handleVisibilityChange = () => {
+    if (document.visibilityState === "hidden") {
+      checkpoint();
+    }
+  };
+
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+  window.addEventListener("pagehide", checkpoint);
+
+  return () => {
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
+    window.removeEventListener("pagehide", checkpoint);
+    flushSessionScrollPositions(surface);
+  };
 }
 
 export function clearSessionScrollPositions() {
@@ -201,18 +233,91 @@ export function clearSessionScrollPositions() {
     return;
   }
 
-  try {
-    for (const surface of ["folder-tree", "library-content"] as const) {
-      window.sessionStorage.removeItem(storageKey(surface));
+  for (const removePositions of [
+    () => {
+      for (const surface of SCROLL_SURFACES) {
+        window.localStorage.removeItem(storageKey(surface));
+      }
+    },
+    () => {
+      for (const surface of SCROLL_SURFACES) {
+        window.sessionStorage.removeItem(sessionStorageKey(surface));
+      }
+      for (const key of LEGACY_STORAGE_KEYS) {
+        window.sessionStorage.removeItem(key);
+      }
     }
-    for (const key of LEGACY_STORAGE_KEYS) {
-      window.sessionStorage.removeItem(key);
+  ]) {
+    try {
+      removePositions();
+    } catch {
+      // Ignore unavailable storage during explicit logout or data reset.
     }
-  } catch {
-    // Ignore unavailable session storage during logout.
   }
 }
 
 function storageKey(surface: ScrollSurface): string {
   return `${STORAGE_PREFIX}.${surface}`;
+}
+
+function sessionStorageKey(surface: ScrollSurface): string {
+  return `${SESSION_STORAGE_PREFIX}.${surface}`;
+}
+
+function readStoredPosition(read: () => string | null) {
+  try {
+    const stored = read();
+    if (!stored || stored.length > MAX_STORED_STRING_LENGTH) {
+      return null;
+    }
+    return normalizePosition(JSON.parse(stored) as unknown);
+  } catch {
+    return null;
+  }
+}
+
+function normalizePosition(value: unknown): SessionScrollPosition | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const position = value as Partial<SessionScrollPosition>;
+  if (
+    typeof position.contextKey !== "string" ||
+    position.contextKey.length > MAX_STORED_STRING_LENGTH / 2 ||
+    typeof position.scrollTop !== "number" ||
+    !Number.isFinite(position.scrollTop)
+  ) {
+    return null;
+  }
+
+  const nonNegativeInteger = (number: unknown) =>
+    typeof number === "number" && Number.isSafeInteger(number) && number >= 0
+      ? number
+      : undefined;
+  const finiteDistance = (number: unknown) =>
+    typeof number === "number" &&
+    Number.isFinite(number) &&
+    Math.abs(number) <= MAX_SCROLL_DISTANCE
+      ? number
+      : undefined;
+
+  return {
+    anchorId:
+      typeof position.anchorId === "string" && position.anchorId.length <= 512
+        ? position.anchorId
+        : undefined,
+    anchorOffset: finiteDistance(position.anchorOffset),
+    anchorSize:
+      typeof position.anchorSize === "number" && position.anchorSize > 0
+        ? finiteDistance(position.anchorSize)
+        : undefined,
+    contextKey: position.contextKey,
+    index: nonNegativeInteger(position.index),
+    loadedCount: nonNegativeInteger(position.loadedCount),
+    scrollTop: Math.min(
+      MAX_SCROLL_DISTANCE,
+      Math.max(0, Math.round(position.scrollTop))
+    )
+  };
 }

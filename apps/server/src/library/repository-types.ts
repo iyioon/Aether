@@ -232,6 +232,8 @@ export interface ComparisonDecisionInput {
   rightAssetId: string;
   winnerAssetId: string;
   createdAt: string;
+  mutationId?: string;
+  comparisonGeneration?: string;
 }
 
 export interface ComparisonDecisionResult {

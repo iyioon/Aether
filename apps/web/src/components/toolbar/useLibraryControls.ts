@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   MediaTypeFilter,
   ScoreFilter,
@@ -12,8 +12,6 @@ import {
   MAX_TAG_FILTERS,
   normalizeTagDraft,
   normalizeTagIdentity,
-  writeLibraryStateToStorage,
-  writeLibraryStateToUrl,
   type AspectMode,
   type GridSize,
   type LibraryUrlState,
@@ -61,6 +59,20 @@ export function useLibraryControls({
   const [tagFilters, setTagFilters] = useState(initialState.tags);
   const filterTagSuggestions = useTagSuggestions({ query: tagFilterDraft });
 
+  const applyLibraryState = useCallback((state: LibraryUrlState) => {
+    setView(state.view);
+    setGridSize(state.gridSize);
+    setAspect(state.aspect);
+    setSort(state.sort);
+    setSortDirection(state.sortDirection);
+    setMediaType(state.mediaType);
+    setScoreFilter(state.scoreFilter);
+    setSearchDraft(state.search);
+    setSearch(state.search);
+    setTagFilters(state.tags);
+    setOpenControlMenu(null);
+  }, []);
+
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setSearch(searchDraft.trim());
@@ -70,40 +82,6 @@ export function useLibraryControls({
       window.clearTimeout(timer);
     };
   }, [searchDraft]);
-
-  useEffect(() => {
-    if (!tree) {
-      return;
-    }
-
-    const state = {
-      folderId: selectedFolderId,
-      view,
-      gridSize,
-      aspect,
-      sort,
-      sortDirection,
-      mediaType,
-      scoreFilter,
-      search,
-      tags: tagFilters
-    };
-
-    writeLibraryStateToUrl(state);
-    writeLibraryStateToStorage(state);
-  }, [
-    aspect,
-    gridSize,
-    mediaType,
-    scoreFilter,
-    search,
-    selectedFolderId,
-    sort,
-    sortDirection,
-    tagFilters,
-    tree,
-    view
-  ]);
 
   const selectedLabel = useMemo(() => {
     const root = tree?.roots.find(
@@ -177,6 +155,7 @@ export function useLibraryControls({
   }
 
   return {
+    applyLibraryState,
     addTagFilter,
     aspect,
     clearTagFilters,

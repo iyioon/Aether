@@ -42,6 +42,11 @@ The page title does not include media names, and media URLs use opaque asset IDs
 Search text and selected tags can appear in the page URL, so they may be kept in
 browser history.
 
+Saved navigation and ranking state includes filters, asset IDs, and scroll
+positions in local storage. Signing out clears that state. Appearance
+preferences remain in this browser. The service worker caches only public
+application files; private API responses and media bypass it.
+
 Metadata responses are marked `no-store`. Media files and generated previews
 use private browser caching so the gallery remains responsive. Signing out or
 deleting a source file cannot immediately revoke bytes that a browser already
@@ -82,9 +87,9 @@ survive `data:wipe` and must be managed separately.
 Source media is never part of an Aether database backup. Back it up with the
 storage system that owns it.
 
-## Optional AI Suggestions
+## Optional Tag Suggestions
 
-AI suggestions are disabled by default. When enabled, Aether sends a resized
+Tag suggestions are disabled by default. When enabled, Aether sends a resized
 image, filename, and existing tags to the configured Ollama-compatible endpoint.
 Keep that endpoint local unless you intend to share this information with its
 operator.

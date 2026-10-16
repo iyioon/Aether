@@ -15,6 +15,7 @@ import {
   type TagSuggestion
 } from "../../api/client";
 import { normalizeTagDraft } from "../library-state";
+import { clearRankingResumeState } from "../compare/ranking-resume-state";
 import {
   MediaFavoriteButton,
   MediaScoreControl
@@ -151,6 +152,7 @@ export function AssetAnnotationPanel({
 
     try {
       const response = await resetAssetComparisons(asset.id);
+      clearRankingResumeState();
       onAssetUpdated(response.asset);
       onRankingChanged();
     } catch {
@@ -407,11 +409,11 @@ function aiSuggestionErrorMessage(caught: unknown): string {
 
   switch (caught.code) {
     case "ai_disabled":
-      return "AI suggestions are disabled.";
+      return "Tag suggestions are disabled.";
     case "ai_not_supported":
       return "Vision suggestions support images first.";
     case "ai_provider_failed":
-      return "Local AI provider did not respond.";
+      return "The tag suggestion provider did not respond.";
     default:
       return "Unable to analyze media.";
   }

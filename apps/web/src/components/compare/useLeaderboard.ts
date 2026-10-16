@@ -7,8 +7,12 @@ import {
   type ScoreFilter
 } from "../../api/client";
 import { leaderboardUpdateRequiresReload } from "./leaderboard-model";
-
-const LEADERBOARD_PAGE_LIMIT = 48;
+import { readSessionScrollPosition } from "../scroll-restoration";
+import {
+  LEADERBOARD_PAGE_LIMIT,
+  leaderboardRestoreCount,
+  leaderboardScrollContextKey
+} from "./leaderboard-restoration";
 
 interface UseLeaderboardOptions {
   assetUpdate: AssetRecord | null;
@@ -35,30 +39,25 @@ export function useLeaderboard({
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [reloadRevision, setReloadRevision] = useState(0);
+  const [loadedQueryKey, setLoadedQueryKey] = useState<string | null>(null);
   const assetsRef = useRef(assets);
   assetsRef.current = assets;
   const loadMoreInFlightRef = useRef(false);
   const loadMoreAbortRef = useRef<AbortController | null>(null);
-  const queryKey = useMemo(
+  const scrollContextKey = useMemo(
     () =>
-      [
-        folderId ?? "",
+      leaderboardScrollContextKey({
+        folderId,
         mediaType,
         scoreFilter,
         search,
-        refreshRevision,
-        reloadRevision,
-        ...tagFilters
-      ].join("\u0000"),
-    [
-      folderId,
-      mediaType,
-      refreshRevision,
-      reloadRevision,
-      scoreFilter,
-      search,
-      tagFilters
-    ]
+        tagFilters
+      }),
+    [folderId, mediaType, scoreFilter, search, tagFilters]
+  );
+  const queryKey = useMemo(
+    () => JSON.stringify([scrollContextKey, refreshRevision, reloadRevision]),
+    [scrollContextKey, refreshRevision, reloadRevision]
   );
   const queryKeyRef = useRef(queryKey);
   queryKeyRef.current = queryKey;
@@ -74,6 +73,7 @@ export function useLeaderboard({
       setError(null);
       setIsLoading(false);
       setIsLoadingMore(false);
+      setLoadedQueryKey(null);
       return;
     }
 
@@ -84,27 +84,54 @@ export function useLeaderboard({
     setError(null);
     setIsLoading(true);
     setIsLoadingMore(false);
+    setLoadedQueryKey(null);
 
-    getAssets({
-      folderId,
-      offset: 0,
-      limit: LEADERBOARD_PAGE_LIMIT,
-      sort: "score",
-      order: "desc",
-      type: mediaType,
-      recursive: true,
-      search,
-      tags: tagFilters,
-      score: scoreFilter,
-      signal: controller.signal
-    })
+    const restoreCount = leaderboardRestoreCount(
+      readSessionScrollPosition("leaderboard"),
+      scrollContextKey
+    );
+    const loadRestoredEntries = async () => {
+      const items: AssetRecord[] = [];
+      let pageTotal = 0;
+      do {
+        const response = await getAssets({
+          folderId,
+          offset: items.length,
+          limit: Math.min(250, restoreCount - items.length),
+          sort: "score",
+          order: "desc",
+          type: mediaType,
+          recursive: true,
+          search,
+          tags: tagFilters,
+          score: scoreFilter,
+          signal: controller.signal
+        });
+        if (
+          controller.signal.aborted ||
+          queryKeyRef.current !== requestQueryKey
+        ) {
+          return null;
+        }
+        items.push(...response.items);
+        pageTotal = response.page.total;
+        if (response.items.length === 0) {
+          break;
+        }
+      } while (items.length < restoreCount && items.length < pageTotal);
+      return { items, total: pageTotal };
+    };
+
+    loadRestoredEntries()
       .then((response) => {
         if (
+          response &&
           !controller.signal.aborted &&
           queryKeyRef.current === requestQueryKey
         ) {
           setAssets(response.items);
-          setTotal(response.page.total);
+          setTotal(response.total);
+          setLoadedQueryKey(requestQueryKey);
         }
       })
       .catch((caught) => {
@@ -134,7 +161,15 @@ export function useLeaderboard({
       loadMoreAbortRef.current = null;
       loadMoreInFlightRef.current = false;
     };
-  }, [folderId, mediaType, queryKey, scoreFilter, search, tagFilters]);
+  }, [
+    folderId,
+    mediaType,
+    queryKey,
+    scoreFilter,
+    scrollContextKey,
+    search,
+    tagFilters
+  ]);
 
   useEffect(() => {
     if (!assetUpdate) {
@@ -233,10 +268,12 @@ export function useLeaderboard({
     assets,
     error,
     hasMore: assets.length < total,
+    isContentReady: loadedQueryKey === queryKey,
     isLoading,
     isLoadingMore,
     loadMore,
     reload: () => setReloadRevision((current) => current + 1),
+    scrollContextKey,
     total
   };
 }

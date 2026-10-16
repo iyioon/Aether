@@ -262,11 +262,19 @@ function friendlyComparisonError(
   error: string,
   isPairCommitted: boolean
 ): string {
+  if (error === "comparison_outcome_uncertain") {
+    return "Your last action could not be confirmed. Try again to complete it.";
+  }
+
   if (isPairCommitted) {
     return "Your choice was saved, but the next pair could not be prepared. Try again or undo the choice.";
   }
 
   switch (error) {
+    case "comparison_session_reset":
+      return "Comparisons were reset elsewhere. Load a current pair to continue.";
+    case "ranking_resume_capacity":
+      return "Several earlier choices have not been confirmed. Return to those folders or filters and try again before starting another session.";
     case "comparison_changed":
       return "That decision changed elsewhere. Load a fresh pair and try again.";
     case "invalid_pair":

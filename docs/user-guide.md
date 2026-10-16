@@ -32,6 +32,29 @@ recent choice. Choosing the same pair again replaces the earlier choice.
 **Active pairs** is the number of unique pair choices. These numbers show how
 much comparison evidence you have collected; they are not a completion target.
 
+## Resume And Home Screen Use
+
+Aether remembers your page, library controls, Settings tab, fullscreen item,
+and browsing position in this browser. Ranking also remembers the ordered pair
+and the most recent choice you can undo when you return from another view or
+reopen the app. A removed item or changed filter may require a new pair. Browser
+storage restrictions or clearing website data can remove this saved state.
+
+On iPhone, add Aether to the Home Screen with **Open as Web App** enabled. Use a
+stable HTTPS address trusted by the device. Home Screen launches resume the
+saved location; an explicit view link opens that view. Browser Back and Forward
+follow page and view navigation.
+
+After a production build has loaded online, the interface can reopen offline
+and show a recovery screen. Photos, videos, library data and editing still
+require a connection to your signed-in server. The offline cache contains
+only public application files. A new application version activates after its
+previous windows close.
+
+Signing out clears saved navigation and ranking state. Session expiration
+preserves your destination so you can sign in and continue. Appearance
+preferences remain in this browser.
+
 ## View Photos And Videos
 
 Select a gallery item to open the fullscreen viewer. Use the previous and next

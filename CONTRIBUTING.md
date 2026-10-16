@@ -34,7 +34,7 @@ delivery, or data maintenance. If a required check cannot run, explain why.
 - Add tests for new behavior and fixed failures.
 - Do not commit media, local databases, cache files, backups, build output,
   private paths, or environment files.
-- Keep network services and AI analysis opt-in.
+- Keep network services and tag suggestion providers opt-in.
 - Update public docs when behavior or configuration changes.
 - Preserve keyboard access, visible focus, and reduced-motion support.
 - Follow [Engineering standards](docs/engineering.md).

@@ -19,8 +19,10 @@ import { GalleryCardCuration } from "../GalleryCardCuration";
 import { MediaPreview } from "../media/MediaPreview";
 import { downloadUrl } from "../media/media-urls";
 import {
+  checkpointScrollPositionOnPageLifecycle,
   findScrollAnchorItem,
   flushSessionScrollPositions,
+  hasScrollOrderChanged,
   readSessionScrollPosition,
   scaleScrollAnchorOffset,
   writeSessionScrollPosition
@@ -126,6 +128,12 @@ export function GalleryGrid({
   const assetsRef = useRef(assets);
   const columnCountRef = useRef(1);
   const lastReportedAnchorIdRef = useRef<string | null>(null);
+  const observedSyncedAssetIdRef = useRef(syncedAssetId);
+  const pendingSyncedAssetIdRef = useRef(syncedAssetId);
+  const pendingRefreshRef = useRef<{
+    contextKey: string;
+    assetIds: string[];
+  } | null>(null);
   const layoutSignatureRef = useRef<string | null>(null);
   const scrollTopVisibleRef = useRef(false);
   const onActiveAssetChangeRef = useRef(onActiveAssetChange);
@@ -146,6 +154,10 @@ export function GalleryGrid({
     onSelectAsset,
     onToggleSelection
   };
+  if (observedSyncedAssetIdRef.current !== syncedAssetId) {
+    observedSyncedAssetIdRef.current = syncedAssetId;
+    pendingSyncedAssetIdRef.current = syncedAssetId;
+  }
   const [containerWidth, setContainerWidth] = useState(0);
   const [isScrollPositionReady, setIsScrollPositionReady] = useState(false);
   const [isScrollTopVisible, setIsScrollTopVisible] = useState(false);
@@ -333,6 +345,34 @@ export function GalleryGrid({
   }, []);
 
   useLayoutEffect(() => {
+    if (!isContentReady) {
+      if (restoredContextRef.current === scrollContextKey) {
+        // Refresh keeps the previous data rendered until its response arrives.
+        saveScrollPosition();
+        pendingRefreshRef.current = {
+          contextKey: scrollContextKey,
+          assetIds: assetsRef.current.map((asset) => asset.id)
+        };
+      } else {
+        pendingRefreshRef.current = null;
+      }
+      return;
+    }
+
+    const pendingRefresh = pendingRefreshRef.current;
+    pendingRefreshRef.current = null;
+    if (
+      pendingRefresh?.contextKey === scrollContextKey &&
+      hasScrollOrderChanged(
+        pendingRefresh.assetIds,
+        assetsRef.current.map((asset) => asset.id)
+      )
+    ) {
+      restoredContextRef.current = null;
+    }
+  }, [isContentReady, saveScrollPosition, scrollContextKey]);
+
+  useLayoutEffect(() => {
     const scrollElement = scrollParentRef.current;
 
     if (
@@ -347,8 +387,9 @@ export function GalleryGrid({
 
     const storedPosition = readSessionScrollPosition("library-content");
     const shouldRestore = storedPosition?.contextKey === scrollContextKey;
-    const syncedIndex = syncedAssetId
-      ? assets.findIndex((asset) => asset.id === syncedAssetId)
+    const requestedSyncAssetId = pendingSyncedAssetIdRef.current;
+    const syncedIndex = requestedSyncAssetId
+      ? assets.findIndex((asset) => asset.id === requestedSyncAssetId)
       : -1;
     const anchoredIndex =
       shouldRestore && storedPosition.anchorId
@@ -378,7 +419,11 @@ export function GalleryGrid({
     const isSyncedTarget = syncedIndex >= 0;
     const shouldRestoreAnchor = shouldRestore && !isSyncedTarget;
     const anchorOffset = shouldRestoreAnchor
-      ? (storedPosition.anchorOffset ?? 0)
+      ? scaleScrollAnchorOffset(
+          storedPosition.anchorOffset,
+          storedPosition.anchorSize,
+          estimateRowSize(rowIndex)
+        )
       : 0;
     const fallbackTop = shouldRestoreAnchor ? storedPosition.scrollTop : 0;
     const rowOffset = rowVirtualizer.getOffsetForIndex(rowIndex, "start")?.[0];
@@ -422,9 +467,9 @@ export function GalleryGrid({
 
       restoreFrameRef.current = null;
       isRestoringRef.current = false;
-      if (isSyncedTarget && syncedAssetId) {
+      if (isSyncedTarget && requestedSyncAssetId) {
         writeSessionScrollPosition("library-content", {
-          anchorId: syncedAssetId,
+          anchorId: requestedSyncAssetId,
           anchorOffset: 0,
           anchorSize: rowVirtualizer
             .getVirtualItems()
@@ -433,6 +478,9 @@ export function GalleryGrid({
           index: assetIndex,
           scrollTop: currentScrollTop
         });
+        if (pendingSyncedAssetIdRef.current === requestedSyncAssetId) {
+          pendingSyncedAssetIdRef.current = null;
+        }
       } else {
         saveScrollPosition();
       }
@@ -462,6 +510,7 @@ export function GalleryGrid({
     assets,
     columnCount,
     containerWidth,
+    estimateRowSize,
     hasMore,
     isContentReady,
     isLoadingMore,
@@ -588,7 +637,7 @@ export function GalleryGrid({
   useLayoutEffect(() => {
     if (
       !syncedAssetId ||
-      syncedAssetId === lastReportedAnchorIdRef.current ||
+      pendingSyncedAssetIdRef.current !== syncedAssetId ||
       !isContentReady ||
       isRestoringRef.current ||
       restoredContextRef.current !== scrollContextKey
@@ -619,6 +668,7 @@ export function GalleryGrid({
       typeof window.matchMedia === "function" &&
       window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     isRestoringRef.current = true;
+    pendingSyncedAssetIdRef.current = null;
     lastReportedAnchorIdRef.current = syncedAssetId;
     writeSessionScrollPosition("library-content", {
       anchorId: syncedAssetId,
@@ -700,19 +750,19 @@ export function GalleryGrid({
         window.cancelAnimationFrame(layoutFrameRef.current);
       }
       saveScrollPosition();
+      flushSessionScrollPositions("library-content");
     },
     [saveScrollPosition]
   );
 
-  useEffect(() => {
-    const handlePageHide = () => {
-      saveScrollPosition();
-      flushSessionScrollPositions("library-content");
-    };
-
-    window.addEventListener("pagehide", handlePageHide);
-    return () => window.removeEventListener("pagehide", handlePageHide);
-  }, [saveScrollPosition]);
+  useEffect(
+    () =>
+      checkpointScrollPositionOnPageLifecycle(
+        "library-content",
+        saveScrollPosition
+      ),
+    [saveScrollPosition]
+  );
 
   useAutoLoadSentinel({
     enabled: hasMore && !isLoading && !isLoadingMore,

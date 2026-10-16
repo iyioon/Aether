@@ -23,6 +23,7 @@ import {
   type LeaderboardEntry
 } from "./leaderboard-model";
 import { useLeaderboard } from "./useLeaderboard";
+import { useLeaderboardScrollRestoration } from "./useLeaderboardScrollRestoration";
 
 interface LeaderboardViewProps {
   assetUpdate: AssetRecord | null;
@@ -53,10 +54,12 @@ export function LeaderboardView({
     assets,
     error,
     hasMore,
+    isContentReady,
     isLoading,
     isLoadingMore,
     loadMore,
     reload,
+    scrollContextKey,
     total
   } = useLeaderboard({
     assetUpdate,
@@ -66,6 +69,11 @@ export function LeaderboardView({
     scoreFilter,
     search,
     tagFilters
+  });
+  const { onScroll, scrollRef } = useLeaderboardScrollRestoration({
+    assets,
+    isContentReady,
+    scrollContextKey
   });
   const { entries, featuredEntries, remainingEntries } = useMemo(() => {
     const nextEntries = buildLeaderboardEntries(assets);
@@ -86,7 +94,12 @@ export function LeaderboardView({
   }, [assets]);
 
   return (
-    <section className="leaderboard-view" aria-labelledby="leaderboard-title">
+    <section
+      className="leaderboard-view"
+      aria-labelledby="leaderboard-title"
+      ref={scrollRef}
+      onScroll={onScroll}
+    >
       <header className="leaderboard-header">
         <div className="leaderboard-heading">
           <div className="leaderboard-eyebrow">
@@ -193,7 +206,10 @@ function FeaturedEntry({
   onOpen: () => void;
 }) {
   return (
-    <Card className="leaderboard-featured-card">
+    <Card
+      className="leaderboard-featured-card"
+      data-leaderboard-asset-id={entry.asset.id}
+    >
       <CardContent className="leaderboard-featured-media">
         <MediaPreview asset={entry.asset} staticPreview />
       </CardContent>
@@ -229,7 +245,7 @@ function LeaderboardRow({
   onOpen: () => void;
 }) {
   return (
-    <li>
+    <li data-leaderboard-asset-id={entry.asset.id}>
       <Card className="leaderboard-row">
         <span className="leaderboard-row-rank" aria-label={rankLabel(entry)}>
           {entry.rank === null ? "—" : entry.rank}

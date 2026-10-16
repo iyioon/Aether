@@ -272,6 +272,7 @@ export function useLibraryTree({ initialFolderId }: UseLibraryTreeOptions) {
     aiStatus,
     error,
     handleScan,
+    refreshTree,
     isLoadingTree,
     scanProgress,
     scanState,

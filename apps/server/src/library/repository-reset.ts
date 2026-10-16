@@ -1,4 +1,5 @@
 import type { AetherDatabase } from "../db/database.js";
+import { advanceComparisonGeneration } from "./comparison-generation.js";
 
 export interface LibraryDataResetOptions {
   scores: boolean;
@@ -50,6 +51,7 @@ export function resetLibraryData(
     }
 
     if (options.comparisons) {
+      advanceComparisonGeneration(db, updatedAt);
       db.prepare("DELETE FROM pair_preferences").run();
       db.prepare("DELETE FROM comparison_events").run();
       db.prepare("DELETE FROM asset_rankings").run();

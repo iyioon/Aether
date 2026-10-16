@@ -154,11 +154,11 @@ machine cannot prove that the other server has stopped.
 
 A server wipe cannot clear data stored elsewhere. Check these places separately:
 
-- browser history, browser cache, session storage, and saved downloads
+- browser history, browser cache, local and session storage, and saved downloads
 - reverse-proxy, container, terminal, and operating-system logs
 - external backups and old copies of the repository
 - filesystem snapshots, device backups, and storage-controller remnants
-- previews sent to an optional AI endpoint
+- previews sent to an optional tag suggestion endpoint
 
 Deleting source media followed by a successful scan removes its live database
 record and Aether-managed derivatives. It is still not a promise of forensic

@@ -1,21 +1,14 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   buildLibraryStateSearch,
   defaultLibraryState,
   MAX_TAG_FILTERS,
   parseLibraryStateSearch,
   parseStoredLibraryState,
-  readInitialLibraryState,
-  resolveInitialLibraryState,
-  serializeLibraryState,
-  writeLibraryStateToStorage
+  serializeLibraryState
 } from "./library-state";
 
 describe("library state URL helpers", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
   it("restores valid library controls from query parameters", () => {
     const state = parseLibraryStateSearch(
       "?folder=root-folder&view=feed&size=large&aspect=portrait&sort=score&order=asc&type=video&score=favorites&q=%20night%20sky%20&tag=%20Family%20%20Trip%20&tag=Friends&tag=family%20trip"
@@ -46,7 +39,7 @@ describe("library state URL helpers", () => {
     });
   });
 
-  it("round-trips the comparison workspace as a first-class library view", () => {
+  it("round-trips the comparison view in library URLs", () => {
     const parsed = parseLibraryStateSearch("?folder=root-folder&view=compare");
 
     expect(parsed.view).toBe("compare");
@@ -117,97 +110,6 @@ describe("library state URL helpers", () => {
     expect(state.tags.at(-1)).toBe(`Tag ${MAX_TAG_FILTERS - 1}`);
   });
 
-  it("restores a complete gallery workspace on a queryless cold launch", () => {
-    const storedState = {
-      ...defaultLibraryState,
-      folderId: "folder-7",
-      gridSize: "Huge" as const,
-      aspect: "Original" as const,
-      sort: "filename" as const,
-      sortDirection: "asc" as const,
-      mediaType: "image" as const,
-      scoreFilter: "ranked" as const,
-      search: "summer trip",
-      tags: ["Family", "Seoul"]
-    };
-
-    expect(
-      resolveInitialLibraryState("", serializeLibraryState(storedState))
-    ).toEqual(storedState);
-  });
-
-  it("restores the saved library view, including comparison mode", () => {
-    const storedState = {
-      ...defaultLibraryState,
-      folderId: "folder-9",
-      view: "compare" as const,
-      scoreFilter: "unranked" as const
-    };
-
-    expect(
-      resolveInitialLibraryState(
-        "?utm_source=homescreen",
-        serializeLibraryState(storedState)
-      )
-    ).toEqual(storedState);
-  });
-
-  it("lets an explicit library URL override every stored value", () => {
-    const storedState = {
-      ...defaultLibraryState,
-      folderId: "stored-folder",
-      view: "feed" as const,
-      mediaType: "video" as const,
-      search: "stored search"
-    };
-
-    expect(
-      resolveInitialLibraryState(
-        "?folder=url-folder&view=gallery&type=image&q=url%20search",
-        serializeLibraryState(storedState)
-      )
-    ).toMatchObject({
-      folderId: "url-folder",
-      view: "gallery",
-      mediaType: "image",
-      search: "url search"
-    });
-
-    expect(
-      resolveInitialLibraryState(
-        "?view=not-a-view",
-        serializeLibraryState(storedState)
-      )
-    ).toEqual(defaultLibraryState);
-  });
-
-  it("falls back safely when browser storage is blocked", () => {
-    const blockedWindow = { location: { search: "" } };
-    Object.defineProperty(blockedWindow, "localStorage", {
-      get() {
-        throw new DOMException("Storage is blocked.", "SecurityError");
-      }
-    });
-    vi.stubGlobal("window", blockedWindow);
-
-    expect(readInitialLibraryState()).toEqual(defaultLibraryState);
-    expect(() => writeLibraryStateToStorage(defaultLibraryState)).not.toThrow();
-  });
-
-  it("does not access storage when an explicit library URL is present", () => {
-    const storageAccess = vi.fn(() => {
-      throw new DOMException("Storage is blocked.", "SecurityError");
-    });
-    const blockedWindow = { location: { search: "?view=feed" } };
-    Object.defineProperty(blockedWindow, "localStorage", {
-      get: storageAccess
-    });
-    vi.stubGlobal("window", blockedWindow);
-
-    expect(readInitialLibraryState().view).toBe("feed");
-    expect(storageAccess).not.toHaveBeenCalled();
-  });
-
   it("rejects old, malformed, and invalid stored state", () => {
     const validState = {
       ...defaultLibraryState,
@@ -226,8 +128,8 @@ describe("library state URL helpers", () => {
         })
       )
     ).toBeNull();
-    expect(resolveInitialLibraryState("", "not-json")).toEqual(
-      defaultLibraryState
+    expect(parseStoredLibraryState(serializeLibraryState(validState))).toEqual(
+      validState
     );
   });
 });

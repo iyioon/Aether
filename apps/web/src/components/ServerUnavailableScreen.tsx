@@ -24,7 +24,8 @@ export function ServerUnavailableScreen({
             <AlertTitle>Could not reach the server</AlertTitle>
             <AlertDescription>
               Check that Aether is running and that this device is connected to
-              the same network, then try again.
+              the same network, then try again. Your saved location will be
+              restored when the connection returns.
             </AlertDescription>
           </Alert>
           <Button size="lg" type="button" onClick={onRetry}>

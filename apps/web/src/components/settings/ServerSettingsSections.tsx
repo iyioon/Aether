@@ -92,7 +92,7 @@ export function AiSettingsSection({ settings }: ServerSettingsSectionsProps) {
   return (
     <SettingsSection
       icon={Sparkles}
-      title="AI"
+      title="Tag suggestions"
       value={settings?.ai.enabled ? settings.ai.provider : "Disabled"}
     >
       <SummaryList

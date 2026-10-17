@@ -168,6 +168,92 @@ for (const viewport of [
   });
 }
 
+for (const hasTouch of [false, true]) {
+  test(`toggles Feed details and playback controls together with ${hasTouch ? "touch" : "mouse and keyboard"}`, async ({
+    browser
+  }) => {
+    const context = await browser.newContext({
+      storageState,
+      hasTouch,
+      viewport: hasTouch
+        ? { width: 393, height: 852 }
+        : { width: 1440, height: 980 },
+      reducedMotion: hasTouch ? "reduce" : "no-preference"
+    });
+    try {
+      const page = await context.newPage();
+      const item = await openFeed(page);
+      const video = item.locator("video");
+      const toggle = item.locator(".media-video-playback-toggle");
+      const controls = item.locator(".video-controls--feed");
+      const details = item.locator(".feed-meta");
+      const pauseButton = controls.getByRole("button", {
+        name: "Pause video",
+        exact: true
+      });
+      await expectPlaying(video);
+      const formerPauseBounds = (await pauseButton.boundingBox())!;
+      if (hasTouch) await toggle.tap();
+      else await toggle.click();
+      await expect(controls).toBeHidden();
+      await expect(details).toBeHidden();
+      await expect(item.getByRole("slider")).toHaveCount(0);
+      await expect(
+        item.getByRole("button", { name: /^Open details for/ })
+      ).toHaveCount(0);
+      await expectPaused(video, false);
+
+      const x = formerPauseBounds.x + formerPauseBounds.width / 2;
+      const y = formerPauseBounds.y + formerPauseBounds.height / 2;
+      if (hasTouch) await page.touchscreen.tap(x, y);
+      else await page.mouse.click(x, y);
+      await expect(controls).toBeVisible();
+      await expect(details).toBeVisible();
+      await expectPaused(video, false);
+
+      if (hasTouch) await pauseButton.tap();
+      else await pauseButton.click();
+      await expectPaused(video, true);
+      if (hasTouch) await toggle.tap();
+      else await toggle.press("Enter");
+      await expect(controls).toBeHidden();
+      if (hasTouch) await toggle.tap();
+      else await toggle.press("Space");
+      await expect(controls).toBeVisible();
+      await expect(details).toBeVisible();
+      await expectPaused(video, true);
+
+      if (!hasTouch) {
+        await controls
+          .getByRole("button", { name: "Play video", exact: true })
+          .click();
+        await toggle.hover();
+        await page.mouse.down();
+        await expectPaused(video, true);
+        await page.mouse.up();
+        await expectPaused(video, false);
+        await expect(controls).toBeVisible();
+        await expect(details).toBeVisible();
+      }
+      if (hasTouch) await toggle.tap();
+      else await toggle.click();
+      await expect(controls).toBeHidden();
+      await toggle.press("Tab");
+      expect(
+        await page.evaluate(() =>
+          Boolean(
+            document.activeElement?.closest(
+              ".video-controls--feed, .feed-meta, .feed-actions"
+            )
+          )
+        )
+      ).toBe(false);
+    } finally {
+      await context.close();
+    }
+  });
+}
+
 test("controls real playback without feed navigation, score edits, or unwanted foreground audio", async ({
   browser
 }) => {

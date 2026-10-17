@@ -4,6 +4,8 @@ Notable changes to Aether are recorded here.
 
 ## Unreleased
 
+- Hide and reveal Feed playback controls together with details when tapping the
+  media, while preserving playback and pause state.
 - Keep portrait video previews inside gallery cards so cropped layouts play
   correctly and center the media.
 - Remove failed video posters from the viewer and previews while allowing

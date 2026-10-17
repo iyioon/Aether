@@ -155,6 +155,9 @@ fullscreen and native iPhone video fullscreen fallback. Keep native controls
 available during migration/failure. PiP is optional follow-up work, not a
 dependency of this request.
 
+In Feed, tapping the media toggles details, actions, and playback controls as one
+group without changing playback or pause state.
+
 Retain familiar player behavior, as recommended by
 [Apple's video guidance](https://developer.apple.com/design/human-interface-guidelines/playing-video).
 System fullscreen may replace custom overlays and framing; verify its behavior

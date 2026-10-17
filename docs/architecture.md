@@ -127,6 +127,9 @@ pause, and mute state. Commands run in the originating user gesture, and stale
 play requests and detached element listeners cannot update a replacement source.
 Preview and viewer keep their existing source selection and poster-to-first-frame
 behavior. Feed keyboard commands use registered playback commands.
+Feed details, actions, and playback controls share one visibility state. Tapping
+the media hides or reveals them together without changing playback; hidden
+controls leave the pointer, keyboard, and accessibility navigation paths.
 
 Poster failures are independent of video playback. Failed decorative images
 are removed, and valid posters remain until the first video frame is presented.

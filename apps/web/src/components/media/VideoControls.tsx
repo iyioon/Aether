@@ -130,64 +130,6 @@ export function VideoControls({
         reportInteraction();
       }}
     >
-      <span className="video-controls__timeline">
-        <input
-          aria-label={seekLabel}
-          aria-valuetext={`${currentTime} of ${duration}`}
-          className="video-controls__seek"
-          type="range"
-          min={0}
-          max={state.duration || 1}
-          step={0.1}
-          value={state.currentTime}
-          disabled={!state.seekable}
-          onKeyDown={(event) => {
-            if (
-              event.altKey ||
-              event.ctrlKey ||
-              event.metaKey ||
-              event.nativeEvent.isComposing
-            ) {
-              return;
-            }
-
-            const time = event.currentTarget.valueAsNumber;
-            let target: number;
-
-            switch (event.key) {
-              case "ArrowLeft":
-              case "ArrowDown":
-                target = time - 1;
-                break;
-              case "ArrowRight":
-              case "ArrowUp":
-                target = time + 1;
-                break;
-              case "PageDown":
-                target = time - 10;
-                break;
-              case "PageUp":
-                target = time + 10;
-                break;
-              case "Home":
-                target = 0;
-                break;
-              case "End":
-                target = state.duration;
-                break;
-              case " ":
-                event.preventDefault();
-                return;
-              default:
-                return;
-            }
-
-            event.preventDefault();
-            playback.seek(target);
-          }}
-          onChange={(event) => playback.seek(Number(event.currentTarget.value))}
-        />
-      </span>
       <span
         className="video-controls__row"
         role="group"
@@ -209,10 +151,70 @@ export function VideoControls({
             <Pause aria-hidden="true" />
           )}
         </Button>
-        <span className="video-controls__time" aria-hidden="true">
-          {currentTime} / {duration}
+        <span className="video-controls__timeline">
+          <input
+            aria-label={seekLabel}
+            aria-valuetext={`${currentTime} of ${duration}`}
+            className="video-controls__seek"
+            type="range"
+            min={0}
+            max={state.duration || 1}
+            step={0.1}
+            value={state.currentTime}
+            disabled={!state.seekable}
+            onKeyDown={(event) => {
+              if (
+                event.altKey ||
+                event.ctrlKey ||
+                event.metaKey ||
+                event.nativeEvent.isComposing
+              ) {
+                return;
+              }
+
+              const time = event.currentTarget.valueAsNumber;
+              let target: number;
+
+              switch (event.key) {
+                case "ArrowLeft":
+                case "ArrowDown":
+                  target = time - 1;
+                  break;
+                case "ArrowRight":
+                case "ArrowUp":
+                  target = time + 1;
+                  break;
+                case "PageDown":
+                  target = time - 10;
+                  break;
+                case "PageUp":
+                  target = time + 10;
+                  break;
+                case "Home":
+                  target = 0;
+                  break;
+                case "End":
+                  target = state.duration;
+                  break;
+                case " ":
+                  event.preventDefault();
+                  return;
+                default:
+                  return;
+              }
+
+              event.preventDefault();
+              playback.seek(target);
+            }}
+            onChange={(event) =>
+              playback.seek(Number(event.currentTarget.value))
+            }
+          />
+          <span className="video-controls__time" aria-hidden="true">
+            <span>{currentTime}</span>
+            <span>{duration}</span>
+          </span>
         </span>
-        <span className="video-controls__spacer" aria-hidden="true" />
         <Button
           type="button"
           variant="ghost"

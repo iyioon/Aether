@@ -280,8 +280,8 @@
   bottom: 0;
   left: 0;
   z-index: 5;
-  padding: 4px max(12px, var(--media-safe-area-right))
-    calc(4px + var(--media-safe-area-bottom))
+  padding: 6px max(12px, var(--media-safe-area-right))
+    calc(6px + var(--media-safe-area-bottom))
     max(12px, var(--media-safe-area-left));
   border: 0;
   border-radius: 0;

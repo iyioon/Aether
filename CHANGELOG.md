@@ -4,6 +4,8 @@ Notable changes to Aether are recorded here.
 
 ## Unreleased
 
+- Compact Feed and viewer video controls into one row, with time labels above
+  the timeline, full-size touch targets, and preserved iPhone safe-area spacing.
 - Replace the mobile Feed header with a floating view selector at the top right,
   keeping media full height and navigation available when details are hidden.
 - Let expanded Feed media extend behind the iPhone Home Screen status bar where

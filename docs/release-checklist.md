@@ -58,7 +58,8 @@ Never test rebuild or wipe against the only copy of a real library database.
   sign-in, and offline recovery in both themes. Record the iOS version if the
   system still reserves a top strip; do not treat desktop emulation as proof of
   iPhone status-bar behavior.
-- Check video controls above the Home indicator and landscape side insets.
+- Check the single-row video controls above the Home indicator and landscape
+  side insets, including readable time labels and scrubbing near slider edges.
   Seek without navigating, changing scores, or hiding focused controls; verify
   browser/native fullscreen exit and explicit pause after Home/return. Confirm
   that audible video waits for Play after returning from the background.

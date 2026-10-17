@@ -490,13 +490,6 @@
   }
 }
 
-@media (max-height: 500px) and (min-width: 600px) {
-  .feed-frame .video-controls--feed {
-    padding-top: 6px;
-    padding-bottom: calc(6px + var(--media-safe-area-bottom));
-  }
-}
-
 @container library-workspace (max-width: 720px) {
   .library-path-bar:has(.library-path-actions) {
     flex-wrap: wrap;

@@ -214,6 +214,19 @@ for (const hasTouch of [false, true]) {
       if (hasTouch) await pauseButton.tap();
       else await pauseButton.click();
       await expectPaused(video, true);
+      if (hasTouch) {
+        // Time labels sit inside the slider's touch area and must not block it.
+        const seek = controls.getByRole("slider");
+        const seekBounds = (await seek.boundingBox())!;
+        await seek.tap({ position: { x: seekBounds.width * 0.75, y: 8 } });
+        await expect
+          .poll(() =>
+            video.evaluate((node: HTMLVideoElement) => node.currentTime)
+          )
+          .toBeGreaterThan(8);
+        await expect(item).not.toHaveClass(/details-hidden/);
+        await expectPaused(video, true);
+      }
       if (hasTouch) await toggle.tap();
       else await toggle.press("Enter");
       await expect(controls).toBeHidden();
@@ -396,6 +409,19 @@ test("controls real playback without feed navigation, score edits, or unwanted f
       .getByRole("button", { name: "Pause video", exact: true })
       .click();
     await expectPaused(video, true);
+    await controls
+      .getByRole("button", { name: "Play video", exact: true })
+      .focus();
+    await page.keyboard.press("Tab");
+    await expect(seek).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(
+      controls.getByRole("button", { name: "Unmute video", exact: true })
+    ).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(
+      controls.getByRole("button", { name: / in viewer$/ })
+    ).toBeFocused();
     const bounds = (await seek.boundingBox())!;
     await seek.click({
       position: { x: bounds.width / 2, y: bounds.height / 2 }
@@ -736,11 +762,12 @@ for (const viewport of [
         expect(frame.y + frame.height).toBeLessThanOrEqual(
           viewport.height - 34
         );
-        if (aspectRatio < 1) {
-          const viewerDock = (await viewerControls.boundingBox())!;
-          const pictureBottom = frame.y + (frame.height + expectedHeight) / 2;
-          expect(pictureBottom).toBeGreaterThan(viewerDock.y);
-        } else {
+        // The dock overlays the full viewing area, including any letterboxing.
+        const viewerDock = (await viewerControls.boundingBox())!;
+        expect(frame.y + frame.height).toBeGreaterThan(
+          viewerDock.y + viewerDock.height
+        );
+        if (aspectRatio >= 1) {
           await fitArea.press("ArrowRight");
           await expect(viewer.getByRole("slider")).toHaveAttribute(
             "aria-label",
@@ -833,6 +860,8 @@ async function expectSafeTargets(
   const geometry = await controls.evaluate((node) => ({
     width: innerWidth,
     height: innerHeight,
+    dockHeight: node.getBoundingClientRect().height,
+    isFeed: node.classList.contains("video-controls--feed"),
     documentWidth: document.documentElement.scrollWidth,
     targets: [...node.querySelectorAll<HTMLElement>("button, input")].map(
       (target) => {
@@ -842,26 +871,54 @@ async function expectSafeTargets(
           rect.y + rect.height / 2
         );
         return {
+          top: rect.top,
           left: rect.left,
           right: rect.right,
           bottom: rect.bottom,
           width: rect.width,
           height: rect.height,
-          reachable: hit === target || target.contains(hit)
+          reachable: hit === target || target.contains(hit),
+          edgesReachable: [
+            [rect.left + 2, rect.top + 2],
+            [rect.right - 2, rect.bottom - 2]
+          ].every(([x, y]) => {
+            const edge = document.elementFromPoint(x, y);
+            return edge === target || target.contains(edge);
+          })
         };
       }
     )
   }));
   expect(geometry.documentWidth).toBeLessThanOrEqual(geometry.width + 1);
+  expect(geometry.dockHeight).toBeLessThanOrEqual(
+    56 + (geometry.isFeed ? insets.bottom : 0)
+  );
   expect(geometry.targets.length).toBeGreaterThanOrEqual(3);
-  for (const target of geometry.targets) {
+  for (const [index, target] of geometry.targets.entries()) {
     expect(target.width).toBeGreaterThanOrEqual(44);
     expect(target.height).toBeGreaterThanOrEqual(44);
     expect(target.left).toBeGreaterThanOrEqual(insets.left);
     expect(target.right).toBeLessThanOrEqual(geometry.width - insets.right);
     expect(target.bottom).toBeLessThanOrEqual(geometry.height - insets.bottom);
     expect(target.reachable).toBe(true);
+    expect(target.edgesReachable).toBe(true);
+    expect(Math.abs(target.top - geometry.targets[0].top)).toBeLessThanOrEqual(
+      1
+    );
+    if (index > 0) {
+      expect(target.left).toBeGreaterThanOrEqual(
+        geometry.targets[index - 1].right
+      );
+    }
   }
+  // A useful scrub width remains even with all buttons on a narrow phone.
+  expect(
+    (await controls.getByRole("slider").boundingBox())!.width
+  ).toBeGreaterThanOrEqual(80);
+  const labels = controls.locator(".video-controls__time > span");
+  const elapsed = (await labels.first().boundingBox())!;
+  const duration = (await labels.last().boundingBox())!;
+  expect(elapsed.x + elapsed.width).toBeLessThan(duration.x);
 }
 
 async function scanLibrary(page: Page) {

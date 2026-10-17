@@ -160,8 +160,10 @@ fullscreen request fails.
 The shared transport owns its bottom safe-area spacing. Feed metadata reserves
 its height, with one continuous gradient behind the title and transparent
 playback bar. Viewer controls overlay the media, which fits the full safe-area
-viewport without reserving space for the bar. Short landscape screens use a
-single control row.
+viewport without reserving space for the bar. Both surfaces use a 56px single
+row before safe-area spacing, with 44px touch targets. Non-interactive time
+labels sit inside the timeline above its track; keyboard order follows the
+visible play, seek, mute, and expansion controls.
 Safe-area tokens follow [WebKit's guidance](https://webkit.org/blog/7929/designing-websites-for-iphone-x/),
 and native presentation capabilities are detected at runtime.
 

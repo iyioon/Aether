@@ -79,9 +79,10 @@ Visible gallery videos play muted previews within the selected card shape,
 including portrait videos cropped into landscape cards.
 
 In the feed, tap the media to hide or show details and playback controls together.
-The video control bar provides play/pause, elapsed and total time, seeking, and
-sound. Its background blends into the title's gradient. Press and hold a video
-to pause temporarily; releasing it preserves an existing pause. Use the
+The compact video control bar keeps play/pause, seeking, sound, and expansion
+on one row, with elapsed and total time above the timeline. Its background blends
+into the title's gradient. Press and hold a video to pause temporarily; releasing
+it preserves an existing pause. Use the
 expansion button to open the viewer.
 With the seek bar focused, arrow keys seek one second, Page keys seek ten
 seconds, and Home/End jump to the beginning/end.
@@ -90,8 +91,8 @@ The viewer overlays playback controls on the media so tall videos can fill the
 available height without cropping. It offers browser fullscreen when available,
 with native video fullscreen on supported iPhones. System fullscreen
 uses the device's controls. Controls remain visible while paused, focused, or
-scrubbing. The bar sits above the iPhone Home indicator, with a compact layout
-in short landscape screens.
+scrubbing. The single-row bar sits above the iPhone Home indicator in portrait and
+landscape, with large touch areas for its buttons and timeline.
 
 Videos begin muted. An explicit pause remains paused after leaving and returning
 to the app. Muted playback may resume when you return; audible playback waits

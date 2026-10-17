@@ -54,7 +54,7 @@ const browsingViews = [
     icon: GalleryHorizontalEnd,
     title: "Feed",
     description:
-      "Move through one item at a time. On phones, Feed fills the available screen with only the view selector at the top right; switch to Gallery or Compare for search, filters, and folder navigation. Tap the media to hide or show details and playback controls together; the view selector stays available. Videos have play, pause, seeking, time, sound, and viewer controls above the phone's Home indicator. Paused videos stay paused when you return to the app."
+      "Move through one item at a time. On phones, Feed fills the available screen with only the view selector at the top right; switch to Gallery or Compare for search, filters, and folder navigation. Tap the media to hide or show details and playback controls together; the view selector stays available. Videos have a compact single row for playback, seeking, sound, and viewer controls, with time labels above the timeline. The controls sit above the phone's Home indicator. Paused videos stay paused when you return to the app."
   },
   {
     icon: GitCompareArrows,

@@ -115,6 +115,8 @@ launches resume the saved location. Scroll positions use bounded localStorage
 records, with migration from older sessionStorage records. Foreground refreshes
 preserve loaded depth and anchors; `visibilitychange` and `pagehide` save pending
 position changes when the page is hidden.
+Leaderboard unmount checkpoints retain the last measured position when a
+header resize would clamp the departing viewport's scroll position.
 
 Ranking saves ordered asset IDs, the last choice that can be undone, and IDs for
 requests with an unknown result. The server validates resumed IDs against
@@ -131,10 +133,12 @@ The iPhone Home Screen shell uses `viewport-fit=cover` and Apple's
 [`black-translucent` status-bar setting](https://developer.apple.com/library/archive/documentation/AppleApplications/Reference/SafariHTMLRef/Articles/MetaTags.html).
 Mobile Feed fills the dynamic viewport without a header or top padding.
 `LibraryPathBar` uses the sidebar's shared mobile breakpoint to render only the
-existing view selector over the media, with top/right safe-area spacing. The
-selector remains reachable when Feed details and playback controls are hidden;
-other views and desktop Feed retain the complete header. Headers and
-interactive controls retain their safe-area insets. A pointer-transparent
+view selector and existing library options over the media, with top/right
+safe-area spacing. Both follow the shared Feed visibility state and become
+inert while hidden. An empty feed keeps them available. Other views and desktop
+Feed retain the complete header. At narrow workspace widths, a shadcn radio menu
+replaces the header's segmented view selector so search and controls fit one row.
+Headers and interactive controls retain their safe-area insets. A pointer-transparent
 gradient covers only the top safe area in standalone mode, including light
 pages and offline recovery. The layout uses the viewport iOS exposes, without
 negative offsets or physical-screen sizing to compensate for system-owned

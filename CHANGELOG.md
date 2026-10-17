@@ -4,12 +4,18 @@ Notable changes to Aether are recorded here.
 
 ## Unreleased
 
+- Align View options typography with selection controls and tighten its spacing.
+  Keep Gallery search and buttons on one row, using a compact view menu on
+  narrow screens. Preserve leaderboard position when opening Settings changes
+  the header height.
+- Add View options to mobile Feed and hide both top controls with details and
+  playback controls when the media is tapped.
 - Combine sorting, filters, and Gallery layout in one View options panel, with
   a phone bottom sheet, active-filter count, and immediate changes.
 - Compact Feed and viewer video controls into one row, with time labels above
   the timeline, full-size touch targets, and preserved iPhone safe-area spacing.
 - Replace the mobile Feed header with a floating view selector at the top right,
-  keeping media full height and navigation available when details are hidden.
+  keeping media full height and navigation within the safe area.
 - Let expanded Feed media extend behind the iPhone Home Screen status bar where
   iOS permits, with a readability gradient and safe-area spacing for controls.
 - Blend Feed titles and playback controls over one continuous gradient, and

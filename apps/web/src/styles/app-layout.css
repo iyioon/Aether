@@ -152,6 +152,14 @@
   box-shadow: 0 1px 4px rgba(var(--aether-foreground-rgb), 0.1);
 }
 
+.library-view-menu-trigger {
+  display: none;
+  flex: 0 0 56px;
+  width: 56px;
+  height: 44px;
+  gap: 4px;
+}
+
 .brand-block,
 .tree-row,
 .ghost-action,

@@ -19,11 +19,13 @@ export function useLeaderboardScrollRestoration({
 }) {
   const scrollRef = useRef<HTMLElement | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
+  const pendingScrollTopRef = useRef<number | null>(null);
   const restoredContextRef = useRef<string | null>(null);
+  const savedViewportHeightRef = useRef<number | null>(null);
   const latestRef = useRef({ assets, isContentReady, scrollContextKey });
   latestRef.current = { assets, isContentReady, scrollContextKey };
 
-  const saveScrollPosition = useCallback(() => {
+  const saveScrollPosition = useCallback((pendingScrollTop?: number) => {
     const scrollElement = scrollRef.current;
     const current = latestRef.current;
     if (
@@ -34,7 +36,17 @@ export function useLeaderboardScrollRestoration({
       return;
     }
 
+    if (pendingScrollTop !== undefined) {
+      writeSessionScrollPosition("leaderboard", {
+        contextKey: current.scrollContextKey,
+        loadedCount: current.assets.length,
+        scrollTop: pendingScrollTop
+      });
+      return;
+    }
+
     const scrollTop = scrollElement.scrollTop;
+    savedViewportHeightRef.current = scrollElement.clientHeight;
     const containerTop = scrollElement.getBoundingClientRect().top;
     const nodes = scrollElement.querySelectorAll<HTMLElement>(
       "[data-leaderboard-asset-id]"
@@ -62,11 +74,13 @@ export function useLeaderboardScrollRestoration({
   }, []);
 
   const onScroll = useCallback(() => {
+    pendingScrollTopRef.current = scrollRef.current?.scrollTop ?? null;
     if (scrollFrameRef.current !== null) {
       return;
     }
     scrollFrameRef.current = window.requestAnimationFrame(() => {
       scrollFrameRef.current = null;
+      pendingScrollTopRef.current = null;
       saveScrollPosition();
     });
   }, [saveScrollPosition]);
@@ -109,7 +123,13 @@ export function useLeaderboardScrollRestoration({
       if (scrollFrameRef.current !== null) {
         window.cancelAnimationFrame(scrollFrameRef.current);
       }
-      saveScrollPosition();
+      // A sibling header can resize the viewport during the unmount commit.
+      // Keep the last checkpoint if that resize has clamped the scroll position.
+      if (scrollRef.current?.clientHeight === savedViewportHeightRef.current) {
+        saveScrollPosition();
+      } else if (pendingScrollTopRef.current !== null) {
+        saveScrollPosition(pendingScrollTopRef.current);
+      }
       flushSessionScrollPositions("leaderboard");
     },
     [saveScrollPosition]

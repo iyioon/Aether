@@ -75,7 +75,7 @@
 
 .view-options-heading h2 {
   margin: 0;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
 }
 
@@ -116,7 +116,7 @@
 
 .view-options-fields {
   display: grid;
-  gap: 20px;
+  gap: 16px;
   min-width: 0;
 }
 
@@ -208,6 +208,10 @@
   min-width: 0;
   height: 44px;
   font-size: 16px;
+}
+
+.view-options-popover .view-options-tag-input input {
+  font-size: 14px;
 }
 
 .view-options-clear {

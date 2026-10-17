@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, type ReactNode } from "react";
 import {
+  ChevronDown,
   GalleryHorizontalEnd,
   GitCompareArrows,
   Grid3X3,
@@ -21,11 +22,19 @@ import {
   BreadcrumbSeparator
 } from "../ui/breadcrumb";
 import { Button } from "../ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger
+} from "../ui/dropdown-menu";
 import { Input } from "../ui/input";
 import { Separator } from "../ui/separator";
 import { SidebarTrigger, useSidebar } from "../ui/sidebar";
 
 interface LibraryPathBarProps {
+  isFeedChromeHidden: boolean;
   isGuideOpen: boolean;
   isSettingsOpen: boolean;
   controls?: ReactNode;
@@ -45,7 +54,24 @@ interface PathSegment {
   label: string;
 }
 
+const libraryViews = [
+  { value: "gallery", label: "Gallery view", name: "Gallery", icon: Grid3X3 },
+  {
+    value: "feed",
+    label: "Feed view",
+    name: "Feed",
+    icon: GalleryHorizontalEnd
+  },
+  {
+    value: "compare",
+    label: "Compare and rank",
+    name: "Compare",
+    icon: GitCompareArrows
+  }
+] as const;
+
 export function LibraryPathBar({
+  isFeedChromeHidden,
   isGuideOpen,
   isSettingsOpen,
   controls,
@@ -65,6 +91,7 @@ export function LibraryPathBar({
     [selectedFolderId, tree]
   );
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const currentView = libraryViews.find((option) => option.value === view)!;
 
   useEffect(() => {
     function focusSearch(event: KeyboardEvent) {
@@ -100,13 +127,7 @@ export function LibraryPathBar({
       role="group"
       aria-label="Library view"
     >
-      {(
-        [
-          ["gallery", "Gallery view", Grid3X3],
-          ["feed", "Feed view", GalleryHorizontalEnd],
-          ["compare", "Compare and rank", GitCompareArrows]
-        ] as const
-      ).map(([viewOption, label, Icon]) => (
+      {libraryViews.map(({ value: viewOption, label, icon: Icon }) => (
         <Button
           aria-label={label}
           aria-pressed={view === viewOption}
@@ -126,7 +147,16 @@ export function LibraryPathBar({
   );
 
   if (isMobile && view === "feed" && !isSettingsOpen && !isGuideOpen) {
-    return <div className="feed-view-switcher">{viewSwitcher}</div>;
+    return (
+      <div
+        className="feed-view-controls"
+        data-hidden={isFeedChromeHidden}
+        inert={isFeedChromeHidden}
+      >
+        {controls}
+        {viewSwitcher}
+      </div>
+    );
   }
 
   return (
@@ -210,6 +240,44 @@ export function LibraryPathBar({
             />
           ) : null}
           {viewSwitcher}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                className="library-view-menu-trigger"
+                size="icon"
+                variant="outline"
+                aria-label={`Change view, ${currentView.name} selected`}
+              >
+                <currentView.icon aria-hidden="true" />
+                <ChevronDown className="size-3" aria-hidden="true" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" collisionPadding={12}>
+              <DropdownMenuRadioGroup
+                aria-label="Library view"
+                value={view}
+                onValueChange={(value) => {
+                  const option = libraryViews.find(
+                    (entry) => entry.value === value
+                  );
+                  if (option) onSwitchView(option.value);
+                }}
+              >
+                {libraryViews.map(({ value, name, icon: Icon }) => (
+                  <DropdownMenuRadioItem
+                    className="min-h-11"
+                    key={value}
+                    value={value}
+                    onFocus={() => onPreloadView(value)}
+                    onPointerEnter={() => onPreloadView(value)}
+                  >
+                    <Icon aria-hidden="true" />
+                    {name}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       ) : null}
     </header>

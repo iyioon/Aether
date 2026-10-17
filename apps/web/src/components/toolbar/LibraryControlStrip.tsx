@@ -27,7 +27,7 @@ export function LibraryControlStrip({
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
-              className="control-menu-trigger"
+              className="control-menu-trigger control-selection-trigger"
               type="button"
               size="icon"
               variant={isSelectionMode ? "secondary" : "outline"}

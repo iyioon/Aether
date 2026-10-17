@@ -296,6 +296,7 @@ test("keeps mobile Feed full height with a reachable view switcher through rotat
       .tap();
     const header = page.locator(".library-path-bar");
     const switcher = page.getByRole("group", { name: "Library view" });
+    const overlay = page.locator(".feed-view-controls");
     await expect(header).toHaveCount(0);
     const expectSwitcher = async (top: number, right: number) => {
       await expect(switcher).toBeVisible();
@@ -305,10 +306,11 @@ test("keeps mobile Feed full height with a reachable view switcher through rotat
       expect(
         Math.abs(rect.x + rect.width - (viewport.width - right - 12))
       ).toBeLessThanOrEqual(1);
-      for (const button of await switcher.getByRole("button").all()) {
+      for (const button of await overlay.getByRole("button").all()) {
         const target = (await button.boundingBox())!;
         expect(target.width).toBeGreaterThanOrEqual(44);
         expect(target.height).toBeGreaterThanOrEqual(44);
+        expect(target.y).toBeGreaterThanOrEqual(top + 12);
         await expect(button).toBeVisible();
       }
     };
@@ -334,15 +336,17 @@ test("keeps mobile Feed full height with a reachable view switcher through rotat
     await expectSwitcher(59, 0);
     await toggle.tap();
     await expect(controls).toBeHidden();
-    await expectSwitcher(59, 0);
+    await expect(overlay).toBeHidden();
+    await expect(overlay).toHaveAttribute("inert", "");
     await expectFullViewport();
     await cdp.send("Emulation.setSafeAreaInsetsOverride", {
       insets: { top: 0, bottom: 21, left: 59, right: 59 }
     });
     await page.setViewportSize({ width: 932, height: 430 });
     await expectFullViewport();
-    await expectSwitcher(0, 59);
+    await expect(overlay).toBeHidden();
     await toggle.tap();
+    await expectSwitcher(0, 59);
     await expect(header).toHaveCount(0);
     await expectSafeTargets(controls, { left: 59, right: 59, bottom: 21 });
 
@@ -361,6 +365,8 @@ test("keeps mobile Feed full height with a reachable view switcher through rotat
     });
     await page.setViewportSize({ width: 393, height: 793 });
     await expectFullViewport();
+    await expect(overlay).toBeHidden();
+    await toggle.tap();
     await expectSwitcher(0, 0);
     await switcher
       .getByRole("button", { name: "Gallery view", exact: true })
@@ -369,7 +375,7 @@ test("keeps mobile Feed full height with a reachable view switcher through rotat
       page.getByRole("region", { name: "Gallery view" })
     ).toBeVisible();
     await expect(header).toBeVisible();
-    await expect(page.locator(".feed-view-switcher")).toHaveCount(0);
+    await expect(page.locator(".feed-view-controls")).toHaveCount(0);
     expect(new URL(page.url()).searchParams.get("folder")).toBe(folderId);
     expect(new URL(page.url()).searchParams.get("type")).toBe("video");
   } finally {

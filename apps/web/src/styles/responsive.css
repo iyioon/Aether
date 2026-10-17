@@ -489,16 +489,13 @@
 }
 
 @container library-workspace (max-width: 480px) {
-  .library-path-actions {
-    flex-wrap: wrap;
-  }
-
-  .library-path-actions > .topbar-search {
-    flex-basis: 100%;
-  }
-
-  .library-path-actions > .library-view-separator {
+  .library-path-actions > .library-view-separator,
+  .library-path-actions > .library-view-switcher {
     display: none;
+  }
+
+  .library-path-actions > .library-view-menu-trigger {
+    display: inline-flex;
   }
 }
 

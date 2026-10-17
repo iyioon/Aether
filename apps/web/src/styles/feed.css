@@ -1,29 +1,50 @@
-.feed-view-switcher {
+.feed-view-controls {
   position: absolute;
   top: calc(12px + env(safe-area-inset-top));
   right: calc(12px + env(safe-area-inset-right));
   z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: opacity var(--aether-motion-fast) ease;
 }
 
-.feed-view-switcher .library-view-switcher {
+.feed-view-controls .library-view-switcher,
+.feed-view-controls .view-options-trigger {
   border-color: rgba(255, 255, 255, 0.18);
   background: rgba(3, 4, 4, 0.58);
   backdrop-filter: blur(12px) saturate(1.12);
 }
 
-.feed-view-switcher .aether-button {
+.feed-view-controls .aether-button {
   color: rgba(255, 255, 255, 0.9);
 }
 
-.feed-view-switcher .aether-button[aria-pressed="true"],
-.feed-view-switcher .aether-button[data-slot="button"]:hover {
+.feed-view-controls .aether-button[aria-pressed="true"],
+.feed-view-controls .aether-button[data-slot="button"]:hover {
   border-color: transparent;
   background: rgba(255, 255, 255, 0.18);
   box-shadow: none;
 }
 
-.feed-view-switcher .aether-button:focus-visible {
+.feed-view-controls .aether-button:focus-visible {
   outline-color: rgba(255, 255, 255, 0.88);
+}
+
+.feed-view-controls[data-hidden="true"] {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.feed-view-controls .control-selection-trigger {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .feed-view-controls {
+    transition: none;
+  }
 }
 
 .feed-shell {

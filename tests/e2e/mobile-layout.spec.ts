@@ -138,7 +138,7 @@ test("uses a working drawer on wide touch landscape screens", async ({
   }
 });
 
-test("keeps gallery search and toolbar controls reachable on narrow phones", async ({
+test("keeps gallery search and toolbar controls on one row on narrow phones", async ({
   browser,
   page
 }) => {
@@ -160,45 +160,83 @@ test("keeps gallery search and toolbar controls reachable on narrow phones", asy
       ).toBeVisible();
       const geometry = await phone.evaluate(() => ({
         width: innerWidth,
-        searchWidth: document
-          .querySelector('[aria-label="Search"]')!
-          .getBoundingClientRect().width,
+        search: (() => {
+          const rect = document
+            .querySelector('[aria-label="Search"]')!
+            .getBoundingClientRect();
+          return {
+            width: rect.width,
+            right: rect.right,
+            center: rect.y + rect.height / 2
+          };
+        })(),
         targets: [
           ...document.querySelectorAll<HTMLButtonElement>(
             ".library-path-actions button"
           )
-        ].map((button) => {
-          const bounds = button.getBoundingClientRect();
-          const hit = document.elementFromPoint(
-            bounds.x + bounds.width / 2,
-            bounds.y + bounds.height / 2
-          );
-          return {
-            left: bounds.left,
-            right: bounds.right,
-            width: bounds.width,
-            height: bounds.height,
-            reachable: hit?.closest("button") === button
-          };
-        })
+        ]
+          .filter((button) => button.getBoundingClientRect().width > 0)
+          .map((button) => {
+            const bounds = button.getBoundingClientRect();
+            const hit = document.elementFromPoint(
+              bounds.x + bounds.width / 2,
+              bounds.y + bounds.height / 2
+            );
+            return {
+              left: bounds.left,
+              right: bounds.right,
+              width: bounds.width,
+              height: bounds.height,
+              center: bounds.y + bounds.height / 2,
+              reachable: hit?.closest("button") === button
+            };
+          })
       }));
 
-      expect(geometry.searchWidth).toBeGreaterThanOrEqual(100);
-      expect(geometry.targets).toHaveLength(5);
+      expect(geometry.search.width).toBeGreaterThanOrEqual(100);
+      expect(geometry.targets).toHaveLength(3);
       for (const target of geometry.targets) {
-        expect(target.left).toBeGreaterThanOrEqual(0);
+        expect(target.left).toBeGreaterThanOrEqual(geometry.search.right);
+        expect(
+          Math.abs(target.center - geometry.search.center)
+        ).toBeLessThanOrEqual(1);
         expect(target.right).toBeLessThanOrEqual(geometry.width);
         expect(target.width).toBeGreaterThanOrEqual(44);
         expect(target.height).toBeGreaterThanOrEqual(44);
         expect(target.reachable).toBe(true);
       }
+      const search = phone.getByRole("searchbox", { name: "Search" });
+      await search.fill("beach-walk");
+      await expect(
+        phone.getByRole("img", { name: "beach-walk.png" })
+      ).toBeVisible();
+      const viewMenu = phone.getByRole("button", {
+        name: "Change view, Gallery selected"
+      });
+      await viewMenu.tap();
+      await expect(
+        phone.getByRole("menuitemradio", { name: "Gallery", exact: true })
+      ).toBeChecked();
+      await phone.keyboard.press("Escape");
+      await expect(viewMenu).toBeFocused();
+      await viewMenu.press("Enter");
+      await phone
+        .getByRole("menuitemradio", { name: "Feed", exact: true })
+        .tap();
+      await expect(
+        phone.getByRole("region", { name: "Feed view" })
+      ).toBeVisible();
+      await phone
+        .getByRole("button", { name: "Gallery view", exact: true })
+        .tap();
+      await expect(search).toHaveValue("beach-walk");
     } finally {
       await context.close();
     }
   }
 });
 
-test("uses only an overlaid view switcher in mobile Feed and preserves navigation and filters", async ({
+test("groups mobile Feed view options and navigation with media visibility", async ({
   browser,
   page
 }) => {
@@ -219,6 +257,8 @@ test("uses only an overlaid view switcher in mobile Feed and preserves navigatio
       )
     );
     const switcher = phone.getByRole("group", { name: "Library view" });
+    const overlay = phone.locator(".feed-view-controls");
+    const options = overlay.getByRole("button", { name: /^View options/ });
     const feed = phone.getByRole("region", { name: "Feed view" });
     await expect(
       feed.getByRole("img", { name: "beach-walk.png" })
@@ -244,25 +284,23 @@ test("uses only an overlaid view switcher in mobile Feed and preserves navigatio
       const bounds = (await feed.boundingBox())!;
       expect(bounds.y).toBe(0);
       expect(bounds.height).toBe(viewport.height);
-      const targets = await switcher
-        .getByRole("button")
-        .evaluateAll((buttons) =>
-          buttons.map((button) => {
-            const rect = button.getBoundingClientRect();
-            return {
-              top: rect.top,
-              right: rect.right,
-              width: rect.width,
-              height: rect.height,
-              reachable: button.contains(
-                document.elementFromPoint(
-                  rect.x + rect.width / 2,
-                  rect.y + rect.height / 2
-                )
+      const targets = await overlay.getByRole("button").evaluateAll((buttons) =>
+        buttons.map((button) => {
+          const rect = button.getBoundingClientRect();
+          return {
+            top: rect.top,
+            right: rect.right,
+            width: rect.width,
+            height: rect.height,
+            reachable: button.contains(
+              document.elementFromPoint(
+                rect.x + rect.width / 2,
+                rect.y + rect.height / 2
               )
-            };
-          })
-        );
+            )
+          };
+        })
+      );
       for (const target of targets) {
         expect(target.top).toBeGreaterThanOrEqual(12);
         expect(target.right).toBeLessThanOrEqual(viewport.width - 12);
@@ -272,6 +310,26 @@ test("uses only an overlaid view switcher in mobile Feed and preserves navigatio
       }
     }
 
+    await options.tap();
+    const panel = phone.getByRole("dialog", {
+      name: "View options",
+      exact: true
+    });
+    await expect(panel.getByRole("tab")).toHaveText(["Filters", "Sort"]);
+    await panel.getByRole("radio", { name: "Videos", exact: true }).check();
+    await panel.getByRole("button", { name: "Close view options" }).tap();
+    await expect(
+      phone.getByText("No media in this feed", { exact: true })
+    ).toBeVisible();
+    await expect(options).toBeFocused();
+    await options.tap();
+    await panel.getByRole("radio", { name: "Images", exact: true }).check();
+    await panel.getByRole("tab", { name: "Sort", exact: true }).tap();
+    await panel.getByRole("radio", { name: "Descending", exact: true }).check();
+    await panel.getByRole("button", { name: "Close view options" }).tap();
+    await expect(options).toHaveAccessibleName("View options, 1 active filter");
+    expect(new URL(phone.url()).searchParams.get("order")).toBe("desc");
+
     await feed
       .getByRole("button", {
         name: "Hide feed controls and details",
@@ -279,6 +337,19 @@ test("uses only an overlaid view switcher in mobile Feed and preserves navigatio
       })
       .tap();
     await expect(phone.locator(".feed-meta")).toBeHidden();
+    await expect(overlay).toBeHidden();
+    await expect(overlay).toHaveAttribute("inert", "");
+    await expect(
+      phone.getByRole("button", { name: /^View options/ })
+    ).toHaveCount(0);
+    await feed
+      .getByRole("button", {
+        name: "Show feed controls and details",
+        exact: true
+      })
+      .tap();
+    await expect(overlay).toBeVisible();
+    await expect(options).toBeVisible();
     await switcher
       .getByRole("button", { name: "Compare and rank", exact: true })
       .tap();
@@ -288,7 +359,7 @@ test("uses only an overlaid view switcher in mobile Feed and preserves navigatio
     await expect(phone.getByRole("banner")).toBeVisible();
     await phone.goBack();
     await expect(feed).toBeVisible();
-    await expect(phone.locator(".feed-view-switcher")).toBeVisible();
+    await expect(overlay).toBeVisible();
     await switcher
       .getByRole("button", { name: "Gallery view", exact: true })
       .press("Enter");
@@ -316,7 +387,7 @@ test("uses only an overlaid view switcher in mobile Feed and preserves navigatio
   await page.getByRole("button", { name: "Feed view", exact: true }).click();
   await expect(page.getByRole("banner")).toBeVisible();
   await expect(page.getByRole("searchbox", { name: "Search" })).toBeVisible();
-  await expect(page.locator(".feed-view-switcher")).toHaveCount(0);
+  await expect(page.locator(".feed-view-controls")).toHaveCount(0);
 });
 
 test("keeps sidebar navigation available across the fine-pointer breakpoint", async ({

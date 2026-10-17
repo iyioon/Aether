@@ -26,8 +26,9 @@ not change anything on disk.
   between pairs.
 
 View options opens beside the toolbar on desktop and in a bottom sheet on phones.
-Changes apply immediately. A count on the button shows active media, score, and
-tag filters; **Clear filters** removes them without changing search, sorting, or
+On narrow screens, search and controls share one row; the current view button
+opens the Gallery / Feed / Compare menu. Changes apply immediately. A count on
+the button shows active media, score, and tag filters; **Clear filters** removes them without changing search, sorting, or
 layout. Multiple tags match items with all selected tags. Feed offers Filters and
 Sort; Compare offers Filters. Gallery layout controls appear only in Gallery.
 
@@ -61,9 +62,11 @@ saved location; an explicit view link opens that view. Browser Back and Forward
 follow page and view navigation.
 
 On phones, Feed fills the available screen with a Gallery / Feed / Compare
-selector over the top-right corner of the media. The selector stays available
-when you tap the media to hide details and playback controls. Switch to Gallery
-or Compare to use the header's search, filters, and folder navigation.
+selector and View options button over the top-right corner of the media. Tap
+the media to hide or show both buttons together with details and playback
+controls. View options gives direct access to filters and sorting, including
+when the feed is empty. Switch to Gallery or Compare for search and folder
+navigation.
 On supported iOS versions, media extends behind the status bar; a dark gradient
 keeps the clock readable. iOS may reserve a strip at the top on some versions,
 which the app cannot cover.

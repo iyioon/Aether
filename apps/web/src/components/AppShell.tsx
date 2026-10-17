@@ -713,6 +713,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
       <SidebarInset className="library-inset">
         <LibraryPathBar
           controls={libraryControls}
+          isFeedChromeHidden={isFeedChromeHidden && assets.length > 0}
           isGuideOpen={activePage === "guide"}
           isSettingsOpen={activePage === "settings"}
           searchDraft={searchDraft}

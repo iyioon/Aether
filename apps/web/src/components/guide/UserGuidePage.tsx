@@ -54,7 +54,7 @@ const browsingViews = [
     icon: GalleryHorizontalEnd,
     title: "Feed",
     description:
-      "Move through one item at a time. On phones, Feed fills the available screen with only the view selector at the top right; switch to Gallery or Compare for search, filters, and folder navigation. Tap the media to hide or show details and playback controls together; the view selector stays available. Videos have a compact single row for playback, seeking, sound, and viewer controls, with time labels above the timeline. The controls sit above the phone's Home indicator. Paused videos stay paused when you return to the app."
+      "Move through one item at a time. On phones, Feed fills the available screen with the view selector and View options at the top right. Open View options for filters and sorting; switch to Gallery or Compare for search and folder navigation. Tap the media to hide or show the top buttons, details, and playback controls together. Videos have a compact single row for playback, seeking, sound, and viewer controls, with time labels above the timeline. The controls sit above the phone's Home indicator. Paused videos stay paused when you return to the app."
   },
   {
     icon: GitCompareArrows,
@@ -237,7 +237,7 @@ export function UserGuidePage() {
             <GuideTool
               icon={ArrowDownUp}
               title="View options"
-              description="Open the sliders button for Filters, Sort, and Gallery Layout. Changes apply immediately. The button's count shows active filters; Clear filters keeps your search and layout."
+              description="Open the sliders button for Filters, Sort, and Gallery Layout. On narrow screens, search and buttons share one row; use the current view button to switch views. Changes apply immediately. The button's count shows active filters; Clear filters keeps your search and layout."
             />
           </div>
         </GuideSection>

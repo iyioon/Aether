@@ -379,14 +379,23 @@ test("restores the leaderboard anchor through Settings, reload and a fresh page"
 }) => {
   await loginAndScan(page);
   await page.setViewportSize({ width: 393, height: 852 });
-  await page.getByRole("button", { name: "Compare and rank" }).click();
+  await page
+    .getByRole("button", { name: "Change view, Gallery selected" })
+    .click();
+  await page
+    .getByRole("menuitemradio", { name: "Compare", exact: true })
+    .click();
   const leaderboard = page.locator(".leaderboard-view");
   await expect
     .poll(() =>
       leaderboard.evaluate((node) => node.scrollHeight - node.clientHeight)
     )
     .toBeGreaterThan(20);
-  await leaderboard.evaluate((node) => node.scrollTo(0, 100));
+  const targetScrollTop = await leaderboard.evaluate((node) => {
+    const target = Math.min(100, node.scrollHeight - node.clientHeight);
+    node.scrollTo(0, target);
+    return target;
+  });
   await expect
     .poll(() =>
       page.evaluate(
@@ -396,17 +405,24 @@ test("restores the leaderboard anchor through Settings, reload and a fresh page"
           ).scrollTop as number
       )
     )
-    .toBeGreaterThan(80);
+    .toBeCloseTo(targetScrollTop, 0);
   await page.getByRole("button", { name: "Toggle Sidebar" }).click();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
+  expect(
+    await page.evaluate(
+      () =>
+        JSON.parse(localStorage.getItem("aether.scroll.v3.leaderboard") ?? "{}")
+          .scrollTop as number
+    )
+  ).toBeCloseTo(targetScrollTop, 0);
   await page.getByRole("button", { name: "Library", exact: true }).click();
   await expect
     .poll(() => leaderboard.evaluate((node) => node.scrollTop))
-    .toBeGreaterThan(80);
+    .toBeCloseTo(targetScrollTop, 0);
   await page.reload();
   await expect
     .poll(() => leaderboard.evaluate((node) => node.scrollTop))
-    .toBeGreaterThan(80);
+    .toBeCloseTo(targetScrollTop, 0);
   const reopened = await context.newPage();
   await reopened.setViewportSize({ width: 393, height: 852 });
   await reopened.goto("/?launch=resume");
@@ -414,6 +430,6 @@ test("restores the leaderboard anchor through Settings, reload and a fresh page"
     .poll(() =>
       reopened.locator(".leaderboard-view").evaluate((node) => node.scrollTop)
     )
-    .toBeGreaterThan(80);
+    .toBeCloseTo(targetScrollTop, 0);
   await reopened.close();
 });

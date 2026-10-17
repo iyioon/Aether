@@ -169,12 +169,15 @@ test("collapses the desktop sidebar without breaking the mobile drawer", async (
   ).toBeVisible();
 
   const sidebarToggle = page.getByRole("button", { name: "Toggle Sidebar" });
+  const desktopSidebar = page.locator('[data-slot="sidebar"]');
+  const sidebarGap = page.locator('[data-slot="sidebar-gap"]');
+  const sidebarPanel = page.locator("#library-sidebar");
   await sidebarToggle.click();
 
-  await expect(
-    page.locator('[data-slot="sidebar"][data-state="collapsed"]')
-  ).toBeVisible();
-  await expect(page.locator("#library-sidebar")).toHaveCSS("left", /-\d+px/);
+  await expect(desktopSidebar).toHaveAttribute("data-state", "collapsed");
+  // The collapsed wrapper has zero width once its transition finishes.
+  await expect(sidebarGap).toHaveCSS("width", "0px");
+  await expect(sidebarPanel).not.toBeInViewport();
 
   const breadcrumb = page.locator(".library-path-navigation nav");
   await expect(sidebarToggle).toBeVisible();
@@ -186,6 +189,13 @@ test("collapses the desktop sidebar without breaking the mobile drawer", async (
   expect(breadcrumbBox).not.toBeNull();
   expect(toggleBox!.x).toBeLessThan(breadcrumbBox!.x);
 
+  await sidebarToggle.click();
+  await expect(desktopSidebar).toHaveAttribute("data-state", "expanded");
+  await expect(sidebarPanel).toHaveCSS("left", "0px");
+  await expect(sidebarPanel).toBeInViewport({ ratio: 1 });
+  await sidebarToggle.click();
+  await expect(sidebarGap).toHaveCSS("width", "0px");
+
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(sidebarToggle).toBeVisible();
   await sidebarToggle.click();
@@ -194,6 +204,8 @@ test("collapses the desktop sidebar without breaking the mobile drawer", async (
   await expect(
     page.getByRole("navigation", { name: "Media folders" })
   ).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Sidebar" })).toHaveCount(0);
 });
 
 test("recovers from server and session interruptions and restores navigation", async ({

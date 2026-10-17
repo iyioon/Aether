@@ -4,6 +4,8 @@ Notable changes to Aether are recorded here.
 
 ## Unreleased
 
+- Replace the mobile Feed header with a floating view selector at the top right,
+  keeping media full height and navigation available when details are hidden.
 - Let expanded Feed media extend behind the iPhone Home Screen status bar where
   iOS permits, with a readability gradient and safe-area spacing for controls.
 - Blend Feed titles and playback controls over one continuous gradient, and

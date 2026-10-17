@@ -23,7 +23,7 @@ import {
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Separator } from "../ui/separator";
-import { SidebarTrigger } from "../ui/sidebar";
+import { SidebarTrigger, useSidebar } from "../ui/sidebar";
 
 interface LibraryPathBarProps {
   isGuideOpen: boolean;
@@ -59,6 +59,7 @@ export function LibraryPathBar({
   onSelectFolder,
   onSwitchView
 }: LibraryPathBarProps) {
+  const { isMobile } = useSidebar();
   const path = useMemo(
     () => buildFolderPath(tree, selectedFolderId),
     [selectedFolderId, tree]
@@ -92,6 +93,41 @@ export function LibraryPathBar({
     window.addEventListener("keydown", focusSearch);
     return () => window.removeEventListener("keydown", focusSearch);
   }, []);
+
+  const viewSwitcher = (
+    <div
+      className="library-view-switcher"
+      role="group"
+      aria-label="Library view"
+    >
+      {(
+        [
+          ["gallery", "Gallery view", Grid3X3],
+          ["feed", "Feed view", GalleryHorizontalEnd],
+          ["compare", "Compare and rank", GitCompareArrows]
+        ] as const
+      ).map(([viewOption, label, Icon]) => (
+        <Button
+          aria-label={label}
+          aria-pressed={view === viewOption}
+          data-active={view === viewOption ? "true" : "false"}
+          key={viewOption}
+          size="icon"
+          title={label}
+          variant={view === viewOption ? "secondary" : "ghost"}
+          onFocus={() => onPreloadView(viewOption)}
+          onClick={() => onSwitchView(viewOption)}
+          onPointerEnter={() => onPreloadView(viewOption)}
+        >
+          <Icon />
+        </Button>
+      ))}
+    </div>
+  );
+
+  if (isMobile && view === "feed" && !isSettingsOpen && !isGuideOpen) {
+    return <div className="feed-view-switcher">{viewSwitcher}</div>;
+  }
 
   return (
     <header className="library-path-bar">
@@ -173,34 +209,7 @@ export function LibraryPathBar({
               orientation="vertical"
             />
           ) : null}
-          <div
-            className="library-view-switcher"
-            role="group"
-            aria-label="Library view"
-          >
-            {(
-              [
-                ["gallery", "Gallery view", Grid3X3],
-                ["feed", "Feed view", GalleryHorizontalEnd],
-                ["compare", "Compare and rank", GitCompareArrows]
-              ] as const
-            ).map(([viewOption, label, Icon]) => (
-              <Button
-                aria-label={label}
-                aria-pressed={view === viewOption}
-                data-active={view === viewOption ? "true" : "false"}
-                key={viewOption}
-                size="icon"
-                title={label}
-                variant={view === viewOption ? "secondary" : "ghost"}
-                onFocus={() => onPreloadView(viewOption)}
-                onClick={() => onSwitchView(viewOption)}
-                onPointerEnter={() => onPreloadView(viewOption)}
-              >
-                <Icon />
-              </Button>
-            ))}
-          </div>
+          {viewSwitcher}
         </div>
       ) : null}
     </header>

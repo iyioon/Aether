@@ -721,16 +721,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
         onSelectFolder={selectFolder}
         onToggleFolderExpansion={toggleFolderExpansion}
       />
-      <SidebarInset
-        className={[
-          "library-inset",
-          activePage === "library" && view === "feed" && isFeedChromeHidden
-            ? "feed-chrome-hidden"
-            : ""
-        ]
-          .filter(Boolean)
-          .join(" ")}
-      >
+      <SidebarInset className="library-inset">
         <LibraryPathBar
           controls={libraryControls}
           isGuideOpen={activePage === "guide"}
@@ -757,10 +748,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
                   ? "view-feed"
                   : view === "compare"
                     ? "view-compare"
-                    : "view-gallery",
-            activePage === "library" && view === "feed" && isFeedChromeHidden
-              ? "feed-chrome-hidden"
-              : ""
+                    : "view-gallery"
           ]
             .filter(Boolean)
             .join(" ")}

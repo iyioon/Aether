@@ -121,7 +121,11 @@ not force a running session to reload. Development runs do not register it.
 
 The iPhone Home Screen shell uses `viewport-fit=cover` and Apple's
 [`black-translucent` status-bar setting](https://developer.apple.com/library/archive/documentation/AppleApplications/Reference/SafariHTMLRef/Articles/MetaTags.html).
-Expanded Feed fills the dynamic viewport without top padding; headers and
+Mobile Feed fills the dynamic viewport without a header or top padding.
+`LibraryPathBar` uses the sidebar's shared mobile breakpoint to render only the
+existing view selector over the media, with top/right safe-area spacing. The
+selector remains reachable when Feed details and playback controls are hidden;
+other views and desktop Feed retain the complete header. Headers and
 interactive controls retain their safe-area insets. A pointer-transparent
 gradient covers only the top safe area in standalone mode, including light
 pages and offline recovery. The layout uses the viewport iOS exposes, without

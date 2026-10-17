@@ -77,10 +77,6 @@
 /* Keep this compact-layout query aligned with hooks/use-mobile.ts. */
 @media (max-width: 767px),
   (max-width: 1024px) and (hover: none) and (pointer: coarse) {
-  .library-inset.feed-chrome-hidden > .library-path-bar {
-    display: none;
-  }
-
   .library-path-bar {
     height: calc(56px + env(safe-area-inset-top));
     padding-inline: max(10px, env(safe-area-inset-left))

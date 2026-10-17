@@ -182,8 +182,11 @@ metadata and actions above the dock, and respect left/right landscape insets.
 Do not apply the same inset independently at several nested levels. This follows
 [WebKit's safe-area model](https://webkit.org/blog/7929/designing-websites-for-iphone-x/).
 
-Expanded Feed now fills the dynamic viewport with a translucent iPhone Home
-Screen status bar. A gradient protects status-icon contrast without blocking
+Mobile Feed fills the dynamic viewport with a translucent iPhone Home Screen
+status bar. Its header is replaced by the view selector at the top right, above
+the media and inside the safe area. The selector remains available with details
+hidden; Gallery and Compare retain search, filters, and folder navigation.
+A gradient protects status-icon contrast without blocking
 touches or adding layout space. Headers and controls keep their safe-area
 insets; the offline page uses the same treatment. Do not offset the page beyond
 the viewport on iOS versions that reserve a system-owned strip. Actual-device

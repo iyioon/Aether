@@ -198,6 +198,127 @@ test("keeps gallery search and toolbar controls reachable on narrow phones", asy
   }
 });
 
+test("uses only an overlaid view switcher in mobile Feed and preserves navigation and filters", async ({
+  browser,
+  page
+}) => {
+  const storageState = await page.context().storageState();
+  const context = await browser.newContext({
+    storageState,
+    viewport: { width: 393, height: 852 },
+    isMobile: true,
+    hasTouch: true,
+    serviceWorkers: "block"
+  });
+  try {
+    const phone = await context.newPage();
+    await phone.goto(
+      productionUrl(
+        new URL("/?view=feed&type=image&q=beach-walk&sort=filename", page.url())
+          .href
+      )
+    );
+    const switcher = phone.getByRole("group", { name: "Library view" });
+    const feed = phone.getByRole("region", { name: "Feed view" });
+    await expect(
+      feed.getByRole("img", { name: "beach-walk.png" })
+    ).toBeVisible();
+
+    for (const viewport of [
+      { width: 320, height: 568 },
+      { width: 393, height: 852 },
+      { width: 932, height: 430 }
+    ]) {
+      await phone.setViewportSize(viewport);
+      await expect(phone.getByRole("banner")).toHaveCount(0);
+      await expect(
+        phone.getByRole("searchbox", { name: "Search" })
+      ).toHaveCount(0);
+      await expect(
+        phone.getByRole("button", { name: "Toggle Sidebar" })
+      ).toHaveCount(0);
+      await expect(switcher.getByRole("button")).toHaveCount(3);
+      await expect(
+        switcher.getByRole("button", { name: "Feed view", exact: true })
+      ).toHaveAttribute("aria-pressed", "true");
+      const bounds = (await feed.boundingBox())!;
+      expect(bounds.y).toBe(0);
+      expect(bounds.height).toBe(viewport.height);
+      const targets = await switcher
+        .getByRole("button")
+        .evaluateAll((buttons) =>
+          buttons.map((button) => {
+            const rect = button.getBoundingClientRect();
+            return {
+              top: rect.top,
+              right: rect.right,
+              width: rect.width,
+              height: rect.height,
+              reachable: button.contains(
+                document.elementFromPoint(
+                  rect.x + rect.width / 2,
+                  rect.y + rect.height / 2
+                )
+              )
+            };
+          })
+        );
+      for (const target of targets) {
+        expect(target.top).toBeGreaterThanOrEqual(12);
+        expect(target.right).toBeLessThanOrEqual(viewport.width - 12);
+        expect(target.width).toBeGreaterThanOrEqual(44);
+        expect(target.height).toBeGreaterThanOrEqual(44);
+        expect(target.reachable).toBe(true);
+      }
+    }
+
+    await feed
+      .getByRole("button", {
+        name: "Hide feed controls and details",
+        exact: true
+      })
+      .tap();
+    await expect(phone.locator(".feed-meta")).toBeHidden();
+    await switcher
+      .getByRole("button", { name: "Compare and rank", exact: true })
+      .tap();
+    await expect(
+      phone.getByRole("heading", { name: "Leaderboard", exact: true })
+    ).toBeVisible();
+    await expect(phone.getByRole("banner")).toBeVisible();
+    await phone.goBack();
+    await expect(feed).toBeVisible();
+    await expect(phone.locator(".feed-view-switcher")).toBeVisible();
+    await switcher
+      .getByRole("button", { name: "Gallery view", exact: true })
+      .press("Enter");
+    const search = phone.getByRole("searchbox", { name: "Search" });
+    await expect(search).toHaveValue("beach-walk");
+    expect(new URL(phone.url()).searchParams.get("type")).toBe("image");
+    expect(new URL(phone.url()).searchParams.get("sort")).toBe("filename");
+
+    await search.fill("no-matching-feed-item");
+    await expect
+      .poll(() => new URL(phone.url()).searchParams.get("q"))
+      .toBe("no-matching-feed-item");
+    await phone.getByRole("button", { name: "Feed view", exact: true }).tap();
+    await expect(
+      phone.getByText("No media in this feed", { exact: true })
+    ).toBeVisible();
+    await switcher
+      .getByRole("button", { name: "Gallery view", exact: true })
+      .tap();
+    await expect(search).toHaveValue("no-matching-feed-item");
+  } finally {
+    await context.close();
+  }
+
+  await page.getByRole("button", { name: "Feed view", exact: true }).click();
+  await expect(page.getByRole("banner")).toBeVisible();
+  await expect(page.getByRole("searchbox", { name: "Search" })).toBeVisible();
+  await expect(page.locator(".feed-view-switcher")).toHaveCount(0);
+});
+
 test("keeps sidebar navigation available across the fine-pointer breakpoint", async ({
   page
 }) => {

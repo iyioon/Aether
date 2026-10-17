@@ -254,7 +254,7 @@ for (const hasTouch of [false, true]) {
   });
 }
 
-test("expands a later Feed item to the viewport through rotation and safe-area changes", async ({
+test("keeps mobile Feed full height with a reachable view switcher through rotation and safe-area changes", async ({
   browser,
   browserName
 }) => {
@@ -282,11 +282,23 @@ test("expands a later Feed item to the viewport through rotation and safe-area c
       .getByRole("button", { name: "Pause video", exact: true })
       .tap();
     const header = page.locator(".library-path-bar");
-    const sidebar = header.getByRole("button", { name: "Toggle Sidebar" });
-    expect((await sidebar.boundingBox())!.y).toBeGreaterThanOrEqual(59);
-    await toggle.tap();
-    await expect(header).toBeHidden();
-    await expect(controls).toBeHidden();
+    const switcher = page.getByRole("group", { name: "Library view" });
+    await expect(header).toHaveCount(0);
+    const expectSwitcher = async (top: number, right: number) => {
+      await expect(switcher).toBeVisible();
+      const rect = (await switcher.boundingBox())!;
+      const viewport = page.viewportSize()!;
+      expect(rect.y).toBeGreaterThanOrEqual(top + 12);
+      expect(
+        Math.abs(rect.x + rect.width - (viewport.width - right - 12))
+      ).toBeLessThanOrEqual(1);
+      for (const button of await switcher.getByRole("button").all()) {
+        const target = (await button.boundingBox())!;
+        expect(target.width).toBeGreaterThanOrEqual(44);
+        expect(target.height).toBeGreaterThanOrEqual(44);
+        await expect(button).toBeVisible();
+      }
+    };
 
     const expectFullViewport = async () => {
       await expect
@@ -306,22 +318,27 @@ test("expands a later Feed item to the viewport through rotation and safe-area c
       await expectPaused(item.locator("video"), true);
     };
     await expectFullViewport();
+    await expectSwitcher(59, 0);
+    await toggle.tap();
+    await expect(controls).toBeHidden();
+    await expectSwitcher(59, 0);
+    await expectFullViewport();
     await cdp.send("Emulation.setSafeAreaInsetsOverride", {
       insets: { top: 0, bottom: 21, left: 59, right: 59 }
     });
     await page.setViewportSize({ width: 932, height: 430 });
     await expectFullViewport();
+    await expectSwitcher(0, 59);
     await toggle.tap();
-    await expect(header).toBeVisible();
+    await expect(header).toHaveCount(0);
     await expectSafeTargets(controls, { left: 59, right: 59, bottom: 21 });
-    expect((await sidebar.boundingBox())!.x).toBeGreaterThanOrEqual(59);
 
     await cdp.send("Emulation.setSafeAreaInsetsOverride", {
       insets: { top: 59, bottom: 34, left: 0, right: 0 }
     });
     await page.setViewportSize({ width: 393, height: 852 });
     await expectSafeTargets(controls, { left: 0, right: 0, bottom: 34 });
-    expect((await sidebar.boundingBox())!.y).toBeGreaterThanOrEqual(59);
+    await expectSwitcher(59, 0);
     await toggle.tap();
     await expectFullViewport();
 
@@ -331,6 +348,17 @@ test("expands a later Feed item to the viewport through rotation and safe-area c
     });
     await page.setViewportSize({ width: 393, height: 793 });
     await expectFullViewport();
+    await expectSwitcher(0, 0);
+    await switcher
+      .getByRole("button", { name: "Gallery view", exact: true })
+      .tap();
+    await expect(
+      page.getByRole("region", { name: "Gallery view" })
+    ).toBeVisible();
+    await expect(header).toBeVisible();
+    await expect(page.locator(".feed-view-switcher")).toHaveCount(0);
+    expect(new URL(page.url()).searchParams.get("folder")).toBe(folderId);
+    expect(new URL(page.url()).searchParams.get("type")).toBe("video");
   } finally {
     await context.close();
   }
@@ -402,8 +430,15 @@ test("controls real playback without feed navigation, score edits, or unwanted f
       .getByRole("button", { name: "Play video", exact: true })
       .click();
     await expectPaused(video, false);
+    await expect(
+      controls.getByRole("button", { name: "Pause video", exact: true })
+    ).toBeVisible();
     await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
     await expectPaused(video, true);
+    // Let the hidden-page render settle before simulating a return.
+    await expect(
+      controls.getByRole("button", { name: "Play video", exact: true })
+    ).toBeVisible();
     await page.evaluate(() => window.dispatchEvent(new Event("pageshow")));
     await expectPaused(video, false);
 

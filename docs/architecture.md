@@ -119,6 +119,16 @@ chunks, bypasses all private API requests, and provides navigation recovery when
 the network fails. Worker updates wait for previous clients to close; they do
 not force a running session to reload. Development runs do not register it.
 
+The iPhone Home Screen shell uses `viewport-fit=cover` and Apple's
+[`black-translucent` status-bar setting](https://developer.apple.com/library/archive/documentation/AppleApplications/Reference/SafariHTMLRef/Articles/MetaTags.html).
+Expanded Feed fills the dynamic viewport without top padding; headers and
+interactive controls retain their safe-area insets. A pointer-transparent
+gradient covers only the top safe area in standalone mode, including light
+pages and offline recovery. The layout uses the viewport iOS exposes, without
+negative offsets or physical-screen sizing to compensate for system-owned
+areas. Some iOS versions still exclude the status-bar strip; see
+[WebKit issue 301994](https://bugs.webkit.org/show_bug.cgi?id=301994).
+
 ## Video Playback Controls
 
 Feed and the expanded viewer share an event-driven playback observer and control

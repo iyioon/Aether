@@ -7,6 +7,11 @@
       content="width=device-width, initial-scale=1, viewport-fit=cover"
     />
     <meta name="theme-color" content="#f7f7f8" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
     <title>Aether is offline</title>
     <style>
       :root {
@@ -23,6 +28,22 @@
           max(24px, env(safe-area-inset-right))
           max(24px, env(safe-area-inset-bottom))
           max(24px, env(safe-area-inset-left));
+      }
+      @media (display-mode: standalone) {
+        body::after {
+          position: fixed;
+          inset: 0 0 auto;
+          z-index: 100;
+          height: env(safe-area-inset-top, 0px);
+          content: "";
+          pointer-events: none;
+          background: linear-gradient(
+            to bottom,
+            rgba(0, 0, 0, 0.72),
+            rgba(0, 0, 0, 0.56) 70%,
+            transparent
+          );
+        }
       }
       main {
         max-width: 26rem;

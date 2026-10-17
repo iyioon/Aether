@@ -254,6 +254,88 @@ for (const hasTouch of [false, true]) {
   });
 }
 
+test("expands a later Feed item to the viewport through rotation and safe-area changes", async ({
+  browser,
+  browserName
+}) => {
+  test.skip(browserName !== "chromium", "Requires CDP safe-area emulation");
+  const context = await browser.newContext({
+    storageState,
+    viewport: { width: 393, height: 852 },
+    isMobile: true,
+    hasTouch: true,
+    reducedMotion: "reduce"
+  });
+  try {
+    const page = await context.newPage();
+    const cdp = await context.newCDPSession(page);
+    await cdp.send("Emulation.setSafeAreaInsetsOverride", {
+      insets: { top: 59, bottom: 34, left: 0, right: 0 }
+    });
+    await openFeed(page);
+    const item = page.locator('.feed-item[data-feed-index="1"]');
+    await item.scrollIntoViewIfNeeded();
+    await expectPlaying(item.locator("video"));
+    const toggle = item.locator(".media-video-playback-toggle");
+    const controls = item.locator(".video-controls--feed");
+    await controls
+      .getByRole("button", { name: "Pause video", exact: true })
+      .tap();
+    const header = page.locator(".library-path-bar");
+    const sidebar = header.getByRole("button", { name: "Toggle Sidebar" });
+    expect((await sidebar.boundingBox())!.y).toBeGreaterThanOrEqual(59);
+    await toggle.tap();
+    await expect(header).toBeHidden();
+    await expect(controls).toBeHidden();
+
+    const expectFullViewport = async () => {
+      await expect
+        .poll(() =>
+          item.locator(".feed-frame").evaluate((node) => {
+            const rect = node.getBoundingClientRect();
+            return Math.max(
+              Math.abs(rect.top),
+              Math.abs(rect.left),
+              Math.abs(rect.bottom - innerHeight),
+              Math.abs(rect.right - innerWidth),
+              Math.abs(document.documentElement.scrollWidth - innerWidth)
+            );
+          })
+        )
+        .toBeLessThanOrEqual(1);
+      await expectPaused(item.locator("video"), true);
+    };
+    await expectFullViewport();
+    await cdp.send("Emulation.setSafeAreaInsetsOverride", {
+      insets: { top: 0, bottom: 21, left: 59, right: 59 }
+    });
+    await page.setViewportSize({ width: 932, height: 430 });
+    await expectFullViewport();
+    await toggle.tap();
+    await expect(header).toBeVisible();
+    await expectSafeTargets(controls, { left: 59, right: 59, bottom: 21 });
+    expect((await sidebar.boundingBox())!.x).toBeGreaterThanOrEqual(59);
+
+    await cdp.send("Emulation.setSafeAreaInsetsOverride", {
+      insets: { top: 59, bottom: 34, left: 0, right: 0 }
+    });
+    await page.setViewportSize({ width: 393, height: 852 });
+    await expectSafeTargets(controls, { left: 0, right: 0, bottom: 34 });
+    expect((await sidebar.boundingBox())!.y).toBeGreaterThanOrEqual(59);
+    await toggle.tap();
+    await expectFullViewport();
+
+    // Some iOS versions expose a shorter viewport with no top inset.
+    await cdp.send("Emulation.setSafeAreaInsetsOverride", {
+      insets: { top: 0, bottom: 34, left: 0, right: 0 }
+    });
+    await page.setViewportSize({ width: 393, height: 793 });
+    await expectFullViewport();
+  } finally {
+    await context.close();
+  }
+});
+
 test("controls real playback without feed navigation, score edits, or unwanted foreground audio", async ({
   browser
 }) => {
@@ -686,7 +768,17 @@ async function expectPaused(video: Locator, paused: boolean) {
     .toBe(paused);
 }
 
-async function expectSafeTargets(controls: Locator) {
+async function expectSafeTargets(
+  controls: Locator,
+  insets = { left: 20, right: 20, bottom: 34 }
+) {
+  await controls.evaluate(async (node) => {
+    await Promise.all(
+      node
+        .getAnimations()
+        .map((animation) => animation.finished.catch(() => undefined))
+    );
+  });
   await expect
     .poll(() =>
       controls.evaluate((node) =>
@@ -730,9 +822,9 @@ async function expectSafeTargets(controls: Locator) {
   for (const target of geometry.targets) {
     expect(target.width).toBeGreaterThanOrEqual(44);
     expect(target.height).toBeGreaterThanOrEqual(44);
-    expect(target.left).toBeGreaterThanOrEqual(20);
-    expect(target.right).toBeLessThanOrEqual(geometry.width - 20);
-    expect(target.bottom).toBeLessThanOrEqual(geometry.height - 34);
+    expect(target.left).toBeGreaterThanOrEqual(insets.left);
+    expect(target.right).toBeLessThanOrEqual(geometry.width - insets.right);
+    expect(target.bottom).toBeLessThanOrEqual(geometry.height - insets.bottom);
     expect(target.reachable).toBe(true);
   }
 }

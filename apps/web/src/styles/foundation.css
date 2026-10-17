@@ -24,6 +24,24 @@ body {
   overflow: hidden;
 }
 
+/* Translucent iPhone status bars need contrast over both media and light pages. */
+@media (display-mode: standalone) {
+  body::after {
+    position: fixed;
+    inset: 0 0 auto;
+    z-index: 100;
+    height: env(safe-area-inset-top, 0px);
+    content: "";
+    pointer-events: none;
+    background: linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0.72),
+      rgba(0, 0, 0, 0.56) 70%,
+      transparent
+    );
+  }
+}
+
 button {
   cursor: pointer;
 }

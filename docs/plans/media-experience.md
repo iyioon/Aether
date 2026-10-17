@@ -182,6 +182,14 @@ metadata and actions above the dock, and respect left/right landscape insets.
 Do not apply the same inset independently at several nested levels. This follows
 [WebKit's safe-area model](https://webkit.org/blog/7929/designing-websites-for-iphone-x/).
 
+Expanded Feed now fills the dynamic viewport with a translucent iPhone Home
+Screen status bar. A gradient protects status-icon contrast without blocking
+touches or adding layout space. Headers and controls keep their safe-area
+insets; the offline page uses the same treatment. Do not offset the page beyond
+the viewport on iOS versions that reserve a system-owned strip. Actual-device
+acceptance, including rotation and existing versus newly installed Home Screen
+icons, remains on the [release checklist](../release-checklist.md#phone-and-pwa-checks).
+
 Use an approximately 4–6 px visible track with a minimum 44 CSS px touch region
 and an obvious thumb on touch devices. Forty-four pixels is Aether's usability
 target, not the [WCAG AA minimum](https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html).

@@ -4,6 +4,8 @@ Notable changes to Aether are recorded here.
 
 ## Unreleased
 
+- Let expanded Feed media extend behind the iPhone Home Screen status bar where
+  iOS permits, with a readability gradient and safe-area spacing for controls.
 - Blend Feed titles and playback controls over one continuous gradient, and
   overlay viewer controls so tall media can use the full available height.
 - Hide and reveal Feed playback controls together with details when tapping the

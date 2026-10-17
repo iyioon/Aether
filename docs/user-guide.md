@@ -53,6 +53,11 @@ stable HTTPS address trusted by the device. Home Screen launches resume the
 saved location; an explicit view link opens that view. Browser Back and Forward
 follow page and view navigation.
 
+In Feed, tap the media to hide the header and controls and fill the available
+screen. On supported iOS versions, media extends behind the status bar; a dark
+gradient keeps the clock readable. Tap again to restore the controls. iOS may
+reserve a strip at the top on some versions, which the app cannot cover.
+
 After a production build has loaded online, the interface can reopen offline
 and show a recovery screen. Photos, videos, library data and editing still
 require a connection to your signed-in server. The offline cache contains

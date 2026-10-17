@@ -49,6 +49,13 @@ Never test rebuild or wipe against the only copy of a real library database.
   history.
 - Test portrait and short landscape layouts, safe areas, keyboard entry and
   zoom on an actual iPhone Home Screen installation.
+- Test both an existing Home Screen icon after closing and reopening the app
+  for an update, and a fresh installation. Expand Feed on a later item: media
+  should fill the viewport iOS exposes, with a readable clock, and retain the
+  item through rotation. Reveal controls and check header, sidebar, viewer,
+  sign-in, and offline recovery in both themes. Record the iOS version if the
+  system still reserves a top strip; do not treat desktop emulation as proof of
+  iPhone status-bar behavior.
 - Check video controls above the Home indicator and landscape side insets.
   Seek without navigating, changing scores, or hiding focused controls; verify
   browser/native fullscreen exit and explicit pause after Home/return. Confirm

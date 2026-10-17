@@ -799,12 +799,7 @@ export function MediaViewer({
         ref={viewerDialogRef}
         className={[
           "viewer-dialog inset-0! top-0! left-0! h-dvh! w-screen! max-w-none! translate-x-0! translate-y-0! gap-0 rounded-none border-0 bg-black p-0 shadow-none sm:max-w-none!",
-          controlsVisible ? "controls-visible" : "controls-hidden",
-          asset.mediaType === "video" &&
-          !isViewerVideoFailed &&
-          !useNativeControls
-            ? "has-video-controls"
-            : ""
+          controlsVisible ? "controls-visible" : "controls-hidden"
         ].join(" ")}
         showCloseButton={false}
         aria-describedby={undefined}

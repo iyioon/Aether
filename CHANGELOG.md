@@ -4,6 +4,8 @@ Notable changes to Aether are recorded here.
 
 ## Unreleased
 
+- Blend Feed titles and playback controls over one continuous gradient, and
+  overlay viewer controls so tall media can use the full available height.
 - Hide and reveal Feed playback controls together with details when tapping the
   media, while preserving playback and pause state.
 - Keep portrait video previews inside gallery cards so cropped layouts play

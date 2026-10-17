@@ -257,7 +257,8 @@
     max(12px, var(--media-safe-area-left));
   border: 0;
   border-radius: 0;
-  background: linear-gradient(180deg, rgba(3, 4, 4, 0.7), rgba(3, 4, 4, 0.94));
+  background: transparent;
+  backdrop-filter: none;
 }
 
 .feed-frame:has(.video-controls--feed) .feed-meta {

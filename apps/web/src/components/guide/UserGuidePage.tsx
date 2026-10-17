@@ -48,7 +48,7 @@ const browsingViews = [
     icon: Grid3X3,
     title: "Gallery",
     description:
-      "See many items at once. This is the fastest place to scan a folder, select several items, or edit details."
+      "See many items at once. This is the fastest place to scan a folder, select several items, or edit details. Open an item in the viewer for a larger view; video controls overlay the media to leave its full height available."
   },
   {
     icon: GalleryHorizontalEnd,

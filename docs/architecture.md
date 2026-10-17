@@ -143,8 +143,11 @@ limited to muted media and preserves explicit pause. The viewer uses container f
 available, native iPhone video fullscreen otherwise, and native controls if a
 fullscreen request fails.
 
-The shared transport owns its bottom safe-area spacing. Feed metadata and viewer
-media reserve its height; short landscape screens use a single control row.
+The shared transport owns its bottom safe-area spacing. Feed metadata reserves
+its height, with one continuous gradient behind the title and transparent
+playback bar. Viewer controls overlay the media, which fits the full safe-area
+viewport without reserving space for the bar. Short landscape screens use a
+single control row.
 Safe-area tokens follow [WebKit's guidance](https://webkit.org/blog/7929/designing-websites-for-iphone-x/),
 and native presentation capabilities are detected at runtime.
 

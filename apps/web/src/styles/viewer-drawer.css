@@ -38,12 +38,6 @@
   place-items: center;
 }
 
-.viewer-dialog.has-video-controls .viewer-stage {
-  padding-bottom: calc(
-    var(--video-controls-height) + 24px + var(--media-safe-area-bottom)
-  );
-}
-
 .viewer-video-controls {
   position: absolute;
   right: max(12px, var(--media-safe-area-right));

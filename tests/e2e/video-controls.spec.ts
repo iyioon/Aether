@@ -542,7 +542,7 @@ for (const viewport of [
   { width: 932, height: 430 },
   { width: 1440, height: 980 }
 ]) {
-  test(`keeps playback targets and media clear of safe areas at ${viewport.width}×${viewport.height}`, async ({
+  test(`overlays playback controls while fitting media within safe areas at ${viewport.width}×${viewport.height}`, async ({
     browser
   }) => {
     const context = await browser.newContext({
@@ -576,14 +576,61 @@ for (const viewport of [
         );
       });
       const viewerControls = viewer.locator(".video-controls--viewer");
-      await viewerControls.getByRole("slider").focus();
-      await expectSafeTargets(viewerControls);
-      const frame = (await viewer
-        .locator(".viewer-media-frame")
-        .boundingBox())!;
-      const viewerDock = (await viewerControls.boundingBox())!;
-      expect(frame.height).toBeGreaterThan(0);
-      expect(frame.y + frame.height).toBeLessThanOrEqual(viewerDock.y + 1);
+      for (const aspectRatio of [16 / 9, 9 / 16]) {
+        await expectPlaying(viewer.locator("video"));
+        await viewerControls.getByRole("slider").focus();
+        await expectSafeTargets(viewerControls);
+        const fitArea = viewer.locator(".viewer-fit-area");
+        const availableWidth = viewport.width - 40;
+        const availableHeight = viewport.height - 38;
+        await expect
+          .poll(async () => {
+            const bounds = (await fitArea.boundingBox())!;
+            return Math.abs(bounds.height - availableHeight);
+          })
+          .toBeLessThanOrEqual(1);
+        const video = viewer.locator("video");
+        await expect(video).toHaveCSS("object-fit", "contain");
+        await expect(video).toHaveCSS("object-position", "50% 50%");
+        const expectedWidth = Math.min(
+          availableWidth,
+          availableHeight * aspectRatio
+        );
+        const expectedHeight = Math.min(
+          availableHeight,
+          availableWidth / aspectRatio
+        );
+        await expect
+          .poll(async () => {
+            // The element can include letterboxing around the fitted picture.
+            const bounds = (await video.boundingBox())!;
+            const width = Math.min(bounds.width, bounds.height * aspectRatio);
+            const height = Math.min(bounds.height, bounds.width / aspectRatio);
+            return Math.max(
+              Math.abs(width - expectedWidth),
+              Math.abs(height - expectedHeight)
+            );
+          })
+          .toBeLessThanOrEqual(1);
+        const frame = (await video.boundingBox())!;
+        expect(frame.x).toBeGreaterThanOrEqual(20);
+        expect(frame.x + frame.width).toBeLessThanOrEqual(viewport.width - 20);
+        expect(frame.y).toBeGreaterThanOrEqual(4);
+        expect(frame.y + frame.height).toBeLessThanOrEqual(
+          viewport.height - 34
+        );
+        if (aspectRatio < 1) {
+          const viewerDock = (await viewerControls.boundingBox())!;
+          const pictureBottom = frame.y + (frame.height + expectedHeight) / 2;
+          expect(pictureBottom).toBeGreaterThan(viewerDock.y);
+        } else {
+          await fitArea.press("ArrowRight");
+          await expect(viewer.getByRole("slider")).toHaveAttribute(
+            "aria-label",
+            "Seek transport-1.mp4"
+          );
+        }
+      }
     } finally {
       await context.close();
     }

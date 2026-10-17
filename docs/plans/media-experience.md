@@ -156,7 +156,9 @@ available during migration/failure. PiP is optional follow-up work, not a
 dependency of this request.
 
 In Feed, tapping the media toggles details, actions, and playback controls as one
-group without changing playback or pause state.
+group without changing playback or pause state. Use one continuous gradient
+behind the title and playback bar. In the viewer, overlay controls so media can
+fit the full safe-area viewport without reserving a separate control row.
 
 Retain familiar player behavior, as recommended by
 [Apple's video guidance](https://developer.apple.com/design/human-interface-guidelines/playing-video).

@@ -68,9 +68,22 @@ preferences remain in this browser.
 Select a gallery item to open the fullscreen viewer. Use the previous and next
 buttons to move through the current filtered list.
 
-In the feed, tap the media to hide or show controls. Press and hold a video to
-pause it, use the timeline to seek, and use the sound button to toggle audio.
-Videos begin muted so they can play reliably after a page load.
+In the feed, tap the media to hide or show details. The video control bar stays
+available, with play/pause, elapsed and total time, seeking, and sound. Press
+and hold a video to pause temporarily; releasing it preserves an existing
+pause. Use the expansion button to open the viewer.
+With the seek bar focused, arrow keys seek one second, Page keys seek ten
+seconds, and Home/End jump to the beginning/end.
+
+The viewer uses the same playback controls and offers browser fullscreen when
+available, with native video fullscreen on supported iPhones. System fullscreen
+uses the device's controls. Controls remain visible while paused, focused, or
+scrubbing. The bar sits above the iPhone Home indicator, with a compact layout
+in short landscape screens.
+
+Videos begin muted. An explicit pause remains paused after leaving and returning
+to the app. Muted playback may resume when you return; audible playback waits
+for you to press Play again.
 
 Aether uses cached thumbnails and posters while larger files load. If a browser
 cannot play a source video, Aether can use a browser-friendly preview instead.

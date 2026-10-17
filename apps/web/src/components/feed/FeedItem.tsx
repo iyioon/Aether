@@ -1,14 +1,16 @@
-import { Maximize2, Volume2, VolumeX } from "lucide-react";
+import { Maximize2 } from "lucide-react";
 import { memo, type MutableRefObject } from "react";
 import type { AssetRecord } from "../../api/client";
-import { MediaPreview } from "../media/MediaPreview";
+import {
+  MediaPreview,
+  type MediaPlaybackCommands
+} from "../media/MediaPreview";
 import { IconButton } from "../IconButton";
 
 export type FeedSoundState = "blocked" | "muted" | "on";
 
 interface FeedItemProps {
   asset: AssetRecord;
-  audiblePlaybackRequest: number;
   feedSoundState: FeedSoundState;
   index: number;
   isActive: boolean;
@@ -22,6 +24,10 @@ interface FeedItemProps {
   onOpenAnnotations: (assetId: string) => void;
   onOpenAsset: (assetId: string) => void;
   onRegisterItem: (index: number, node: HTMLElement | null) => void;
+  onVideoControlsReady: (
+    assetId: string,
+    commands: MediaPlaybackCommands | null
+  ) => void;
   onToggleFeedChrome: () => void;
   preloadPreview: boolean;
   renderMedia: boolean;
@@ -30,7 +36,6 @@ interface FeedItemProps {
 
 export const FeedItem = memo(function FeedItem({
   asset,
-  audiblePlaybackRequest,
   feedSoundState,
   index,
   isActive,
@@ -44,6 +49,7 @@ export const FeedItem = memo(function FeedItem({
   onOpenAnnotations,
   onOpenAsset,
   onRegisterItem,
+  onVideoControlsReady,
   onToggleFeedChrome,
   preloadPreview,
   renderMedia,
@@ -54,6 +60,7 @@ export const FeedItem = memo(function FeedItem({
       className={isFeedChromeHidden ? "feed-item details-hidden" : "feed-item"}
       aria-label={`${asset.mediaType}: ${asset.name}`}
       data-feed-index={index}
+      data-audio-state={feedSoundState}
       ref={(node) => onRegisterItem(index, node)}
     >
       {renderMedia ? (
@@ -62,11 +69,13 @@ export const FeedItem = memo(function FeedItem({
             <div className="media-preview-button">
               <MediaPreview
                 asset={asset}
-                audiblePlaybackRequest={audiblePlaybackRequest}
                 isActive={isActive}
                 muted={isFeedMuted}
                 onAudibleAutoplayBlocked={onAudibleAutoplayBlocked}
                 onAudiblePlaybackStarted={onAudiblePlaybackStarted}
+                onExpand={() => onOpenAsset(asset.id)}
+                onToggleMuted={onFeedSoundToggle}
+                onVideoControlsReady={onVideoControlsReady}
                 onVideoPress={onToggleFeedChrome}
                 playbackPaused={isPlaybackPaused}
                 preloadPreview={preloadPreview}
@@ -87,7 +96,6 @@ export const FeedItem = memo(function FeedItem({
             >
               <MediaPreview
                 asset={asset}
-                audiblePlaybackRequest={audiblePlaybackRequest}
                 isActive={isActive}
                 muted={isFeedMuted}
                 onAudibleAutoplayBlocked={onAudibleAutoplayBlocked}
@@ -112,39 +120,18 @@ export const FeedItem = memo(function FeedItem({
               <strong title={asset.name}>{asset.name}</strong>
             </button>
           </div>
-          <div className="feed-actions">
-            {asset.mediaType === "video" ? (
+          {asset.mediaType !== "video" ? (
+            <div className="feed-actions">
               <IconButton
-                aria-pressed={feedSoundState === "on"}
-                className="media-overlay-button feed-sound-action"
-                data-audio-state={feedSoundState}
-                icon={feedSoundState === "on" ? Volume2 : VolumeX}
+                className="media-overlay-button"
+                icon={Maximize2}
                 iconSize={17}
-                variant={feedSoundState === "on" ? "secondary" : "outline"}
-                label={
-                  feedSoundState === "on"
-                    ? "Mute feed sound"
-                    : "Enable feed sound"
-                }
-                title={
-                  feedSoundState === "blocked"
-                    ? "Tap for sound"
-                    : feedSoundState === "on"
-                      ? "Sound on"
-                      : "Sound off"
-                }
-                onClick={onFeedSoundToggle}
+                label={`Open ${asset.name} fullscreen`}
+                title="Fullscreen"
+                onClick={() => onOpenAsset(asset.id)}
               />
-            ) : null}
-            <IconButton
-              className="media-overlay-button"
-              icon={Maximize2}
-              iconSize={17}
-              label={`Open ${asset.name} fullscreen`}
-              title="Fullscreen"
-              onClick={() => onOpenAsset(asset.id)}
-            />
-          </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
       {showLoadSentinel ? (

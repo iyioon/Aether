@@ -9,17 +9,29 @@ import {
   videoPreviewUrl
 } from "./media-urls";
 import { requestPresentedVideoFrame } from "./video-frame-presentation";
+import { useVideoPlayback } from "./useVideoPlayback";
+import { VideoControls } from "./VideoControls";
 
 const VIDEO_HOLD_DELAY_MS = 320;
 
+export interface MediaPlaybackCommands {
+  togglePlayback: () => void;
+  enableSound: () => void;
+}
+
 interface MediaPreviewProps {
   asset: AssetRecord;
-  audiblePlaybackRequest?: number;
   isActive?: boolean;
   muted?: boolean;
   onAudibleAutoplayBlocked?: () => void;
   onAudiblePlaybackStarted?: () => void;
   onDimensionsKnown?: (assetId: string, width: number, height: number) => void;
+  onExpand?: () => void;
+  onToggleMuted?: () => void;
+  onVideoControlsReady?: (
+    assetId: string,
+    commands: MediaPlaybackCommands | null
+  ) => void;
   onVideoPress?: () => void;
   playbackPaused?: boolean;
   preloadPreview?: boolean;
@@ -33,12 +45,14 @@ interface MediaPreviewProps {
 
 export const MediaPreview = memo(function MediaPreview({
   asset,
-  audiblePlaybackRequest = 0,
   isActive = true,
   muted = true,
   onAudibleAutoplayBlocked,
   onAudiblePlaybackStarted,
   onDimensionsKnown,
+  onExpand,
+  onToggleMuted,
+  onVideoControlsReady,
   onVideoPress,
   playbackPaused = false,
   preloadPreview = false,
@@ -53,8 +67,12 @@ export const MediaPreview = memo(function MediaPreview({
   const imageRef = useRef<HTMLImageElement | null>(null);
   const holdTimerRef = useRef<number | null>(null);
   const holdTriggeredRef = useRef(false);
+  const videoPlaybackRequestSequenceRef = useRef(0);
   const videoFrameRequestSequenceRef = useRef(0);
   const cancelVideoRevealRef = useRef<(() => void) | null>(null);
+  const shouldAutoplayVideoRef = useRef(false);
+  const videoSourceRef = useRef("");
+  const userPausedRef = useRef(false);
   const isAnimatedImage = !staticPreview && isAnimatedImagePreview(asset);
   const [hasError, setHasError] = useState(false);
   const [animatedImageFailed, setAnimatedImageFailed] = useState(false);
@@ -65,8 +83,11 @@ export const MediaPreview = memo(function MediaPreview({
   const [isVisible, setIsVisible] = useState(false);
   const [readyVideoSource, setReadyVideoSource] = useState<string | null>(null);
   const [isVideoHoldPaused, setIsVideoHoldPaused] = useState(false);
-  const [videoCurrentTime, setVideoCurrentTime] = useState(0);
-  const [videoDuration, setVideoDuration] = useState(0);
+  const [isVideoUserPaused, setIsVideoUserPaused] = useState(false);
+  const [isVideoResumePaused, setIsVideoResumePaused] = useState(false);
+  const [isPageHidden, setIsPageHidden] = useState(
+    () => document.visibilityState === "hidden"
+  );
   const [loadedVideoPosterSource, setLoadedVideoPosterSource] = useState<
     string | null
   >(null);
@@ -96,52 +117,89 @@ export const MediaPreview = memo(function MediaPreview({
     asset.mediaType === "video" &&
     !staticPreview &&
     (isVideoPlaybackVisible || preloadPreview);
-  const shouldAutoplayVideo =
+  const isVideoPlaybackAllowed =
     asset.mediaType === "video" &&
     !staticPreview &&
     isActive &&
     isVideoPlaybackVisible &&
     !playbackPaused &&
-    !isVideoHoldPaused;
+    !isPageHidden;
+  const shouldAutoplayVideo =
+    isVideoPlaybackAllowed &&
+    !isVideoHoldPaused &&
+    !isVideoUserPaused &&
+    !isVideoResumePaused;
+  shouldAutoplayVideoRef.current = shouldAutoplayVideo;
+  videoSourceRef.current = videoSource;
+  const playback = useVideoPlayback({
+    videoRef,
+    sourceKey: shouldLoadVideo ? videoSource : "",
+    enabled: asset.mediaType === "video" && showVideoTimeline && !staticPreview
+  });
   const isVideoReady = readyVideoSource === videoSource;
   const isVideoPosterReady =
     loadedVideoPosterSource === posterSource || isMediaImageReady(posterSource);
   const didVideoPosterFail = failedVideoPosterSource === posterSource;
 
-  const playVisibleVideo = useCallback(() => {
-    if (!shouldAutoplayVideo) {
-      return;
-    }
+  const playVisibleVideo = useCallback(
+    (requestedMuted = muted) => {
+      if (!shouldAutoplayVideoRef.current) {
+        return;
+      }
 
-    const video = videoRef.current;
+      const video = videoRef.current;
 
-    if (!video) {
-      return;
-    }
+      if (!video) {
+        return;
+      }
 
-    video.muted = muted;
-    video
-      .play()
-      .then(() => {
-        if (!muted && !video.muted) {
-          onAudiblePlaybackStarted?.();
-        }
-      })
-      .catch(() => {
-        if (muted) {
-          return;
-        }
+      const requestedSource = videoSourceRef.current;
+      const requestSequence = ++videoPlaybackRequestSequenceRef.current;
+      const isCurrentRequest = () =>
+        videoPlaybackRequestSequenceRef.current === requestSequence &&
+        videoRef.current === video &&
+        videoSourceRef.current === requestedSource &&
+        shouldAutoplayVideoRef.current;
 
-        video.muted = true;
-        onAudibleAutoplayBlocked?.();
-        video.play().catch(() => undefined);
-      });
-  }, [
-    muted,
-    onAudibleAutoplayBlocked,
-    onAudiblePlaybackStarted,
-    shouldAutoplayVideo
-  ]);
+      video.muted = requestedMuted;
+      if (!requestedMuted && video.volume === 0) {
+        video.volume = 1;
+      }
+      video
+        .play()
+        .then(() => {
+          if (!isCurrentRequest()) {
+            if (!shouldAutoplayVideoRef.current || videoRef.current !== video) {
+              video.pause();
+            }
+            return;
+          }
+          if (!requestedMuted && !video.muted) {
+            onAudiblePlaybackStarted?.();
+          }
+        })
+        .catch(() => {
+          if (requestedMuted || !isCurrentRequest()) {
+            return;
+          }
+
+          video.muted = true;
+          onAudibleAutoplayBlocked?.();
+          video
+            .play()
+            .then(() => {
+              if (
+                !shouldAutoplayVideoRef.current ||
+                videoRef.current !== video
+              ) {
+                video.pause();
+              }
+            })
+            .catch(() => undefined);
+        });
+    },
+    [muted, onAudibleAutoplayBlocked, onAudiblePlaybackStarted]
+  );
 
   const cancelPendingVideoReveal = useCallback(() => {
     cancelVideoRevealRef.current?.();
@@ -192,8 +250,9 @@ export const MediaPreview = memo(function MediaPreview({
     setIsVisible(false);
     setReadyVideoSource(null);
     setIsVideoHoldPaused(false);
-    setVideoCurrentTime(0);
-    setVideoDuration(0);
+    setIsVideoUserPaused(false);
+    userPausedRef.current = false;
+    setIsVideoResumePaused(false);
     setLoadedVideoPosterSource(null);
     setFailedVideoPosterSource(null);
     setLoadedImageSource(null);
@@ -211,9 +270,51 @@ export const MediaPreview = memo(function MediaPreview({
 
   useEffect(() => {
     if (!isActive) {
+      if (holdTimerRef.current !== null) {
+        window.clearTimeout(holdTimerRef.current);
+        holdTimerRef.current = null;
+      }
+      holdTriggeredRef.current = false;
       setIsVideoHoldPaused(false);
     }
   }, [isActive]);
+
+  useEffect(() => {
+    if (asset.mediaType !== "video" || staticPreview) return;
+
+    const hide = () => {
+      shouldAutoplayVideoRef.current = false;
+      videoPlaybackRequestSequenceRef.current += 1;
+      if (holdTimerRef.current !== null) {
+        window.clearTimeout(holdTimerRef.current);
+        holdTimerRef.current = null;
+      }
+      holdTriggeredRef.current = false;
+      setIsVideoHoldPaused(false);
+      const video = videoRef.current;
+      if (video && !video.muted) {
+        setIsVideoResumePaused(true);
+      }
+      video?.pause();
+      setIsPageHidden(true);
+    };
+    const resume = () => {
+      if (document.visibilityState !== "hidden") setIsPageHidden(false);
+    };
+    const visibility = () => {
+      if (document.visibilityState === "hidden") hide();
+      else resume();
+    };
+
+    document.addEventListener("visibilitychange", visibility);
+    window.addEventListener("pagehide", hide);
+    window.addEventListener("pageshow", resume);
+    return () => {
+      document.removeEventListener("visibilitychange", visibility);
+      window.removeEventListener("pagehide", hide);
+      window.removeEventListener("pageshow", resume);
+    };
+  }, [asset.mediaType, staticPreview]);
 
   useEffect(
     () => () => {
@@ -285,17 +386,56 @@ export const MediaPreview = memo(function MediaPreview({
     if (shouldAutoplayVideo) {
       playVisibleVideo();
     } else {
+      videoPlaybackRequestSequenceRef.current += 1;
       video.pause();
     }
   }, [asset.id, asset.mediaType, playVisibleVideo, shouldAutoplayVideo]);
 
-  useEffect(() => {
-    if (asset.mediaType !== "video" || audiblePlaybackRequest <= 0) {
+  const toggleVideoPlayback = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || !isVideoPlaybackAllowed) return;
+
+    if (!video.paused) {
+      userPausedRef.current = true;
+      shouldAutoplayVideoRef.current = false;
+      videoPlaybackRequestSequenceRef.current += 1;
+      setIsVideoUserPaused(true);
+      video.pause();
       return;
     }
 
+    userPausedRef.current = false;
+    setIsVideoUserPaused(false);
+    setIsVideoResumePaused(false);
+    shouldAutoplayVideoRef.current = !isVideoHoldPaused;
     playVisibleVideo();
-  }, [asset.mediaType, audiblePlaybackRequest, playVisibleVideo]);
+  }, [isVideoHoldPaused, isVideoPlaybackAllowed, playVisibleVideo]);
+
+  const enableVideoSound = useCallback(() => {
+    if (!isVideoPlaybackAllowed || userPausedRef.current || isVideoHoldPaused) {
+      return;
+    }
+
+    setIsVideoResumePaused(false);
+    shouldAutoplayVideoRef.current = true;
+    playVisibleVideo(false);
+  }, [isVideoHoldPaused, isVideoPlaybackAllowed, playVisibleVideo]);
+
+  useEffect(() => {
+    if (!showVideoTimeline || !onVideoControlsReady) return;
+
+    onVideoControlsReady(asset.id, {
+      togglePlayback: toggleVideoPlayback,
+      enableSound: enableVideoSound
+    });
+    return () => onVideoControlsReady(asset.id, null);
+  }, [
+    asset.id,
+    enableVideoSound,
+    onVideoControlsReady,
+    showVideoTimeline,
+    toggleVideoPlayback
+  ]);
 
   const startVideoHold = useCallback(() => {
     const video = videoRef.current;
@@ -308,43 +448,24 @@ export const MediaPreview = memo(function MediaPreview({
     holdTimerRef.current = window.setTimeout(() => {
       holdTimerRef.current = null;
       holdTriggeredRef.current = true;
+      shouldAutoplayVideoRef.current = false;
+      videoPlaybackRequestSequenceRef.current += 1;
       video.pause();
       setIsVideoHoldPaused(true);
     }, VIDEO_HOLD_DELAY_MS);
   }, []);
 
   const resumeVideoAfterHold = useCallback(() => {
-    const video = videoRef.current;
-
-    if (!video || !isActive || !isVideoPlaybackVisible || playbackPaused) {
+    if (
+      !isVideoPlaybackAllowed ||
+      userPausedRef.current ||
+      isVideoResumePaused
+    ) {
       return;
     }
-
-    video.muted = muted;
-    video
-      .play()
-      .then(() => {
-        if (!muted && !video.muted) {
-          onAudiblePlaybackStarted?.();
-        }
-      })
-      .catch(() => {
-        if (muted) {
-          return;
-        }
-
-        video.muted = true;
-        onAudibleAutoplayBlocked?.();
-        video.play().catch(() => undefined);
-      });
-  }, [
-    isActive,
-    isVideoPlaybackVisible,
-    muted,
-    onAudibleAutoplayBlocked,
-    onAudiblePlaybackStarted,
-    playbackPaused
-  ]);
+    shouldAutoplayVideoRef.current = true;
+    playVisibleVideo();
+  }, [isVideoPlaybackAllowed, isVideoResumePaused, playVisibleVideo]);
 
   const finishVideoHold = useCallback(() => {
     if (holdTimerRef.current !== null) {
@@ -376,17 +497,6 @@ export const MediaPreview = memo(function MediaPreview({
     setIsVideoHoldPaused(false);
     resumeVideoAfterHold();
   }, [resumeVideoAfterHold]);
-
-  const seekVideo = useCallback((time: number) => {
-    const video = videoRef.current;
-
-    if (!video || !Number.isFinite(time)) {
-      return;
-    }
-
-    video.currentTime = time;
-    setVideoCurrentTime(time);
-  }, []);
 
   useEffect(() => {
     if (asset.mediaType !== "video" || !preloadPreview || isVisible) {
@@ -600,14 +710,6 @@ export const MediaPreview = memo(function MediaPreview({
             setReadyVideoSource(null);
           }}
           onLoadedMetadata={(event) => {
-            if (showVideoTimeline) {
-              setVideoDuration(
-                Number.isFinite(event.currentTarget.duration)
-                  ? event.currentTarget.duration
-                  : 0
-              );
-              setVideoCurrentTime(event.currentTarget.currentTime);
-            }
             onDimensionsKnown?.(
               asset.id,
               event.currentTarget.videoWidth,
@@ -625,15 +727,10 @@ export const MediaPreview = memo(function MediaPreview({
             }
           }}
           onSeeked={(event) => {
-            if (shouldAutoplayVideo) {
+            if (isVideoPlaybackAllowed) {
               revealVideoAfterPresentedFrame(event.currentTarget);
             }
           }}
-          onTimeUpdate={
-            showVideoTimeline
-              ? (event) => setVideoCurrentTime(event.currentTarget.currentTime)
-              : undefined
-          }
           onError={() => {
             cancelPendingVideoReveal();
             videoFrameRequestSequenceRef.current += 1;
@@ -676,44 +773,19 @@ export const MediaPreview = memo(function MediaPreview({
               finishVideoHold();
             }}
             onPointerCancel={cancelVideoHold}
+            onLostPointerCapture={cancelVideoHold}
           />
-          <span className="media-video-progress-track" aria-hidden="true">
-            <span
-              style={{
-                width: `${
-                  videoDuration > 0
-                    ? (videoCurrentTime / videoDuration) * 100
-                    : 0
-                }%`
-              }}
-            />
-          </span>
-          <input
-            className="media-video-timeline"
-            type="range"
-            min="0"
-            max={videoDuration || 1}
-            step="0.01"
-            value={Math.min(videoCurrentTime, videoDuration || 1)}
-            aria-label={`Seek ${asset.name}`}
-            aria-valuetext={`${formatVideoTime(videoCurrentTime)} of ${formatVideoTime(videoDuration)}`}
-            onChange={(event) => seekVideo(event.currentTarget.valueAsNumber)}
-            onClick={(event) => event.stopPropagation()}
-            onPointerDown={(event) => event.stopPropagation()}
+          <VideoControls
+            className="video-controls--feed"
+            playback={playback}
+            seekLabel={`Seek ${asset.name}`}
+            onTogglePlayback={toggleVideoPlayback}
+            onToggleMuted={onToggleMuted}
+            onExpand={onExpand}
+            expandLabel={`Open ${asset.name} in viewer`}
           />
         </>
       ) : null}
     </span>
   );
 });
-
-function formatVideoTime(seconds: number): string {
-  if (!Number.isFinite(seconds) || seconds < 0) {
-    return "0:00";
-  }
-
-  const roundedSeconds = Math.floor(seconds);
-  const minutes = Math.floor(roundedSeconds / 60);
-  const remainingSeconds = roundedSeconds % 60;
-  return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
-}

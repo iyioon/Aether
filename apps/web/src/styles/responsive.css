@@ -479,18 +479,25 @@
   }
 
   .feed-meta {
-    padding: 92px calc(76px + env(safe-area-inset-right))
-      calc(18px + env(safe-area-inset-bottom))
-      max(16px, env(safe-area-inset-left));
+    padding: 92px calc(76px + var(--media-safe-area-right))
+      calc(18px + var(--media-safe-area-bottom))
+      max(16px, var(--media-safe-area-left));
   }
 
   .feed-actions {
-    right: max(12px, env(safe-area-inset-right));
-    bottom: calc(18px + env(safe-area-inset-bottom));
+    right: max(12px, var(--media-safe-area-right));
+    bottom: calc(18px + var(--media-safe-area-bottom));
   }
 
   .feed-nav-rail {
     display: none;
+  }
+}
+
+@media (max-height: 500px) and (min-width: 600px) {
+  .feed-frame .video-controls--feed {
+    padding-top: 6px;
+    padding-bottom: calc(6px + var(--media-safe-area-bottom));
   }
 }
 

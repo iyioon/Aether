@@ -4,6 +4,9 @@ Notable changes to Aether are recorded here.
 
 ## Unreleased
 
+- Add shared Feed and viewer video controls with seeking, buffered progress,
+  sound, fullscreen, and iPhone safe-area spacing. Preserve explicit pause and
+  prevent audible playback from restarting after backgrounding.
 - Prepare upcoming comparison pairs and media in the background, limit requests
   on slow connections, and check each transition on the server.
 - Restore navigation, comparison pairs and Undo, Settings tabs, fullscreen items,

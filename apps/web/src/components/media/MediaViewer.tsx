@@ -33,6 +33,12 @@ import { Dialog, DialogClose, DialogContent, DialogTitle } from "../ui/dialog";
 import { markMediaImageReady } from "./media-image-cache";
 import { downloadUrl, mediaUrl, thumbnailUrl } from "./media-urls";
 import { requestPresentedVideoFrame } from "./video-frame-presentation";
+import { VideoControls } from "./VideoControls";
+import { useVideoPlayback } from "./useVideoPlayback";
+import {
+  canPresentVideoFullscreen,
+  toggleVideoFullscreen
+} from "./video-fullscreen";
 
 interface MediaViewerProps {
   asset: AssetRecord;
@@ -86,7 +92,15 @@ export function MediaViewer({
   onPrevious
 }: MediaViewerProps) {
   const viewerStageRef = useRef<HTMLDivElement | null>(null);
+  const viewerDialogRef = useRef<HTMLDivElement | null>(null);
   const viewerVideoRef = useRef<HTMLVideoElement | null>(null);
+  const nativeFullscreenRef = useRef(false);
+  const nativeFullscreenCleanupRef = useRef<(() => void) | null>(null);
+  const userPausedRef = useRef(false);
+  const resumeMutedPlaybackRef = useRef(false);
+  const controlsInteractionRef = useRef(false);
+  const isInfoOpenRef = useRef(isInfoOpen);
+  isInfoOpenRef.current = isInfoOpen;
   const activeAssetIdRef = useRef(asset.id);
   const cancelVideoRevealRef = useRef<(() => void) | null>(null);
   const controlsTimerRef = useRef<number | null>(null);
@@ -107,6 +121,8 @@ export function MediaViewer({
   const [isOpen, setIsOpen] = useState(true);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [isViewerVideoMuted, setIsViewerVideoMuted] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [useNativeControls, setUseNativeControls] = useState(false);
   const [readyAssetId, setReadyAssetId] = useState<string | null>(null);
   const [readyVideoAssetId, setReadyVideoAssetId] = useState<string | null>(
     null
@@ -169,6 +185,15 @@ export function MediaViewer({
         isViewerVideoReady ||
         (isViewerPosterSettled && isViewerVideoFailed);
   const isViewerVideoVisible = isViewerVideoReady;
+  const playback = useVideoPlayback({
+    videoRef: viewerVideoRef,
+    sourceKey: asset.id,
+    enabled: asset.mediaType === "video" && !isViewerVideoFailed
+  });
+  const {
+    togglePlayback: togglePlaybackCommand,
+    toggleMuted: toggleMutedCommand
+  } = playback;
 
   activeAssetIdRef.current = asset.id;
   onCloseRef.current = onClose;
@@ -179,6 +204,7 @@ export function MediaViewer({
     }
 
     isClosingRef.current = true;
+    viewerVideoRef.current?.pause();
     setIsOpen(false);
     closeTimerRef.current = window.setTimeout(() => {
       closeTimerRef.current = null;
@@ -193,6 +219,17 @@ export function MediaViewer({
 
     controlsTimerRef.current = window.setTimeout(() => {
       controlsTimerRef.current = null;
+      const focused = document.activeElement;
+      if (
+        controlsInteractionRef.current ||
+        isInfoOpenRef.current ||
+        viewerVideoRef.current?.paused ||
+        (focused instanceof Element &&
+          viewerDialogRef.current?.contains(focused) &&
+          focused.closest("button, a, input, textarea, select"))
+      ) {
+        return;
+      }
       setControlsVisible(false);
     }, CONTROL_HIDE_DELAY_MS);
   }, []);
@@ -231,18 +268,41 @@ export function MediaViewer({
   const playViewerVideo = useCallback(() => {
     const video = viewerVideoRef.current;
 
-    if (!video) {
+    if (
+      !video ||
+      userPausedRef.current ||
+      document.hidden ||
+      isInfoOpenRef.current ||
+      isClosingRef.current
+    ) {
       return;
     }
 
-    video.play().catch(() => {
-      if (viewerVideoRef.current !== video || video.muted) {
-        return;
-      }
+    const stillAllowed = () =>
+      viewerVideoRef.current === video &&
+      !userPausedRef.current &&
+      !document.hidden &&
+      !isInfoOpenRef.current &&
+      !isClosingRef.current;
+    video
+      .play()
+      .then(() => {
+        if (!stillAllowed()) video.pause();
+      })
+      .catch(() => {
+        if (!stillAllowed() || video.muted) {
+          return;
+        }
 
-      video.muted = true;
-      video.play().catch(() => undefined);
-    });
+        video.muted = true;
+        setIsViewerVideoMuted(true);
+        video
+          .play()
+          .then(() => {
+            if (!stillAllowed()) video.pause();
+          })
+          .catch(() => undefined);
+      });
   }, []);
 
   const toggleViewerVideoPlayback = useCallback(() => {
@@ -254,17 +314,13 @@ export function MediaViewer({
 
     revealControls();
 
-    if (!video.paused) {
-      video.pause();
-      setKeyboardAnnouncement("Video paused");
-      return;
+    resumeMutedPlaybackRef.current = false;
+    const paused = togglePlaybackCommand();
+    if (paused !== null) {
+      userPausedRef.current = paused;
+      setKeyboardAnnouncement(paused ? "Video paused" : "Playback requested");
     }
-
-    video
-      .play()
-      .then(() => setKeyboardAnnouncement("Video playing"))
-      .catch(() => setKeyboardAnnouncement("Video could not be played"));
-  }, [revealControls]);
+  }, [togglePlaybackCommand, revealControls]);
 
   const toggleViewerSound = useCallback(() => {
     const video = viewerVideoRef.current;
@@ -273,17 +329,74 @@ export function MediaViewer({
       return;
     }
 
-    const nextMuted = !video.muted;
-    video.muted = nextMuted;
-    setIsViewerVideoMuted(nextMuted);
-
-    if (!nextMuted && video.volume === 0) {
-      video.volume = 1;
-    }
+    toggleMutedCommand();
 
     revealControls();
-    setKeyboardAnnouncement(nextMuted ? "Sound muted" : "Sound on");
+    setKeyboardAnnouncement(
+      video.muted || video.volume === 0 ? "Sound muted" : "Sound on"
+    );
+  }, [toggleMutedCommand, revealControls]);
+
+  const handleControlsInteraction = useCallback(
+    (active: boolean) => {
+      controlsInteractionRef.current = active;
+      if (active) {
+        setControlsVisible(true);
+        if (controlsTimerRef.current !== null)
+          window.clearTimeout(controlsTimerRef.current);
+      } else {
+        hideControlsLater();
+      }
+    },
+    [hideControlsLater]
+  );
+
+  const handleFullscreen = useCallback(() => {
+    revealControls();
+    const video = viewerVideoRef.current;
+    const assetId = activeAssetIdRef.current;
+    void toggleVideoFullscreen(viewerDialogRef.current, video).then(
+      (success) => {
+        if (
+          isClosingRef.current ||
+          activeAssetIdRef.current !== assetId ||
+          viewerVideoRef.current !== video
+        )
+          return;
+        if (!success) {
+          setUseNativeControls(true);
+          setKeyboardAnnouncement(
+            "Fullscreen is unavailable. Native video controls are available."
+          );
+        }
+      }
+    );
   }, [revealControls]);
+
+  const bindViewerVideo = useCallback(
+    (video: HTMLVideoElement | null) => {
+      nativeFullscreenCleanupRef.current?.();
+      nativeFullscreenCleanupRef.current = null;
+      viewerVideoRef.current = video;
+      nativeFullscreenRef.current = false;
+      if (!video) return;
+      const begin = () => {
+        nativeFullscreenRef.current = true;
+      };
+      const end = () => {
+        nativeFullscreenRef.current = false;
+        userPausedRef.current = video.paused;
+        revealControls();
+      };
+      video.addEventListener("webkitbeginfullscreen", begin);
+      video.addEventListener("webkitendfullscreen", end);
+      nativeFullscreenCleanupRef.current = () => {
+        video.removeEventListener("webkitbeginfullscreen", begin);
+        video.removeEventListener("webkitendfullscreen", end);
+      };
+    },
+    [revealControls]
+  );
 
   const adjustViewerScore = useCallback(
     (direction: -1 | 1) => {
@@ -449,6 +562,11 @@ export function MediaViewer({
       canReusePreviousPoster ? lastReadyVideoPosterSourceRef.current : null
     );
     setViewerVideoSize(null);
+    userPausedRef.current = false;
+    nativeFullscreenRef.current = false;
+    resumeMutedPlaybackRef.current = false;
+    controlsInteractionRef.current = false;
+    setUseNativeControls(false);
     setReadyVideoAssetId(null);
     setFailedVideoAssetId(null);
     setViewerPosterState(null);
@@ -493,6 +611,56 @@ export function MediaViewer({
     const animationFrame = window.requestAnimationFrame(playViewerVideo);
     return () => window.cancelAnimationFrame(animationFrame);
   }, [asset.id, asset.mediaType, playViewerVideo]);
+
+  useEffect(() => {
+    if (asset.mediaType !== "video") return;
+    const suspend = () => {
+      const video = viewerVideoRef.current;
+      resumeMutedPlaybackRef.current ||= Boolean(
+        video && !video.paused && video.muted && !userPausedRef.current
+      );
+      video?.pause();
+    };
+    const restore = () => {
+      if (document.hidden || isInfoOpenRef.current) return;
+      if (resumeMutedPlaybackRef.current && viewerVideoRef.current?.muted) {
+        resumeMutedPlaybackRef.current = false;
+        playViewerVideo();
+      }
+    };
+    const visibility = () => (document.hidden ? suspend() : restore());
+    document.addEventListener("visibilitychange", visibility);
+    window.addEventListener("pagehide", suspend);
+    window.addEventListener("pageshow", restore);
+    return () => {
+      document.removeEventListener("visibilitychange", visibility);
+      window.removeEventListener("pagehide", suspend);
+      window.removeEventListener("pageshow", restore);
+    };
+  }, [asset.id, asset.mediaType, playViewerVideo]);
+
+  useEffect(() => {
+    const video = viewerVideoRef.current;
+    if (isInfoOpen) {
+      resumeMutedPlaybackRef.current ||= Boolean(
+        video && !video.paused && video.muted && !userPausedRef.current
+      );
+      video?.pause();
+    } else if (resumeMutedPlaybackRef.current && !document.hidden) {
+      resumeMutedPlaybackRef.current = false;
+      playViewerVideo();
+    }
+  }, [isInfoOpen, playViewerVideo]);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(document.fullscreenElement === viewerDialogRef.current);
+      revealControls();
+    };
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () =>
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+  }, [revealControls]);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -627,14 +795,25 @@ export function MediaViewer({
       }}
     >
       <DialogContent
+        ref={viewerDialogRef}
         className={[
           "viewer-dialog inset-0! top-0! left-0! h-dvh! w-screen! max-w-none! translate-x-0! translate-y-0! gap-0 rounded-none border-0 bg-black p-0 shadow-none sm:max-w-none!",
-          controlsVisible ? "controls-visible" : "controls-hidden"
+          controlsVisible ? "controls-visible" : "controls-hidden",
+          asset.mediaType === "video" &&
+          !isViewerVideoFailed &&
+          !useNativeControls
+            ? "has-video-controls"
+            : ""
         ].join(" ")}
         showCloseButton={false}
         aria-describedby={undefined}
         aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight Space M I Escape"
         onEscapeKeyDown={(event) => {
+          if (document.fullscreenElement === viewerDialogRef.current) {
+            event.preventDefault();
+            void document.exitFullscreen().catch(() => undefined);
+            return;
+          }
           if (isInfoOpen) {
             event.preventDefault();
             return;
@@ -648,6 +827,7 @@ export function MediaViewer({
           viewerStageRef.current?.focus({ preventScroll: true });
         }}
         onFocusCapture={() => setControlsVisible(true)}
+        onBlurCapture={hideControlsLater}
         onPointerMove={revealControls}
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
@@ -791,17 +971,21 @@ export function MediaViewer({
                   />
                   <video
                     key={asset.id}
-                    ref={viewerVideoRef}
+                    ref={bindViewerVideo}
                     className="viewer-video"
                     src={mediaUrl(asset.id)}
                     width={asset.width ?? undefined}
                     height={asset.height ?? undefined}
-                    controls
+                    controls={useNativeControls}
                     autoPlay
                     muted={isViewerVideoMuted}
                     loop
                     playsInline
                     preload="auto"
+                    onPlay={() => {
+                      if (nativeFullscreenRef.current || useNativeControls)
+                        userPausedRef.current = false;
+                    }}
                     onVolumeChange={(event) => {
                       setIsViewerVideoMuted(event.currentTarget.muted);
                     }}
@@ -821,18 +1005,29 @@ export function MediaViewer({
                       }
                     }}
                     onPlaying={(event) => {
+                      const systemControls =
+                        nativeFullscreenRef.current || useNativeControls;
+                      if (systemControls) userPausedRef.current = false;
+                      if (
+                        document.hidden ||
+                        isInfoOpenRef.current ||
+                        isClosingRef.current ||
+                        (userPausedRef.current && !systemControls)
+                      ) {
+                        event.currentTarget.pause();
+                        return;
+                      }
                       revealVideoAfterPresentedFrame(
                         event.currentTarget,
                         asset.id
                       );
+                      revealControls();
                     }}
                     onSeeked={(event) => {
-                      if (!event.currentTarget.paused) {
-                        revealVideoAfterPresentedFrame(
-                          event.currentTarget,
-                          asset.id
-                        );
-                      }
+                      revealVideoAfterPresentedFrame(
+                        event.currentTarget,
+                        asset.id
+                      );
                     }}
                     onError={() => {
                       cancelPendingVideoReveal();
@@ -846,6 +1041,29 @@ export function MediaViewer({
             </div>
           </div>
         </figure>
+
+        {asset.mediaType === "video" &&
+        !isViewerVideoFailed &&
+        !useNativeControls ? (
+          <VideoControls
+            className="viewer-video-controls video-controls--viewer viewer-chrome"
+            playback={playback}
+            seekLabel={`Seek ${asset.name}`}
+            onTogglePlayback={toggleViewerVideoPlayback}
+            onToggleMuted={toggleViewerSound}
+            onExpand={
+              canPresentVideoFullscreen(
+                viewerDialogRef.current,
+                viewerVideoRef.current
+              )
+                ? handleFullscreen
+                : undefined
+            }
+            expandLabel={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+            expanded={isFullscreen}
+            onInteractionChange={handleControlsInteraction}
+          />
+        ) : null}
 
         {hasNext ? (
           <Button

@@ -1,17 +1,17 @@
 # Media Playback And Presentation Plan
 
-Status: Planned; implementation has not started.  
-Reviewed: 2026-10-16.  
+Status: In progress; M1 playback controls are awaiting device acceptance.\
+Reviewed: 2026-10-17.\
 Code baseline: `1e5c13c`.
 
 ## Outcome And Delivery Order
 
-Deliver usable video controls above the iPhone Home indicator, clear video
-loading states, working HEIC display, saved highlights, and remembered media
-framing across Gallery, Feed, and Comparison. The first release includes
-highlights, playback speed, forward section looping, and bounce for both videos
-and animated GIF, WebP, APNG, and AVIF. Keep source files unchanged and preserve
-navigation, ranking, privacy, and bounded media preparation.
+Deliver usable video controls above the iPhone Home indicator, working HEIC
+display, saved highlights, and remembered media framing across Gallery, Feed,
+and Comparison. The first release includes highlights, playback speed, forward
+section looping, and bounce for both videos and animated GIF, WebP, APNG, and
+AVIF. Keep source files unchanged and preserve navigation, ranking, privacy,
+and bounded media preparation.
 
 Start with playback controls and safe-area layout. Establish saved-edit and
 rendition contracts before adding highlights or framing. Establish controlled
@@ -22,7 +22,7 @@ playback works reliably. Device checks apply to every interface phase.
 | ID  | Deliverable                                                    | Depends on                          | Status      | Exit criterion                                                                                                           |
 | --- | -------------------------------------------------------------- | ----------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------ |
 | M0  | Capability and design checks                                   | —                                   | Not started | Production HEIC and animation decoders selected; timing, transparency, and bounce budgets proven                         |
-| M1  | Shared playback, controls, video status, and safe areas        | M0 playback decisions               | Not started | Feed and viewer controls work on keyboard, touch, and installed iPhone PWA                                               |
+| M1  | Shared playback, controls, and safe areas                      | M0 playback decisions               | In progress | Feed and viewer controls work on keyboard, touch, and installed iPhone PWA                                               |
 | M2  | Saved presentation, revisioned renditions, and reset contracts | M0 presentation/rendition decisions | Not started | Migration, authoritative API updates, cache invalidation, and selective reset tests pass                                 |
 | M2a | Controlled animated-media playback                             | M0 animation proof, M2              | Not started | GIF/WebP/APNG/AVIF have verified timelines and controllable playback with correct composition and transparency           |
 | M3  | HEIC/HEIF display                                              | M0 decoder proof, M2                | Not started | Real HEVC images decode in the production container and display in every media surface                                   |
@@ -43,18 +43,15 @@ support; neither is a deferred extension.
 Fully qualified paths are repository-relative; abbreviated component and media
 module names refer to the corresponding web/server feature directories.
 
-| Finding                                                                                        | Existing code                                                                        | Consequence                                                                                              |
-| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
-| Feed seek input is 18 px high, visible line is 2 px, and both sit at `bottom: 0`               | `apps/web/src/styles/feed.css`, `components/media/MediaPreview.tsx` under web source | Replace the edge line with a usable control region; making only the visible line thicker is insufficient |
-| Phone CSS insets feed metadata/actions but hides the desktop navigation/heart rail             | `apps/web/src/styles/responsive.css`, `components/feed/FeedNavRail.tsx`              | Edit below the heart requires a mobile action layout too                                                 |
-| Preview, feed, and viewer duplicate playback commands/state; viewer uses native controls       | `MediaPreview.tsx`, `MediaViewer.tsx`, `FeedPreview.tsx` under web components        | Share playback behavior before adding range, rate, and loop behavior                                     |
-| Animated-image playback is selected by extension rather than verified timing                   | `apps/web/src/components/media/media-urls.ts`, `MediaPreview.tsx`                    | Replace extension-only behavior with authoritative capabilities, including existing indexed files        |
-| Loading shimmer disappears once the poster is ready                                            | `apps/web/src/styles/gallery.css`                                                    | A poster currently hides the distinction between an image and a video awaiting playback                  |
-| HEIC/HEIF are recognized, but actual HEVC decoding fails in the installed sharp runtime        | `apps/server/src/library/media-types.ts`, `thumbnails.ts`, `Dockerfile`              | Extension recognition and successful metadata inspection are not working HEIC support                    |
-| Gallery video previews are short clips beginning at zero; Feed and Comparison prefer originals | `media-urls.ts`, `video-derivatives.ts`, media call sites                            | Source timestamps cannot be applied directly to an unrelated preview's local timeline                    |
-| Browser media URLs have no revision; derivative responses can remain cached for 24 hours       | `apps/web/src/components/media/media-urls.ts`, server thumbnail/preview delivery     | Replacing a generated file alone will leave stale images and clips in browsers                           |
-| Derivative uniqueness does not model normal/highlight variants                                 | `apps/server/src/db/database.ts`, `repository-derivatives.ts`                        | Define variant identity before storing both outputs                                                      |
-| Reset copy promises previews are untouched, and the current reset callback clears scroll state | `DataResetSettingsSection.tsx`, `AppShell.tsx` under web components                  | Presentation resets need accurate copy and narrower invalidation                                         |
+| Finding                                                                                        | Existing code                                                                    | Consequence                                                                                       |
+| ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Phone CSS insets feed metadata/actions but hides the desktop navigation/heart rail             | `apps/web/src/styles/responsive.css`, `components/feed/FeedNavRail.tsx`          | Edit below the heart requires a mobile action layout too                                          |
+| Animated-image playback is selected by extension rather than verified timing                   | `apps/web/src/components/media/media-urls.ts`, `MediaPreview.tsx`                | Replace extension-only behavior with authoritative capabilities, including existing indexed files |
+| HEIC/HEIF are recognized, but actual HEVC decoding fails in the installed sharp runtime        | `apps/server/src/library/media-types.ts`, `thumbnails.ts`, `Dockerfile`          | Extension recognition and successful metadata inspection are not working HEIC support             |
+| Gallery video previews are short clips beginning at zero; Feed and Comparison prefer originals | `media-urls.ts`, `video-derivatives.ts`, media call sites                        | Source timestamps cannot be applied directly to an unrelated preview's local timeline             |
+| Browser media URLs have no revision; derivative responses can remain cached for 24 hours       | `apps/web/src/components/media/media-urls.ts`, server thumbnail/preview delivery | Replacing a generated file alone will leave stale images and clips in browsers                    |
+| Derivative uniqueness does not model normal/highlight variants                                 | `apps/server/src/db/database.ts`, `repository-derivatives.ts`                    | Define variant identity before storing both outputs                                               |
+| Reset copy promises previews are untouched, and the current reset callback clears scroll state | `DataResetSettingsSection.tsx`, `AppShell.tsx` under web components              | Presentation resets need accurate copy and narrower invalidation                                  |
 
 ## Proposed Product Decisions
 
@@ -87,8 +84,8 @@ decision changes; do not build competing interpretations in different views.
   silently; what is being compared must remain clear. Use the verified full
   animation timeline for animated images, retaining their image classification.
 - **Controls:** build shared custom controls for Feed and the expanded viewer.
-  Keep Gallery tiles lightweight, with clear video state and compact hover/focus
-  actions. Full seeking, speed, and fullscreen controls belong in the viewer
+  Keep Gallery tiles lightweight, with compact hover/focus actions.
+  Full seeking, speed, and fullscreen controls belong in the viewer
   rather than a complete toolbar on every small tile.
 
 ## M0 — Validate Capabilities And Contracts
@@ -121,7 +118,16 @@ milestone. Keep experimental scripts and downloaded samples out of the repo.
    including portrait, short landscape, VoiceOver, and rotation. Distinguish
    the application viewer from browser/native fullscreen in labels and behavior.
 
-## M1 — Playback Controls, Status, And Safe Areas
+## M1 — Playback Controls And Safe Areas
+
+The shared control bar and safe-area layout are implemented. Playback uses the
+media element's events and capabilities, with native iPhone fullscreen where
+container fullscreen is unavailable. See [Architecture](../architecture.md#video-playback-controls).
+The required verification gate and Chrome/WebKit playback and safe-area
+scenarios pass. Firefox playback is verified; supplemental layout automation
+has intermittent navigation timeouts in the test environment.
+Installed iPhone Home Screen, VoiceOver, and rotation acceptance remain pending;
+the codec and saved-presentation milestones have not started.
 
 ### Shared behavior
 
@@ -129,8 +135,8 @@ Extract one focused event-driven playback hook/controller under
 `apps/web/src/components/media`. Let the actual media element own playback
 truth for video-backed playback; integrate M2a's animation representation through
 that same capability contract. Expose play/pause, current time/duration,
-seekable/buffered ranges, seeking, mute, rate, initial loading, rebuffering,
-errors, and presentation capabilities. Reuse it from Preview and Viewer, and
+seekable/buffered ranges, seeking, mute, rate, readiness, errors, and
+presentation capabilities. Reuse it from Preview and Viewer, and
 replace Feed's direct video
 DOM-query commands as the shared commands land. Avoid a new player framework.
 
@@ -176,23 +182,6 @@ and an obvious thumb on touch devices. Forty-four pixels is Aether's usability
 target, not the [WCAG AA minimum](https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html).
 Use a compact row/overflow menu in short landscape rather than shrinking targets.
 Keep dynamic viewport sizing, browser zoom, and phone input sizing intact.
-
-### Video identification
-
-Add a shared noninteractive top-left video badge, positioned inside its media
-surface without colliding with selection controls. Keep a video icon or “Video”
-label whenever a poster is displayed. Distinguish idle poster, initial loading,
-ready/paused, buffering/seeking, autoplay-blocked Play, and error/retry states.
-
-Show loading only while playback is actually requested and cannot present a
-frame. An inactive tile or intentionally paused video must not spin forever.
-Use media events and current readiness; [waiting](https://developer.mozilla.org/en-US/docs/Web/API/HTMLMediaElement/waiting_event)
-and [stalled](https://developer.mozilla.org/en-US/docs/Web/API/HTMLMediaElement/stalled_event)
-are different signals. Debounce transient decoration, retain the poster, support
-reduced motion, and avoid live-region announcements for every timeline tick.
-Apply the same readiness states to controlled animations with an accurate
-“Animated” identifier; playing through a video rendition must not relabel the
-source as a video.
 
 ## M2 — Saved Presentation And Rendition Foundation
 
@@ -349,7 +338,7 @@ Use direct drag/pinch, a zoom slider with keyboard/numeric alternatives,
 aspect previews, Save/Cancel, and Reset. These follow familiar
 [Photos crop interactions](https://support.apple.com/en-gb/guide/iphone/iph0f3ebb1dd/ios),
 while Aether stores presentation metadata rather than altering source files.
-Transform only the media layer, never controls, badges, or captions.
+Transform only the media layer, never controls or captions.
 
 - Feed: Edit below the heart in the action rail, including an intentional
   compact/mobile rail variant that clears the transport dock.
@@ -419,7 +408,7 @@ the service worker's public shell cache or persisted ranking checkpoints.
 | Pure models        | Range validation and clamping; unknown/short duration; animation detection versus still/multi-image sources; frame-delay normalization; rate presets; source/clip/bounce mapping; oriented Fit/Fill/zoom geometry; URL/storage migration                                                                                                                                                                                                           |
 | Database/API       | Fresh/upgrade/restore schema; auth/CSRF; atomic validated updates; editor-open → reset → old-save conflicts; selective resets; safe moves and content replacement; no N+1 hydration                                                                                                                                                                                                                                                                |
 | Processing/cache   | Real HEVC and all four animation formats decode in built Docker image; rotation/SAR/mirroring/color/multi-image/corrupt fixtures; animation frame composition, variable timing, and alpha; later-scene poster; normal/highlight variants; changed output gets a new URL while framing/rate preserves bytes; database-scoped shared jobs; reset/delete during jobs; old failure after new success; timeout/limit cleanup; authenticated HEAD/ranges |
-| Playback/browser   | Poster/loading/first frame; pause, seek, buffering, autoplay rejection, mute, speed, source fallback; complete highlight and no-highlight fallback; Save/Cancel/Reset/failure/retry; bounds after resume; bounce order/audio/preparation; video and animation parity; still files have no temporal controls; original download unchanged                                                                                                           |
+| Playback/browser   | Poster-to-first-presented-frame transition; pause, seek, buffering, autoplay rejection, mute, speed, source fallback; complete highlight and no-highlight fallback; Save/Cancel/Reset/failure/retry; bounds after resume; bounce order/audio/preparation; video and animation parity; still files have no temporal controls; original download unchanged                                                                                           |
 | Interaction/layout | Scrub/edit gestures never navigate, score, or vote; focused controls never auto-hide; Gallery virtualization/anchors survive edits; cross-view updates; prepared Comparison media uses current revisions; no horizontal overflow or overlapping controls                                                                                                                                                                                           |
 | Privacy/PWA        | New private URLs absent from CacheStorage; offline shell and reconnection; no saved media bytes; session expiry versus logout; old async results cannot overwrite newer edits                                                                                                                                                                                                                                                                      |
 
@@ -469,4 +458,6 @@ are insufficient for the agreed first release.
   decisions into permanent docs and archive or remove this completed plan,
   updating the documentation index.
 
-Next work: M0 capability decisions and the M1 playback/control foundation.
+Next work: M1 actual iPhone Home Screen acceptance, including rotation,
+VoiceOver, and native fullscreen; then the remaining M0 capability decisions
+and saved-presentation foundation.

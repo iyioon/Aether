@@ -119,6 +119,26 @@ chunks, bypasses all private API requests, and provides navigation recovery when
 the network fails. Worker updates wait for previous clients to close; they do
 not force a running session to reload. Development runs do not register it.
 
+## Video Playback Controls
+
+Feed and the expanded viewer share an event-driven playback observer and control
+bar. The media element owns current time, duration, buffered/seekable ranges,
+pause, and mute state. Commands run in the originating user gesture, and stale
+play requests and detached element listeners cannot update a replacement source.
+Preview and viewer keep their existing source selection and poster-to-first-frame
+behavior. Feed keyboard commands use registered playback commands.
+
+Explicit pause intent is separate from temporary hold, background, and panel
+pauses. Lifecycle events pause media synchronously; foreground autoplay is
+limited to muted media and preserves explicit pause. The viewer uses container fullscreen where
+available, native iPhone video fullscreen otherwise, and native controls if a
+fullscreen request fails.
+
+The shared transport owns its bottom safe-area spacing. Feed metadata and viewer
+media reserve its height; short landscape screens use a single control row.
+Safe-area tokens follow [WebKit's guidance](https://webkit.org/blog/7929/designing-websites-for-iphone-x/),
+and native presentation capabilities are detected at runtime.
+
 ## Pairwise Ranking
 
 Aether keeps the latest active choice for each pair while retaining reversible

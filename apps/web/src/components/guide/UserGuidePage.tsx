@@ -54,7 +54,7 @@ const browsingViews = [
     icon: GalleryHorizontalEnd,
     title: "Feed",
     description:
-      "Move through one item at a time with fewer distractions. Videos play in place and include a seek bar."
+      "Move through one item at a time with fewer distractions. Videos have play, pause, seeking, time, sound, and viewer controls above the phone's Home indicator. Paused videos stay paused when you return to the app."
   },
   {
     icon: GitCompareArrows,

@@ -49,6 +49,10 @@ Never test rebuild or wipe against the only copy of a real library database.
   history.
 - Test portrait and short landscape layouts, safe areas, keyboard entry and
   zoom on an actual iPhone Home Screen installation.
+- Check video controls above the Home indicator and landscape side insets.
+  Seek without navigating, changing scores, or hiding focused controls; verify
+  browser/native fullscreen exit and explicit pause after Home/return. Confirm
+  that audible video waits for Play after returning from the background.
 - Check offline shell recovery and reconnection; confirm Cache Storage contains
   no private API or media responses.
 - Verify that vote/Undo retries do not create duplicate changes, and comparison

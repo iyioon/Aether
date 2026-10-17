@@ -29,12 +29,29 @@
   min-width: 0;
   min-height: 0;
   margin: 0;
-  padding: max(4px, env(safe-area-inset-top))
-    max(4px, env(safe-area-inset-right)) max(4px, env(safe-area-inset-bottom))
-    max(4px, env(safe-area-inset-left));
+  padding: max(4px, var(--media-safe-area-top))
+    max(4px, var(--media-safe-area-right))
+    max(4px, var(--media-safe-area-bottom))
+    max(4px, var(--media-safe-area-left));
   overflow: hidden;
   contain: layout paint;
   place-items: center;
+}
+
+.viewer-dialog.has-video-controls .viewer-stage {
+  padding-bottom: calc(
+    var(--video-controls-height) + 24px + var(--media-safe-area-bottom)
+  );
+}
+
+.viewer-video-controls {
+  position: absolute;
+  right: max(12px, var(--media-safe-area-right));
+  bottom: calc(12px + var(--media-safe-area-bottom));
+  left: max(12px, var(--media-safe-area-left));
+  z-index: 20;
+  max-width: 720px;
+  margin-inline: auto;
 }
 
 .viewer-fit-area {

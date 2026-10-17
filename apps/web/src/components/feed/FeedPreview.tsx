@@ -11,6 +11,7 @@ import {
 } from "react";
 import { GalleryHorizontalEnd } from "lucide-react";
 import type { AssetRecord } from "../../api/client";
+import type { MediaPlaybackCommands } from "../media/MediaPreview";
 import { useAutoLoadSentinel } from "../../hooks/useAutoLoadSentinel";
 import { feedKeyboardCommand, hasShortcutModifier } from "../../lib/keyboard";
 import {
@@ -85,6 +86,7 @@ export function FeedPreview({
 }: FeedPreviewProps) {
   const feedRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<Array<HTMLElement | null>>([]);
+  const videoCommandsRef = useRef(new Map<string, MediaPlaybackCommands>());
   const feedScrollFrameRef = useRef<number | null>(null);
   const restoreFrameRef = useRef<number | null>(null);
   const syncFrameRef = useRef<number | null>(null);
@@ -118,10 +120,7 @@ export function FeedPreview({
   const [activeIndex, setActiveIndex] = useState(0);
   const [isScrollPositionReady, setIsScrollPositionReady] = useState(false);
   const [isFeedMuted, setIsFeedMuted] = useState(true);
-  const [isKeyboardPlaybackPaused, setIsKeyboardPlaybackPaused] =
-    useState(false);
   const [isFeedAudioBlocked, setIsFeedAudioBlocked] = useState(false);
-  const [audiblePlaybackRequest, setAudiblePlaybackRequest] = useState(0);
   const feedSoundState: FeedSoundState = isFeedAudioBlocked
     ? "blocked"
     : isFeedMuted
@@ -143,9 +142,13 @@ export function FeedPreview({
     []
   );
 
-  useEffect(() => {
-    setIsKeyboardPlaybackPaused(false);
-  }, [activeIndex, scrollContextKey]);
+  const handleVideoControlsReady = useCallback(
+    (assetId: string, commands: MediaPlaybackCommands | null) => {
+      if (commands) videoCommandsRef.current.set(assetId, commands);
+      else videoCommandsRef.current.delete(assetId);
+    },
+    []
+  );
 
   useEffect(() => {
     itemRefs.current = itemRefs.current.slice(0, assets.length);
@@ -459,36 +462,15 @@ export function FeedPreview({
   }, []);
 
   const playActiveFeedVideoAudibly = useCallback(() => {
-    const activeItem = itemRefs.current[activeIndex];
-    const activeVideo = activeItem?.querySelector<HTMLVideoElement>("video");
-
-    if (!activeVideo) {
-      return;
-    }
-
-    activeVideo.muted = false;
-
-    if (activeVideo.volume === 0) {
-      activeVideo.volume = 1;
-    }
-
-    activeVideo
-      .play()
-      .then(() => {
-        setIsFeedAudioBlocked(false);
-      })
-      .catch(() => {
-        activeVideo.muted = true;
-        setIsFeedAudioBlocked(true);
-        setIsFeedMuted(true);
-      });
-  }, [activeIndex]);
+    const activeAsset = assets[activeIndex];
+    if (activeAsset)
+      videoCommandsRef.current.get(activeAsset.id)?.enableSound();
+  }, [activeIndex, assets]);
 
   const handleFeedSoundToggle = useCallback(() => {
     if (isFeedMuted) {
       setIsFeedAudioBlocked(false);
       setIsFeedMuted(false);
-      setAudiblePlaybackRequest((current) => current + 1);
       playActiveFeedVideoAudibly();
       return;
     }
@@ -511,23 +493,9 @@ export function FeedPreview({
   const toggleActiveFeedPlayback = useCallback(
     (index: number) => {
       const activeAsset = assets[index];
-      const activeVideo =
-        itemRefs.current[index]?.querySelector<HTMLVideoElement>("video");
-
-      if (activeAsset?.mediaType !== "video" || !activeVideo) {
-        return;
+      if (activeAsset?.mediaType === "video") {
+        videoCommandsRef.current.get(activeAsset.id)?.togglePlayback();
       }
-
-      if (!activeVideo.paused) {
-        activeVideo.pause();
-        setIsKeyboardPlaybackPaused(true);
-        return;
-      }
-
-      setIsKeyboardPlaybackPaused(false);
-      activeVideo.play().catch(() => {
-        setIsKeyboardPlaybackPaused(true);
-      });
     },
     [assets]
   );
@@ -734,18 +702,12 @@ export function FeedPreview({
         {assets.map((asset, index) => (
           <FeedItem
             asset={asset}
-            audiblePlaybackRequest={
-              index === activeIndex ? audiblePlaybackRequest : 0
-            }
             feedSoundState={feedSoundState}
             index={index}
             isActive={index === activeIndex}
             isFeedChromeHidden={isFeedChromeHidden}
             isFeedMuted={isFeedMuted}
-            isPlaybackPaused={
-              isPlaybackPaused ||
-              (index === activeIndex && isKeyboardPlaybackPaused)
-            }
+            isPlaybackPaused={isPlaybackPaused}
             key={asset.id}
             loadMoreRef={loadMoreRef}
             preloadPreview={
@@ -760,6 +722,7 @@ export function FeedPreview({
             onOpenAnnotations={handleOpenAnnotations}
             onOpenAsset={handleOpenAsset}
             onRegisterItem={handleRegisterItem}
+            onVideoControlsReady={handleVideoControlsReady}
             onToggleFeedChrome={toggleFeedChrome}
           />
         ))}

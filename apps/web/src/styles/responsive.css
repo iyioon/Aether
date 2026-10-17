@@ -12,12 +12,7 @@
     transition: none;
   }
 
-  .control-menu-panel {
-    animation: none;
-  }
-
   .control-menu-trigger,
-  .control-menu-chevron,
   .folder-sort-button,
   .folder-scan-button,
   .favorite-button svg,
@@ -220,11 +215,6 @@
     grid-column: auto;
   }
 
-  .control-menu {
-    position: static;
-    min-width: 0;
-  }
-
   .control-menu-trigger {
     width: 44px;
     min-width: 44px;
@@ -235,29 +225,10 @@
     padding: 0;
   }
 
-  .control-menu-trigger > svg:not(.control-menu-chevron) {
+  .control-menu-trigger > svg {
     width: 14px;
     height: 14px;
     flex: 0 0 auto;
-  }
-
-  .control-menu-text {
-    display: block;
-  }
-
-  .control-menu-label {
-    max-width: 100%;
-    font-size: 12px;
-  }
-
-  .control-menu-value,
-  .control-menu-chevron {
-    display: none;
-  }
-
-  .control-menu-panel {
-    width: min(420px, calc(100vw - 24px));
-    max-height: min(62dvh, 520px);
   }
 
   .filter-option {
@@ -518,16 +489,15 @@
 }
 
 @container library-workspace (max-width: 480px) {
-  .library-path-actions:has(.control-menu:nth-child(3)) {
+  .library-path-actions {
     flex-wrap: wrap;
   }
 
-  .library-path-actions:has(.control-menu:nth-child(3)) > .topbar-search {
+  .library-path-actions > .topbar-search {
     flex-basis: 100%;
   }
 
-  .library-path-actions:has(.control-menu:nth-child(3))
-    > .library-view-separator {
+  .library-path-actions > .library-view-separator {
     display: none;
   }
 }
@@ -563,7 +533,7 @@
 }
 
 @media (max-width: 420px) {
-  .control-menu-trigger > svg:not(.control-menu-chevron) {
+  .control-menu-trigger > svg {
     display: block;
   }
 }

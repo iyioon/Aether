@@ -101,6 +101,14 @@ reads and uses records returned by the server after a change. Scroll position
 and appearance choices are browser-local conveniences, not part of the library
 database.
 
+`LibraryViewOptions` groups the existing library controls behind one toolbar
+button, using the shared shadcn Popover on desktop and Sheet at the mobile
+breakpoint. Tabs separate Filters, Sort, and Gallery Layout; only controls that
+affect the current view are shown. The panel owns its active tab, while
+`useLibraryControls` continues to own query settings and open/close state.
+Changes use the existing query, URL, and restoration paths. Clearing filters
+leaves search, sort, and layout untouched.
+
 The web app saves the page, library query, comparison workspace, Settings tab
 and optional viewer asset ID. Explicit links take precedence; Home Screen
 launches resume the saved location. Scroll positions use bounded localStorage

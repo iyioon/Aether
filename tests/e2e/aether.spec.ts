@@ -90,7 +90,7 @@ test("supports login, scan, batch annotation, fullscreen, and feed", async ({
   await batchActions.getByRole("button", { name: "Done selecting" }).click();
   await expect(batchActions).toHaveCount(0);
 
-  await page.getByRole("button", { name: /^Filters:/ }).click();
+  await page.getByRole("button", { name: /^View options/ }).click();
   await page.getByRole("textbox", { name: "Tags" }).fill("Trip");
   await page.keyboard.press("Enter");
   const filteredGallery = page.getByRole("region", { name: "Gallery view" });

@@ -4,6 +4,8 @@ Notable changes to Aether are recorded here.
 
 ## Unreleased
 
+- Combine sorting, filters, and Gallery layout in one View options panel, with
+  a phone bottom sheet, active-filter count, and immediate changes.
 - Compact Feed and viewer video controls into one row, with time labels above
   the timeline, full-size touch targets, and preserved iPhone safe-area spacing.
 - Replace the mobile Feed header with a floating view selector at the top right,

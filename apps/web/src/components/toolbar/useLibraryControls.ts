@@ -18,13 +18,6 @@ import {
   type ViewMode
 } from "../library-state";
 import { useTagSuggestions } from "../tags/useTagSuggestions";
-import {
-  mediaFilters,
-  scoreFilters,
-  sortDirectionOptions,
-  sortOptions,
-  type ControlMenuId
-} from "./library-control-options";
 
 interface UseLibraryControlsOptions {
   initialState: LibraryUrlState;
@@ -38,9 +31,7 @@ export function useLibraryControls({
   tree
 }: UseLibraryControlsOptions) {
   const [view, setView] = useState<ViewMode>(initialState.view);
-  const [openControlMenu, setOpenControlMenu] = useState<ControlMenuId | null>(
-    null
-  );
+  const [isOptionsOpen, setOptionsOpen] = useState(false);
   const [gridSize, setGridSize] = useState<GridSize>(initialState.gridSize);
   const [aspect, setAspect] = useState<AspectMode>(initialState.aspect);
   const [sort, setSort] = useState<SortMode>(initialState.sort);
@@ -70,7 +61,7 @@ export function useLibraryControls({
     setSearchDraft(state.search);
     setSearch(state.search);
     setTagFilters(state.tags);
-    setOpenControlMenu(null);
+    setOptionsOpen(false);
   }, []);
 
   useEffect(() => {
@@ -96,30 +87,6 @@ export function useLibraryControls({
       "Library"
     );
   }, [selectedFolderId, tree]);
-
-  const sortLabel =
-    sortOptions.find((option) => option.value === sort)?.label ?? "Date";
-  const sortDirectionLabel =
-    sortDirectionOptions.find((option) => option.value === sortDirection)
-      ?.label ?? "Descending";
-  const mediaTypeLabel =
-    mediaFilters.find((option) => option.value === mediaType)?.label ?? "All";
-  const scoreFilterLabel =
-    scoreFilters.find((option) => option.value === scoreFilter)?.label ??
-    "All scores";
-  const activeFilterLabels: string[] = [];
-
-  if (mediaType !== "all") {
-    activeFilterLabels.push(mediaTypeLabel);
-  }
-
-  if (scoreFilter !== "all") {
-    activeFilterLabels.push(scoreFilterLabel);
-  }
-
-  for (const tag of tagFilters) {
-    activeFilterLabels.push(`#${tag}`);
-  }
 
   function addTagFilter(rawTagName: string) {
     const nextTagFilter = normalizeTagDraft(rawTagName).slice(
@@ -149,6 +116,12 @@ export function useLibraryControls({
     setTagFilterDraft("");
   }
 
+  function clearFilters() {
+    setMediaType("all");
+    setScoreFilter("all");
+    clearTagFilters();
+  }
+
   function selectSort(nextSort: SortMode) {
     setSort(nextSort);
     setSortDirection(defaultSortDirectionForSort(nextSort));
@@ -159,17 +132,12 @@ export function useLibraryControls({
     addTagFilter,
     aspect,
     clearTagFilters,
-    filterSummary: activeFilterLabels.length
-      ? activeFilterLabels.join(" · ")
-      : "All media",
+    clearFilters,
     filterTagSuggestions,
     gridSize,
-    layoutSummary: `${gridSize} · ${aspect}`,
     mediaType,
-    mediaTypeLabel,
-    openControlMenu,
+    isOptionsOpen,
     scoreFilter,
-    scoreFilterLabel,
     removeTagFilter,
     search,
     searchDraft,
@@ -177,7 +145,7 @@ export function useLibraryControls({
     setAspect,
     setGridSize,
     setMediaType,
-    setOpenControlMenu,
+    setOptionsOpen,
     setScoreFilter,
     setSearchDraft,
     setSort: selectSort,
@@ -186,10 +154,6 @@ export function useLibraryControls({
     setView,
     sort,
     sortDirection,
-    sortDirectionLabel,
-    sortLabel,
-    sortSummary:
-      sort === "random" ? sortLabel : `${sortLabel} · ${sortDirectionLabel}`,
     tagFilters,
     tagFilterDraft,
     view

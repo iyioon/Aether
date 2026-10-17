@@ -236,8 +236,8 @@ export function UserGuidePage() {
             />
             <GuideTool
               icon={ArrowDownUp}
-              title="Filters and sorting"
-              description="Temporarily narrow or reorder the library without changing your files."
+              title="View options"
+              description="Open the sliders button for Filters, Sort, and Gallery Layout. Changes apply immediately. The button's count shows active filters; Clear filters keeps your search and layout."
             />
           </div>
         </GuideSection>

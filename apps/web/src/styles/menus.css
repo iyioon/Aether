@@ -5,11 +5,6 @@
   gap: 4px;
 }
 
-.control-menu {
-  position: relative;
-  flex: 0 0 auto;
-}
-
 .control-menu-trigger {
   width: 36px;
   min-width: 36px;
@@ -17,4 +12,233 @@
   height: 36px;
   min-height: 36px;
   padding: 0;
+}
+
+.view-options-trigger {
+  position: relative;
+}
+
+.view-options-count {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  display: grid;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  place-items: center;
+  border: 2px solid var(--background);
+  border-radius: 999px;
+  color: var(--primary-foreground);
+  background: var(--primary);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.view-options-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.view-options-popover {
+  width: min(360px, calc(100vw - 24px));
+  height: min(520px, var(--radix-popover-content-available-height));
+}
+
+.view-options-sheet {
+  right: env(safe-area-inset-right);
+  left: env(safe-area-inset-left);
+  width: min(
+    480px,
+    calc(100% - env(safe-area-inset-left) - env(safe-area-inset-right))
+  );
+  height: min(560px, calc(100dvh - max(12px, env(safe-area-inset-top))));
+  margin-inline: auto;
+  padding-bottom: env(safe-area-inset-bottom);
+  border-top-left-radius: 12px;
+  border-top-right-radius: 12px;
+}
+
+.view-options-heading {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 60px;
+  padding: 8px 8px 8px 16px;
+}
+
+.view-options-heading h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.view-options-panel .aether-button {
+  min-height: 44px;
+}
+
+.view-options-panel .aether-button[data-size^="icon"] {
+  width: 44px;
+  min-width: 44px;
+}
+
+.view-options-tabs {
+  flex: 1;
+  min-height: 0;
+  gap: 0;
+}
+
+.view-options-tabs > [data-slot="tabs-list"] {
+  flex: 0 0 auto;
+  width: calc(100% - 32px);
+  height: 50px;
+  margin: 0 16px 4px;
+}
+
+.view-options-tabs [data-slot="tabs-trigger"] {
+  min-height: 44px;
+}
+
+.view-options-body {
+  flex: 1;
+  min-height: 0;
+  padding: 16px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.view-options-fields {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+
+.view-options-fields fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.view-options-fields legend {
+  margin-bottom: 8px;
+  padding: 0;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.view-options-choices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.view-options-media {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.view-options-choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 10px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.view-options-choice:has([data-state="checked"]) {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 6%, var(--background));
+}
+
+.view-options-field-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.view-options-field-heading small {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.view-options-tags,
+.view-options-metadata,
+.view-options-suggestions {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.view-options-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.view-options-tag {
+  max-width: 100%;
+}
+
+.view-options-tag > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.view-options-tag-input {
+  display: flex;
+  gap: 8px;
+}
+
+.view-options-tag-input input {
+  min-width: 0;
+  height: 44px;
+  font-size: 16px;
+}
+
+.view-options-clear {
+  justify-self: end;
+}
+
+.view-options-selects {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.view-options-selects > div {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.view-options-selects [data-slot="select-trigger"] {
+  width: 100%;
+  min-height: 44px;
+}
+
+.view-options-select-menu [role="option"],
+.view-options-select-menu [role="menuitem"] {
+  min-height: 44px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .view-options-panel {
+    animation: none;
+    transition: none;
+  }
 }

@@ -49,6 +49,9 @@ Never test rebuild or wipe against the only copy of a real library database.
   history.
 - Test portrait and short landscape layouts, safe areas, keyboard entry and
   zoom on an actual iPhone Home Screen installation.
+- Open View options, switch tabs, add and remove tags with the keyboard open,
+  and clear filters. Confirm the sheet stays above the Home indicator, its
+  header remains reachable while scrolling, and settings survive reopening.
 - Test both an existing Home Screen icon after closing and reopening the app
   for an update, and a fresh installation. Open Feed on a later item: media
   should fill the viewport iOS exposes, with a readable clock, and retain the

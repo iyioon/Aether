@@ -184,7 +184,7 @@ test("keeps gallery search and toolbar controls reachable on narrow phones", asy
       }));
 
       expect(geometry.searchWidth).toBeGreaterThanOrEqual(100);
-      expect(geometry.targets).toHaveLength(7);
+      expect(geometry.targets).toHaveLength(5);
       for (const target of geometry.targets) {
         expect(target.left).toBeGreaterThanOrEqual(0);
         expect(target.right).toBeLessThanOrEqual(geometry.width);

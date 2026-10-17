@@ -26,46 +26,42 @@ export function GalleryMetadataControls({
   onReset,
   onToggle
 }: GalleryMetadataControlsProps) {
-  const selectedCount = fields.size;
-
   return (
-    <div className="mt-5 grid gap-3 border-t pt-4">
-      <div className="flex items-center justify-between gap-3">
-        <Label>Card info</Label>
-        <div className="flex items-center gap-1">
-          <small className="text-muted-foreground">
-            {selectedCount ? `${selectedCount} shown` : "None shown"}
-          </small>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                type="button"
-                size="icon-sm"
-                variant="ghost"
-                aria-label="Card info options"
-              >
-                <MoreHorizontal />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onSelect={onReset}>
-                Restore defaults
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={onClear}>Hide all</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+    <div className="view-options-metadata">
+      <div className="view-options-field-heading">
+        <span id="view-options-card-info">Card info</span>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              size="icon-sm"
+              variant="ghost"
+              aria-label="Card info options"
+            >
+              <MoreHorizontal />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="view-options-select-menu" align="end">
+            <DropdownMenuItem onSelect={onReset}>
+              Restore defaults
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={onClear}>Hide all</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div
+        className="view-options-choices"
+        role="group"
+        aria-labelledby="view-options-card-info"
+      >
         {galleryMetadataOptions.map((option) => (
-          <div className="flex items-center gap-2" key={option.value}>
+          <Label className="view-options-choice" key={option.value}>
             <Checkbox
-              id={`metadata-${option.value}`}
               checked={fields.has(option.value)}
               onCheckedChange={() => onToggle(option.value)}
             />
-            <Label htmlFor={`metadata-${option.value}`}>{option.label}</Label>
-          </div>
+            {option.label}
+          </Label>
         ))}
       </div>
     </div>

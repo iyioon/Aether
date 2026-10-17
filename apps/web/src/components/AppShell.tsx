@@ -203,22 +203,19 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     addTagFilter,
     aspect,
     clearTagFilters,
-    filterSummary,
+    clearFilters,
     filterTagSuggestions,
     gridSize,
-    layoutSummary,
     mediaType,
-    mediaTypeLabel,
-    openControlMenu,
+    isOptionsOpen,
     scoreFilter,
-    scoreFilterLabel,
     removeTagFilter,
     search,
     searchDraft,
     setAspect,
     setGridSize,
     setMediaType,
-    setOpenControlMenu,
+    setOptionsOpen,
     setScoreFilter,
     setSearchDraft,
     setSort,
@@ -227,8 +224,6 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     setView,
     sort,
     sortDirection,
-    sortLabel,
-    sortSummary,
     tagFilters,
     tagFilterDraft,
     view
@@ -475,13 +470,13 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     (folderId: string) => {
       setActivePage("library");
       setSelectedFolderId(folderId);
-      setOpenControlMenu(null);
+      setOptionsOpen(false);
       setAnnotationAssetId(null);
       if (view === "feed") {
         setIsFeedChromeHidden(false);
       }
     },
-    [setAnnotationAssetId, setOpenControlMenu, setSelectedFolderId, view]
+    [setAnnotationAssetId, setOptionsOpen, setSelectedFolderId, view]
   );
   const {
     collapseAllFolders,
@@ -521,7 +516,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     setSyncedMediaAnchorId(activeMediaAnchorIdRef.current);
     setView(nextView);
     closeSelectionMode();
-    setOpenControlMenu(null);
+    setOptionsOpen(false);
     setAnnotationAssetId(null);
     setIsFeedChromeHidden(false);
     if (
@@ -608,7 +603,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     pushLocationRef.current = true;
     setActivePage("settings");
     closeSelectionMode();
-    setOpenControlMenu(null);
+    setOptionsOpen(false);
     setAnnotationAssetId(null);
     setSelectedAssetId(null);
   }
@@ -617,7 +612,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     pushLocationRef.current = true;
     setActivePage("guide");
     closeSelectionMode();
-    setOpenControlMenu(null);
+    setOptionsOpen(false);
     setAnnotationAssetId(null);
     setSelectedAssetId(null);
   }
@@ -654,35 +649,29 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     activePage === "library" ? (
       <LibraryControlStrip
         aspect={aspect}
-        filterSummary={filterSummary}
         filterTagSuggestions={filterTagSuggestions}
         galleryMetadataFields={galleryMetadataFields}
         gridSize={gridSize}
         isSelectionMode={isSelectionMode}
         loadedAssetCount={assets.length}
-        layoutSummary={layoutSummary}
         mediaType={mediaType}
-        mediaTypeLabel={mediaTypeLabel}
-        openControlMenu={openControlMenu}
+        isOpen={isOptionsOpen}
         scoreFilter={scoreFilter}
-        scoreFilterLabel={scoreFilterLabel}
         sort={sort}
         sortDirection={sortDirection}
-        sortLabel={sortLabel}
-        sortSummary={sortSummary}
         tagFilters={tagFilters}
         tagFilterDraft={tagFilterDraft}
         view={view}
         onAddTagFilter={addTagFilter}
         onClearGalleryMetadataFields={clearGalleryMetadataFields}
-        onClearTagFilters={clearTagFilters}
+        onClearFilters={clearFilters}
         onRemoveTagFilter={removeTagFilter}
         onResetGalleryMetadataFields={resetGalleryMetadataFields}
         onSetSelectionMode={setSelectionMode}
         onSetAspect={setAspect}
         onSetGridSize={setGridSize}
         onSetMediaType={setMediaType}
-        onSetOpenControlMenu={setOpenControlMenu}
+        onOpenChange={setOptionsOpen}
         onSetScoreFilter={setScoreFilter}
         onSetSort={setSort}
         onSetSortDirection={setSortDirection}

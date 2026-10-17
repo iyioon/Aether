@@ -17,12 +17,19 @@ directory. It does not edit source media.
 The sidebar follows your media folders. Expanding or selecting a folder does
 not change anything on disk.
 
-- **Gallery** shows many items at once. Use the toolbar to change sorting,
-  filters, tile size, tile shape, and visible details.
+- **Gallery** shows many items at once. Open **View options** (the sliders button)
+  for **Filters**, **Sort**, and **Layout**. Layout changes tile size, tile shape,
+  and visible card details.
 - **Feed** shows one item at a time. It uses the same search and filters as the
   gallery.
 - **Compare** first shows the leaderboard. Select **Rank media** to choose
   between pairs.
+
+View options opens beside the toolbar on desktop and in a bottom sheet on phones.
+Changes apply immediately. A count on the button shows active media, score, and
+tag filters; **Clear filters** removes them without changing search, sorting, or
+layout. Multiple tags match items with all selected tags. Feed offers Filters and
+Sort; Compare offers Filters. Gallery layout controls appear only in Gallery.
 
 In comparison mode, select the item that should rank higher or skip the pair.
 The left and right arrow keys choose the matching side. You can undo the most

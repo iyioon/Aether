@@ -87,6 +87,7 @@ for you to press Play again.
 
 Aether uses cached thumbnails and posters while larger files load. If a browser
 cannot play a source video, Aether can use a browser-friendly preview instead.
+A missing poster does not prevent a supported video from playing.
 
 ## Scores, Favorites, And Tags
 

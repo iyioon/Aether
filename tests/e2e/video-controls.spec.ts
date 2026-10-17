@@ -9,13 +9,18 @@ import {
   type Locator,
   type Page
 } from "@playwright/test";
-import type { ScanJob, TreeResponse } from "../../apps/web/src/api/client";
+import type {
+  AssetListResponse,
+  ScanJob,
+  TreeResponse
+} from "../../apps/web/src/api/client";
 
 const origin = `http://127.0.0.1:${process.env.AETHER_E2E_API_PORT ?? 3130}`;
 const fixtureFolder = "video-controls-fixture";
 const fixtureDirectory = path.resolve(".e2e", "media", fixtureFolder);
 let storageState: Awaited<ReturnType<BrowserContext["storageState"]>>;
 let folderId: string;
+let videoAssetIds: string[];
 
 test.beforeAll(async ({ browser }) => {
   const page = await browser.newPage();
@@ -68,6 +73,13 @@ test.beforeAll(async ({ browser }) => {
     folderId = tree.folders.find(
       (entry) => entry.relativePath === fixtureFolder
     )!.id;
+    const assetsResponse = await page.request.get(
+      `${origin}/api/folders/${folderId}/assets?type=video&sort=filename&limit=10`
+    );
+    expect(assetsResponse.ok()).toBe(true);
+    const { items } = (await assetsResponse.json()) as AssetListResponse;
+    videoAssetIds = items.map((asset) => asset.id);
+    expect(videoAssetIds).toHaveLength(2);
     storageState = await page.context().storageState();
   } finally {
     await page.close();
@@ -243,6 +255,130 @@ test("controls real playback without feed navigation, score edits, or unwanted f
   }
 });
 
+test("removes failed video posters while the original media remains playable", async ({
+  browser
+}) => {
+  const context = await browser.newContext({ storageState });
+  const mediaGate = createRequestGate();
+  try {
+    await context.route(/\/api\/assets\/[^/]+\/thumbnail\?/, (route) =>
+      route.fulfill({
+        status: 422,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "thumbnail_generation_failed" })
+      })
+    );
+    await context.route(/\/api\/assets\/[^/]+\/media$/, async (route) => {
+      await mediaGate.wait;
+      await route.continue();
+    });
+    const page = await context.newPage();
+    await page.goto(feedUrl(), { waitUntil: "domcontentloaded" });
+    const item = page.locator('.feed-item[data-feed-index="0"]');
+    const shell = item.locator(".media-video-shell");
+    const video = item.locator("video");
+    await expect(shell).toHaveClass(/poster-error/);
+    await expect(item.locator(".media-video-poster")).toHaveCount(0);
+    await expect(video).toHaveJSProperty("readyState", 0);
+    await expect(item.getByRole("slider")).toBeDisabled();
+
+    mediaGate.release();
+    await expectPlaying(video);
+    await expect(shell).toHaveClass(/\bready\b/);
+    await item.getByRole("button", { name: / in viewer$/ }).click();
+    const viewer = page.locator(".viewer-dialog");
+    const viewerVideo = viewer.locator("video");
+    await expectPlaying(viewerVideo);
+    await expect(viewer.locator(".viewer-video-poster")).toHaveCount(0);
+    await expect(viewer.locator(".viewer-loading")).toHaveCount(0);
+    await expect(viewer.getByRole("slider")).toBeEnabled();
+  } finally {
+    mediaGate.release();
+    await context.unrouteAll({ behavior: "wait" });
+    await context.close();
+  }
+});
+
+test("keeps healthy posters until a video frame arrives and discards a failed inherited poster", async ({
+  browser
+}) => {
+  const context = await browser.newContext({ storageState });
+  const firstMedia = createRequestGate();
+  const secondMedia = createRequestGate();
+  const secondPoster = createRequestGate();
+  try {
+    await context.route(/\/api\/assets\/[^/]+\/media$/, async (route) => {
+      const assetId = new URL(route.request().url()).pathname.split("/")[3];
+      await (assetId === videoAssetIds[0] ? firstMedia : secondMedia).wait;
+      await route.continue();
+    });
+    await context.route(/\/api\/assets\/[^/]+\/thumbnail\?/, async (route) => {
+      if (route.request().url().includes(`/assets/${videoAssetIds[1]}/`)) {
+        await secondPoster.wait;
+      }
+      await route.continue();
+    });
+    const page = await context.newPage();
+    await page.goto(feedUrl(), { waitUntil: "domcontentloaded" });
+    const item = page.locator('.feed-item[data-feed-index="0"]');
+    const feedPoster = item.locator(".media-video-poster");
+    await expectDecodedPoster(feedPoster);
+    await expect(feedPoster).toHaveCSS("opacity", "1");
+    await expect(item.locator("video")).toHaveJSProperty("readyState", 0);
+    await item.getByRole("button", { name: / in viewer$/ }).click();
+
+    const viewer = page.locator(".viewer-dialog");
+    const viewerVideo = viewer.locator("video");
+    await expectDecodedPoster(viewer.locator(".viewer-video-poster"));
+    await expect(viewerVideo).toHaveJSProperty("readyState", 0);
+    await expect(viewer.locator(".viewer-media-frame")).toHaveClass(/is-ready/);
+    firstMedia.release();
+    await expectPlaying(viewerVideo);
+    await expect(viewer.locator(".viewer-media-frame")).toHaveClass(
+      /is-video-ready/
+    );
+    await expect(viewer.locator(".viewer-video-poster")).toHaveCount(0);
+
+    await viewer
+      .getByRole("button", { name: "Next media", exact: true })
+      .click();
+    await expect(
+      viewer.getByRole("heading", { name: "transport-1.mp4", exact: true })
+    ).toBeAttached();
+    const fallback = viewer.locator(".viewer-video-poster-fallback");
+    await expectDecodedPoster(fallback);
+    await expect(viewerVideo).toHaveJSProperty("readyState", 0);
+    await expect(viewer.locator(".viewer-media-frame")).toHaveClass(/is-ready/);
+    await fallback.evaluate((node: HTMLImageElement) => {
+      node.src = "data:image/jpeg;base64,AA==";
+    });
+    await expect(fallback).toHaveCount(0);
+    await expect(viewer.locator(".viewer-loading")).toBeVisible();
+
+    secondPoster.release();
+    const currentPoster = viewer.locator(".viewer-video-poster");
+    await expectDecodedPoster(currentPoster);
+    await expect(currentPoster).toHaveAttribute(
+      "src",
+      new RegExp(`/assets/${videoAssetIds[1]}/thumbnail`)
+    );
+    await expect(viewer.locator(".viewer-loading")).toHaveCount(0);
+    await expect(viewerVideo).toHaveJSProperty("readyState", 0);
+    secondMedia.release();
+    await expectPlaying(viewerVideo);
+    await expect(viewer.locator(".viewer-media-frame")).toHaveClass(
+      /is-video-ready/
+    );
+    await expect(viewer.locator(".viewer-video-poster")).toHaveCount(0);
+  } finally {
+    firstMedia.release();
+    secondMedia.release();
+    secondPoster.release();
+    await context.unrouteAll({ behavior: "wait" });
+    await context.close();
+  }
+});
+
 for (const viewport of [
   { width: 320, height: 568 },
   { width: 393, height: 852 },
@@ -298,10 +434,7 @@ for (const viewport of [
 }
 
 async function openFeed(page: Page) {
-  await page.goto(
-    `${origin}/?folder=${encodeURIComponent(folderId)}&view=feed&type=video&sort=filename`,
-    { waitUntil: "domcontentloaded" }
-  );
+  await page.goto(feedUrl(), { waitUntil: "domcontentloaded" });
   const item = page.locator('.feed-item[data-feed-index="0"]');
   await expect(item.locator("video")).toHaveAttribute(
     "data-preview-source",
@@ -309,6 +442,38 @@ async function openFeed(page: Page) {
   );
   await expect(item.getByRole("slider")).toBeEnabled();
   return item;
+}
+
+function feedUrl() {
+  return `${origin}/?folder=${encodeURIComponent(folderId)}&view=feed&type=video&sort=filename`;
+}
+
+function createRequestGate() {
+  let release: () => void = () => undefined;
+  const wait = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { wait, release: () => release() };
+}
+
+async function expectPlaying(video: Locator) {
+  await expect
+    .poll(() =>
+      video.evaluate(
+        (node: HTMLVideoElement) => !node.paused && node.currentTime > 0
+      )
+    )
+    .toBe(true);
+}
+
+async function expectDecodedPoster(poster: Locator) {
+  await expect
+    .poll(() =>
+      poster.evaluate(
+        (node: HTMLImageElement) => node.complete && node.naturalWidth > 0
+      )
+    )
+    .toBe(true);
 }
 
 async function expectPaused(video: Locator, paused: boolean) {

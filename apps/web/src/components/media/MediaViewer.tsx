@@ -174,6 +174,7 @@ export function MediaViewer({
   const hasFallbackVideoPoster =
     asset.mediaType === "video" &&
     fallbackVideoPosterSource !== null &&
+    fallbackVideoPosterSource !== viewerPosterSource &&
     !isViewerPosterReady &&
     !isViewerVideoReady &&
     !(isViewerPosterFailed && isViewerVideoFailed);
@@ -923,52 +924,87 @@ export function MediaViewer({
                 <>
                   {hasFallbackVideoPoster ? (
                     <img
+                      key={fallbackVideoPosterSource}
                       className="viewer-video-poster viewer-video-poster-fallback"
                       src={fallbackVideoPosterSource}
                       alt=""
                       aria-hidden="true"
-                    />
-                  ) : null}
-                  <img
-                    className="viewer-video-poster"
-                    src={viewerPosterSource}
-                    alt=""
-                    aria-hidden="true"
-                    width={asset.width ?? undefined}
-                    height={asset.height ?? undefined}
-                    loading="eager"
-                    fetchPriority="high"
-                    decoding="async"
-                    onLoad={(event) => {
-                      const image = event.currentTarget;
-                      const assetId = asset.id;
-                      const posterSource = viewerPosterSource;
-                      const markPosterReady = () => {
-                        if (activeAssetIdRef.current !== assetId) {
+                      onError={(event) => {
+                        if (
+                          activeAssetIdRef.current !== asset.id ||
+                          !event.currentTarget.isConnected
+                        ) {
                           return;
                         }
 
-                        lastReadyVideoPosterSourceRef.current = posterSource;
-                        setViewerPosterState({
-                          assetId,
-                          status: "ready"
-                        });
-                      };
+                        if (
+                          lastReadyVideoPosterSourceRef.current ===
+                          fallbackVideoPosterSource
+                        ) {
+                          lastReadyVideoPosterSourceRef.current = null;
+                        }
+                        setFallbackVideoPosterSource((current) =>
+                          current === fallbackVideoPosterSource ? null : current
+                        );
+                      }}
+                    />
+                  ) : null}
+                  {!isViewerPosterFailed && !isViewerVideoReady ? (
+                    <img
+                      key={viewerPosterSource}
+                      className="viewer-video-poster"
+                      src={viewerPosterSource}
+                      alt=""
+                      aria-hidden="true"
+                      width={asset.width ?? undefined}
+                      height={asset.height ?? undefined}
+                      loading="eager"
+                      fetchPriority="high"
+                      decoding="async"
+                      onLoad={(event) => {
+                        const image = event.currentTarget;
+                        const assetId = asset.id;
+                        const posterSource = viewerPosterSource;
+                        const markPosterReady = () => {
+                          if (
+                            activeAssetIdRef.current !== assetId ||
+                            !image.isConnected ||
+                            image.naturalWidth === 0
+                          ) {
+                            return;
+                          }
 
-                      void image.decode().then(() => {
-                        markMediaImageReady(posterSource);
-                        markPosterReady();
-                      }, markPosterReady);
-                    }}
-                    onError={() => {
-                      if (activeAssetIdRef.current === asset.id) {
-                        setViewerPosterState({
-                          assetId: asset.id,
-                          status: "error"
-                        });
-                      }
-                    }}
-                  />
+                          markMediaImageReady(posterSource);
+                          lastReadyVideoPosterSourceRef.current = posterSource;
+                          setViewerPosterState({
+                            assetId,
+                            status: "ready"
+                          });
+                        };
+
+                        void image
+                          .decode()
+                          .then(markPosterReady, markPosterReady);
+                      }}
+                      onError={(event) => {
+                        if (
+                          activeAssetIdRef.current === asset.id &&
+                          event.currentTarget.isConnected
+                        ) {
+                          if (
+                            lastReadyVideoPosterSourceRef.current ===
+                            viewerPosterSource
+                          ) {
+                            lastReadyVideoPosterSourceRef.current = null;
+                          }
+                          setViewerPosterState({
+                            assetId: asset.id,
+                            status: "error"
+                          });
+                        }
+                      }}
+                    />
+                  ) : null}
                   <video
                     key={asset.id}
                     ref={bindViewerVideo}

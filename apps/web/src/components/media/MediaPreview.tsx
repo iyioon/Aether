@@ -137,9 +137,11 @@ export const MediaPreview = memo(function MediaPreview({
     enabled: asset.mediaType === "video" && showVideoTimeline && !staticPreview
   });
   const isVideoReady = readyVideoSource === videoSource;
-  const isVideoPosterReady =
-    loadedVideoPosterSource === posterSource || isMediaImageReady(posterSource);
   const didVideoPosterFail = failedVideoPosterSource === posterSource;
+  const isVideoPosterReady =
+    !didVideoPosterFail &&
+    (loadedVideoPosterSource === posterSource ||
+      isMediaImageReady(posterSource));
 
   const playVisibleVideo = useCallback(
     (requestedMuted = muted) => {
@@ -661,26 +663,36 @@ export const MediaPreview = memo(function MediaPreview({
         .join(" ")}
     >
       <span className="media-video-loading" aria-hidden="true" />
-      <img
-        className="media-video-poster"
-        src={posterSource}
-        alt=""
-        aria-hidden="true"
-        loading={tall || preloadPreview ? "eager" : "lazy"}
-        fetchPriority={isActive ? "high" : "auto"}
-        decoding="async"
-        onLoad={(event) => {
-          const image = event.currentTarget;
-          void image.decode().then(
-            () => {
+      {!didVideoPosterFail ? (
+        <img
+          key={posterSource}
+          className="media-video-poster"
+          src={posterSource}
+          alt=""
+          aria-hidden="true"
+          loading={tall || preloadPreview ? "eager" : "lazy"}
+          fetchPriority={isActive ? "high" : "auto"}
+          decoding="async"
+          onLoad={(event) => {
+            const image = event.currentTarget;
+            const markPosterReady = () => {
+              if (!image.isConnected || image.naturalWidth === 0) {
+                return;
+              }
+
               markMediaImageReady(posterSource);
               setLoadedVideoPosterSource(posterSource);
-            },
-            () => setLoadedVideoPosterSource(posterSource)
-          );
-        }}
-        onError={() => setFailedVideoPosterSource(posterSource)}
-      />
+            };
+
+            void image.decode().then(markPosterReady, markPosterReady);
+          }}
+          onError={(event) => {
+            if (event.currentTarget.isConnected) {
+              setFailedVideoPosterSource(posterSource);
+            }
+          }}
+        />
+      ) : null}
       {!staticPreview ? (
         <video
           ref={videoRef}

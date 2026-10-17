@@ -128,6 +128,10 @@ play requests and detached element listeners cannot update a replacement source.
 Preview and viewer keep their existing source selection and poster-to-first-frame
 behavior. Feed keyboard commands use registered playback commands.
 
+Poster failures are independent of video playback. Failed decorative images
+are removed, and valid posters remain until the first video frame is presented.
+The viewer also removes inherited posters if they fail during navigation.
+
 Explicit pause intent is separate from temporary hold, background, and panel
 pauses. Lifecycle events pause media synchronously; foreground autoplay is
 limited to muted media and preserves explicit pause. The viewer uses container fullscreen where

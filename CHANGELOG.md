@@ -4,6 +4,8 @@ Notable changes to Aether are recorded here.
 
 ## Unreleased
 
+- Remove failed video posters from the viewer and previews while allowing
+  supported videos to keep playing.
 - Add shared Feed and viewer video controls with seeking, buffered progress,
   sound, fullscreen, and iPhone safe-area spacing. Preserve explicit pause and
   prevent audible playback from restarting after backgrounding.

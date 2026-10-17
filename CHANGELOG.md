@@ -4,6 +4,8 @@ Notable changes to Aether are recorded here.
 
 ## Unreleased
 
+- Keep portrait video previews inside gallery cards so cropped layouts play
+  correctly and center the media.
 - Remove failed video posters from the viewer and previews while allowing
   supported videos to keep playing.
 - Add shared Feed and viewer video controls with seeking, buffered progress,

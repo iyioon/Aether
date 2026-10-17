@@ -67,6 +67,8 @@ preferences remain in this browser.
 
 Select a gallery item to open the fullscreen viewer. Use the previous and next
 buttons to move through the current filtered list.
+Visible gallery videos play muted previews within the selected card shape,
+including portrait videos cropped into landscape cards.
 
 In the feed, tap the media to hide or show details. The video control bar stays
 available, with play/pause, elapsed and total time, seeking, and sound. Press

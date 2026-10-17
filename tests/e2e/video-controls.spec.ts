@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { copyFile, mkdir, rm } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import {
@@ -65,7 +65,24 @@ test.beforeAll(async ({ browser }) => {
       "-y",
       video
     ]);
-    await copyFile(video, path.join(fixtureDirectory, "transport-1.mp4"));
+    await promisify(execFile)("ffmpeg", [
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-nostdin",
+      "-i",
+      video,
+      "-vf",
+      "transpose=clock",
+      "-c:v",
+      "libx264",
+      "-preset",
+      "ultrafast",
+      "-c:a",
+      "copy",
+      "-y",
+      path.join(fixtureDirectory, "transport-1.mp4")
+    ]);
     await scanLibrary(page);
     const response = await page.request.get(`${origin}/api/tree`);
     expect(response.ok()).toBe(true);
@@ -96,6 +113,60 @@ test.afterAll(async ({ browser }) => {
     await context.close();
   }
 });
+
+for (const viewport of [
+  { width: 1440, height: 980 },
+  { width: 393, height: 852 }
+]) {
+  test(`plays portrait and landscape videos inside landscape gallery cards at ${viewport.width}×${viewport.height}`, async ({
+    browser
+  }) => {
+    const context = await browser.newContext({ storageState, viewport });
+    try {
+      const page = await context.newPage();
+      await page.goto(
+        `${origin}/?folder=${encodeURIComponent(folderId)}&view=gallery&type=video&sort=filename&size=huge&aspect=landscape`,
+        { waitUntil: "domcontentloaded" }
+      );
+      const cards = page.locator(".media-tile");
+      await expect(cards).toHaveCount(2);
+      for (const card of await cards.all()) {
+        await card.scrollIntoViewIfNeeded();
+        const poster = card.locator(".media-video-poster");
+        await expectDecodedPoster(poster);
+        await expect
+          .poll(() =>
+            card.locator(".media-video-shell").evaluate((shell) => {
+              const bounds = shell.getBoundingClientRect();
+              return [...shell.querySelectorAll("img, video")].every(
+                (media) => {
+                  const frame = media.getBoundingClientRect();
+                  return (
+                    Math.abs(frame.width - bounds.width) <= 1 &&
+                    Math.abs(frame.height - bounds.height) <= 1
+                  );
+                }
+              );
+            })
+          )
+          .toBe(true);
+        const video = card.locator("video");
+        await expect(video).toHaveAttribute("data-preview-source", "preview");
+        await expectPlaying(video);
+        await expect(video).toHaveCSS("opacity", "1");
+        await expect(poster).toHaveCSS("opacity", "0");
+      }
+      await page.reload({ waitUntil: "domcontentloaded" });
+      const portrait = page
+        .locator(".media-tile")
+        .filter({ hasText: "transport-1.mp4" });
+      await portrait.scrollIntoViewIfNeeded();
+      await expectPlaying(portrait.locator("video"));
+    } finally {
+      await context.close();
+    }
+  });
+}
 
 test("controls real playback without feed navigation, score edits, or unwanted foreground audio", async ({
   browser

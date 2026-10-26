@@ -17,17 +17,17 @@ or unsupported fullscreen tricks.
 
 ## Delivery Tracker
 
-| ID  | Deliverable                                     | State                              | Remaining acceptance                                                |
-| --- | ----------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------- |
-| M0  | Capability and resource proofs                  | Local presentation proofs verified | Production-container decoders; HEIC proof; actual iPhone acceptance |
-| M1  | Shared controls and safe areas                  | Implemented                        | Installed iPhone, VoiceOver and rotation checks                     |
-| M2  | Saved presentation, revisions, cache and resets | Implemented                        | Production deployment acceptance                                    |
-| M2a | Controlled GIF/WebP/APNG/AVIF                   | Implemented                        | Real-device playback and resource acceptance                        |
-| M3  | HEIC/HEIF display                               | Not started                        | Decoder choice, fixtures, packaging, all media surfaces             |
-| M4  | Highlights, speed, repeat and posters           | Implemented                        | Device and native fullscreen acceptance                             |
-| M5  | Framing and Comparison aspects                  | Implemented                        | Device acceptance across orientation changes                        |
-| M6  | Video and animation bounce                      | Implemented                        | Device acceptance; representative server check                      |
-| M7  | Cross-feature verification                      | Implementation and review complete | Release gates, packaging and actual devices                         |
+| ID  | Deliverable                                     | State                               | Remaining acceptance                                             |
+| --- | ----------------------------------------------- | ----------------------------------- | ---------------------------------------------------------------- |
+| M0  | Capability and resource proofs                  | Local and container proofs verified | HEIC proof; actual iPhone acceptance; representative server load |
+| M1  | Shared controls and safe areas                  | Implemented                         | Installed iPhone, VoiceOver and rotation checks                  |
+| M2  | Saved presentation, revisions, cache and resets | Implemented                         | Production deployment acceptance                                 |
+| M2a | Controlled GIF/WebP/APNG/AVIF                   | Implemented                         | Real-device playback and resource acceptance                     |
+| M3  | HEIC/HEIF display                               | Not started                         | Decoder choice, fixtures, packaging, all media surfaces          |
+| M4  | Highlights, speed, repeat and posters           | Implemented                         | Device and native fullscreen acceptance                          |
+| M5  | Framing and Comparison aspects                  | Implemented                         | Device acceptance across orientation changes                     |
+| M6  | Video and animation bounce                      | Implemented                         | Device acceptance; representative server check                   |
+| M7  | Cross-feature verification                      | Automated gates and review complete | Actual devices and representative server load                    |
 
 Implementation order was storage/contracts, capability and decoder proofs,
 shared editor/framing, controlled animation, section playback, bounce and

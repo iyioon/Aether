@@ -3,9 +3,52 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
-import { applyMigrations, openDatabase } from "../src/db/database.js";
+import {
+  applyMigrations,
+  LATEST_SCHEMA_VERSION,
+  openDatabase
+} from "../src/db/database.js";
 
 describe("database migrations", () => {
+  it("upgrades version 17 without losing existing records and requires presentation storage", async () => {
+    const configDir = await mkdtemp(
+      path.join(tmpdir(), "aether-presentation-upgrade-")
+    );
+    try {
+      const initial = openDatabase(configDir);
+      initial
+        .prepare(
+          "INSERT INTO roots (id, label, real_path, created_at) VALUES ('root', 'Kept', '/media', '2026-10-22')"
+        )
+        .run();
+      initial.exec(
+        "DROP TABLE asset_presentations; DELETE FROM schema_migrations WHERE version = 18;"
+      );
+      initial.close();
+      const upgraded = openDatabase(configDir);
+      expect(
+        upgraded
+          .prepare("SELECT MAX(version) AS version FROM schema_migrations")
+          .get()
+      ).toEqual({ version: LATEST_SCHEMA_VERSION });
+      expect(
+        upgraded.prepare("SELECT label FROM roots WHERE id = 'root'").get()
+      ).toEqual({ label: "Kept" });
+      expect(
+        upgraded
+          .prepare("SELECT COUNT(*) AS count FROM asset_presentations")
+          .get()
+      ).toEqual({ count: 0 });
+      upgraded.exec("DROP TABLE asset_presentations");
+      upgraded.close();
+      expect(() => openDatabase(configDir)).toThrow(
+        "Aether database schema is incomplete or incompatible"
+      );
+    } finally {
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
   it("refuses startup when a latest-version database is missing required schema", async () => {
     const configDir = await mkdtemp(path.join(tmpdir(), "aether-schema-"));
 

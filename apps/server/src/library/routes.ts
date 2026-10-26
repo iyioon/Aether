@@ -61,6 +61,8 @@ import {
 } from "./route-schemas.js";
 import { registerAdminRoutes } from "./routes-admin.js";
 import { registerComparisonRoutes } from "./routes-comparisons.js";
+import { registerPresentationRoutes } from "./routes-presentation.js";
+import { registerPresentationMediaRoutes } from "./routes-presentation-media.js";
 
 export async function registerLibraryRoutes(
   app: FastifyInstance,
@@ -69,6 +71,8 @@ export async function registerLibraryRoutes(
   scanner: LibraryScanner,
   watcher: LibraryWatcher | null = null
 ): Promise<void> {
+  registerPresentationRoutes(app, config, db);
+  registerPresentationMediaRoutes(app, config, db);
   app.get("/api/tree", async () => {
     const folders = listFolders(db);
     const folderById = new Map(folders.map((folder) => [folder.id, folder]));

@@ -23,6 +23,16 @@ export {
   upsertFolder
 } from "./repository-folders.js";
 import { mapAssetRow } from "./repository-mappers.js";
+import {
+  createPresentationSourceReconciler,
+  getPresentationsByAssetId
+} from "./repository-presentation.js";
+export {
+  saveAssetPresentation,
+  PresentationConflictError,
+  countPresentationEdits
+} from "./repository-presentation.js";
+export type { MediaPresentation, PresentationValues } from "./presentation.js";
 import { getAssetTags, getTagsByAssetId } from "./repository-tags.js";
 export {
   resetLibraryData,
@@ -131,7 +141,15 @@ export function upsertAsset(
       error = NULL
   `
   );
+  const reconcilePresentationSource = createPresentationSourceReconciler(db);
   const transaction = db.transaction(() => {
+    reconcilePresentationSource({
+      assetId: input.id,
+      contentSha256: input.contentSha256,
+      sizeBytes: input.sizeBytes,
+      mtimeMs: input.mtimeMs,
+      updatedAt: input.seenAt
+    });
     upsert.run({
       id,
       rootId: input.rootId,
@@ -471,8 +489,7 @@ export function getAssetSource(
   }
 
   return {
-    ...mapAssetRow(row),
-    tags: getAssetTags(db, row.id),
+    ...attachTagsToAsset(db, mapAssetRow(row)),
     rootId: row.root_id,
     rootRealPath: row.root_real_path,
     relativePath: row.relative_path
@@ -696,7 +713,8 @@ function attachTagsToAsset(
 ): AssetRecord {
   return {
     ...asset,
-    tags: getAssetTags(db, asset.id)
+    tags: getAssetTags(db, asset.id),
+    presentation: getPresentationsByAssetId(db, [asset]).get(asset.id)!
   };
 }
 
@@ -713,9 +731,11 @@ function attachTagsToAssets(
     assets.map((asset) => asset.id)
   );
 
+  const presentations = getPresentationsByAssetId(db, assets);
   return assets.map((asset) => ({
     ...asset,
-    tags: tagsByAssetId.get(asset.id) ?? []
+    tags: tagsByAssetId.get(asset.id) ?? [],
+    presentation: presentations.get(asset.id)!
   }));
 }
 

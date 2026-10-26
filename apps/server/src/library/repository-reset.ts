@@ -1,4 +1,9 @@
 import type { AetherDatabase } from "../db/database.js";
+import {
+  countPresentationEdits,
+  removePlaybackPresentationDerivativeRecords,
+  resetPresentationEdits
+} from "./repository-presentation.js";
 import { advanceComparisonGeneration } from "./comparison-generation.js";
 
 export interface LibraryDataResetOptions {
@@ -6,9 +11,13 @@ export interface LibraryDataResetOptions {
   favorites: boolean;
   tags: boolean;
   comparisons: boolean;
+  presentationPlayback?: boolean;
+  presentationFraming?: boolean;
 }
 
 export interface LibraryDataResetResult {
+  playbackReset: number;
+  framingReset: number;
   scoresReset: number;
   favoritesReset: number;
   tagsRemoved: number;
@@ -22,7 +31,10 @@ export function resetLibraryData(
   options: LibraryDataResetOptions,
   updatedAt: string
 ): LibraryDataResetResult {
+  const edits = countPresentationEdits(db);
   const result: LibraryDataResetResult = {
+    playbackReset: options.presentationPlayback ? edits.playback : 0,
+    framingReset: options.presentationFraming ? edits.framing : 0,
     scoresReset: options.scores ? countScoresToReset(db) : 0,
     favoritesReset: options.favorites
       ? countRows(
@@ -45,6 +57,16 @@ export function resetLibraryData(
   };
 
   const transaction = db.transaction(() => {
+    if (options.presentationPlayback)
+      removePlaybackPresentationDerivativeRecords(db);
+    resetPresentationEdits(
+      db,
+      {
+        playback: options.presentationPlayback,
+        framing: options.presentationFraming
+      },
+      updatedAt
+    );
     if (options.tags) {
       db.prepare("DELETE FROM asset_tags").run();
       db.prepare("DELETE FROM tags").run();

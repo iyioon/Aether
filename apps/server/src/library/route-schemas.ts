@@ -156,10 +156,18 @@ export const LibraryDataResetBody = z
     scores: z.boolean().default(false),
     favorites: z.boolean().default(false),
     tags: z.boolean().default(false),
-    comparisons: z.boolean().default(false)
+    comparisons: z.boolean().default(false),
+    presentationPlayback: z.boolean().default(false),
+    presentationFraming: z.boolean().default(false)
   })
   .refine(
-    (data) => data.scores || data.favorites || data.tags || data.comparisons
+    (data) =>
+      data.scores ||
+      data.favorites ||
+      data.tags ||
+      data.comparisons ||
+      data.presentationPlayback ||
+      data.presentationFraming
   );
 
 export const ScanResultResponse = z.object({

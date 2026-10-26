@@ -5,6 +5,13 @@ interface CommandResult {
   stderr: string;
 }
 
+export const LOCAL_MEDIA_INPUT_ARGS = [
+  "-protocol_whitelist",
+  "file",
+  "-format_whitelist",
+  "mov,mp4,m4a,3gp,3g2,mj2,matroska,webm,avi,mpeg,mpegvideo,m4v,apng,avif,png_pipe,gif"
+] as const;
+
 const MAX_PROCESS_OUTPUT_BYTES = 96 * 1024;
 const MAX_VIDEO_PROCESSING_JOBS = 2;
 
@@ -25,6 +32,7 @@ export async function runMediaCommand(
     let stdoutBytes = 0;
     let stderrBytes = 0;
     let timedOut = false;
+    let outputExceeded = false;
     let settled = false;
 
     const timer = setTimeout(() => {
@@ -37,6 +45,9 @@ export async function runMediaCommand(
 
       if (stdoutBytes <= MAX_PROCESS_OUTPUT_BYTES) {
         stdout.push(chunk);
+      } else {
+        outputExceeded = true;
+        child.kill("SIGKILL");
       }
     });
 
@@ -58,6 +69,13 @@ export async function runMediaCommand(
       finish(() => {
         const stdoutText = Buffer.concat(stdout).toString("utf8");
         const stderrText = Buffer.concat(stderr).toString("utf8");
+
+        if (outputExceeded) {
+          reject(
+            new MediaProcessingError(`${command} exceeded its output limit.`)
+          );
+          return;
+        }
 
         if (timedOut) {
           reject(new MediaProcessingError(`${command} timed out.`));
@@ -100,15 +118,16 @@ export async function withVideoProcessingSlot<T>(
     await new Promise<void>((resolve) => {
       videoProcessingQueue.push(resolve);
     });
+  } else {
+    activeVideoProcessingJobs += 1;
   }
-
-  activeVideoProcessingJobs += 1;
 
   try {
     return await task();
   } finally {
-    activeVideoProcessingJobs -= 1;
-    videoProcessingQueue.shift()?.();
+    const next = videoProcessingQueue.shift();
+    if (next) next();
+    else activeVideoProcessingJobs -= 1;
   }
 }
 

@@ -1,3 +1,4 @@
+import type { MediaPresentation } from "./presentation.js";
 import type { MediaType } from "./media-types.js";
 
 export interface FolderRecord {
@@ -28,6 +29,7 @@ export interface AssetRecord {
   ranking: AssetRankingRecord | null;
   favorite: boolean;
   tags: TagRecord[];
+  presentation: MediaPresentation;
 }
 
 export interface AssetRankingRecord {

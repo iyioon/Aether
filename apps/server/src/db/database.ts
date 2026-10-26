@@ -487,6 +487,28 @@ const migrations: Migration[] = [
         updated_at TEXT NOT NULL
       );
     `
+  },
+  {
+    version: 18,
+    name: "saved_media_presentations",
+    sql: `
+      CREATE TABLE asset_presentations (
+        asset_id TEXT PRIMARY KEY REFERENCES assets(id) ON DELETE CASCADE,
+        revision INTEGER NOT NULL CHECK(revision >= 1),
+        highlight_start_ms INTEGER,
+        highlight_end_ms INTEGER,
+        fit TEXT NOT NULL CHECK(fit IN ('auto', 'contain', 'cover')),
+        focal_x REAL NOT NULL CHECK(focal_x >= 0 AND focal_x <= 1),
+        focal_y REAL NOT NULL CHECK(focal_y >= 0 AND focal_y <= 1),
+        zoom REAL NOT NULL CHECK(zoom >= 1 AND zoom <= 4),
+        playback_rate REAL NOT NULL CHECK(playback_rate IN (0.5, 0.75, 1, 1.25, 1.5, 2)),
+        loop_mode TEXT NOT NULL CHECK(loop_mode IN ('repeat', 'bounce')),
+        updated_at TEXT NOT NULL,
+        CHECK((highlight_start_ms IS NULL AND highlight_end_ms IS NULL) OR
+          (highlight_start_ms IS NOT NULL AND highlight_end_ms IS NOT NULL
+           AND highlight_start_ms >= 0 AND highlight_end_ms > highlight_start_ms))
+      );
+    `
   }
 ];
 
@@ -564,6 +586,22 @@ const REQUIRED_TABLE_COLUMNS = new Map<string, readonly string[]>([
   ],
   ["asset_tags", ["asset_id", "tag_id", "created_at"]],
   ["asset_annotations", ["asset_id", "manual_score", "favorite", "updated_at"]],
+  [
+    "asset_presentations",
+    [
+      "asset_id",
+      "revision",
+      "highlight_start_ms",
+      "highlight_end_ms",
+      "fit",
+      "focal_x",
+      "focal_y",
+      "zoom",
+      "playback_rate",
+      "loop_mode",
+      "updated_at"
+    ]
+  ],
   [
     "sessions",
     [

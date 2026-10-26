@@ -1,3 +1,4 @@
+import { mediaPresentation } from "./presentation.js";
 import type {
   AssetRecord,
   AssetRow,
@@ -50,7 +51,12 @@ export function mapAssetRow(row: AssetRow): AssetRecord {
           }
         : null,
     favorite: row.favorite === 1,
-    tags: []
+    tags: [],
+    presentation: mediaPresentation({
+      id: row.id,
+      mtimeMs: row.mtime_ms,
+      sizeBytes: row.size_bytes
+    })
   };
 }
 

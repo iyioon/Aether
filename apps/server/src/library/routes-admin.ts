@@ -1,7 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import type { AppConfig } from "../config/config.js";
 import type { AetherDatabase } from "../db/database.js";
-import { resetLibraryData } from "./repository.js";
+import { presentationPlaybackDerivativeFiles } from "./repository-presentation.js";
+import { removePresentationDerivativeFiles } from "./derivative-cache.js";
+import { countPresentationEdits, resetLibraryData } from "./repository.js";
 import {
   LibraryDataResetBody,
   ScanJobsResponse,
@@ -73,7 +75,8 @@ export function registerAdminRoutes(
         label: root.label
       })),
       watchEnabled: config.watchEnabled,
-      watchDebounceMs: config.watchDebounceMs
+      watchDebounceMs: config.watchDebounceMs,
+      presentationEdits: countPresentationEdits(db)
     },
     security: {
       passwordConfigured: Boolean(config.passwordHash),
@@ -99,7 +102,18 @@ export function registerAdminRoutes(
       return reply.code(400).send({ error: "invalid_request" });
     }
 
-    return resetLibraryData(db, body.data, new Date().toISOString());
+    const obsoleteFiles = body.data.presentationPlayback
+      ? presentationPlaybackDerivativeFiles(db)
+      : [];
+    const result = resetLibraryData(db, body.data, new Date().toISOString());
+    if (obsoleteFiles.length > 0) {
+      try {
+        await removePresentationDerivativeFiles(config.cacheDir, obsoleteFiles);
+      } catch {
+        request.log.warn("Presentation cache cleanup could not finish");
+      }
+    }
+    return result;
   });
 }
 

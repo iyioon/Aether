@@ -37,7 +37,7 @@ describe("data restore", () => {
       });
 
       expect(result).toEqual({
-        databaseVersion: 17,
+        databaseVersion: LATEST_SCHEMA_VERSION,
         manifestVersion: 2,
         restoredCache: true
       });
@@ -57,6 +57,44 @@ describe("data restore", () => {
       await expect(
         access(path.join(fixture.paths.cacheDir, "stale.txt"))
       ).rejects.toThrow();
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
+  it("preserves presentation values and revision through backup and restore", async () => {
+    const fixture = await createRestoreFixture();
+    try {
+      await mutateBackupDatabase(
+        fixture.backupDir,
+        `INSERT INTO assets (id, root_id, relative_path, name, extension, media_type, size_bytes, mtime_ms, indexed_at, status)
+        VALUES ('asset', 'root-restored', 'photo.jpg', 'photo.jpg', '.jpg', 'image', 10, 100, '2026-10-22', 'indexed');
+        INSERT INTO asset_presentations (asset_id, revision, highlight_start_ms, highlight_end_ms, fit, focal_x, focal_y, zoom, playback_rate, loop_mode, updated_at)
+        VALUES ('asset', 5, NULL, NULL, 'cover', 0.3, 0.7, 2, 1, 'repeat', '2026-10-22');`
+      );
+      await restoreDataDirectory({
+        paths: fixture.paths,
+        workspaceRoot: fixture.workspace,
+        backupDir: fixture.backupDir
+      });
+      const restored = openDatabase(fixture.paths.configDir);
+      try {
+        expect(
+          restored
+            .prepare(
+              "SELECT revision, fit, focal_x, focal_y, zoom FROM asset_presentations WHERE asset_id = 'asset'"
+            )
+            .get()
+        ).toEqual({
+          revision: 5,
+          fit: "cover",
+          focal_x: 0.3,
+          focal_y: 0.7,
+          zoom: 2
+        });
+      } finally {
+        restored.close();
+      }
     } finally {
       await fixture.cleanup();
     }
@@ -469,6 +507,7 @@ function downgradeDatabase(configDir: string, targetVersion: 13 | 14): void {
       ALTER TABLE assets DROP COLUMN fs_device_id;
       DROP TABLE IF EXISTS database_maintenance;
       DROP TABLE IF EXISTS security_state;
+      DROP TABLE IF EXISTS asset_presentations;
     `);
 
     if (targetVersion === 13) {

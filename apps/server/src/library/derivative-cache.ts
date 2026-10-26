@@ -1,9 +1,14 @@
-import { chmod, lstat, readdir, rm } from "node:fs/promises";
+import { chmod, lstat, readdir, rm, unlink } from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import path from "node:path";
 import type { AetherDatabase } from "../db/database.js";
 
-const cacheKinds = ["thumbnails", "posters", "previews"] as const;
+const cacheKinds = [
+  "thumbnails",
+  "posters",
+  "previews",
+  "presentations"
+] as const;
 
 export interface DerivativeCacheCleanupResult {
   removedEntries: number;
@@ -52,6 +57,42 @@ export async function removeAssetDerivativeCache(
     throw new DerivativeCacheCleanupError();
   }
 
+  return { removedEntries };
+}
+
+export async function removePresentationDerivativeFiles(
+  cacheDir: string,
+  entries: Array<{ assetId: string; path: string }>
+): Promise<DerivativeCacheCleanupResult> {
+  let removedEntries = 0;
+  try {
+    if (!(await requireRealDirectory(cacheDir, true)))
+      return { removedEntries };
+    const kindDirectory = path.resolve(cacheDir, "presentations");
+    if (!(await requireRealDirectory(kindDirectory, true)))
+      return { removedEntries };
+    for (const entry of entries) {
+      if (!isSafePathSegment(entry.assetId)) continue;
+      const assetDirectory = path.resolve(kindDirectory, entry.assetId);
+      if (
+        !isDirectChild(kindDirectory, assetDirectory) ||
+        !(await requireRealDirectory(assetDirectory, true))
+      )
+        continue;
+      const filePath = path.resolve(entry.path);
+      if (!isDirectChild(assetDirectory, filePath)) continue;
+      const info = await lstat(filePath).catch((error: unknown) => {
+        if (isMissingPathError(error)) return null;
+        throw error;
+      });
+      if (info?.isFile() || info?.isSymbolicLink()) {
+        await unlink(filePath);
+        removedEntries += 1;
+      }
+    }
+  } catch {
+    throw new DerivativeCacheCleanupError();
+  }
   return { removedEntries };
 }
 

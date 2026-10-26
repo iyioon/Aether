@@ -1,5 +1,6 @@
 import type { MediaRootConfig } from "../config/config.js";
 import type { AetherDatabase } from "../db/database.js";
+import { createPresentationSourceReconciler } from "./repository-presentation.js";
 import { folderIdFor } from "./repository-folders.js";
 import { recomputeAssetRankings } from "./repository-rankings.js";
 import type {
@@ -137,9 +138,17 @@ export function reconcileScannedLibrary(
          @fsBirthtimeNs, @fsCtimeNs, @seenAt, 'indexed', NULL)`
     );
 
+    const reconcilePresentationSource = createPresentationSourceReconciler(db);
     for (const asset of assets) {
       const existing = existingById.get(asset.id);
       if (existing) {
+        reconcilePresentationSource({
+          assetId: asset.id,
+          contentSha256: asset.contentSha256,
+          sizeBytes: asset.sizeBytes,
+          mtimeMs: asset.mtimeMs,
+          updatedAt: scanMarker
+        });
         updateExisting.run(asset);
       } else {
         insertNew.run(asset);

@@ -50,8 +50,16 @@ test("supports login, scan, batch annotation, fullscreen, and feed", async ({
   await expect(gifPreview).toHaveAttribute("src", /\/api\/assets\/.+\/media/);
   const webpPreview = page.getByRole("img", { name: "animated-memory.webp" });
   await expect(webpPreview).toBeVisible();
-  await expect(webpPreview).toHaveAttribute("data-preview-source", "original");
-  await expect(webpPreview).toHaveAttribute("src", /\/api\/assets\/.+\/media/);
+  await expect(webpPreview).toHaveCSS("opacity", "1");
+  await expect
+    .poll(() =>
+      webpPreview.evaluate((node) => {
+        if (!(node instanceof HTMLCanvasElement)) return false;
+        const pixel = node.getContext("2d")?.getImageData(0, 0, 1, 1).data;
+        return Boolean(pixel && pixel[3] === 255 && pixel[0]! > 0);
+      })
+    )
+    .toBe(true);
   const apngPreview = page.getByRole("img", { name: "apng-candidate.apng" });
   await expect(apngPreview).toBeVisible();
   await expect(apngPreview).toHaveAttribute("data-preview-source", "original");

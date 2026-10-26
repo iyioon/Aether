@@ -133,3 +133,29 @@ describe("library state URL helpers", () => {
     );
   });
 });
+
+describe("highlight-only preference", () => {
+  it("round-trips explicit links and saved state without changing legacy defaults", () => {
+    const state = { ...defaultLibraryState, highlightsOnly: true };
+    expect(
+      parseLibraryStateSearch(buildLibraryStateSearch(state)).highlightsOnly
+    ).toBe(true);
+    expect(
+      parseStoredLibraryState(serializeLibraryState(state))?.highlightsOnly
+    ).toBe(true);
+    expect(
+      parseLibraryStateSearch("?highlight=anything").highlightsOnly
+    ).toBeUndefined();
+    expect(buildLibraryStateSearch(defaultLibraryState)).not.toContain(
+      "highlight"
+    );
+    expect(
+      parseStoredLibraryState(
+        JSON.stringify({
+          version: 1,
+          state: { ...state, highlightsOnly: "true" }
+        })
+      )
+    ).toBeNull();
+  });
+});

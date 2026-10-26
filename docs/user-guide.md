@@ -112,6 +112,46 @@ Aether uses cached thumbnails and posters while larger files load. If a browser
 cannot play a source video, Aether can use a browser-friendly preview instead.
 A missing poster does not prevent a supported video from playing.
 
+## Presentation Settings
+
+Choose **Edit media** beside Download on a Gallery card, below the heart in
+Feed, beside a Comparison card, or in the viewer toolbar. One editor holds
+changes until **Save**; **Cancel** discards the draft. **Reset** restores the
+draft defaults, which take effect only after Save. These edits do not change
+source files or downloads.
+
+- **Playback:** select start and end handles or enter times for a highlight.
+  Preview the section, choose 0.5×–2× speed, and use Repeat or Bounce.
+  Bounce plays forward then backward without repeating the endpoint frames;
+  video bounce is silent. The video draft previews forward; Bounce applies after Save using a
+  generated, continuous forward/reverse rendition.
+- **Framing:** choose Auto, Fit, or Fill. Auto keeps each view's usual fit;
+  Fit shows the whole item. In Fill, drag or use arrow keys to reposition,
+  pinch or use Zoom to enlarge, and preview different card shapes. One saved
+  focal point and zoom apply across views, rather than a separate crop per shape.
+- **View options → Play highlights only** applies saved sections in Gallery,
+  Feed, and the viewer. With this off, an item with a highlight plays its full
+  source in Repeat; speed and framing still apply. Bounce without a highlight
+  applies to the full item. The playback bar identifies a looping highlight or
+  bounce and displays original source times.
+
+Videos support highlights up to two minutes and bounce up to ten seconds.
+Animated GIF, WebP, APNG, and AVIF support playback editing within sixty seconds,
+600 frames, and the server's decoded-pixel budget. Transparency and individual
+frame timing are retained. Large or undecodable files may be unavailable for
+playback editing. Preparation can take time on the first playback; retry a
+failed request explicitly. Backgrounding pauses playback; preparation may still
+be needed when you return.
+
+Comparison always uses the full source at normal speed with forward repeat,
+while preserving saved framing. Its aspect button offers Original, Square,
+Portrait, and Landscape without changing the pair or Undo.
+
+Settings are shared by devices using the same server. If another window saves
+first, the editor keeps your draft and asks you to reload saved settings. If a
+source file changes, scan the library before editing it. Safe moves retain edits;
+replacing a file's content clears them.
+
 ## Scores, Favorites, And Tags
 
 Every item starts with a score of zero. A score above zero appears in the
@@ -153,10 +193,12 @@ values and absolute server paths are not sent to the browser. Library controls
 such as view, sorting, tile size, and filters stay in the library toolbar and
 survive a reload through the page address.
 
-The **Database** tab can reset scores, favorites, tags, or comparison history.
+The **Database** tab can reset scores, favorites, tags, comparison history,
+highlights and playback, or position and zoom.
 Nothing is selected by default. Review the choices, enter `RESET`, and confirm.
-This does not delete source media, indexed files, folders, server settings, or
-generated previews.
+This does not delete source media, indexed files, folders, or server settings.
+Playback reset removes obsolete section and bounce renditions; other previews
+remain. Position and zoom reset keeps playback preferences.
 
 To rebuild the whole index or remove all Aether-managed data, stop the server
 and follow [Data management](data-management.md).

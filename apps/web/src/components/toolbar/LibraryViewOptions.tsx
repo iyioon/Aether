@@ -3,6 +3,8 @@ import { SlidersHorizontal, X } from "lucide-react";
 import { useIsMobile } from "../../hooks/use-mobile";
 import type { ViewMode } from "../library-state";
 import { Button } from "../ui/button";
+import { Checkbox } from "../ui/checkbox";
+import { Label } from "../ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "../ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
@@ -16,6 +18,8 @@ export interface LibraryViewOptionsProps
   isOpen: boolean;
   view: ViewMode;
   onOpenChange: (isOpen: boolean) => void;
+  highlightsOnly: boolean;
+  onHighlightsOnlyChange: (value: boolean) => void;
 }
 
 export function LibraryViewOptions(props: LibraryViewOptionsProps) {
@@ -98,6 +102,17 @@ export function LibraryViewOptions(props: LibraryViewOptionsProps) {
           </div>
         </Tabs>
       )}
+      {view !== "compare" ? (
+        <Label className="view-options-playback">
+          <Checkbox
+            checked={props.highlightsOnly}
+            onCheckedChange={(checked) =>
+              props.onHighlightsOnlyChange(checked === true)
+            }
+          />
+          Play highlights only
+        </Label>
+      ) : null}
     </>
   );
 

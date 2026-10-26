@@ -5,6 +5,9 @@ import {
   ApiTimeoutError,
   getAiAssetTagSuggestions,
   getTree,
+  getMe,
+  notifyUnauthorized,
+  subscribeToUnauthorized,
   logout
 } from "./client";
 
@@ -91,6 +94,54 @@ describe("CSRF cookie selection", () => {
     await logout();
 
     expect(requestHeaders(fetchMock).get("x-csrf-token")).toBe("http-token");
+  });
+});
+
+describe("session expiry notification", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it("uses the same expiry path for JSON API and streamed media requests", async () => {
+    const listener = vi.fn();
+    const unsubscribe = subscribeToUnauthorized(listener);
+    try {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() =>
+          Promise.resolve(
+            new Response(JSON.stringify({ error: "unauthorized" }), {
+              status: 401
+            })
+          )
+        )
+      );
+      await expect(getTree()).rejects.toMatchObject({ status: 401 });
+      expect(listener).toHaveBeenCalledTimes(1);
+      notifyUnauthorized();
+      expect(listener).toHaveBeenCalledTimes(2);
+      unsubscribe();
+      notifyUnauthorized();
+      expect(listener).toHaveBeenCalledTimes(2);
+    } finally {
+      unsubscribe();
+    }
+  });
+  it("does not report network failures or initial signed-out checks as expiry", async () => {
+    const listener = vi.fn();
+    const unsubscribe = subscribeToUnauthorized(listener);
+    try {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => Promise.reject(new TypeError("Offline")))
+      );
+      await expect(getTree()).rejects.toThrow("Offline");
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => Promise.resolve(new Response("{}", { status: 401 })))
+      );
+      await expect(getMe()).rejects.toMatchObject({ status: 401 });
+      expect(listener).not.toHaveBeenCalled();
+    } finally {
+      unsubscribe();
+    }
   });
 });
 

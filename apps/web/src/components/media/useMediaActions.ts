@@ -1,3 +1,4 @@
+import { preservePresentation } from "./presentation-record";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   updateAssetScore,
@@ -201,7 +202,9 @@ export function useMediaActions({
   function updateViewerAssetFallback(updatedAsset: AssetRecord) {
     viewerMutationRevisionRef.current += 1;
     setViewerAssetFallback((current) =>
-      current?.id === updatedAsset.id ? updatedAsset : current
+      current?.id === updatedAsset.id
+        ? preservePresentation(current, updatedAsset)
+        : current
     );
   }
 
@@ -239,7 +242,10 @@ function resolveViewerAsset(
   }
 
   if (viewerAssetFallback?.id === assetId) {
-    return viewerAssetFallback;
+    const listed = assets.find((asset) => asset.id === assetId);
+    return listed
+      ? preservePresentation(listed, viewerAssetFallback)
+      : viewerAssetFallback;
   }
 
   return assets.find((asset) => asset.id === assetId) ?? null;

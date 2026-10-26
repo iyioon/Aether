@@ -27,6 +27,52 @@ export type SortMode = "date" | "filename" | "score" | "random";
 export type SortDirection = "desc" | "asc";
 export type ScoreFilter = "all" | "favorites" | "ranked" | "unranked";
 
+export interface PresentationValues {
+  highlight: { startMs: number; endMs: number } | null;
+  fit: "auto" | "contain" | "cover";
+  focalX: number;
+  focalY: number;
+  zoom: number;
+  playbackRate: number;
+  loopMode: "repeat" | "bounce";
+}
+
+export interface MediaPresentation extends PresentationValues {
+  revision: number;
+  renditionKeys: { full: string; highlight: string; bounce: string };
+}
+
+export interface PresentationMediaCapabilities {
+  timingUnavailable?: boolean;
+  kind: "still" | "video" | "animation";
+  durationMs: number | null;
+  width: number | null;
+  height: number | null;
+  hasAudio: boolean;
+  maxBounceDurationMs: number;
+  maxAnimationDurationMs?: number;
+  maxAnimationFrames?: number;
+  maxHighlightDurationMs?: number;
+  renditionKeys: MediaPresentation["renditionKeys"];
+}
+
+export interface AnimationManifest {
+  kind: "animation";
+  durationMs: number;
+  width: number;
+  height: number;
+  frames: Array<{
+    startMs: number;
+    durationMs: number;
+    atlas: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }>;
+  atlases: Array<{ url: string; width: number; height: number }>;
+}
+
 export interface AssetRecord {
   id: string;
   folderId: string | null;
@@ -51,6 +97,7 @@ export interface AssetRecord {
   } | null;
   favorite: boolean;
   tags: TagRecord[];
+  presentation?: MediaPresentation;
 }
 
 export interface TagRecord {
@@ -107,6 +154,8 @@ export interface LibraryDataResetOptions {
   favorites: boolean;
   tags: boolean;
   comparisons: boolean;
+  presentationPlayback?: boolean;
+  presentationFraming?: boolean;
 }
 
 export interface LibraryDataResetResult {
@@ -116,6 +165,8 @@ export interface LibraryDataResetResult {
   tagAssignmentsRemoved: number;
   comparisonPreferencesRemoved: number;
   comparisonEventsRemoved: number;
+  playbackReset?: number;
+  framingReset?: number;
 }
 
 export interface ComparisonPairResponse {
@@ -221,6 +272,7 @@ export interface SettingsSummary {
     }>;
     watchEnabled: boolean;
     watchDebounceMs: number;
+    presentationEdits?: { playback: number; framing: number };
   };
   security: {
     passwordConfigured: boolean;
@@ -271,6 +323,10 @@ export function subscribeToUnauthorized(
 ): () => void {
   unauthorizedListeners.add(listener);
   return () => unauthorizedListeners.delete(listener);
+}
+
+export function notifyUnauthorized(): void {
+  for (const listener of unauthorizedListeners) listener();
 }
 
 export async function getMe(signal?: AbortSignal): Promise<AuthState> {
@@ -462,6 +518,47 @@ export async function getSettings(
   return request<SettingsSummary>("/api/admin/settings", { signal });
 }
 
+export async function getPresentationMediaCapabilities(
+  assetId: string,
+  signal?: AbortSignal
+): Promise<PresentationMediaCapabilities> {
+  return request<PresentationMediaCapabilities>(
+    `/api/assets/${encodeURIComponent(assetId)}/presentation-media`,
+    { signal },
+    { timeoutMs: MEDIA_PREPARATION_TIMEOUT_MS }
+  );
+}
+
+const MEDIA_PREPARATION_TIMEOUT_MS = 180_000;
+
+export async function getAnimationManifest(
+  assetId: string,
+  renditionKey: string,
+  signal?: AbortSignal
+): Promise<AnimationManifest> {
+  return request<AnimationManifest>(
+    `/api/assets/${encodeURIComponent(assetId)}/animation?v=${encodeURIComponent(renditionKey)}`,
+    { signal },
+    { timeoutMs: MEDIA_PREPARATION_TIMEOUT_MS }
+  );
+}
+
+export async function updateAssetPresentation(
+  assetId: string,
+  values: PresentationValues,
+  expectedRevision: number
+): Promise<AssetRecord> {
+  const result = await request<{ asset: AssetRecord }>(
+    `/api/assets/${encodeURIComponent(assetId)}/presentation`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ expectedRevision, ...values })
+    },
+    { timeoutMs: MEDIA_PREPARATION_TIMEOUT_MS }
+  );
+  return result.asset;
+}
+
 export async function resetLibraryData(
   options: LibraryDataResetOptions
 ): Promise<LibraryDataResetResult> {
@@ -642,9 +739,7 @@ async function request<T>(
     if (!response.ok) {
       const payload = await safeJson(response);
       if (response.status === 401 && options.recoverAuth !== false) {
-        for (const listener of unauthorizedListeners) {
-          listener();
-        }
+        notifyUnauthorized();
       }
       throw new ApiError(response.status, payload?.error ?? "request_failed");
     }

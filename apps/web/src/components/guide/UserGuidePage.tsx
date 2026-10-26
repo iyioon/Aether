@@ -96,6 +96,7 @@ export function UserGuidePage() {
         <nav className="guide-nav" aria-label="On this page">
           <a href="#guide-start">Get started</a>
           <a href="#guide-views">Browsing views</a>
+          <a href="#guide-presentation">Presentation</a>
           <a href="#guide-ranking">Ranking</a>
           <a href="#guide-organize">Organizing</a>
           <a href="#guide-shortcuts">Keyboard</a>
@@ -142,6 +143,32 @@ export function UserGuidePage() {
               </article>
             ))}
           </div>
+        </GuideSection>
+
+        <GuideSection
+          id="guide-presentation"
+          title="Adjust presentation"
+          description="Saved edits change how Aether displays media. Originals and downloads stay unchanged."
+        >
+          <p>
+            Open Edit media on a card, below the Feed heart, or in the viewer.
+            Choose a highlight, playback speed and Repeat or Bounce in Playback.
+            Use Framing for Fit, Fill, drag, pinch and zoom. Save applies the
+            draft; Cancel discards it. Reset restores defaults only after Save.
+          </p>
+          <p>
+            Turn on Play highlights only in View options to loop saved sections.
+            Video bounce is silent and limited to ten seconds; highlights can
+            span two minutes. GIF, WebP, APNG and AVIF playback editing supports
+            up to sixty seconds and 600 frames within the processing budget.
+            First playback may need preparation.
+          </p>
+          <p>
+            Comparison keeps full-source, normal-speed playback while using
+            saved framing; its aspect menu changes the card shape. Settings →
+            Database can reset playback or framing separately. If another window
+            saves first, reload saved settings before saving again.
+          </p>
         </GuideSection>
 
         <GuideSection

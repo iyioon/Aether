@@ -11,10 +11,16 @@ import {
   type UIEvent as ReactUIEvent
 } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArrowUp, Download, SlidersHorizontal } from "lucide-react";
+import {
+  ArrowUp,
+  Download,
+  SlidersHorizontal,
+  SlidersVertical
+} from "lucide-react";
 import type { AssetRecord } from "../../api/client";
 import { useAutoLoadSentinel } from "../../hooks/useAutoLoadSentinel";
 import type { AspectMode, GridSize } from "../library-state";
+import { IconButton } from "../IconButton";
 import { GalleryCardCuration } from "../GalleryCardCuration";
 import { MediaPreview } from "../media/MediaPreview";
 import { downloadUrl } from "../media/media-urls";
@@ -68,6 +74,7 @@ interface GalleryGridProps {
     height: number
   ) => void;
   onScoreAsset: (asset: AssetRecord, score: number) => void;
+  onEditAsset?: (asset: AssetRecord) => void;
   onSelectAsset: (assetId: string) => void;
   onToggleSelection: (assetId: string) => void;
 }
@@ -87,6 +94,7 @@ interface GalleryAssetCardProps {
     height: number
   ) => void;
   onScoreAsset: (asset: AssetRecord, score: number) => void;
+  onEditAsset?: (asset: AssetRecord) => void;
   onSelectAsset: (assetId: string) => void;
   onToggleSelection: (assetId: string) => void;
 }
@@ -112,6 +120,7 @@ export function GalleryGrid({
   onFavoriteAsset,
   onMediaDimensionsKnown,
   onScoreAsset,
+  onEditAsset,
   onSelectAsset,
   onToggleSelection
 }: GalleryGridProps) {
@@ -141,6 +150,7 @@ export function GalleryGrid({
     onFavoriteAsset,
     onMediaDimensionsKnown,
     onScoreAsset,
+    onEditAsset,
     onSelectAsset,
     onToggleSelection
   });
@@ -151,6 +161,7 @@ export function GalleryGrid({
     onFavoriteAsset,
     onMediaDimensionsKnown,
     onScoreAsset,
+    onEditAsset,
     onSelectAsset,
     onToggleSelection
   };
@@ -175,6 +186,9 @@ export function GalleryGrid({
   );
   const handleScoreAsset = useCallback((asset: AssetRecord, score: number) => {
     galleryActionsRef.current.onScoreAsset(asset, score);
+  }, []);
+  const handleEditAsset = useCallback((asset: AssetRecord) => {
+    galleryActionsRef.current.onEditAsset?.(asset);
   }, []);
   const handleSelectAsset = useCallback((assetId: string) => {
     galleryActionsRef.current.onSelectAsset(assetId);
@@ -263,6 +277,8 @@ export function GalleryGrid({
   }, []);
 
   useLayoutEffect(() => {
+    // Returning to an earlier query must run restoration again.
+    restoredContextRef.current = null;
     lastReportedAnchorIdRef.current = null;
     scrollTopVisibleRef.current = false;
     setIsScrollTopVisible(false);
@@ -993,6 +1009,7 @@ export function GalleryGrid({
                     onFavoriteAsset={handleFavoriteAsset}
                     onMediaDimensionsKnown={handleMediaDimensionsKnown}
                     onScoreAsset={handleScoreAsset}
+                    onEditAsset={onEditAsset ? handleEditAsset : undefined}
                     onSelectAsset={handleSelectAsset}
                     onToggleSelection={handleToggleSelection}
                   />
@@ -1042,6 +1059,7 @@ const GalleryAssetCard = memo(function GalleryAssetCard({
   onFavoriteAsset,
   onMediaDimensionsKnown,
   onScoreAsset,
+  onEditAsset,
   onSelectAsset,
   onToggleSelection
 }: GalleryAssetCardProps) {
@@ -1093,6 +1111,19 @@ const GalleryAssetCard = memo(function GalleryAssetCard({
           onDimensionsKnown={onMediaDimensionsKnown}
         />
       </button>
+      {onEditAsset ? (
+        <IconButton
+          className="tile-edit media-overlay-button"
+          icon={SlidersVertical}
+          iconSize={15}
+          label={`Edit ${asset.name}`}
+          title="Edit media"
+          aria-haspopup="dialog"
+          disabled={isSelectionMode}
+          tabIndex={isSelectionMode ? -1 : undefined}
+          onClick={() => onEditAsset(asset)}
+        />
+      ) : null}
       <a
         className="icon-link tile-download"
         href={downloadUrl(asset.id)}

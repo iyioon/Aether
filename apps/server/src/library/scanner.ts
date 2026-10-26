@@ -1209,8 +1209,8 @@ async function readImageDimensions(
       limitInputPixels: 268_402_689
     }).metadata();
     throwIfScanAborted(signal);
-    const width = positiveIntegerOrNull(metadata.width);
-    const height = positiveIntegerOrNull(metadata.height);
+    const width = positiveIntegerOrNull(metadata.autoOrient.width);
+    const height = positiveIntegerOrNull(metadata.autoOrient.height);
 
     return width && height ? { width, height } : null;
   } catch {

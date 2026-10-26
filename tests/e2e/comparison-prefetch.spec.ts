@@ -69,12 +69,9 @@ async function rankingReady(page: Page): Promise<void> {
 
 async function visiblePairIds(page: Page): Promise<string[]> {
   return page
-    .locator(".comparison-card .media-image[data-preview-source]")
-    .evaluateAll((images) =>
-      images.map((image) => {
-        const source = new URL((image as HTMLImageElement).src);
-        return source.pathname.split("/")[3];
-      })
+    .locator(".comparison-card")
+    .evaluateAll((cards) =>
+      cards.map((card) => card.getAttribute("data-asset-id")!)
     );
 }
 
@@ -83,12 +80,9 @@ function pairIds(pair: ComparisonPairResponse): [string, string] {
 }
 
 function displaySources(pair: ComparisonPairResponse): string[] {
-  return [pair.left, pair.right].flatMap((asset) => [
-    `/api/assets/${asset.id}/thumbnail?size=640`,
-    ...(/\.(gif|webp|avif|apng)$/i.test(asset.extension)
-      ? [`/api/assets/${asset.id}/media`]
-      : [])
-  ]);
+  return [pair.left, pair.right].map(
+    (asset) => `/api/assets/${asset.id}/thumbnail?size=640`
+  );
 }
 
 async function observeImageDecoding(page: Page): Promise<void> {
@@ -227,7 +221,7 @@ test("decodes upcoming comparisons before a choice and swaps only after the vote
   ).toBeEnabled();
 });
 
-test("keeps decoded thumbnails visible while animated originals are delayed, then handles loading and failure", async ({
+test("keeps decoded thumbnails visible while displayed originals are delayed, then handles loading and failure", async ({
   page
 }) => {
   const folderId = await signInAndScan(page);

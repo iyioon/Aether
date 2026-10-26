@@ -6,7 +6,7 @@ Aether keeps all server-managed state in one directory. The default is
 This directory contains:
 
 - the SQLite database and its temporary files
-- thumbnails, video posters, and preview clips
+- thumbnails, video posters, preview clips, presentation renditions and animation atlases
 - Aether-created backups
 - `private.env`, including media-root paths and sign-in secrets
 - a marker used to prevent maintenance commands from targeting the wrong folder
@@ -14,6 +14,14 @@ This directory contains:
 
 Source media stays in the folders listed in `AETHER_MEDIA_ROOTS`. It is not
 copied into the data directory, and Aether's reset commands do not delete it.
+
+Presentation settings live in the database and are included in normal backups.
+Restore accepts earlier supported schemas and upgrades them when the server
+opens the restored database. Generated presentation files are optional cache;
+they regenerate when absent. Keep the database when preserving saved highlights,
+framing, speed and loop preferences. A full rebuild discards these edits along
+with other per-asset metadata. Selective resets are available in Settings and
+advance revisions to reject stale editor saves.
 
 ## Check The Data Directory
 

@@ -731,6 +731,24 @@ describe("controllable transparent animations", () => {
     ).toBeNull();
   });
 
+  it("uses oriented photo dimensions for indexed cards and the presentation editor without changing source bytes", async () => {
+    const source = await sharp({
+      create: { width: 48, height: 32, channels: 3, background: "red" }
+    })
+      .jpeg()
+      .withMetadata({ orientation: 6 })
+      .toBuffer();
+    const sourcePath = path.join(cwd, "media", "oriented.jpg");
+    await writeFile(sourcePath, source);
+    const asset = await assetNamed("oriented.jpg");
+    expect(asset).toMatchObject({ width: 32, height: 48 });
+    const file = (await resolveAssetFile(db, asset.id))!;
+    expect(
+      await getPresentationMediaCapabilities({ db, config, file })
+    ).toMatchObject({ kind: "still", width: 32, height: 48 });
+    expect(await readFile(sourcePath)).toEqual(source);
+  });
+
   it("recognizes static PNGs and rejects malformed animated media without claiming it is still", async () => {
     await sharp({
       create: { width: 16, height: 12, channels: 4, background: "red" }

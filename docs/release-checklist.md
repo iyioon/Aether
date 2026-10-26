@@ -22,6 +22,7 @@ npm run verify
 npm run test:e2e
 docker compose config -q
 docker compose build
+docker build --target media-verification .
 ```
 
 Review any skipped test instead of treating a partial run as a release pass.
@@ -77,6 +78,28 @@ Never test rebuild or wipe against the only copy of a real library database.
   small libraries, and lost vote responses. Verify bounded background requests,
   data-saving behavior, cancellation while hidden, and video loading on a slow
   connection.
+
+## Presentation Acceptance
+
+- In Gallery, Feed, viewer and Comparison, open the same editor. Check that
+  Cancel discards drafts, Save survives reload, Reset needs Save, and editing
+  cannot vote, navigate, favorite or score accidentally.
+- Use a video plus variable-delay/transparent GIF, WebP, APNG and AVIF. Save a
+  highlight, speed and loop preference. Turn Play highlights only on/off,
+  verify selected-start posters, source-time seeking, exact range, silent video
+  bounce and retained animation transparency. Test a first-time preparation,
+  failure/retry, unsupported or over-budget file, and a changed source before scan.
+- Test Fit/Fill/Auto, drag, pinch, keyboard movement and zoom across card shapes,
+  viewer and both orientations. Comparison aspect changes retain pair/Undo and
+  temporal playback remains full/1×/repeat.
+- Save from two tabs to check conflict/reload; interrupt a Save response and
+  verify retry cannot overwrite newer settings. Reset only playback or framing
+  and confirm other edits, scores, tags, favorites, navigation and Undo survive.
+- On an actual installed iPhone PWA, check editor header/footer and input keyboard
+  in portrait/short landscape, slider handles with VoiceOver, pinch without page
+  navigation, hidden Feed chrome, safe-area touch targets, pause through Home/
+  return, and native fullscreen section bounds. Record real-device acceptance
+  separately from browser emulation.
 
 ## Security
 

@@ -179,6 +179,72 @@ visible play, seek, mute, and expansion controls.
 Safe-area tokens follow [WebKit's guidance](https://webkit.org/blog/7929/designing-websites-for-iphone-x/),
 and native presentation capabilities are detected at runtime.
 
+## Saved Media Presentation
+
+Schema migration 18 adds versioned per-asset presentation metadata: optional
+source-time highlight, fit policy, normalized focal point, bounded zoom,
+playback rate, and repeat/bounce preference. Repository hydration batches these
+records with library, detail, comparison, and mutation results. Saves use an
+expected revision in a transaction; resets also advance revisions, so an old
+editor cannot restore cleared preferences. Known identical content retains edits
+through safe moves or timestamp changes; a content replacement clears them.
+
+`routes-presentation.ts` validates edits and verifies the resolved source before
+and after capability probing. `presentation-media.ts` verifies still/video/
+animation capabilities, rather than treating an extension as proof of animation.
+`presentation-video.ts` generates complete highlight or silent bounce MP4s and
+selected-start posters. `presentation-animation.ts` produces composed, alpha-
+preserving PNG atlases with original frame delays: sharp for GIF/WebP, FFmpeg
+for APNG/AVIF, including selected-start animation posters. A temporary uncompressed
+TIFF frame store keeps GIF/WebP atlas generation to one in-memory batch. Every
+source passes shared path validation. FFmpeg uses local
+protocol/container allowlists, argument arrays, deadlines and output limits.
+
+Opaque rendition keys include source identity and only the edits affecting the
+bytes. Rate/framing changes reuse renditions. Generation is shared, bounded,
+atomically published, and rechecks the source and key before publication.
+Authenticated GET/HEAD/range responses use private versioned browser caching;
+capabilities and manifests use `no-store`. Capability probes use a per-database
+128-entry source-stat cache and sixteen-job admission limit; generation queues
+are also bounded and share two processing slots. Completed replacements remove
+only their superseded registered files. No private response enters the service
+worker shell cache. Source downloads remain unchanged. Reset/delete/scan cache
+cleanup includes presentation files while preserving unrelated current jobs.
+
+The shared editor uses explicit draft Save/Cancel, Playback/Framing sections and
+a single preview. Time handles follow the [W3C multi-thumb slider pattern](https://www.w3.org/WAI/ARIA/apg/patterns/slider-multithumb/);
+direct framing and reversible edits follow [Apple Photos](https://support.apple.com/en-us/104968).
+`presentation-geometry.ts` defines the common Fit/Fill, focal point and zoom
+mapping. Indexed photo and editor dimensions include EXIF orientation to match
+the browser's display. Delayed curation responses preserve newer presentation revisions.
+Unknown save outcomes are reconciled by reading the current record before retry;
+conflicts require an explicit reload rather than silently replacing a draft.
+
+`ControlledAnimation` draws verified atlas frames on canvas, retaining variable
+delays and alpha. It uses bounded shared atlas decoding, a source-time timeline,
+repeat/bounce ordering, and the same transport controls as video. The decoded
+atlas cache retains at most three 2048px atlases (48 MiB RGBA), plus two bounded
+concurrent fetch/decode jobs. Hidden or
+obsolete browser work is cancelled. Shared server generation already started
+finishes within its processing limits and rejects stale output. Video speed uses
+positive native playback rates;
+[negative rates are not portable](https://developer.mozilla.org/en-US/docs/Web/API/HTMLMediaElement/playbackRate),
+so saved bounce is a bounded generated sequence rather than a negative rate.
+Video drafts preview forward and disclose that Bounce applies after Save;
+saved playback uses the complete rendition, including native fullscreen. Video bounce is limited to ten seconds,
+480px/24fps with one reverse job at a time; highlights are limited to two minutes
+and 1080px. Animations are limited to sixty seconds, 600 frames, 64 million total
+source pixels, 512px frames, 2048px atlases and 64 MiB encoded output. Atlas jobs
+have a two-minute budget, including a sixty-second source-decoding deadline.
+These are editing/playback budgets,
+not restrictions on indexing ordinary source media.
+
+The highlight-only preference follows validated URL/resume state. Comparison
+ignores temporal edits, uses full source/1×/repeat, and applies saved framing in
+a separately remembered aspect ratio. Presentation-only reset leaves navigation,
+ranking and Undo intact. Per-asset edits remain server-owned; private in-memory
+capability/atlas caches are cleared on sign-out.
+
 ## Pairwise Ranking
 
 Aether keeps the latest active choice for each pair while retaining reversible
@@ -195,16 +261,15 @@ Invalid candidates fall back to a new server-selected pair. The client waits
 for the vote acknowledgement, uses the returned records and progress, and
 refills the queue. It never displays an unconfirmed vote as saved.
 
-Preparation loads the sources used by comparison cards: thumbnails for still
-images and video posters, original animated images, and a request for at most
-the first 512 KiB of a video. This does not guarantee immediate video playback.
-Original-image preparation requires known dimensions and file size. Each file
-is limited to 8 MiB and 4 million pixels, with a queue budget of 16 MiB and
-8 million pixels. Larger or unknown originals load when displayed, using the
-prepared thumbnail while they load.
+Preparation decodes thumbnails for every queued item and requests at most
+the first 512 KiB of a video. Displayed images retain their prepared thumbnail
+while the original or controlled animation loads. Native animated originals
+are not prepared because their bytes and decoded frames are not used by the
+atlas renderer. Preparation does not guarantee immediate video or animation
+playback.
 When the browser reports data-saving mode, a 2G connection, or an estimated
 downlink below 1 Mb/s, only the first queued pair's thumbnails are prepared;
-original images and video bytes are not requested. Hidden pages cancel preparation.
+video bytes are not requested. Hidden pages cancel preparation.
 Changing filters, undoing, resetting comparisons, or restoring the session
 discards outdated candidates. Prefetched records and media are not persisted
 in ranking checkpoints or the service worker's public cache; media uses the

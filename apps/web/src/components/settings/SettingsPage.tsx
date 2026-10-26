@@ -155,11 +155,14 @@ export function SettingsPage({
           <TabsContent className="settings-tab-panel" value="data">
             <div className="settings-tab-intro">
               <p className="text-sm text-muted-foreground">
-                Selectively reset library annotations and ranking information.
+                Reset selected media edits, annotations and ranking information.
               </p>
             </div>
             <div className="settings-grid settings-grid-single">
-              <DataResetSettingsSection onResetComplete={onDataReset} />
+              <DataResetSettingsSection
+                presentationEdits={settings?.library.presentationEdits}
+                onResetComplete={onDataReset}
+              />
             </div>
           </TabsContent>
         </Tabs>

@@ -48,6 +48,14 @@ import { SidebarInset, SidebarProvider } from "./ui/sidebar";
 import { Skeleton } from "./ui/skeleton";
 import { LibraryControlStrip } from "./toolbar/LibraryControlStrip";
 import { useLibraryControls } from "./toolbar/useLibraryControls";
+import { PresentationContext } from "./media/presentation-context";
+import { clearPresentationCapabilities } from "./media/usePresentationCapabilities";
+import { animationAtlasCache } from "./media/animation-atlas-cache";
+const PresentationEditorDialog = lazy(() =>
+  import("./media/PresentationEditorDialog").then(
+    ({ PresentationEditorDialog }) => ({ default: PresentationEditorDialog })
+  )
+);
 
 interface AppShellProps {
   appearance: AppearanceSettings;
@@ -190,6 +198,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
   } = useGalleryMetadataFields();
   const { handleMediaDimensionsKnown, measuredAspectRatios } =
     useMeasuredAspectRatios();
+  const [editingAsset, setEditingAsset] = useState<AssetRecord | null>(null);
   const [isFeedChromeHidden, setIsFeedChromeHidden] = useState(false);
   const [comparisonAssetUpdate, setComparisonAssetUpdate] =
     useState<AssetRecord | null>(null);
@@ -206,6 +215,8 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     clearFilters,
     filterTagSuggestions,
     gridSize,
+    highlightsOnly,
+    setHighlightsOnly,
     mediaType,
     isOptionsOpen,
     scoreFilter,
@@ -378,7 +389,8 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
         mediaType,
         scoreFilter,
         search,
-        tags: tagFilters
+        tags: tagFilters,
+        ...(highlightsOnly ? { highlightsOnly: true } : {})
       },
       navigation: {
         page: activePage,
@@ -398,6 +410,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
       scoreFilter,
       search,
       tagFilters,
+      highlightsOnly,
       activePage,
       comparisonWorkspace,
       settingsTab,
@@ -628,6 +641,8 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
       clearRankingResumeState();
       clearRandomOrderState();
       clearAppResumeState();
+      clearPresentationCapabilities();
+      animationAtlasCache.clear();
     };
     try {
       await logout();
@@ -652,6 +667,8 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
         filterTagSuggestions={filterTagSuggestions}
         galleryMetadataFields={galleryMetadataFields}
         gridSize={gridSize}
+        highlightsOnly={highlightsOnly}
+        onHighlightsOnlyChange={setHighlightsOnly}
         isSelectionMode={isSelectionMode}
         loadedAssetCount={assets.length}
         mediaType={mediaType}
@@ -680,257 +697,302 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
       />
     ) : null;
 
+  const presentationPreferences = useMemo(
+    () => ({ highlightsOnly, isPlaybackPaused: editingAsset !== null }),
+    [highlightsOnly, editingAsset]
+  );
+  useEffect(() => {
+    setEditingAsset(null);
+  }, [activePage, view, selectedFolderId, selectedAssetId, listQueryKey]);
+
   return (
-    <SidebarProvider className="app-shell" defaultOpen={sidebarDefaultOpen}>
-      <LibrarySidebar
-        error={error}
-        expandableFolderIds={expandableFolderIds}
-        expandedFolderCount={expandedFolderCount}
-        expandedFolderIds={expandedFolderIds}
-        folderSortMode={folderSortMode}
-        isLoadingTree={isLoadingTree}
-        isGuideOpen={activePage === "guide"}
-        isSettingsOpen={activePage === "settings"}
-        items={tree?.roots.length ? visibleFolderItems : []}
-        scanProgress={scanProgress}
-        scanState={scanState}
-        selectedFolderId={selectedFolderId}
-        treeTabStopId={treeTabStopId}
-        watchStatus={watchStatus}
-        onCollapseAll={collapseAllFolders}
-        onExpandAll={expandAllFolders}
-        onFolderKeyDown={handleFolderTreeKeyDown}
-        onFolderSortChange={setFolderSortMode}
-        onLogout={() => void handleLogout()}
-        onOpenGuide={openGuide}
-        onOpenSettings={openSettings}
-        onPreloadGuide={preloadGuide}
-        onPreloadSettings={preloadSettings}
-        onScan={() => void handleScan()}
-        onSelectFolder={selectFolder}
-        onToggleFolderExpansion={toggleFolderExpansion}
-      />
-      <SidebarInset className="library-inset">
-        <LibraryPathBar
-          controls={libraryControls}
-          isFeedChromeHidden={isFeedChromeHidden && assets.length > 0}
+    <PresentationContext.Provider value={presentationPreferences}>
+      <SidebarProvider className="app-shell" defaultOpen={sidebarDefaultOpen}>
+        <LibrarySidebar
+          error={error}
+          expandableFolderIds={expandableFolderIds}
+          expandedFolderCount={expandedFolderCount}
+          expandedFolderIds={expandedFolderIds}
+          folderSortMode={folderSortMode}
+          isLoadingTree={isLoadingTree}
           isGuideOpen={activePage === "guide"}
           isSettingsOpen={activePage === "settings"}
-          searchDraft={searchDraft}
+          items={tree?.roots.length ? visibleFolderItems : []}
+          scanProgress={scanProgress}
+          scanState={scanState}
           selectedFolderId={selectedFolderId}
-          tree={tree}
-          view={view}
-          onBackToLibrary={backToLibrary}
-          onSearchDraftChange={setSearchDraft}
+          treeTabStopId={treeTabStopId}
+          watchStatus={watchStatus}
+          onCollapseAll={collapseAllFolders}
+          onExpandAll={expandAllFolders}
+          onFolderKeyDown={handleFolderTreeKeyDown}
+          onFolderSortChange={setFolderSortMode}
+          onLogout={() => void handleLogout()}
+          onOpenGuide={openGuide}
+          onOpenSettings={openSettings}
+          onPreloadGuide={preloadGuide}
+          onPreloadSettings={preloadSettings}
+          onScan={() => void handleScan()}
           onSelectFolder={selectFolder}
-          onPreloadView={preloadView}
-          onSwitchView={switchView}
+          onToggleFolderExpansion={toggleFolderExpansion}
         />
-        <main
-          className={[
-            "library-main",
-            isSelectionMode ? "has-selection" : "",
-            activePage === "settings"
-              ? "view-settings"
-              : activePage === "guide"
-                ? "view-guide"
-                : view === "feed"
-                  ? "view-feed"
-                  : view === "compare"
-                    ? "view-compare"
-                    : "view-gallery"
-          ]
-            .filter(Boolean)
-            .join(" ")}
-        >
-          <Suspense fallback={<WorkspaceLoadingFallback />}>
-            {activePage === "settings" ? (
-              <SettingsPage
-                tab={settingsTab}
-                onTabChange={setSettingsTab}
-                accent={accent}
-                accentOptions={accentOptions}
-                customAccent={customAccent}
-                isLoading={isLoadingSettings}
-                settings={settingsSummary}
-                settingsError={settingsError}
-                onSetAccent={setAccent}
-                onSetCustomAccent={setCustomAccent}
-                onSetTheme={setTheme}
-                onRefreshSettings={() => void refreshSettingsSummary()}
-                onDataReset={(_result, options: LibraryDataResetOptions) => {
-                  clearSessionScrollPositions();
-                  if (options.comparisons || options.scores)
-                    clearRankingResumeState();
-                  if (options.tags) {
-                    clearTagFilters();
-                  }
-                  if (
-                    options.scores ||
-                    options.favorites ||
-                    options.comparisons
-                  ) {
-                    setScoreFilter("all");
-                  }
-                  if (options.scores || options.comparisons) {
-                    rankingChangedRef.current = true;
-                  }
-                  reloadAssets();
-                }}
-                theme={theme}
-                themeOptions={themeOptions}
-              />
-            ) : activePage === "guide" ? (
-              <UserGuidePage />
-            ) : (
-              <>
-                {isSelectionMode ? (
-                  <BatchActionsBar
-                    isOpen
-                    loadedCount={assets.length}
-                    selectedCount={selectedAssetCount}
-                    allSelectedFavorite={allSelectedAssetsFavorite}
-                    tagDraft={batchTagDraft}
-                    tagSuggestions={batchTagSuggestions}
-                    isSaving={isSavingBatch}
-                    onClear={clearSelectedAssets}
-                    onClose={closeSelectionMode}
-                    onApplyCuration={(input) => void saveBatchScore(input)}
-                    onTagDraftChange={setBatchTagDraft}
-                    onAddTag={() => void saveBatchTags([batchTagDraft], "add")}
-                    onReplaceTags={() =>
-                      void saveBatchTags([batchTagDraft], "replace")
+        <SidebarInset className="library-inset">
+          <LibraryPathBar
+            controls={libraryControls}
+            isFeedChromeHidden={isFeedChromeHidden && assets.length > 0}
+            isGuideOpen={activePage === "guide"}
+            isSettingsOpen={activePage === "settings"}
+            searchDraft={searchDraft}
+            selectedFolderId={selectedFolderId}
+            tree={tree}
+            view={view}
+            onBackToLibrary={backToLibrary}
+            onSearchDraftChange={setSearchDraft}
+            onSelectFolder={selectFolder}
+            onPreloadView={preloadView}
+            onSwitchView={switchView}
+          />
+          <main
+            className={[
+              "library-main",
+              isSelectionMode ? "has-selection" : "",
+              activePage === "settings"
+                ? "view-settings"
+                : activePage === "guide"
+                  ? "view-guide"
+                  : view === "feed"
+                    ? "view-feed"
+                    : view === "compare"
+                      ? "view-compare"
+                      : "view-gallery"
+            ]
+              .filter(Boolean)
+              .join(" ")}
+          >
+            <Suspense fallback={<WorkspaceLoadingFallback />}>
+              {activePage === "settings" ? (
+                <SettingsPage
+                  tab={settingsTab}
+                  onTabChange={setSettingsTab}
+                  accent={accent}
+                  accentOptions={accentOptions}
+                  customAccent={customAccent}
+                  isLoading={isLoadingSettings}
+                  settings={settingsSummary}
+                  settingsError={settingsError}
+                  onSetAccent={setAccent}
+                  onSetCustomAccent={setCustomAccent}
+                  onSetTheme={setTheme}
+                  onRefreshSettings={() => void refreshSettingsSummary()}
+                  onDataReset={(_result, options: LibraryDataResetOptions) => {
+                    void refreshSettingsSummary();
+                    if (
+                      options.scores ||
+                      options.favorites ||
+                      options.tags ||
+                      options.comparisons
+                    )
+                      clearSessionScrollPositions();
+                    if (
+                      options.presentationPlayback ||
+                      options.presentationFraming
+                    ) {
+                      clearPresentationCapabilities();
+                      setEditingAsset(null);
                     }
-                    onSelectLoaded={selectLoadedAssets}
-                    onClearTags={() => void saveBatchTags([], "replace")}
-                  />
-                ) : null}
+                    if (options.comparisons || options.scores)
+                      clearRankingResumeState();
+                    if (options.tags) {
+                      clearTagFilters();
+                    }
+                    if (
+                      options.scores ||
+                      options.favorites ||
+                      options.comparisons
+                    ) {
+                      setScoreFilter("all");
+                    }
+                    if (options.scores || options.comparisons) {
+                      rankingChangedRef.current = true;
+                    }
+                    reloadAssets();
+                  }}
+                  theme={theme}
+                  themeOptions={themeOptions}
+                />
+              ) : activePage === "guide" ? (
+                <UserGuidePage />
+              ) : (
+                <>
+                  {isSelectionMode ? (
+                    <BatchActionsBar
+                      isOpen
+                      loadedCount={assets.length}
+                      selectedCount={selectedAssetCount}
+                      allSelectedFavorite={allSelectedAssetsFavorite}
+                      tagDraft={batchTagDraft}
+                      tagSuggestions={batchTagSuggestions}
+                      isSaving={isSavingBatch}
+                      onClear={clearSelectedAssets}
+                      onClose={closeSelectionMode}
+                      onApplyCuration={(input) => void saveBatchScore(input)}
+                      onTagDraftChange={setBatchTagDraft}
+                      onAddTag={() =>
+                        void saveBatchTags([batchTagDraft], "add")
+                      }
+                      onReplaceTags={() =>
+                        void saveBatchTags([batchTagDraft], "replace")
+                      }
+                      onSelectLoaded={selectLoadedAssets}
+                      onClearTags={() => void saveBatchTags([], "replace")}
+                    />
+                  ) : null}
 
-                {assetError ? (
-                  <div className="inline-error">{assetError}</div>
-                ) : null}
+                  {assetError ? (
+                    <div className="inline-error">{assetError}</div>
+                  ) : null}
 
-                {view === "gallery" ? (
-                  <GalleryGrid
-                    assets={assets}
-                    aspect={aspect}
-                    metadataFields={galleryMetadataFields}
-                    gridSize={gridSize}
-                    isLoading={isAssetContentPending}
-                    isLoadingMore={isLoadingMore}
-                    isContentReady={loadedQueryKey === listQueryKey}
-                    isSelectionMode={isSelectionMode}
-                    hasMore={hasMoreAssets}
-                    loadMoreRef={loadMoreRef}
-                    measuredAspectRatios={measuredAspectRatios}
-                    scrollContextKey={listQueryKey}
-                    syncedAssetId={syncedMediaAnchorId}
-                    savingScoreAssetIds={savingScoreAssetIds}
-                    selectedAssetIds={selectedAssetIds}
-                    onLoadMore={() => void handleLoadMore()}
-                    onActiveAssetChange={trackActiveMedia}
-                    onMediaDimensionsKnown={handleMediaDimensionsKnown}
-                    onFavoriteAsset={(asset, favorite) =>
-                      void saveAssetScore(asset, { favorite })
-                    }
-                    onScoreAsset={(asset, score) =>
-                      void saveAssetScore(asset, { score: score })
-                    }
-                    onSelectAsset={openAnchoredAsset}
-                    onToggleSelection={toggleAssetSelection}
-                  />
-                ) : view === "feed" ? (
-                  <FeedPreview
-                    assets={assets}
-                    isLoading={isAssetContentPending}
-                    isLoadingMore={isLoadingMore}
-                    isContentReady={loadedQueryKey === listQueryKey}
-                    hasMore={hasMoreAssets}
-                    loadMoreRef={loadMoreRef}
-                    isFeedChromeHidden={isFeedChromeHidden}
-                    isPlaybackPaused={selectedAssetId !== null}
-                    savingScoreAssetIds={savingScoreAssetIds}
-                    scrollContextKey={listQueryKey}
-                    syncedAssetId={syncedMediaAnchorId}
-                    onLoadMore={() => void handleLoadMore()}
-                    onActiveAssetChange={trackActiveMedia}
-                    onFeedChromeHiddenChange={setFeedChromeVisibility}
-                    onFavoriteAsset={(asset, favorite) =>
-                      void saveAssetScore(asset, { favorite })
-                    }
-                    onOpenAnnotations={setAnnotationAssetId}
-                    onOpenAsset={openAnchoredAsset}
-                    onScoreAsset={(asset, score) =>
-                      void saveAssetScore(asset, { score: score })
-                    }
-                  />
-                ) : (
-                  <ComparisonView
-                    workspace={comparisonWorkspace}
-                    onWorkspaceChange={(workspace) => {
-                      pushLocationRef.current = true;
-                      setComparisonWorkspace(workspace);
-                    }}
-                    assetUpdate={comparisonAssetUpdate}
-                    folderId={selectedFolderId}
-                    isPlaybackPaused={selectedAssetId !== null}
-                    mediaType={mediaType}
-                    scoreFilter={scoreFilter}
-                    search={search}
-                    tagFilters={tagFilters}
-                    onAssetsUpdated={mergeUpdatedAssets}
-                    onOpenFullscreen={openComparisonAsset}
-                    onRankingChanged={handleComparisonRankingChanged}
-                  />
-                )}
-              </>
-            )}
+                  {view === "gallery" ? (
+                    <GalleryGrid
+                      onEditAsset={setEditingAsset}
+                      assets={assets}
+                      aspect={aspect}
+                      metadataFields={galleryMetadataFields}
+                      gridSize={gridSize}
+                      isLoading={isAssetContentPending}
+                      isLoadingMore={isLoadingMore}
+                      isContentReady={loadedQueryKey === listQueryKey}
+                      isSelectionMode={isSelectionMode}
+                      hasMore={hasMoreAssets}
+                      loadMoreRef={loadMoreRef}
+                      measuredAspectRatios={measuredAspectRatios}
+                      scrollContextKey={listQueryKey}
+                      syncedAssetId={syncedMediaAnchorId}
+                      savingScoreAssetIds={savingScoreAssetIds}
+                      selectedAssetIds={selectedAssetIds}
+                      onLoadMore={() => void handleLoadMore()}
+                      onActiveAssetChange={trackActiveMedia}
+                      onMediaDimensionsKnown={handleMediaDimensionsKnown}
+                      onFavoriteAsset={(asset, favorite) =>
+                        void saveAssetScore(asset, { favorite })
+                      }
+                      onScoreAsset={(asset, score) =>
+                        void saveAssetScore(asset, { score: score })
+                      }
+                      onSelectAsset={openAnchoredAsset}
+                      onToggleSelection={toggleAssetSelection}
+                    />
+                  ) : view === "feed" ? (
+                    <FeedPreview
+                      onEditAsset={setEditingAsset}
+                      assets={assets}
+                      isLoading={isAssetContentPending}
+                      isLoadingMore={isLoadingMore}
+                      isContentReady={loadedQueryKey === listQueryKey}
+                      hasMore={hasMoreAssets}
+                      loadMoreRef={loadMoreRef}
+                      isFeedChromeHidden={isFeedChromeHidden}
+                      isPlaybackPaused={selectedAssetId !== null}
+                      savingScoreAssetIds={savingScoreAssetIds}
+                      scrollContextKey={listQueryKey}
+                      syncedAssetId={syncedMediaAnchorId}
+                      onLoadMore={() => void handleLoadMore()}
+                      onActiveAssetChange={trackActiveMedia}
+                      onFeedChromeHiddenChange={setFeedChromeVisibility}
+                      onFavoriteAsset={(asset, favorite) =>
+                        void saveAssetScore(asset, { favorite })
+                      }
+                      onOpenAnnotations={setAnnotationAssetId}
+                      onOpenAsset={openAnchoredAsset}
+                      onScoreAsset={(asset, score) =>
+                        void saveAssetScore(asset, { score: score })
+                      }
+                    />
+                  ) : (
+                    <ComparisonView
+                      onEditAsset={setEditingAsset}
+                      workspace={comparisonWorkspace}
+                      onWorkspaceChange={(workspace) => {
+                        pushLocationRef.current = true;
+                        setComparisonWorkspace(workspace);
+                      }}
+                      assetUpdate={comparisonAssetUpdate}
+                      folderId={selectedFolderId}
+                      isPlaybackPaused={selectedAssetId !== null}
+                      mediaType={mediaType}
+                      scoreFilter={scoreFilter}
+                      search={search}
+                      tagFilters={tagFilters}
+                      onAssetsUpdated={mergeUpdatedAssets}
+                      onOpenFullscreen={openComparisonAsset}
+                      onRankingChanged={handleComparisonRankingChanged}
+                    />
+                  )}
+                </>
+              )}
+            </Suspense>
+          </main>
+        </SidebarInset>
+
+        {selectedAsset ? (
+          <Suspense fallback={null}>
+            <MediaViewer
+              presentationPlayback={view !== "compare"}
+              onEditAsset={setEditingAsset}
+              asset={selectedAsset}
+              hasNext={
+                selectedAssetIndex >= 0 &&
+                selectedAssetIndex < assets.length - 1
+              }
+              hasPrevious={selectedAssetIndex > 0}
+              isInfoOpen={annotationAsset !== null}
+              onClose={closeAnchoredAsset}
+              onScoreChange={(score) =>
+                void saveAssetScore(selectedAsset, { score })
+              }
+              onToggleInfo={() =>
+                setAnnotationAssetId((current) =>
+                  current === selectedAsset.id ? null : selectedAsset.id
+                )
+              }
+              onNext={() => selectAdjacentAsset(1)}
+              onPrevious={() => selectAdjacentAsset(-1)}
+            />
           </Suspense>
-        </main>
-      </SidebarInset>
+        ) : null}
 
-      {selectedAsset ? (
-        <Suspense fallback={null}>
-          <MediaViewer
-            asset={selectedAsset}
-            hasNext={
-              selectedAssetIndex >= 0 && selectedAssetIndex < assets.length - 1
-            }
-            hasPrevious={selectedAssetIndex > 0}
-            isInfoOpen={annotationAsset !== null}
-            onClose={closeAnchoredAsset}
-            onScoreChange={(score) =>
-              void saveAssetScore(selectedAsset, { score })
-            }
-            onToggleInfo={() =>
-              setAnnotationAssetId((current) =>
-                current === selectedAsset.id ? null : selectedAsset.id
-              )
-            }
-            onNext={() => selectAdjacentAsset(1)}
-            onPrevious={() => selectAdjacentAsset(-1)}
-          />
-        </Suspense>
-      ) : null}
-
-      {annotationAsset ? (
-        <Suspense fallback={null}>
-          <MediaAnnotationDrawer
-            aiStatus={aiStatus}
-            asset={annotationAsset}
-            isAboveViewer={selectedAssetId !== null}
-            isScoreSaving={savingScoreAssetIds.has(annotationAsset.id)}
-            onAssetTagsUpdated={handleAssetTagsUpdated}
-            onAssetUpdated={handleAssetUpdated}
-            onClose={() => setAnnotationAssetId(null)}
-            onRankingChanged={() => {
-              rankingChangedRef.current = true;
-              reloadAssets();
-            }}
-            onScoreChange={saveAssetScore}
-          />
-        </Suspense>
-      ) : null}
-    </SidebarProvider>
+        {annotationAsset ? (
+          <Suspense fallback={null}>
+            <MediaAnnotationDrawer
+              aiStatus={aiStatus}
+              asset={annotationAsset}
+              isAboveViewer={selectedAssetId !== null}
+              isScoreSaving={savingScoreAssetIds.has(annotationAsset.id)}
+              onAssetTagsUpdated={handleAssetTagsUpdated}
+              onAssetUpdated={handleAssetUpdated}
+              onClose={() => setAnnotationAssetId(null)}
+              onRankingChanged={() => {
+                rankingChangedRef.current = true;
+                reloadAssets();
+              }}
+              onScoreChange={saveAssetScore}
+            />
+          </Suspense>
+        ) : null}
+        {editingAsset ? (
+          <Suspense fallback={null}>
+            <PresentationEditorDialog
+              key={editingAsset.id}
+              asset={editingAsset}
+              onClose={() => setEditingAsset(null)}
+              onSaved={(updated) => {
+                handleAssetUpdated(updated);
+                setComparisonAssetUpdate(updated);
+              }}
+            />
+          </Suspense>
+        ) : null}
+      </SidebarProvider>
+    </PresentationContext.Provider>
   );
 }

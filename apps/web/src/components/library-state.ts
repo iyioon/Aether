@@ -64,7 +64,8 @@ const libraryQueryKeys = [
   "type",
   "score",
   "q",
-  "tag"
+  "tag",
+  "highlight"
 ] as const;
 
 export function defaultSortDirectionForSort(sort: SortMode): SortDirection {
@@ -82,6 +83,7 @@ export interface LibraryUrlState {
   scoreFilter: ScoreFilter;
   search: string;
   tags: string[];
+  highlightsOnly?: boolean;
 }
 
 export const defaultLibraryState: LibraryUrlState = {
@@ -211,12 +213,14 @@ export function parseLibraryStateSearch(search: string): LibraryUrlState {
       defaultLibraryState.scoreFilter
     ),
     search: readTextParam(params, "q", 160),
-    tags: readTagParams(params)
+    tags: readTagParams(params),
+    ...(params.get("highlight") === "1" ? { highlightsOnly: true } : {})
   };
 }
 
 export function buildLibraryStateSearch(state: LibraryUrlState): string {
   const params = new URLSearchParams();
+  if (state.highlightsOnly) params.set("highlight", "1");
 
   if (state.folderId) {
     params.set("folder", state.folderId);
@@ -384,7 +388,9 @@ function isLibraryUrlState(value: unknown): value is LibraryUrlState {
     isAllowedValue(value.scoreFilter, scoreFilterValues) &&
     typeof value.search === "string" &&
     value.search.length <= 160 &&
-    isValidStoredTags(value.tags)
+    isValidStoredTags(value.tags) &&
+    (value.highlightsOnly === undefined ||
+      typeof value.highlightsOnly === "boolean")
   );
 }
 

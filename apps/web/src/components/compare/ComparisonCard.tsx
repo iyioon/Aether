@@ -1,13 +1,18 @@
-import { Maximize2 } from "lucide-react";
+import type { CSSProperties } from "react";
+import { Maximize2, SlidersVertical } from "lucide-react";
 import type { AssetRecord } from "../../api/client";
+import { IconButton } from "../IconButton";
 import { MediaPreview } from "../media/MediaPreview";
 import { formatSignedScore } from "../media/score-format";
 import { Card, CardContent } from "../ui/card";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
+import type { AspectMode } from "../library-state";
+import { galleryAspectRatio } from "../gallery/gallery-layout";
 import type { ComparisonDirection } from "./comparison-types";
 
 interface ComparisonCardProps {
+  aspect: AspectMode;
   asset: AssetRecord;
   direction: ComparisonDirection;
   disabled: boolean;
@@ -15,24 +20,37 @@ interface ComparisonCardProps {
   playbackPaused: boolean;
   onChoose: () => void;
   onOpenFullscreen: () => void;
+  onEditAsset?: () => void;
 }
 
 export function ComparisonCard({
+  aspect,
   asset,
   direction,
   disabled,
   isChosen,
   playbackPaused,
   onChoose,
+  onEditAsset,
   onOpenFullscreen
 }: ComparisonCardProps) {
   return (
-    <Card className="comparison-card" data-chosen={isChosen ? "true" : "false"}>
+    <Card
+      className="comparison-card"
+      data-asset-id={asset.id}
+      data-chosen={isChosen ? "true" : "false"}
+      data-aspect={aspect}
+      style={
+        { "--comparison-aspect": galleryAspectRatio(aspect) } as CSSProperties
+      }
+    >
       <CardContent className="comparison-media">
         <MediaPreview
           key={asset.id}
           asset={asset}
           playbackPaused={playbackPaused || disabled}
+          presentationPlayback={false}
+          defaultFit="contain"
           useOriginalVideo
         />
         <button
@@ -53,6 +71,17 @@ export function ComparisonCard({
         >
           <Maximize2 aria-hidden="true" />
         </Button>
+        {onEditAsset ? (
+          <IconButton
+            className="comparison-edit-button media-overlay-button"
+            icon={SlidersVertical}
+            label={`Edit ${asset.name}`}
+            title="Edit media"
+            aria-haspopup="dialog"
+            disabled={disabled}
+            onClick={onEditAsset}
+          />
+        ) : null}
         <ComparisonScore asset={asset} />
       </CardContent>
     </Card>

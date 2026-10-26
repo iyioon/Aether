@@ -20,6 +20,7 @@ import {
   CardTitle
 } from "../ui/card";
 import { Skeleton } from "../ui/skeleton";
+import type { AspectMode } from "../library-state";
 import { ComparisonCard } from "./ComparisonCard";
 import { ComparisonChoiceFeedback } from "./ComparisonChoiceFeedback";
 import { ComparisonSessionFooter } from "./ComparisonSessionFooter";
@@ -28,6 +29,8 @@ import { useComparisonChoiceFeedback } from "./useComparisonChoiceFeedback";
 import { useComparisonSession } from "./useComparisonSession";
 
 interface RankingSessionProps {
+  aspect: AspectMode;
+  onAspectChange: (aspect: AspectMode) => void;
   assetUpdate: AssetRecord | null;
   folderId: string | null;
   mediaType: MediaTypeFilter;
@@ -38,10 +41,13 @@ interface RankingSessionProps {
   onAssetsUpdated: (assets: AssetRecord[]) => void;
   onExit: () => void;
   onOpenFullscreen: (asset: AssetRecord) => void;
+  onEditAsset?: (asset: AssetRecord) => void;
   onRankingChanged: () => void;
 }
 
 export function RankingSession({
+  aspect,
+  onAspectChange,
   assetUpdate,
   folderId,
   mediaType,
@@ -52,6 +58,7 @@ export function RankingSession({
   onAssetsUpdated,
   onExit,
   onOpenFullscreen,
+  onEditAsset,
   onRankingChanged
 }: RankingSessionProps) {
   const {
@@ -163,21 +170,29 @@ export function RankingSession({
           >
             <ComparisonCard
               asset={pair.left}
+              aspect={aspect}
               direction="left"
               disabled={isSubmitting || isLoading || isPairCommitted}
               isChosen={chosenAssetId === pair.left.id}
               playbackPaused={isPlaybackPaused}
               onChoose={() => handleChoice(pair.left.id, "left")}
               onOpenFullscreen={() => onOpenFullscreen(pair.left)}
+              onEditAsset={
+                onEditAsset ? () => onEditAsset(pair.left) : undefined
+              }
             />
             <ComparisonCard
               asset={pair.right}
+              aspect={aspect}
               direction="right"
               disabled={isSubmitting || isLoading || isPairCommitted}
               isChosen={chosenAssetId === pair.right.id}
               playbackPaused={isPlaybackPaused}
               onChoose={() => handleChoice(pair.right.id, "right")}
               onOpenFullscreen={() => onOpenFullscreen(pair.right)}
+              onEditAsset={
+                onEditAsset ? () => onEditAsset(pair.right) : undefined
+              }
             />
           </div>
         ) : !isLoading && (!error || canUndo) ? (
@@ -192,6 +207,8 @@ export function RankingSession({
 
       {pair ? (
         <ComparisonSessionFooter
+          aspect={aspect}
+          onAspectChange={onAspectChange}
           canUndo={canUndo}
           isLoading={isLoading}
           isPairCommitted={isPairCommitted}

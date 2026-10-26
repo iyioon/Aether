@@ -11,6 +11,17 @@ import {
 import { requestPresentedVideoFrame } from "./video-frame-presentation";
 import { useVideoPlayback } from "./useVideoPlayback";
 import { VideoControls } from "./VideoControls";
+import { ControlledAnimation } from "./ControlledAnimation";
+import { usePresentationPreferences } from "./presentation-context";
+import { getPresentationValues } from "./presentation-model";
+import { presentationMediaStyle } from "./presentation-geometry";
+import {
+  playbackVariant,
+  presentationPlaybackUrl,
+  presentationPosterUrl
+} from "./presentation-playback";
+import { useVideoPresentation } from "./useVideoPresentation";
+import { usePresentationCapabilities } from "./usePresentationCapabilities";
 
 const VIDEO_HOLD_DELAY_MS = 320;
 
@@ -21,6 +32,8 @@ export interface MediaPlaybackCommands {
 
 interface MediaPreviewProps {
   asset: AssetRecord;
+  presentationPlayback?: boolean;
+  defaultFit?: "contain" | "cover";
   isActive?: boolean;
   muted?: boolean;
   onAudibleAutoplayBlocked?: () => void;
@@ -45,6 +58,8 @@ interface MediaPreviewProps {
 
 export const MediaPreview = memo(function MediaPreview({
   asset,
+  presentationPlayback = true,
+  defaultFit = "cover",
   isActive = true,
   muted = true,
   onAudibleAutoplayBlocked,
@@ -63,6 +78,10 @@ export const MediaPreview = memo(function MediaPreview({
   useOriginalImage = false,
   useOriginalVideo = false
 }: MediaPreviewProps) {
+  const preferences = usePresentationPreferences();
+  playbackPaused = playbackPaused || preferences.isPlaybackPaused;
+  const highlightsOnly = presentationPlayback && preferences.highlightsOnly;
+  const surfaceRef = useRef<HTMLSpanElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
   const holdTimerRef = useRef<number | null>(null);
@@ -100,16 +119,57 @@ export const MediaPreview = memo(function MediaPreview({
   const [loadedThumbnailSource, setLoadedThumbnailSource] = useState<
     string | null
   >(null);
-  const posterSource = thumbnailUrl(asset.id, thumbnailSize);
+  const animationCandidate =
+    asset.mediaType === "image" &&
+    /\.(gif|webp|apng|png|avif)$/i.test(asset.name);
+  const variant = presentationPlayback
+    ? playbackVariant(asset, highlightsOnly)
+    : "full";
+  const {
+    capabilities,
+    error: capabilitiesError,
+    retry: retryCapabilities
+  } = usePresentationCapabilities(
+    asset,
+    !staticPreview &&
+      !isPageHidden &&
+      (isVisible || (showVideoTimeline && isActive)) &&
+      (animationCandidate || variant !== "full")
+  );
+  const playbackAsset = capabilities
+    ? {
+        ...asset,
+        durationMs: capabilities.durationMs ?? asset.durationMs,
+        ...(asset.presentation
+          ? {
+              presentation: {
+                ...asset.presentation,
+                renditionKeys: capabilities.renditionKeys
+              }
+            }
+          : {})
+      }
+    : asset;
+  const controlledAnimation =
+    capabilities?.kind === "animation" && !staticPreview;
+  const mediaStyle = presentationMediaStyle(
+    getPresentationValues(asset.presentation),
+    defaultFit
+  );
+  const posterSource =
+    presentationPosterUrl(playbackAsset, highlightsOnly, thumbnailSize) ??
+    thumbnailUrl(asset.id, thumbnailSize);
   const videoSource =
     asset.mediaType === "video"
-      ? useOriginalVideo
-        ? originalVideoFailed
-          ? videoPreviewUrl(asset.id, tall ? 720 : 480)
-          : mediaUrl(asset.id)
-        : videoPreviewFailed
-          ? mediaUrl(asset.id)
-          : videoPreviewUrl(asset.id, tall ? 720 : 480)
+      ? variant !== "full"
+        ? presentationPlaybackUrl(playbackAsset, variant)
+        : useOriginalVideo
+          ? originalVideoFailed
+            ? videoPreviewUrl(asset.id, tall ? 720 : 480)
+            : mediaUrl(asset.id)
+          : videoPreviewFailed
+            ? mediaUrl(asset.id)
+            : videoPreviewUrl(asset.id, tall ? 720 : 480)
       : "";
 
   const isVideoPlaybackVisible = isVisible || (showVideoTimeline && isActive);
@@ -136,6 +196,13 @@ export const MediaPreview = memo(function MediaPreview({
     sourceKey: shouldLoadVideo ? videoSource : "",
     enabled: asset.mediaType === "video" && showVideoTimeline && !staticPreview
   });
+  const presentationVideo = useVideoPresentation(
+    videoRef,
+    playback,
+    playbackAsset,
+    variant,
+    presentationPlayback
+  );
   const isVideoReady = readyVideoSource === videoSource;
   const didVideoPosterFail = failedVideoPosterSource === posterSource;
   const isVideoPosterReady =
@@ -163,7 +230,7 @@ export const MediaPreview = memo(function MediaPreview({
         videoSourceRef.current === requestedSource &&
         shouldAutoplayVideoRef.current;
 
-      video.muted = requestedMuted;
+      video.muted = variant === "bounce" || requestedMuted;
       if (!requestedMuted && video.volume === 0) {
         video.volume = 1;
       }
@@ -200,7 +267,7 @@ export const MediaPreview = memo(function MediaPreview({
             .catch(() => undefined);
         });
     },
-    [muted, onAudibleAutoplayBlocked, onAudiblePlaybackStarted]
+    [muted, variant, onAudibleAutoplayBlocked, onAudiblePlaybackStarted]
   );
 
   const cancelPendingVideoReveal = useCallback(() => {
@@ -240,6 +307,7 @@ export const MediaPreview = memo(function MediaPreview({
     cancelPendingVideoReveal();
     videoFrameRequestSequenceRef.current += 1;
     setReadyVideoSource(null);
+    setVideoPlaybackFailed(false);
   }, [cancelPendingVideoReveal, videoSource]);
 
   useEffect(() => {
@@ -263,6 +331,8 @@ export const MediaPreview = memo(function MediaPreview({
     videoFrameRequestSequenceRef.current += 1;
   }, [
     asset.id,
+    asset.mtimeMs,
+    asset.sizeBytes,
     cancelPendingVideoReveal,
     isAnimatedImage,
     tall,
@@ -282,7 +352,8 @@ export const MediaPreview = memo(function MediaPreview({
   }, [isActive]);
 
   useEffect(() => {
-    if (asset.mediaType !== "video" || staticPreview) return;
+    if (staticPreview || (asset.mediaType !== "video" && !animationCandidate))
+      return;
 
     const hide = () => {
       shouldAutoplayVideoRef.current = false;
@@ -316,7 +387,7 @@ export const MediaPreview = memo(function MediaPreview({
       window.removeEventListener("pagehide", hide);
       window.removeEventListener("pageshow", resume);
     };
-  }, [asset.mediaType, staticPreview]);
+  }, [asset.mediaType, animationCandidate, staticPreview]);
 
   useEffect(
     () => () => {
@@ -330,13 +401,14 @@ export const MediaPreview = memo(function MediaPreview({
   useEffect(() => {
     if (
       (asset.mediaType === "video" && staticPreview) ||
-      (asset.mediaType !== "video" && !isAnimatedImage)
+      (asset.mediaType !== "video" && !animationCandidate)
     ) {
       return;
     }
 
     const previewElement =
-      asset.mediaType === "video" ? videoRef.current : imageRef.current;
+      surfaceRef.current ??
+      (asset.mediaType === "video" ? videoRef.current : imageRef.current);
     const video = videoRef.current;
 
     if (!previewElement) {
@@ -372,7 +444,14 @@ export const MediaPreview = memo(function MediaPreview({
         video?.pause();
       }
     };
-  }, [asset.id, asset.mediaType, isAnimatedImage, staticPreview]);
+  }, [
+    asset.id,
+    asset.mtimeMs,
+    asset.sizeBytes,
+    asset.mediaType,
+    animationCandidate,
+    staticPreview
+  ]);
 
   useEffect(() => {
     if (asset.mediaType !== "video") {
@@ -519,6 +598,7 @@ export const MediaPreview = memo(function MediaPreview({
   if (
     hasError ||
     (asset.mediaType === "video" &&
+      variant === "full" &&
       (videoPlaybackFailed || staticPreview) &&
       didVideoPosterFail)
   ) {
@@ -536,8 +616,9 @@ export const MediaPreview = memo(function MediaPreview({
   if (asset.mediaType === "image") {
     const originalSource = mediaUrl(asset.id);
     const shouldUseOriginalImage =
-      (useOriginalImage && !originalImageFailed) ||
-      (isAnimatedImage && isVisible && !animatedImageFailed);
+      (!animationCandidate || capabilities?.kind === "still") &&
+      ((useOriginalImage && !originalImageFailed) ||
+        (isAnimatedImage && isVisible && !animatedImageFailed));
     const isProgressiveImage = shouldUseOriginalImage;
     const previewSource = shouldUseOriginalImage
       ? originalSource
@@ -552,6 +633,7 @@ export const MediaPreview = memo(function MediaPreview({
 
     return (
       <span
+        ref={surfaceRef}
         className={[
           "media-image-shell",
           tall ? "tall" : "",
@@ -562,96 +644,157 @@ export const MediaPreview = memo(function MediaPreview({
           .filter(Boolean)
           .join(" ")}
       >
-        <span className="media-image-loading" aria-hidden="true" />
-        {isProgressiveImage ? (
-          <img
-            aria-hidden="true"
-            className={
-              tall
-                ? "media-image media-image-thumbnail tall"
-                : "media-image media-image-thumbnail"
-            }
-            src={posterSource}
-            alt=""
-            decoding="async"
-            fetchPriority={isActive ? "high" : "auto"}
-            loading={isActive ? "eager" : "lazy"}
-            onLoad={(event) => {
-              const image = event.currentTarget;
-              void image.decode().then(
-                () => {
-                  markMediaImageReady(posterSource);
-                  setLoadedThumbnailSource(posterSource);
-                },
-                () => setLoadedThumbnailSource(posterSource)
-              );
-            }}
-          />
+        {capabilitiesError && !controlledAnimation ? (
+          showVideoTimeline ? (
+            <button
+              type="button"
+              className="media-presentation-retry"
+              onClick={(event) => {
+                event.stopPropagation();
+                retryCapabilities();
+              }}
+            >
+              Playback unavailable. Retry
+            </button>
+          ) : (
+            <span className="controlled-animation__error" role="status">
+              Playback unavailable
+            </span>
+          )
         ) : null}
-        <img
-          ref={imageRef}
-          className={[
-            "media-image",
-            isProgressiveImage ? "media-image-original" : "",
-            tall ? "tall" : ""
-          ]
-            .filter(Boolean)
-            .join(" ")}
-          src={previewSource}
-          alt={asset.name}
-          data-preview-source={
-            shouldUseOriginalImage ? "original" : "thumbnail"
-          }
-          loading={
-            (useOriginalImage && isActive) || (isAnimatedImage && isVisible)
-              ? "eager"
-              : "lazy"
-          }
-          decoding="async"
-          fetchPriority={useOriginalImage && isActive ? "high" : "auto"}
-          onLoad={(event) => {
-            const image = event.currentTarget;
-            void image.decode().then(
-              () => {
-                markMediaImageReady(previewSource);
-                setLoadedImageSource(previewSource);
-                onDimensionsKnown?.(
-                  asset.id,
-                  image.naturalWidth,
-                  image.naturalHeight
-                );
-              },
-              () => {
-                setLoadedImageSource(previewSource);
-                onDimensionsKnown?.(
-                  asset.id,
-                  image.naturalWidth,
-                  image.naturalHeight
-                );
+        {controlledAnimation ? (
+          <ControlledAnimation
+            asset={playbackAsset}
+            onRetry={retryCapabilities}
+            renditionKey={capabilities.renditionKeys.full}
+            presentation={
+              presentationPlayback
+                ? getPresentationValues(asset.presentation)
+                : {
+                    ...getPresentationValues(asset.presentation),
+                    highlight: null,
+                    playbackRate: 1,
+                    loopMode: "repeat"
+                  }
+            }
+            highlightsOnly={highlightsOnly}
+            active={isActive && isVisible}
+            paused={playbackPaused}
+            controls={showVideoTimeline}
+            controlsClassName="video-controls--feed"
+            onPlaybackReady={(commands) =>
+              onVideoControlsReady?.(
+                asset.id,
+                commands
+                  ? {
+                      togglePlayback: () => {
+                        commands.togglePlayback();
+                      },
+                      enableSound: () => undefined
+                    }
+                  : null
+              )
+            }
+            defaultFit={defaultFit}
+            onExpand={onExpand}
+          />
+        ) : (
+          <>
+            <span className="media-image-loading" aria-hidden="true" />
+            {isProgressiveImage ? (
+              <img
+                aria-hidden="true"
+                style={mediaStyle}
+                className={
+                  tall
+                    ? "media-image media-image-thumbnail tall"
+                    : "media-image media-image-thumbnail"
+                }
+                src={posterSource}
+                alt=""
+                decoding="async"
+                fetchPriority={isActive ? "high" : "auto"}
+                loading={isActive ? "eager" : "lazy"}
+                onLoad={(event) => {
+                  const image = event.currentTarget;
+                  void image.decode().then(
+                    () => {
+                      markMediaImageReady(posterSource);
+                      setLoadedThumbnailSource(posterSource);
+                    },
+                    () => setLoadedThumbnailSource(posterSource)
+                  );
+                }}
+              />
+            ) : null}
+            <img
+              ref={imageRef}
+              style={mediaStyle}
+              className={[
+                "media-image",
+                isProgressiveImage ? "media-image-original" : "",
+                tall ? "tall" : ""
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              src={previewSource}
+              alt={asset.name}
+              data-preview-source={
+                shouldUseOriginalImage ? "original" : "thumbnail"
               }
-            );
-          }}
-          onError={() => {
-            if (useOriginalImage && !originalImageFailed) {
-              setOriginalImageFailed(true);
-              setAnimatedImageFailed(true);
-              return;
-            }
+              loading={
+                (useOriginalImage && isActive) || (isAnimatedImage && isVisible)
+                  ? "eager"
+                  : "lazy"
+              }
+              decoding="async"
+              fetchPriority={useOriginalImage && isActive ? "high" : "auto"}
+              onLoad={(event) => {
+                const image = event.currentTarget;
+                void image.decode().then(
+                  () => {
+                    markMediaImageReady(previewSource);
+                    setLoadedImageSource(previewSource);
+                    onDimensionsKnown?.(
+                      asset.id,
+                      image.naturalWidth,
+                      image.naturalHeight
+                    );
+                  },
+                  () => {
+                    setLoadedImageSource(previewSource);
+                    onDimensionsKnown?.(
+                      asset.id,
+                      image.naturalWidth,
+                      image.naturalHeight
+                    );
+                  }
+                );
+              }}
+              onError={() => {
+                if (useOriginalImage && !originalImageFailed) {
+                  setOriginalImageFailed(true);
+                  setAnimatedImageFailed(true);
+                  return;
+                }
 
-            if (isAnimatedImage && isVisible && !animatedImageFailed) {
-              setAnimatedImageFailed(true);
-              return;
-            }
+                if (isAnimatedImage && isVisible && !animatedImageFailed) {
+                  setAnimatedImageFailed(true);
+                  return;
+                }
 
-            setHasError(true);
-          }}
-        />
+                setHasError(true);
+              }}
+            />
+          </>
+        )}
       </span>
     );
   }
 
   return (
     <span
+      ref={surfaceRef}
       className={[
         "media-video-shell",
         tall ? "tall" : "",
@@ -667,6 +810,7 @@ export const MediaPreview = memo(function MediaPreview({
         <img
           key={posterSource}
           className="media-video-poster"
+          style={mediaStyle}
           src={posterSource}
           alt=""
           aria-hidden="true"
@@ -696,6 +840,7 @@ export const MediaPreview = memo(function MediaPreview({
       {!staticPreview ? (
         <video
           ref={videoRef}
+          style={mediaStyle}
           className={tall ? "media-video tall" : "media-video"}
           src={shouldLoadVideo ? videoSource : undefined}
           autoPlay={shouldAutoplayVideo}
@@ -710,7 +855,7 @@ export const MediaPreview = memo(function MediaPreview({
                   : "preview"
               : "poster"
           }
-          muted={muted}
+          muted={variant === "bounce" || muted}
           loop
           playsInline
           preload={
@@ -748,6 +893,10 @@ export const MediaPreview = memo(function MediaPreview({
             videoFrameRequestSequenceRef.current += 1;
             setReadyVideoSource(null);
 
+            if (variant !== "full") {
+              setVideoPlaybackFailed(true);
+              return;
+            }
             if (useOriginalVideo && !originalVideoFailed) {
               setOriginalVideoFailed(true);
               return;
@@ -761,6 +910,20 @@ export const MediaPreview = memo(function MediaPreview({
             setVideoPlaybackFailed(true);
           }}
         />
+      ) : null}
+      {videoPlaybackFailed && variant !== "full" ? (
+        <button
+          type="button"
+          className="media-presentation-retry"
+          onClick={(event) => {
+            event.stopPropagation();
+            setVideoPlaybackFailed(false);
+            retryCapabilities();
+            videoRef.current?.load();
+          }}
+        >
+          Playback unavailable. Retry
+        </button>
       ) : null}
       {showVideoTimeline && !staticPreview ? (
         <>
@@ -789,7 +952,10 @@ export const MediaPreview = memo(function MediaPreview({
           />
           <VideoControls
             className="video-controls--feed"
-            playback={playback}
+            playback={presentationVideo.playback}
+            minimumTime={presentationVideo.minimumTime}
+            sectionLabel={presentationVideo.sectionLabel}
+            hasAudio={presentationVideo.hasAudio}
             seekLabel={`Seek ${asset.name}`}
             onTogglePlayback={toggleVideoPlayback}
             onToggleMuted={onToggleMuted}

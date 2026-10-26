@@ -1,20 +1,12 @@
 import type { AssetRecord, ComparisonPairResponse } from "../../api/client";
 import { acquireMediaImagePreload } from "../media/media-image-cache";
-import {
-  isAnimatedImagePreview,
-  mediaUrl,
-  thumbnailUrl
-} from "../media/media-urls";
+import { mediaUrl, thumbnailUrl } from "../media/media-urls";
 
 const MAX_PAIRS = 3;
 const MAX_CONCURRENT_LOADS = 2;
 const MEDIA_TIMEOUT_MS = 4_000;
 const PAIR_WAIT_TIMEOUT_MS = 1_200;
 const VIDEO_RANGE_BYTES = 512 * 1_024;
-const MAX_ANIMATED_ORIGINAL_BYTES = 8 * 1_024 * 1_024;
-const MAX_ANIMATED_ORIGINAL_PIXELS = 4_000_000;
-const MAX_QUEUED_ANIMATED_ORIGINAL_BYTES = 16 * 1_024 * 1_024;
-const MAX_QUEUED_ANIMATED_ORIGINAL_PIXELS = 8_000_000;
 
 type ComparisonMediaPair = Pick<ComparisonPairResponse, "left" | "right">;
 type ResourceStatus = "queued" | "loading" | "ready" | "unavailable";
@@ -330,7 +322,7 @@ export function createComparisonMediaPreloader(): ComparisonMediaPreloader {
 
 function getResources(
   pairs: readonly ComparisonMediaPair[],
-  includeOriginalMedia: boolean
+  includeVideoData: boolean
 ): Map<string, MediaResource> {
   const resources = new Map<string, MediaResource>();
   const assets = new Map<string, AssetRecord>();
@@ -350,45 +342,12 @@ function getResources(
   for (const asset of assets.values()) {
     add(thumbnailUrl(asset.id), "image");
   }
-  let animatedOriginalBytes = 0;
-  let animatedOriginalPixels = 0;
   for (const asset of assets.values()) {
-    if (isAnimatedImagePreview(asset) && includeOriginalMedia) {
-      const pixels = animatedOriginalPixelCount(asset);
-      if (
-        pixels !== null &&
-        animatedOriginalBytes + asset.sizeBytes <=
-          MAX_QUEUED_ANIMATED_ORIGINAL_BYTES &&
-        animatedOriginalPixels + pixels <= MAX_QUEUED_ANIMATED_ORIGINAL_PIXELS
-      ) {
-        add(mediaUrl(asset.id), "image");
-        animatedOriginalBytes += asset.sizeBytes;
-        animatedOriginalPixels += pixels;
-      }
-    } else if (asset.mediaType === "video" && includeOriginalMedia) {
+    if (asset.mediaType === "video" && includeVideoData) {
       add(mediaUrl(asset.id), "video");
     }
   }
   return resources;
-}
-
-function animatedOriginalPixelCount(asset: AssetRecord): number | null {
-  const { width, height, sizeBytes } = asset;
-  if (
-    width === null ||
-    height === null ||
-    !Number.isSafeInteger(width) ||
-    !Number.isSafeInteger(height) ||
-    width <= 0 ||
-    height <= 0 ||
-    !Number.isSafeInteger(sizeBytes) ||
-    sizeBytes <= 0 ||
-    sizeBytes > MAX_ANIMATED_ORIGINAL_BYTES
-  ) {
-    return null;
-  }
-  const pixels = width * height;
-  return pixels <= MAX_ANIMATED_ORIGINAL_PIXELS ? pixels : null;
 }
 
 function getConnection(): ConnectionInformation | undefined {

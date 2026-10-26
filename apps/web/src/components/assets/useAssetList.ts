@@ -1,3 +1,4 @@
+import { preservePresentation } from "../media/presentation-record";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError,
@@ -156,7 +157,15 @@ export function useAssetList({
     refreshLoadedWindow()
       .then((response) => {
         if (active && listQueryKeyRef.current === requestQueryKey) {
-          setAssets(response.items);
+          setAssets((current) => {
+            const byId = new Map(current.map((asset) => [asset.id, asset]));
+            return response.items.map((incoming) => {
+              const previous = byId.get(incoming.id);
+              return previous
+                ? preservePresentation(previous, incoming)
+                : incoming;
+            });
+          });
           setTotalAssets(response.page.total);
           setLoadedQueryKey(requestQueryKey);
         }
@@ -215,7 +224,7 @@ export function useAssetList({
         }
 
         didChange = true;
-        return updatedAsset;
+        return preservePresentation(asset, updatedAsset);
       });
 
       return didChange ? nextAssets : currentAssets;

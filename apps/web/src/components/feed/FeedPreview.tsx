@@ -62,6 +62,7 @@ interface FeedPreviewProps {
   onOpenAsset: (assetId: string) => void;
   onFavoriteAsset: (asset: AssetRecord, favorite: boolean) => void;
   onScoreAsset: (asset: AssetRecord, score: number) => void;
+  onEditAsset?: (asset: AssetRecord) => void;
 }
 
 export function FeedPreview({
@@ -82,7 +83,8 @@ export function FeedPreview({
   onOpenAnnotations,
   onOpenAsset,
   onFavoriteAsset,
-  onScoreAsset
+  onScoreAsset,
+  onEditAsset
 }: FeedPreviewProps) {
   const feedRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<Array<HTMLElement | null>>([]);
@@ -735,6 +737,8 @@ export function FeedPreview({
         assetCount={assets.length}
         hasMore={hasMore}
         isScoreSaving={savingScoreAssetIds.has(activeAsset.id)}
+        isHidden={isFeedChromeHidden}
+        onEditAsset={onEditAsset ? () => onEditAsset(activeAsset) : undefined}
         onFavoriteChange={(favorite) => onFavoriteAsset(activeAsset, favorite)}
         onNext={() =>
           scrollToFeedItem(

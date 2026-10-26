@@ -21,6 +21,9 @@ interface VideoControlsProps {
   expandLabel?: string;
   expanded?: boolean;
   onInteractionChange?: (active: boolean) => void;
+  minimumTime?: number;
+  sectionLabel?: string;
+  hasAudio?: boolean;
 }
 
 export function VideoControls({
@@ -32,15 +35,20 @@ export function VideoControls({
   onExpand,
   expandLabel = "Enter fullscreen",
   expanded = false,
-  onInteractionChange
+  onInteractionChange,
+  minimumTime = 0,
+  sectionLabel,
+  hasAudio = true
 }: VideoControlsProps) {
   const focusedRef = useRef(false);
   const hoveredRef = useRef(false);
   const scrubbingRef = useRef(false);
   const interactionCallbackRef = useRef(onInteractionChange);
   const { state } = playback;
-  const progress = state.duration > 0 ? state.currentTime / state.duration : 0;
-  const buffered = state.duration > 0 ? state.bufferedEnd / state.duration : 0;
+  const length = state.duration - minimumTime;
+  const progress = length > 0 ? (state.currentTime - minimumTime) / length : 0;
+  const buffered =
+    length > 0 ? Math.max(0, state.bufferedEnd - minimumTime) / length : 0;
   const style = {
     "--video-played": `${progress * 100}%`,
     "--video-buffered": `${buffered * 100}%`
@@ -157,7 +165,7 @@ export function VideoControls({
             aria-valuetext={`${currentTime} of ${duration}`}
             className="video-controls__seek"
             type="range"
-            min={0}
+            min={minimumTime}
             max={state.duration || 1}
             step={0.1}
             value={state.currentTime}
@@ -191,7 +199,7 @@ export function VideoControls({
                   target = time + 10;
                   break;
                 case "Home":
-                  target = 0;
+                  target = minimumTime;
                   break;
                 case "End":
                   target = state.duration;
@@ -212,25 +220,30 @@ export function VideoControls({
           />
           <span className="video-controls__time" aria-hidden="true">
             <span>{currentTime}</span>
+            {sectionLabel ? (
+              <span className="video-controls__section">{sectionLabel}</span>
+            ) : null}
             <span>{duration}</span>
           </span>
         </span>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="video-controls__button video-controls__button--mute"
-          aria-label={mutedLabel}
-          title={mutedLabel}
-          disabled={!state.available}
-          onClick={onToggleMuted}
-        >
-          {state.muted ? (
-            <VolumeX aria-hidden="true" />
-          ) : (
-            <Volume2 aria-hidden="true" />
-          )}
-        </Button>
+        {hasAudio ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="video-controls__button video-controls__button--mute"
+            aria-label={mutedLabel}
+            title={mutedLabel}
+            disabled={!state.available}
+            onClick={onToggleMuted}
+          >
+            {state.muted ? (
+              <VolumeX aria-hidden="true" />
+            ) : (
+              <Volume2 aria-hidden="true" />
+            )}
+          </Button>
+        ) : null}
         {onExpand ? (
           <Button
             type="button"

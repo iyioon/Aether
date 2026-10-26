@@ -4,6 +4,14 @@ Notable changes to Aether are recorded here.
 
 ## Unreleased
 
+- Update Fastify, Zod, URI parsing, Vite and Vitest to patched releases.
+
+- Add saved, non-destructive media presentation: source-time highlights, speed,
+  repeat/bounce, Fit/Fill and focal position/zoom through one shared editor.
+  Support controlled GIF, WebP, APNG and AVIF playback, selected-start posters,
+  highlight-only browsing, Comparison aspect ratios and selective resets.
+  Protect saves with revisions and bound private rendition preparation.
+
 - Align View options typography with selection controls and tighten its spacing.
   Keep Gallery search and buttons on one row, using a compact view menu on
   narrow screens. Preserve leaderboard position when opening Settings changes

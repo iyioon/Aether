@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import {
+  Crop,
   GitCompareArrows,
   Heart,
+  Repeat2,
   RotateCcw,
   Tags,
   TrendingUp,
@@ -36,10 +38,25 @@ const EMPTY_SELECTION: LibraryDataResetOptions = {
   scores: false,
   favorites: false,
   tags: false,
-  comparisons: false
+  comparisons: false,
+  presentationPlayback: false,
+  presentationFraming: false
 };
 
 const RESET_OPTIONS = [
+  {
+    key: "presentationPlayback",
+    label: "Highlights and playback",
+    icon: Repeat2,
+    description:
+      "Restore full-length playback, normal speed and repeat looping."
+  },
+  {
+    key: "presentationFraming",
+    label: "Position and zoom",
+    icon: Crop,
+    description: "Restore automatic fit, centered position and original zoom."
+  },
   {
     key: "scores",
     label: "Scores",
@@ -74,6 +91,7 @@ const RESET_OPTIONS = [
 }>;
 
 interface DataResetSettingsSectionProps {
+  presentationEdits?: { playback: number; framing: number };
   onResetComplete: (
     result: LibraryDataResetResult,
     options: LibraryDataResetOptions
@@ -81,6 +99,7 @@ interface DataResetSettingsSectionProps {
 }
 
 export function DataResetSettingsSection({
+  presentationEdits,
   onResetComplete
 }: DataResetSettingsSectionProps) {
   const [selection, setSelection] =
@@ -140,9 +159,8 @@ export function DataResetSettingsSection({
         <TriangleAlert />
         <AlertTitle>Your media files are safe</AlertTitle>
         <AlertDescription>
-          These actions only change Aether’s database. Source files, indexed
-          folders, accounts, server settings, thumbnails, posters, and previews
-          are not deleted.
+          Source files, indexed folders and server settings are kept. Generated
+          media previews are rebuilt when needed.
         </AlertDescription>
       </Alert>
 
@@ -159,7 +177,8 @@ export function DataResetSettingsSection({
               key={option.key}
             >
               <Checkbox
-                checked={selection[option.key]}
+                checked={selection[option.key] ?? false}
+                disabled={isResetting}
                 id={inputId}
                 onCheckedChange={(checked) =>
                   setOption(option.key, checked === true)
@@ -167,7 +186,15 @@ export function DataResetSettingsSection({
               />
               <Icon aria-hidden="true" />
               <span>
-                <strong>{option.label}</strong>
+                <strong>
+                  {option.label}
+                  {presentationEdits && option.key === "presentationPlayback"
+                    ? ` (${presentationEdits.playback})`
+                    : null}
+                  {presentationEdits && option.key === "presentationFraming"
+                    ? ` (${presentationEdits.framing})`
+                    : null}
+                </strong>
                 <small>{option.description}</small>
               </span>
             </Label>
@@ -193,7 +220,12 @@ export function DataResetSettingsSection({
         </Button>
       </div>
 
-      <AlertDialog open={isConfirmOpen} onOpenChange={setIsConfirmOpen}>
+      <AlertDialog
+        open={isConfirmOpen}
+        onOpenChange={(open) => {
+          if (!isResetting) setIsConfirmOpen(open);
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Reset selected library data?</AlertDialogTitle>
@@ -238,6 +270,12 @@ export function DataResetSettingsSection({
 
 function resetResultSummary(result: LibraryDataResetResult): string {
   const changes = [
+    result.playbackReset && result.playbackReset > 0
+      ? `${result.playbackReset} playback edits`
+      : null,
+    result.framingReset && result.framingReset > 0
+      ? `${result.framingReset} framing edits`
+      : null,
     result.scoresReset > 0 ? `${result.scoresReset} scores` : null,
     result.favoritesReset > 0 ? `${result.favoritesReset} favorites` : null,
     result.tagAssignmentsRemoved > 0

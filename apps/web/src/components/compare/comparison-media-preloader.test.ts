@@ -194,7 +194,7 @@ describe("comparison media preloader", () => {
     await loader.waitForPair(pairs[0]!);
   });
 
-  it("deduplicates assets across pairs and warms animated originals using the renderer's extension rules", async () => {
+  it("deduplicates prepared thumbnails across pairs without loading native animated originals", async () => {
     const loader = createPreloader();
     const left = asset("animated", "image", ".GIF");
     const right = asset("still");
@@ -206,15 +206,14 @@ describe("comparison media preloader", () => {
     await loadImages();
 
     const sources = MockImage.instances.map((image) => image.requestedSource);
-    expect(sources).toHaveLength(5);
-    expect(new Set(sources).size).toBe(5);
-    expect(sources.filter((source) => source.endsWith("/media"))).toEqual([
-      `/api/assets/${left.id}/media`,
-      `/api/assets/${testNumber}-webp/media`
-    ]);
+    expect(sources).toHaveLength(3);
+    expect(new Set(sources).size).toBe(3);
+    expect(
+      sources.every((source) => source.endsWith("/thumbnail?size=640"))
+    ).toBe(true);
     loader.update([pair(left, right)]);
     await loadImages();
-    expect(MockImage.instances).toHaveLength(5);
+    expect(MockImage.instances).toHaveLength(3);
   });
 
   it("decodes video posters and requests a bounded authenticated original-video range", async () => {
@@ -298,159 +297,30 @@ describe("comparison media preloader", () => {
     await loader.waitForPair(current);
   });
 
-  it.each([
-    ["large file", { sizeBytes: 8 * 1_024 * 1_024 + 1 }],
-    ["large dimensions", { width: 2001, height: 2000 }],
-    ["unknown width", { width: null }],
-    ["unknown height", { height: null }],
-    ["zero width", { width: 0 }],
-    ["invalid height", { height: -1 }],
-    ["fractional dimensions", { width: 1.5 }],
-    ["non-finite dimensions", { width: Number.POSITIVE_INFINITY }],
-    ["zero file size", { sizeBytes: 0 }],
-    ["invalid file size", { sizeBytes: -1 }],
-    ["non-finite file size", { sizeBytes: Number.NaN }]
-  ])(
-    "uses thumbnails without waiting for an animated original with %s",
-    async (_label, metadata) => {
+  it.each([".gif", ".webp", ".apng", ".png", ".avif"])(
+    "settles %s pair preparation after thumbnails decode without waiting for unused originals",
+    async (extension) => {
       const loader = createPreloader();
-      const animated = { ...asset("animated", "image", ".avif"), ...metadata };
-      const current = pair(animated, asset("still"));
+      const current = pair(
+        asset("animation", "image", extension),
+        asset("still")
+      );
       loader.update([current]);
       await loadImages();
+      const settled = vi.fn();
+      void loader.waitForPair(current).then(settled);
+      await flush();
 
+      expect(settled).toHaveBeenCalledOnce();
       expect(MockImage.instances).toHaveLength(2);
       expect(
         MockImage.instances.every((image) =>
           image.requestedSource.endsWith("/thumbnail?size=640")
         )
       ).toBe(true);
-      const settled = vi.fn();
-      void loader.waitForPair(current).then(settled);
-      await flush();
-      expect(settled).toHaveBeenCalledOnce();
+      expect(fetch).not.toHaveBeenCalled();
     }
   );
-
-  it("includes animated originals exactly at the per-file byte and pixel limits", async () => {
-    const loader = createPreloader();
-    const animated = {
-      ...asset("animated", "image", ".webp"),
-      sizeBytes: 8 * 1_024 * 1_024,
-      width: 2000,
-      height: 2000
-    };
-    loader.update([pair(animated, asset("still"))]);
-    await loadImages();
-
-    expect(MockImage.instances).toHaveLength(3);
-    expect(MockImage.instances[2]?.requestedSource).toBe(
-      `/api/assets/${animated.id}/media`
-    );
-  });
-
-  it("bounds cumulative original bytes while still allowing a later image that fits", async () => {
-    const loader = createPreloader();
-    const animated = (id: string, megabytes: number): AssetRecord => ({
-      ...asset(id, "image", ".gif"),
-      sizeBytes: megabytes * 1_024 * 1_024,
-      width: 10,
-      height: 10
-    });
-    const first = animated("first", 8);
-    const second = animated("second", 7);
-    const excluded = animated("excluded", 2);
-    const last = animated("last", 1);
-    const pairs = [pair(first, second), pair(excluded, last)];
-    loader.update(pairs);
-    await loadImages();
-
-    const originals = MockImage.instances
-      .map((image) => image.requestedSource)
-      .filter((source) => source.endsWith("/media"));
-    expect(originals).toEqual(
-      [first, second, last].map((item) => `/api/assets/${item.id}/media`)
-    );
-    expect(MockImage.instances).toHaveLength(7);
-    const settled = vi.fn();
-    void loader.waitForPair(pairs[1]!).then(settled);
-    await flush();
-    expect(settled).toHaveBeenCalledOnce();
-    expect(MockImage.instances).toHaveLength(7);
-  });
-
-  it("bounds cumulative original pixels while keeping every queued thumbnail", async () => {
-    const loader = createPreloader();
-    const animated = (id: string, height: number): AssetRecord => ({
-      ...asset(id, "image", ".webp"),
-      width: 2000,
-      height
-    });
-    const first = animated("first", 1500);
-    const second = animated("second", 1500);
-    const excluded = animated("excluded", 1500);
-    const last = animated("last", 1000);
-    const pairs = [
-      pair(first, second),
-      pair(excluded, last),
-      pair(asset("still-left"), asset("still-right"))
-    ];
-    loader.update(pairs);
-    await loadImages();
-
-    const originals = MockImage.instances
-      .map((image) => image.requestedSource)
-      .filter((source) => source.endsWith("/media"));
-    expect(originals).toEqual(
-      [first, second, last].map((item) => `/api/assets/${item.id}/media`)
-    );
-    expect(
-      MockImage.instances.filter((image) =>
-        image.requestedSource.includes("/thumbnail?")
-      )
-    ).toHaveLength(6);
-    const settled = vi.fn();
-    void loader.waitForPair(pairs[1]!).then(settled);
-    await flush();
-    expect(settled).toHaveBeenCalledOnce();
-    expect(MockImage.instances).toHaveLength(9);
-  });
-
-  it("cancels animated originals when data saver starts and prepares them again when it ends", async () => {
-    const loader = createPreloader();
-    const current = pair(
-      asset("gif", "image", ".gif"),
-      asset("webp", "image", ".webp")
-    );
-    loader.update([current]);
-    for (const image of MockImage.instances) {
-      image.onload?.();
-    }
-    await flush();
-    const originalImages = MockImage.instances.slice(2);
-    expect(originalImages).toHaveLength(2);
-    expect(originalImages.every((image) => image.src.endsWith("/media"))).toBe(
-      true
-    );
-
-    connection.saveData = true;
-    connection.dispatchEvent(new Event("change"));
-    await flush();
-    expect(originalImages.every((image) => image.src === "")).toBe(true);
-    expect(MockImage.instances).toHaveLength(4);
-    await loader.waitForPair(current);
-
-    connection.saveData = false;
-    connection.dispatchEvent(new Event("change"));
-    await loadImages();
-    expect(MockImage.instances).toHaveLength(6);
-    expect(
-      MockImage.instances
-        .slice(4)
-        .every((image) => image.decode.mock.calls.length === 1)
-    ).toBe(true);
-    await loader.waitForPair(current);
-  });
 
   it("releases removed images and never starts queued stale sources", async () => {
     const loader = createPreloader();

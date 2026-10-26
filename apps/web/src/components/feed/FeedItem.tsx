@@ -65,48 +65,34 @@ export const FeedItem = memo(function FeedItem({
     >
       {renderMedia ? (
         <div className="feed-frame">
-          {asset.mediaType === "video" ? (
-            <div className="media-preview-button">
-              <MediaPreview
-                asset={asset}
-                isActive={isActive}
-                muted={isFeedMuted}
-                onAudibleAutoplayBlocked={onAudibleAutoplayBlocked}
-                onAudiblePlaybackStarted={onAudiblePlaybackStarted}
-                onExpand={() => onOpenAsset(asset.id)}
-                onToggleMuted={onFeedSoundToggle}
-                onVideoControlsReady={onVideoControlsReady}
-                onVideoPress={onToggleFeedChrome}
-                playbackPaused={isPlaybackPaused}
-                preloadPreview={preloadPreview}
-                showVideoTimeline
-                tall
-                useOriginalVideo
+          <div className="media-preview-button">
+            <MediaPreview
+              asset={asset}
+              isActive={isActive}
+              muted={isFeedMuted}
+              onAudibleAutoplayBlocked={onAudibleAutoplayBlocked}
+              onAudiblePlaybackStarted={onAudiblePlaybackStarted}
+              onExpand={() => onOpenAsset(asset.id)}
+              onToggleMuted={onFeedSoundToggle}
+              onVideoControlsReady={onVideoControlsReady}
+              onVideoPress={onToggleFeedChrome}
+              playbackPaused={isPlaybackPaused}
+              preloadPreview={preloadPreview}
+              showVideoTimeline
+              tall
+              useOriginalImage
+              useOriginalVideo
+            />
+            {asset.mediaType !== "video" ? (
+              <button
+                className="feed-image-tap-surface"
+                type="button"
+                aria-label={`${isFeedChromeHidden ? "Show" : "Hide"} feed controls and details`}
+                title={isFeedChromeHidden ? "Show details" : "Hide details"}
+                onClick={onToggleFeedChrome}
               />
-            </div>
-          ) : (
-            <button
-              className="media-preview-button"
-              type="button"
-              aria-label={`${
-                isFeedChromeHidden ? "Show" : "Hide"
-              } feed controls and details`}
-              title={isFeedChromeHidden ? "Show details" : "Hide details"}
-              onClick={onToggleFeedChrome}
-            >
-              <MediaPreview
-                asset={asset}
-                isActive={isActive}
-                muted={isFeedMuted}
-                onAudibleAutoplayBlocked={onAudibleAutoplayBlocked}
-                onAudiblePlaybackStarted={onAudiblePlaybackStarted}
-                playbackPaused={isPlaybackPaused}
-                preloadPreview={preloadPreview}
-                tall
-                useOriginalImage
-              />
-            </button>
-          )}
+            ) : null}
+          </div>
           <div className="feed-meta">
             <button
               className="feed-meta-button"

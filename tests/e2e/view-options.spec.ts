@@ -157,6 +157,56 @@ test("keeps view options scoped to the current view and dismisses nested control
   await expect(trigger).toHaveAttribute("aria-expanded", "false");
 });
 
+test("restores gallery content when a pending sort returns to the previous query", async ({
+  page
+}) => {
+  const trigger = page.getByRole("button", { name: /^View options/ });
+  const panel = page.getByRole("dialog", { name: "View options", exact: true });
+  const gallery = page.getByRole("region", { name: "Gallery view" });
+  await trigger.click();
+  await panel.getByRole("tab", { name: "Sort", exact: true }).click();
+  await panel.getByRole("radio", { name: "Filename", exact: true }).check();
+  await expectQuery(page, { sort: "filename", order: null });
+  await expect(gallery).toHaveAttribute("aria-busy", "false");
+  let heldDescending = false;
+  let releaseDescending!: () => void;
+  const descendingDelay = new Promise<void>((resolve) => {
+    releaseDescending = resolve;
+  });
+  await page.route("**/api/folders/*/assets?*", async (route) => {
+    const params = new URL(route.request().url()).searchParams;
+    if (params.get("sort") === "filename" && params.get("order") === "desc") {
+      heldDescending = true;
+      await descendingDelay;
+    }
+    await route.continue().catch(() => undefined);
+  });
+  try {
+    await panel.getByRole("radio", { name: "Descending", exact: true }).check();
+    await expect.poll(() => heldDescending).toBe(true);
+    await expect(gallery).toHaveAttribute("aria-busy", "true");
+    const ascendingResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return (
+        url.pathname.endsWith("/assets") &&
+        url.searchParams.get("sort") === "filename" &&
+        url.searchParams.get("order") === "asc" &&
+        response.ok()
+      );
+    });
+    await panel.getByRole("radio", { name: "Ascending", exact: true }).check();
+    await ascendingResponse;
+    await expect(gallery).toHaveAttribute("aria-busy", "false");
+    await expect(page.locator(".virtual-gallery")).not.toHaveClass(
+      /is-scroll-pending/
+    );
+    await expect(page.locator(".tile-meta").first()).toBeVisible();
+  } finally {
+    releaseDescending();
+    await page.unrouteAll({ behavior: "wait" });
+  }
+});
+
 test("keeps the phone sheet reachable with long filters, rotation, and a short viewport", async ({
   browser,
   page

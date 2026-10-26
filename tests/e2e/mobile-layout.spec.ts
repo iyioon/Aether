@@ -82,7 +82,7 @@ test("fits both comparison cards and touch controls on short and tall phones", a
       expect(geometry.footerBottom).toBeLessThanOrEqual(
         geometry.viewportHeight + 1
       );
-      expect(geometry.targets).toHaveLength(3);
+      expect(geometry.targets).toHaveLength(4);
       for (const target of geometry.targets) {
         expect(target.width).toBeGreaterThanOrEqual(44);
         expect(target.height).toBeGreaterThanOrEqual(44);

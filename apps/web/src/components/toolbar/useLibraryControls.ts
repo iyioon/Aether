@@ -32,6 +32,9 @@ export function useLibraryControls({
 }: UseLibraryControlsOptions) {
   const [view, setView] = useState<ViewMode>(initialState.view);
   const [isOptionsOpen, setOptionsOpen] = useState(false);
+  const [highlightsOnly, setHighlightsOnly] = useState(
+    initialState.highlightsOnly ?? false
+  );
   const [gridSize, setGridSize] = useState<GridSize>(initialState.gridSize);
   const [aspect, setAspect] = useState<AspectMode>(initialState.aspect);
   const [sort, setSort] = useState<SortMode>(initialState.sort);
@@ -52,6 +55,7 @@ export function useLibraryControls({
 
   const applyLibraryState = useCallback((state: LibraryUrlState) => {
     setView(state.view);
+    setHighlightsOnly(state.highlightsOnly ?? false);
     setGridSize(state.gridSize);
     setAspect(state.aspect);
     setSort(state.sort);
@@ -128,6 +132,8 @@ export function useLibraryControls({
   }
 
   return {
+    highlightsOnly,
+    setHighlightsOnly,
     applyLibraryState,
     addTagFilter,
     aspect,

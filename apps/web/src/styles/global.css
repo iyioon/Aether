@@ -15,5 +15,9 @@
 @import "./viewer-drawer.css";
 @import "./settings.css";
 @import "./responsive.css";
+@import "./media-editor.css";
+@import "./media-edit-actions.css";
+@import "./controlled-animation.css";
+@import "./presentation-playback.css";
 
 @custom-variant dark (&:is(.dark *));

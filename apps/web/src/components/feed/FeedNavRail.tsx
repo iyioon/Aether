@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp, SlidersVertical } from "lucide-react";
 import { IconButton } from "../IconButton";
 import {
   MediaFavoriteButton,
@@ -14,6 +14,8 @@ interface FeedNavRailProps {
   assetCount: number;
   hasMore: boolean;
   isScoreSaving: boolean;
+  isHidden?: boolean;
+  onEditAsset?: () => void;
   onNext: () => void;
   onFavoriteChange: (favorite: boolean) => void;
   onPrevious: () => void;
@@ -28,13 +30,21 @@ export function FeedNavRail({
   assetCount,
   hasMore,
   isScoreSaving,
+  isHidden = false,
+  onEditAsset,
   onNext,
   onFavoriteChange,
   onPrevious,
   onScoreChange
 }: FeedNavRailProps) {
   return (
-    <div className="feed-nav-rail" aria-label="Feed navigation" role="group">
+    <div
+      className="feed-nav-rail"
+      data-hidden={isHidden}
+      aria-label="Feed navigation"
+      role="group"
+      inert={isHidden}
+    >
       <div className="feed-nav-buttons">
         <IconButton
           className="media-overlay-button feed-nav-button"
@@ -73,6 +83,16 @@ export function FeedNavRail({
           overlay
           onChange={onFavoriteChange}
         />
+        {onEditAsset ? (
+          <IconButton
+            className="feed-edit-button feed-nav-button media-overlay-button"
+            icon={SlidersVertical}
+            label={`Edit ${activeMediaName}`}
+            title="Edit media"
+            aria-haspopup="dialog"
+            onClick={onEditAsset}
+          />
+        ) : null}
       </div>
     </div>
   );

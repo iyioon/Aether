@@ -202,7 +202,13 @@ async function inspectMedia(file: ResolvedAssetFile): Promise<MediaProbe> {
     throw new PresentationMediaError("media_decode_failed");
   const pages = metadata.pages ?? 1;
   if (pages <= 1)
-    return { kind: "still", width, height, durationMs: null, hasAudio: false };
+    return {
+      kind: "still",
+      width: metadata.autoOrient.width,
+      height: metadata.autoOrient.height,
+      durationMs: null,
+      hasAudio: false
+    };
   const delays = Array.from({ length: pages }, (_, index) =>
     normalizedDelay(metadata.delay?.[index] ?? 100)
   );

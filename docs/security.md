@@ -104,3 +104,21 @@ Aether does not provide per-user permissions, account recovery, device
 management, public sharing, or a security audit log. Password-only access is a
 deliberate fit for a small trusted deployment, not a substitute for network and
 device security.
+
+## Presentation Processing
+
+Presentation saves require an authenticated session and the existing CSRF check.
+Strict finite, bounded fields and an expected revision prevent malformed edits
+and stale overwrites. Processing receives resolved source records; it cannot
+write source media. A changed physical source must be rescanned before saving.
+
+Rendition and atlas routes keep authenticated private caching and HEAD/range
+semantics. Their opaque keys contain no private paths. Capability/manifest
+responses use `no-store`; the PWA never caches private media or metadata.
+FFmpeg permits local media protocols/containers only and uses fixed argument
+arrays, bounded work queues, deadlines, metadata/output limits, and serialized
+reverse work. Animation decoding has frame, duration, pixel and byte limits.
+Unsafe source/cache symlinks are rejected. Temporary files are removed on
+failure; stale generation is rejected, and successful replacements remove only
+superseded registered files. These limits reduce resource exposure; Aether still
+expects media folders controlled by its operator.

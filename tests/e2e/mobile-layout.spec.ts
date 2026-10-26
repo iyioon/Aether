@@ -82,7 +82,7 @@ test("fits both comparison cards and touch controls on short and tall phones", a
       expect(geometry.footerBottom).toBeLessThanOrEqual(
         geometry.viewportHeight + 1
       );
-      expect(geometry.targets).toHaveLength(4);
+      expect(geometry.targets).toHaveLength(3);
       for (const target of geometry.targets) {
         expect(target.width).toBeGreaterThanOrEqual(44);
         expect(target.height).toBeGreaterThanOrEqual(44);
@@ -315,7 +315,11 @@ test("groups mobile Feed view options and navigation with media visibility", asy
       name: "View options",
       exact: true
     });
-    await expect(panel.getByRole("tab")).toHaveText(["Filters", "Sort"]);
+    await expect(panel.getByRole("tab")).toHaveText([
+      "Filters",
+      "Sort",
+      "Layout"
+    ]);
     await panel.getByRole("radio", { name: "Videos", exact: true }).check();
     await panel.getByRole("button", { name: "Close view options" }).tap();
     await expect(

@@ -133,7 +133,10 @@ test("supports login, scan, batch annotation, fullscreen, and feed", async ({
   await page.getByRole("button", { name: "Feed view" }).click();
   const feed = page.getByRole("region", { name: "Feed view" });
   await expect(feed).toBeVisible();
-  await expect(page.getByText("family-photo.png")).toBeVisible();
+  await expect(
+    feed.getByRole("img", { name: "family-photo.png" })
+  ).toBeVisible();
+  await expect(feed.locator(".feed-meta-button")).toHaveCount(0);
   const feedImage = feed.getByRole("img", { name: "family-photo.png" });
   await expect(feedImage).toHaveAttribute("data-preview-source", "original");
   await expect(feedImage).toHaveAttribute("src", /\/api\/assets\/.+\/media/);
@@ -267,8 +270,21 @@ test("recovers from server and session interruptions and restores navigation", a
   await page.reload();
   await expect(page.getByRole("button", { name: "Leaderboard" })).toBeVisible();
 
-  await context.clearCookies();
-  await page.getByRole("button", { name: "Leaderboard" }).click();
+  // Hold new reads so a background 401 cannot remove the button before its click.
+  let releaseExpiredRequests!: () => void;
+  const expiredRequests = new Promise<void>((resolve) => {
+    releaseExpiredRequests = resolve;
+  });
+  await page.route("**/api/**", async (route) => {
+    await expiredRequests;
+    await route.continue().catch(() => undefined);
+  });
+  try {
+    await context.clearCookies();
+    await page.getByRole("button", { name: "Leaderboard" }).click();
+  } finally {
+    releaseExpiredRequests();
+  }
   await expect(page.getByLabel("Password", { exact: true })).toBeVisible();
   await expect(page.getByText(/session expired/i)).toBeVisible();
 });

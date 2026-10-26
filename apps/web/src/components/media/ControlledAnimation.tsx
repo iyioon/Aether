@@ -37,6 +37,7 @@ export interface ControlledAnimationProps {
   controlsClassName?: string;
   controlsContainer?: HTMLElement | null;
   style?: CSSProperties;
+  maxCanvasDimension?: number;
   playheadMs?: number;
   isPlaying?: boolean;
   onTimeChange?: (timeMs: number) => void;
@@ -63,6 +64,7 @@ export function ControlledAnimation({
   controlsClassName,
   controlsContainer,
   style,
+  maxCanvasDimension,
   playheadMs,
   isPlaying,
   onTimeChange,
@@ -130,6 +132,17 @@ export function ControlledAnimation({
     ...presentationMediaStyle(presentation, defaultFit),
     ...style
   };
+
+  useEffect(() => {
+    if (active && !hidden) return;
+    const canvas = canvasRef.current;
+    if (canvas) {
+      canvas.width = 0;
+      canvas.height = 0;
+    }
+    paintedSourceRef.current = "";
+    setPaintedKey("");
+  }, [active, hidden]);
 
   useEffect(() => {
     const suspend = (value: boolean) => {
@@ -204,8 +217,18 @@ export function ControlledAnimation({
       callbacksRef.current.onError?.();
       return;
     }
-    if (canvas.width !== manifest.width) canvas.width = manifest.width;
-    if (canvas.height !== manifest.height) canvas.height = manifest.height;
+    const scale =
+      maxCanvasDimension && Number.isFinite(maxCanvasDimension)
+        ? Math.min(
+            1,
+            Math.max(1, maxCanvasDimension) /
+              Math.max(manifest.width, manifest.height)
+          )
+        : 1;
+    const width = Math.max(1, Math.round(manifest.width * scale));
+    const height = Math.max(1, Math.round(manifest.height * scale));
+    if (canvas.width !== width) canvas.width = width;
+    if (canvas.height !== height) canvas.height = height;
     const controller = new AbortController();
     const workControllers = workControllersRef.current;
     workControllers.add(controller);
@@ -284,7 +307,7 @@ export function ControlledAnimation({
             current.atlas !== frame.atlas
           )
             return;
-          context!.clearRect(0, 0, manifest!.width, manifest!.height);
+          context!.clearRect(0, 0, width, height);
           context!.drawImage(
             atlas.image,
             current.x,
@@ -293,8 +316,8 @@ export function ControlledAnimation({
             current.height,
             0,
             0,
-            manifest!.width,
-            manifest!.height
+            width,
+            height
           );
           lastDrawn = latestFrame;
           waiting = false;
@@ -414,6 +437,7 @@ export function ControlledAnimation({
     playbackRate,
     running,
     sourceKey,
+    maxCanvasDimension,
     controls
   ]);
 
@@ -474,7 +498,10 @@ export function ControlledAnimation({
     />
   );
   return (
-    <span className={`controlled-animation ${className}`.trim()}>
+    <span
+      className={`controlled-animation ${className}`.trim()}
+      data-has-controls={controls || undefined}
+    >
       {!painted && !posterFailed ? (
         <img
           className="controlled-animation__poster"

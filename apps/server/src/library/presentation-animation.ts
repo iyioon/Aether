@@ -196,20 +196,21 @@ async function generateAnimation(
     const atlasPaths: string[] = [];
     let startMs = 0;
     let outputBytes = 0;
-    for (let offset = 0; offset < frameCount; offset += 16) {
+    const layout = animationAtlasLayout(images.width, images.height);
+    for (let offset = 0; offset < frameCount; offset += layout.capacity) {
       if (Date.now() >= deadline)
         throw new PresentationMediaError("processing_timeout", 503);
       const batch = images.frameStorePath
         ? await Promise.all(
             Array.from(
-              { length: Math.min(16, frameCount - offset) },
+              { length: Math.min(layout.capacity, frameCount - offset) },
               (_, index) =>
                 readDecodedFrame(images.frameStorePath!, offset + index)
             )
           )
-        : images.frames!.slice(offset, offset + 16);
-      const columns = Math.min(4, batch.length);
-      const rows = Math.ceil(batch.length / 4);
+        : images.frames!.slice(offset, offset + layout.capacity);
+      const columns = Math.min(layout.columns, batch.length);
+      const rows = Math.ceil(batch.length / columns);
       const atlasIndex = atlases.length;
       const name = `${key}-atlas-${atlasIndex}.png`;
       const temporaryPath = path.join(workDirectory, name);
@@ -224,8 +225,8 @@ async function generateAnimation(
         .composite(
           batch.map((input, index) => ({
             input,
-            left: (index % 4) * images.width,
-            top: Math.floor(index / 4) * images.height,
+            left: (index % columns) * images.width,
+            top: Math.floor(index / columns) * images.height,
             ...(probe.decoder === "sharp"
               ? {
                   raw: {
@@ -261,8 +262,8 @@ async function generateAnimation(
           startMs,
           durationMs,
           atlas: atlasIndex,
-          x: (index % 4) * images.width,
-          y: Math.floor(index / 4) * images.height,
+          x: (index % columns) * images.width,
+          y: Math.floor(index / columns) * images.height,
           width: images.width,
           height: images.height
         });
@@ -330,12 +331,6 @@ async function sharpFrames(
     animated: true,
     limitInputPixels: ANIMATION_LIMITS.inputPixels
   })
-    .resize({
-      width: ANIMATION_LIMITS.frameSize,
-      height: ANIMATION_LIMITS.frameSize,
-      fit: "inside",
-      withoutEnlargement: true
-    })
     .ensureAlpha()
     .timeout({ seconds: 60 })
     .tiff({ compression: "none" })
@@ -346,7 +341,11 @@ async function sharpFrames(
     frameStorePath,
     ANIMATION_LIMITS.inputPixels * 4 + 2 * 1024 * 1024
   );
-  if (info.height !== height * probe.delays.length)
+  if (
+    info.width !== probe.width ||
+    height !== probe.height ||
+    info.height !== height * probe.delays.length
+  )
     throw new PresentationMediaError("animation_frame_mismatch");
   return { width: info.width, height, frameStorePath };
 }
@@ -369,13 +368,13 @@ async function ffmpegFrames(
   probe: AnimationProbe,
   directory: string
 ): Promise<DecodedAnimation> {
-  const scale = `scale=${Math.min(ANIMATION_LIMITS.frameSize, probe.width)}:${Math.min(ANIMATION_LIMITS.frameSize, probe.height)}:force_original_aspect_ratio=decrease,setsar=1,format=rgba`;
+  const format = "setsar=1,format=rgba";
   const filterArgs =
     probe.alphaStreamIndex === null
-      ? ["-map", `0:${probe.streamIndex}`, "-vf", scale]
+      ? ["-map", `0:${probe.streamIndex}`, "-vf", format]
       : [
           "-filter_complex",
-          `[0:${probe.streamIndex}][0:${probe.alphaStreamIndex}]alphamerge,${scale}[frames]`,
+          `[0:${probe.streamIndex}][0:${probe.alphaStreamIndex}]alphamerge,${format}[frames]`,
           "-map",
           "[frames]"
         ];
@@ -409,12 +408,21 @@ async function ffmpegFrames(
     .sort();
   if (names.length !== probe.delays.length)
     throw new PresentationMediaError("animation_frame_mismatch");
-  const metadata = await sharp(path.join(directory, names[0]!)).metadata();
-  if (!metadata.width || !metadata.height)
-    throw new PresentationMediaError("media_decode_failed");
+  let decodedBytes = 0;
+  for (const name of names) {
+    const framePath = path.join(directory, name);
+    const metadata = await sharp(framePath, {
+      limitInputPixels: ANIMATION_LIMITS.frameSize ** 2
+    }).metadata();
+    if (metadata.width !== probe.width || metadata.height !== probe.height)
+      throw new PresentationMediaError("animation_frame_mismatch");
+    decodedBytes += (await stat(framePath)).size;
+    if (decodedBytes > ANIMATION_LIMITS.inputPixels * 4 + 2 * 1024 * 1024)
+      throw new PresentationMediaError("presentation_limit_exceeded", 422);
+  }
   return {
-    width: metadata.width,
-    height: metadata.height,
+    width: probe.width,
+    height: probe.height,
     frames: names.map((name) => path.join(directory, name))
   };
 }
@@ -435,7 +443,8 @@ async function readCachedAnimation(
       !Array.isArray(manifest.frames) ||
       manifest.frames.length > ANIMATION_LIMITS.frames ||
       !Array.isArray(manifest.atlases) ||
-      manifest.atlases.length !== Math.ceil(manifest.frames.length / 16)
+      manifest.atlases.length < 1 ||
+      manifest.atlases.length > ANIMATION_LIMITS.frames
     )
       return null;
     if (
@@ -445,7 +454,15 @@ async function readCachedAnimation(
       manifest.height < 1 ||
       manifest.width > ANIMATION_LIMITS.frameSize ||
       manifest.height > ANIMATION_LIMITS.frameSize ||
+      manifest.width * manifest.height * manifest.frames.length >
+        ANIMATION_LIMITS.inputPixels ||
       manifest.frames.length < 1
+    )
+      return null;
+    const layout = animationAtlasLayout(manifest.width, manifest.height);
+    if (
+      manifest.atlases.length !==
+      Math.ceil(manifest.frames.length / layout.capacity)
     )
       return null;
     let timeMs = 0;
@@ -456,9 +473,12 @@ async function readCachedAnimation(
         frame.startMs !== timeMs ||
         frame.width !== manifest.width ||
         frame.height !== manifest.height ||
-        frame.atlas !== Math.floor(index / 16) ||
-        frame.x !== (index % 4) * manifest.width ||
-        frame.y !== Math.floor((index % 16) / 4) * manifest.height
+        frame.atlas !== Math.floor(index / layout.capacity) ||
+        frame.x !==
+          ((index % layout.capacity) % layout.columns) * manifest.width ||
+        frame.y !==
+          Math.floor((index % layout.capacity) / layout.columns) *
+            manifest.height
       )
         return null;
       timeMs += frame.durationMs;
@@ -466,10 +486,14 @@ async function readCachedAnimation(
     if (manifest.durationMs !== timeMs || timeMs > ANIMATION_LIMITS.durationMs)
       return null;
     for (const [index, atlas] of manifest.atlases.entries()) {
-      const count = Math.min(16, manifest.frames.length - index * 16);
+      const count = Math.min(
+        layout.capacity,
+        manifest.frames.length - index * layout.capacity
+      );
+      const columns = Math.min(layout.columns, count);
       if (
-        atlas.width !== Math.min(4, count) * manifest.width ||
-        atlas.height !== Math.ceil(count / 4) * manifest.height
+        atlas.width !== columns * manifest.width ||
+        atlas.height !== Math.ceil(count / columns) * manifest.height
       )
         return null;
       atlas.url = `/api/assets/${encodeURIComponent(assetId)}/animation/atlases/${index}?v=${key}`;
@@ -484,4 +508,12 @@ async function readCachedAnimation(
   } catch {
     return null;
   }
+}
+
+function animationAtlasLayout(width: number, height: number) {
+  const columns = Math.min(4, Math.floor(2048 / width));
+  const rows = Math.min(4, Math.floor(2048 / height));
+  if (columns < 1 || rows < 1)
+    throw new PresentationMediaError("presentation_limit_exceeded", 422);
+  return { columns, capacity: columns * rows };
 }

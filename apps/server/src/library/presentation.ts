@@ -1,11 +1,18 @@
 import { createHash } from "node:crypto";
 
-export interface PresentationValues {
-  highlight: { startMs: number; endMs: number } | null;
+export interface PresentationFraming {
   fit: "auto" | "contain" | "cover";
   focalX: number;
   focalY: number;
   zoom: number;
+}
+
+export interface PresentationValues extends PresentationFraming {
+  highlight: { startMs: number; endMs: number } | null;
+  aspectFraming?: Partial<
+    Record<"Square" | "Portrait" | "Landscape", PresentationFraming>
+  >;
+  feedFraming?: Partial<Record<"portrait" | "landscape", PresentationFraming>>;
   playbackRate: number;
   loopMode: "repeat" | "bounce";
 }
@@ -36,7 +43,7 @@ export function getPresentationRenditionKeys(
   values: PresentationValues
 ): MediaPresentation["renditionKeys"] {
   const identity = [
-    "presentation-v1",
+    "presentation-v2",
     asset.id,
     asset.mtimeMs,
     asset.sizeBytes
@@ -52,7 +59,7 @@ export function getPresentationRenditionKeys(
   return {
     full: key("full"),
     highlight: key("highlight", range),
-    bounce: key("bounce", range, values.loopMode)
+    bounce: key("bounce-lossless-v3", range, values.loopMode)
   };
 }
 

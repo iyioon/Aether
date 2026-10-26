@@ -302,9 +302,9 @@
   opacity: 0;
 }
 
-.media-image-thumbnail {
-  transform: scale(1.01);
-  filter: blur(2px);
+/* Swap decoded layers together without blurring, darkening or changing crop. */
+.media-image-shell.progressive .media-image {
+  transition: none;
 }
 
 .media-image-original {
@@ -350,7 +350,6 @@
 
 .media-video-shell.ready .media-video {
   opacity: 1;
-  transition: opacity var(--aether-motion-fast) ease;
 }
 
 .media-video-shell.poster-ready .media-video-poster {
@@ -359,7 +358,6 @@
 
 .media-video-shell.ready .media-video-poster {
   opacity: 0;
-  transition: opacity var(--aether-motion-fast) ease;
 }
 
 .media-video-shell.poster-ready .media-video-loading,
@@ -492,53 +490,6 @@
   white-space: nowrap;
 }
 
-.icon-link {
-  display: grid;
-  flex: 0 0 auto;
-  width: 30px;
-  height: 30px;
-  place-items: center;
-  color: var(--muted-foreground);
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  text-decoration: none;
-}
-
-.icon-link.tile-download {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: 4;
-  border: 1px solid rgba(var(--aether-foreground-rgb), 0.18);
-  border-radius: 50%;
-  background: rgba(var(--aether-background-rgb), 0.72);
-  backdrop-filter: blur(8px);
-}
-
-@media (hover: hover) and (pointer: fine) {
-  .icon-link.tile-download {
-    opacity: 0;
-    pointer-events: none;
-    transform: translateY(-2px) scale(0.96);
-    transition:
-      opacity var(--aether-motion-fast) ease,
-      transform var(--aether-motion-fast) ease;
-  }
-
-  .media-tile:hover .icon-link.tile-download,
-  .media-tile:focus-within .icon-link.tile-download {
-    opacity: 1;
-    pointer-events: auto;
-    transform: translateY(0) scale(1);
-  }
-
-  .media-tile.selection-mode .icon-link.tile-download {
-    opacity: 0;
-    pointer-events: none;
-  }
-}
-
 .tile-submeta {
   display: flex;
   flex-wrap: nowrap;
@@ -636,4 +587,24 @@
 .empty-library span {
   max-width: 340px;
   line-height: 1.5;
+}
+
+.gallery-card-menu {
+  min-width: 180px;
+  max-width: calc(100vw - 24px);
+}
+
+.gallery-card-menu [data-slot="context-menu-item"] {
+  min-height: 36px;
+}
+
+@media (hover: none), (pointer: coarse) {
+  .gallery-card-menu [data-slot="context-menu-item"] {
+    min-height: 44px;
+  }
+
+  .media-tile[data-slot="context-menu-trigger"] {
+    -webkit-user-select: none;
+    user-select: none;
+  }
 }

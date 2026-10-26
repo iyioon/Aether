@@ -1,3 +1,4 @@
+import type { GalleryMetadataField } from "../gallery/gallery-metadata";
 import { useCallback, useEffect } from "react";
 import { CornerUpLeft, RefreshCw } from "lucide-react";
 import type {
@@ -29,8 +30,14 @@ import { useComparisonChoiceFeedback } from "./useComparisonChoiceFeedback";
 import { useComparisonSession } from "./useComparisonSession";
 
 interface RankingSessionProps {
+  measuredAspectRatios: Record<string, string>;
+  onMediaDimensionsKnown: (
+    assetId: string,
+    width: number,
+    height: number
+  ) => void;
   aspect: AspectMode;
-  onAspectChange: (aspect: AspectMode) => void;
+  metadataFields: ReadonlySet<GalleryMetadataField>;
   assetUpdate: AssetRecord | null;
   folderId: string | null;
   mediaType: MediaTypeFilter;
@@ -41,13 +48,14 @@ interface RankingSessionProps {
   onAssetsUpdated: (assets: AssetRecord[]) => void;
   onExit: () => void;
   onOpenFullscreen: (asset: AssetRecord) => void;
-  onEditAsset?: (asset: AssetRecord) => void;
   onRankingChanged: () => void;
 }
 
 export function RankingSession({
+  measuredAspectRatios,
+  onMediaDimensionsKnown,
   aspect,
-  onAspectChange,
+  metadataFields,
   assetUpdate,
   folderId,
   mediaType,
@@ -58,7 +66,6 @@ export function RankingSession({
   onAssetsUpdated,
   onExit,
   onOpenFullscreen,
-  onEditAsset,
   onRankingChanged
 }: RankingSessionProps) {
   const {
@@ -170,29 +177,29 @@ export function RankingSession({
           >
             <ComparisonCard
               asset={pair.left}
+              measuredAspectRatio={measuredAspectRatios[pair.left.id]}
+              onMediaDimensionsKnown={onMediaDimensionsKnown}
               aspect={aspect}
+              metadataFields={metadataFields}
               direction="left"
               disabled={isSubmitting || isLoading || isPairCommitted}
               isChosen={chosenAssetId === pair.left.id}
               playbackPaused={isPlaybackPaused}
               onChoose={() => handleChoice(pair.left.id, "left")}
               onOpenFullscreen={() => onOpenFullscreen(pair.left)}
-              onEditAsset={
-                onEditAsset ? () => onEditAsset(pair.left) : undefined
-              }
             />
             <ComparisonCard
               asset={pair.right}
+              measuredAspectRatio={measuredAspectRatios[pair.right.id]}
+              onMediaDimensionsKnown={onMediaDimensionsKnown}
               aspect={aspect}
+              metadataFields={metadataFields}
               direction="right"
               disabled={isSubmitting || isLoading || isPairCommitted}
               isChosen={chosenAssetId === pair.right.id}
               playbackPaused={isPlaybackPaused}
               onChoose={() => handleChoice(pair.right.id, "right")}
               onOpenFullscreen={() => onOpenFullscreen(pair.right)}
-              onEditAsset={
-                onEditAsset ? () => onEditAsset(pair.right) : undefined
-              }
             />
           </div>
         ) : !isLoading && (!error || canUndo) ? (
@@ -207,8 +214,6 @@ export function RankingSession({
 
       {pair ? (
         <ComparisonSessionFooter
-          aspect={aspect}
-          onAspectChange={onAspectChange}
           canUndo={canUndo}
           isLoading={isLoading}
           isPairCommitted={isPairCommitted}

@@ -270,10 +270,10 @@
   aspect-ratio: auto;
 }
 
-.feed-frame .media-video-playback-toggle {
+.feed-item .media-video-playback-toggle {
   position: absolute;
   inset: 0;
-  z-index: 2;
+  z-index: 1;
   display: grid;
   padding: 0;
   color: #fff;
@@ -283,19 +283,19 @@
   place-items: center;
 }
 
-.feed-frame .media-video-playback-toggle:focus-visible {
+.feed-item .media-video-playback-toggle:focus-visible {
   outline: 2px solid rgba(255, 255, 255, 0.82);
   outline-offset: -4px;
 }
 
 /* The transport owns the bottom inset; details and actions clear its full height. */
-.feed-frame:has(.video-controls--feed) {
+.feed-item:has(.video-controls--feed) {
   --feed-video-controls-height: calc(
     var(--video-controls-height) + var(--media-safe-area-bottom)
   );
 }
 
-.feed-frame .video-controls--feed {
+.feed-item .video-controls--feed {
   position: absolute;
   right: 0;
   bottom: 0;
@@ -310,7 +310,7 @@
   backdrop-filter: none;
 }
 
-.feed-frame:has(.video-controls--feed) .feed-meta {
+.feed-item:has(.video-controls--feed) .feed-meta {
   padding-bottom: calc(12px + var(--feed-video-controls-height));
 }
 
@@ -387,12 +387,43 @@
   outline-offset: -2px;
 }
 
-.feed-meta span {
-  display: block;
+.feed-meta .media-card-info > span {
   color: rgba(255, 255, 255, 0.72);
   font-size: 12px;
   text-shadow: 0 1px 8px rgba(0, 0, 0, 0.72);
-  text-transform: capitalize;
+  text-transform: none;
+}
+
+.feed-meta .media-card-info--compact {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.feed-meta .media-card-info-row {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  overflow: visible;
+  white-space: normal;
+}
+
+.feed-meta .media-card-info-item {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: center;
+  gap: 4px;
+}
+
+.feed-meta .media-card-info-item svg {
+  flex: 0 0 auto;
+}
+
+.feed-meta .media-card-info-item > span:not(.sr-only) {
+  min-width: 0;
 }
 
 .feed-actions {
@@ -406,7 +437,7 @@
 
 .feed-meta,
 .feed-actions,
-.feed-frame .video-controls--feed {
+.feed-item .video-controls--feed {
   visibility: visible;
   opacity: 1;
   transform: translateY(0);

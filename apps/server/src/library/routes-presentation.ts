@@ -11,6 +11,7 @@ import {
 } from "./presentation.js";
 import {
   getPresentationMediaCapabilities,
+  getPresentationVideoBouncePlan,
   PresentationMediaError
 } from "./presentation-media.js";
 import { AssetParams } from "./route-schemas.js";
@@ -19,6 +20,15 @@ import {
   saveAssetPresentation,
   PresentationConflictError
 } from "./repository.js";
+
+const Framing = z
+  .object({
+    fit: z.enum(["auto", "contain", "cover"]),
+    focalX: z.number().min(0).max(1),
+    focalY: z.number().min(0).max(1),
+    zoom: z.number().min(1).max(4)
+  })
+  .strict();
 
 const PresentationBody = z
   .object({
@@ -34,10 +44,22 @@ const PresentationBody = z
       })
       .strict()
       .nullable(),
-    fit: z.enum(["auto", "contain", "cover"]),
-    focalX: z.number().min(0).max(1),
-    focalY: z.number().min(0).max(1),
-    zoom: z.number().min(1).max(4),
+    ...Framing.shape,
+    aspectFraming: z
+      .object({
+        Square: Framing.optional(),
+        Portrait: Framing.optional(),
+        Landscape: Framing.optional()
+      })
+      .strict()
+      .optional(),
+    feedFraming: z
+      .object({
+        portrait: Framing.extend({ fit: z.literal("cover") }).optional(),
+        landscape: Framing.extend({ fit: z.literal("cover") }).optional()
+      })
+      .strict()
+      .optional(),
     playbackRate: z
       .number()
       .refine((value) =>
@@ -75,7 +97,13 @@ export function registerPresentationRoutes(
           .code(409)
           .send({ error: "presentation_conflict", asset: current });
       }
-      const { expectedRevision, ...values } = body.data;
+      const { expectedRevision, ...edits } = body.data;
+      const values = {
+        ...edits,
+        aspectFraming:
+          edits.aspectFraming ?? current.presentation.aspectFraming ?? {},
+        feedFraming: edits.feedFraming ?? current.presentation.feedFraming ?? {}
+      };
       // Framing and reset remain available even for files the decoder cannot open.
       const needsTiming =
         values.highlight !== null ||
@@ -88,6 +116,8 @@ export function registerPresentationRoutes(
           file
         });
         const duration = capabilities.durationMs;
+        if (values.loopMode === "bounce" && capabilities.bounceUnavailable)
+          return reply.code(400).send({ error: "bounce_source_not_supported" });
         if (
           capabilities.kind === "still" ||
           duration === null ||
@@ -112,6 +142,13 @@ export function registerPresentationRoutes(
             capabilities.maxBounceDurationMs
         ) {
           return reply.code(400).send({ error: "bounce_duration_exceeded" });
+        }
+        if (values.loopMode === "bounce" && capabilities.kind === "video") {
+          await getPresentationVideoBouncePlan(
+            db,
+            file,
+            range ?? { startMs: 0, endMs: duration }
+          );
         }
       }
       const fresh = await resolveAssetFile(db, assetId);

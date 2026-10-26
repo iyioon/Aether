@@ -73,7 +73,7 @@ describe("library state URL helpers", () => {
     expect(params.get("folder")).toBe("folder-1");
     expect(params.get("view")).toBe("feed");
     expect(params.get("size")).toBe("compact");
-    expect(params.get("aspect")).toBe("landscape");
+    expect(params.get("aspect")).toBeNull();
     expect(params.get("sort")).toBe("score");
     expect(params.get("order")).toBe("asc");
     expect(params.get("q")).toBe("city sky");
@@ -113,6 +113,7 @@ describe("library state URL helpers", () => {
   it("rejects old, malformed, and invalid stored state", () => {
     const validState = {
       ...defaultLibraryState,
+      aspect: "Portrait" as const,
       view: "feed" as const
     };
 

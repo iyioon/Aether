@@ -21,18 +21,31 @@ export function PresentationPreview({
   playheadMs,
   isPlaying,
   onTimeChange,
-  onDurationChange
+  onDurationChange,
+  onPlayingChange,
+  onPlaybackAvailableChange
 }: PresentationPreviewProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const emittedRef = useRef<number | null>(null);
   const [imageError, setImageError] = useState(false);
+  const [playbackFailed, setPlaybackFailed] = useState(false);
   const [videoError, setVideoError] = useState(false);
   const [observedDuration, setObservedDuration] = useState(0);
   const duration =
     capabilities.durationMs ?? asset.durationMs ?? observedDuration;
   const [start, end] = presentationRange(presentation, duration);
-  const callbacks = useRef({ onTimeChange, onDurationChange });
-  callbacks.current = { onTimeChange, onDurationChange };
+  const callbacks = useRef({
+    onTimeChange,
+    onDurationChange,
+    onPlayingChange,
+    onPlaybackAvailableChange
+  });
+  callbacks.current = {
+    onTimeChange,
+    onDurationChange,
+    onPlayingChange,
+    onPlaybackAvailableChange
+  };
 
   useEffect(() => {
     const video = videoRef.current;
@@ -65,7 +78,13 @@ export function PresentationPreview({
       callbacks.current.onTimeChange(time);
     };
     const play = () => {
-      void video.play().catch(() => undefined);
+      setPlaybackFailed(false);
+      void video.play().catch(() => {
+        if (!stopped) {
+          setPlaybackFailed(true);
+          callbacks.current.onPlayingChange(false);
+        }
+      });
     };
     const tick = (now: number) => {
       if (stopped || document.hidden) return;
@@ -122,6 +141,11 @@ export function PresentationPreview({
         isPlaying={isPlaying}
         onTimeChange={onTimeChange}
         onDurationChange={onDurationChange}
+        onError={() => {
+          onPlayingChange(false);
+          onPlaybackAvailableChange(false);
+        }}
+        onReady={() => onPlaybackAvailableChange(true)}
       />
     );
   if (asset.mediaType === "image")
@@ -150,29 +174,48 @@ export function PresentationPreview({
       </>
     );
   return (
-    <video
-      ref={videoRef}
-      src={mediaUrl(asset.id)}
-      style={style}
-      muted
-      playsInline
-      preload="auto"
-      aria-label={`Preview ${asset.name}`}
-      onError={() => setVideoError(true)}
-      onLoadedMetadata={(event) => {
-        const video = event.currentTarget;
-        if (Number.isFinite(video.duration) && video.duration > 0) {
-          setObservedDuration(video.duration * 1000);
-          callbacks.current.onDurationChange(video.duration * 1000);
-        }
-        const maximum = Math.max(0, video.duration * 1000 - 1);
-        const target = isPlaying
-          ? Math.max(start, Math.min(Math.max(start, end - 1), playheadMs))
-          : Math.max(0, Math.min(maximum, playheadMs));
-        video.currentTime = target / 1000;
-        if (isPlaying && !document.hidden)
-          void video.play().catch(() => undefined);
-      }}
-    />
+    <>
+      <video
+        ref={videoRef}
+        src={mediaUrl(asset.id)}
+        style={style}
+        muted
+        playsInline
+        preload="auto"
+        aria-label={`Preview ${asset.name}`}
+        onPause={(event) => {
+          const time = event.currentTarget.currentTime * 1000;
+          emittedRef.current = time;
+          callbacks.current.onTimeChange(time);
+        }}
+        onError={() => {
+          setVideoError(true);
+          callbacks.current.onPlayingChange(false);
+          callbacks.current.onPlaybackAvailableChange(false);
+        }}
+        onLoadedMetadata={(event) => {
+          const video = event.currentTarget;
+          if (Number.isFinite(video.duration) && video.duration > 0) {
+            setObservedDuration(video.duration * 1000);
+            callbacks.current.onDurationChange(video.duration * 1000);
+          }
+          const maximum = Math.max(
+            0,
+            (Number.isFinite(video.duration)
+              ? video.duration * 1000
+              : duration) - 1
+          );
+          const target = isPlaying
+            ? Math.max(start, Math.min(Math.max(start, end - 1), playheadMs))
+            : Math.max(0, Math.min(maximum, playheadMs));
+          video.currentTime = target / 1000;
+        }}
+      />
+      {playbackFailed ? (
+        <span className="media-editor-preview-notice" role="status">
+          Could not play this preview. Try Play again.
+        </span>
+      ) : null}
+    </>
   );
 }

@@ -22,7 +22,7 @@ describe("database migrations", () => {
         )
         .run();
       initial.exec(
-        "DROP TABLE asset_presentations; DELETE FROM schema_migrations WHERE version = 18;"
+        "DROP TABLE asset_presentations; DELETE FROM schema_migrations WHERE version >= 18;"
       );
       initial.close();
       const upgraded = openDatabase(configDir);
@@ -41,6 +41,114 @@ describe("database migrations", () => {
       ).toEqual({ count: 0 });
       upgraded.exec("DROP TABLE asset_presentations");
       upgraded.close();
+      expect(() => openDatabase(configDir)).toThrow(
+        "Aether database schema is incomplete or incompatible"
+      );
+    } finally {
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it("upgrades version 18 with independent presets while retaining existing crops and revisions", async () => {
+    const configDir = await mkdtemp(
+      path.join(tmpdir(), "aether-aspect-upgrade-")
+    );
+    try {
+      const initial = openDatabase(configDir);
+      initial.exec(`
+        INSERT INTO roots (id, label, real_path, created_at) VALUES ('root', 'Media', '/media', '2026-10-26');
+        INSERT INTO assets (id, root_id, relative_path, name, extension, media_type, size_bytes, mtime_ms, indexed_at, status)
+          VALUES ('one', 'root', 'one.jpg', 'one.jpg', '.jpg', 'image', 10, 1, '2026-10-26', 'ready'),
+                 ('two', 'root', 'two.jpg', 'two.jpg', '.jpg', 'image', 10, 1, '2026-10-26', 'ready');
+        INSERT INTO asset_presentations (asset_id, revision, fit, focal_x, focal_y, zoom, playback_rate, loop_mode, updated_at)
+          VALUES ('one', 3, 'cover', 0.2, 0.8, 2, 1, 'repeat', '2026-10-26'),
+                 ('two', 2, 'auto', 0.5, 0.5, 1, 1, 'repeat', '2026-10-26');
+        ALTER TABLE asset_presentations DROP COLUMN aspect_framing;
+        ALTER TABLE asset_presentations DROP COLUMN feed_framing;
+        DELETE FROM schema_migrations WHERE version >= 19;
+      `);
+      initial.close();
+      const upgraded = openDatabase(configDir);
+      try {
+        const edited = upgraded
+          .prepare(
+            "SELECT revision, aspect_framing FROM asset_presentations WHERE asset_id = 'one'"
+          )
+          .get() as { revision: number; aspect_framing: string };
+        const frame = { fit: "cover", focalX: 0.2, focalY: 0.8, zoom: 2 };
+        expect(edited.revision).toBe(3);
+        expect(JSON.parse(edited.aspect_framing)).toEqual({
+          Square: frame,
+          Portrait: frame,
+          Landscape: frame
+        });
+        expect(
+          upgraded
+            .prepare(
+              "SELECT aspect_framing FROM asset_presentations WHERE asset_id = 'two'"
+            )
+            .get()
+        ).toEqual({ aspect_framing: "{}" });
+        upgraded.exec(
+          "ALTER TABLE asset_presentations DROP COLUMN aspect_framing"
+        );
+      } finally {
+        upgraded.close();
+      }
+      expect(() => openDatabase(configDir)).toThrow(
+        "Aether database schema is incomplete or incompatible"
+      );
+    } finally {
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it("upgrades version 19 without inventing Feed overrides and validates the new column", async () => {
+    const configDir = await mkdtemp(
+      path.join(tmpdir(), "aether-feed-upgrade-")
+    );
+    try {
+      const initial = openDatabase(configDir);
+      initial.exec(`
+        INSERT INTO roots (id, label, real_path, created_at) VALUES ('root', 'Media', '/media', '2026-10-26');
+        INSERT INTO assets (id, root_id, relative_path, name, extension, media_type, size_bytes, mtime_ms, indexed_at, status)
+          VALUES ('one', 'root', 'one.jpg', 'one.jpg', '.jpg', 'image', 10, 1, '2026-10-26', 'ready');
+        INSERT INTO asset_presentations (asset_id, revision, fit, focal_x, focal_y, zoom, playback_rate, loop_mode, updated_at, aspect_framing)
+          VALUES ('one', 3, 'auto', 0.5, 0.5, 1, 1, 'repeat', '2026-10-26', '{"Portrait":{"fit":"cover","focalX":0.2,"focalY":0.8,"zoom":2}}');
+        ALTER TABLE asset_presentations DROP COLUMN feed_framing;
+        DELETE FROM schema_migrations WHERE version = 20;
+      `);
+      initial.close();
+      const upgraded = openDatabase(configDir);
+      try {
+        expect(
+          upgraded
+            .prepare(
+              "SELECT revision, aspect_framing, feed_framing FROM asset_presentations"
+            )
+            .get()
+        ).toEqual({
+          revision: 3,
+          aspect_framing:
+            '{"Portrait":{"fit":"cover","focalX":0.2,"focalY":0.8,"zoom":2}}',
+          feed_framing: "{}"
+        });
+        expect(() =>
+          upgraded
+            .prepare("UPDATE asset_presentations SET feed_framing = ?")
+            .run("[]")
+        ).toThrow();
+        expect(() =>
+          upgraded
+            .prepare("UPDATE asset_presentations SET feed_framing = ?")
+            .run("x".repeat(1025))
+        ).toThrow();
+        upgraded.exec(
+          "ALTER TABLE asset_presentations DROP COLUMN feed_framing"
+        );
+      } finally {
+        upgraded.close();
+      }
       expect(() => openDatabase(configDir)).toThrow(
         "Aether database schema is incomplete or incompatible"
       );

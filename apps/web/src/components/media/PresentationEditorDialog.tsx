@@ -1,4 +1,12 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { LoaderCircle } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ComponentType
+} from "react";
 import {
   ApiError,
   getAsset,
@@ -10,12 +18,15 @@ import {
 } from "../../api/client";
 import { Button } from "../ui/button";
 import { Dialog, DialogContent, DialogTitle } from "../ui/dialog";
-import { MediaPresentationEditor } from "./MediaPresentationEditor";
-import { PresentationPreview } from "./PresentationPreview";
 import { presentationSaveOutcome } from "./presentation-model";
+import type { AspectMode } from "../library-state";
+import { PresentationEditorFooter } from "./PresentationEditorFooter";
+import type { MediaPresentationEditorProps } from "./MediaPresentationEditor";
 
 interface PresentationEditorDialogProps {
   asset: AssetRecord;
+  initialAspect?: AspectMode;
+  originalFit?: "contain" | "cover";
   onClose: () => void;
   onSaved: (asset: AssetRecord) => void;
 }
@@ -39,17 +50,36 @@ function unavailableCapabilities(
   };
 }
 
+async function loadEditorCapabilities(assetId: string, signal: AbortSignal) {
+  try {
+    return await getPresentationMediaCapabilities(assetId, signal);
+  } catch (failure) {
+    if (failure instanceof ApiError && [415, 422].includes(failure.status))
+      return null;
+    throw failure;
+  }
+}
+
 export function PresentationEditorDialog({
   asset,
+  initialAspect,
+  originalFit,
   onClose,
   onSaved
 }: PresentationEditorDialogProps) {
   const descriptionId = useId();
+  const pendingRef = useRef(false);
+  const [pending, setPending] = useState(false);
+  const onPendingChange = useCallback((busy: boolean) => {
+    pendingRef.current = busy;
+    setPending(busy);
+  }, []);
   const [loaded, setLoaded] = useState<{
     asset: AssetRecord;
     capabilities: PresentationMediaCapabilities;
+    Editor: ComponentType<MediaPresentationEditorProps>;
   } | null>(null);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<"settings" | "tools" | null>(null);
   const [attempt, setAttempt] = useState(0);
   const uncertain = useRef(false);
   const active = useRef(true);
@@ -58,32 +88,30 @@ export function PresentationEditorDialog({
   useEffect(() => {
     active.current = true;
     const controller = new AbortController();
-    setError(false);
-    const capabilitiesRequest = getPresentationMediaCapabilities(
+    setError(null);
+    const capabilitiesRequest = loadEditorCapabilities(
       asset.id,
       controller.signal
-    ).catch((failure: unknown) => {
-      if (
-        !(failure instanceof ApiError) ||
-        ![415, 422].includes(failure.status)
-      )
-        throw failure;
-      return null;
-    });
+    );
     void Promise.all([
       getAsset(asset.id, controller.signal),
-      capabilitiesRequest
+      capabilitiesRequest,
+      import("./MediaPresentationEditor").catch((failure: unknown) => {
+        if (!controller.signal.aborted) setError("tools");
+        throw failure;
+      })
     ])
-      .then(([current, capabilities]) => {
+      .then(([current, capabilities, { MediaPresentationEditor }]) => {
         if (!controller.signal.aborted)
           setLoaded({
             asset: current,
+            Editor: MediaPresentationEditor,
             capabilities: capabilities ?? unavailableCapabilities(current)
           });
       })
       .catch(() => {
         if (!controller.signal.aborted) {
-          setError(true);
+          setError((current) => current ?? "settings");
           controller.abort();
         }
       });
@@ -141,55 +169,89 @@ export function PresentationEditorDialog({
     reloadController.current = controller;
     const [current, capabilities] = await Promise.all([
       getAsset(asset.id, controller.signal),
-      getPresentationMediaCapabilities(asset.id, controller.signal)
+      loadEditorCapabilities(asset.id, controller.signal)
     ]);
     uncertain.current = false;
     if (active.current && !controller.signal.aborted)
-      setLoaded({ asset: current, capabilities });
+      setLoaded((previous) =>
+        previous
+          ? {
+              ...previous,
+              asset: current,
+              capabilities: capabilities ?? unavailableCapabilities(current)
+            }
+          : previous
+      );
     return current;
   }
 
-  if (loaded)
-    return (
-      <MediaPresentationEditor
-        asset={loaded.asset}
-        capabilities={loaded.capabilities}
-        onClose={onClose}
-        onSave={save}
-        onReload={reload}
-        renderPreview={(props) => (
-          <PresentationPreview
-            asset={loaded.asset}
-            capabilities={loaded.capabilities}
-            {...props}
-          />
-        )}
-      />
-    );
   return (
     <Dialog
       open
       onOpenChange={(open) => {
-        if (!open) onClose();
+        if (!open && !pendingRef.current) onClose();
       }}
     >
       <DialogContent
-        className="media-editor media-editor-loading"
+        className="media-editor"
+        showCloseButton={false}
         aria-describedby={descriptionId}
-        aria-busy={!error}
+        aria-busy={(!loaded && !error) || pending}
+        onInteractOutside={(event) => event.preventDefault()}
+        onEscapeKeyDown={(event) => {
+          if (pendingRef.current) event.preventDefault();
+        }}
       >
-        <DialogTitle>Edit media</DialogTitle>
-        <p id={descriptionId} role="status">
-          {error ? "Could not open this file’s settings." : "Opening media…"}
-        </p>
-        {error ? (
-          <Button
-            type="button"
-            onClick={() => setAttempt((current) => current + 1)}
-          >
-            Retry
-          </Button>
-        ) : null}
+        <header className="media-editor-header">
+          <DialogTitle>Edit media</DialogTitle>
+          <p id={descriptionId} title={asset.name}>
+            {asset.name}
+          </p>
+        </header>
+        {loaded ? (
+          <loaded.Editor
+            asset={loaded.asset}
+            initialAspect={initialAspect}
+            originalFit={originalFit}
+            capabilities={loaded.capabilities}
+            onClose={onClose}
+            onSave={save}
+            onReload={reload}
+            onPendingChange={onPendingChange}
+          />
+        ) : (
+          <>
+            <div className="media-editor-status" role="status">
+              {!error ? (
+                <LoaderCircle
+                  className="media-editor-spinner"
+                  aria-hidden="true"
+                />
+              ) : null}
+              <p>
+                {error === "tools"
+                  ? "Could not open the editor. Reload and try again."
+                  : error
+                    ? "Could not open this file’s settings."
+                    : "Opening media…"}
+              </p>
+              {error ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    // Older browsers retain failed module loads until reload.
+                    if (error === "tools") window.location.reload();
+                    else setAttempt((current) => current + 1);
+                  }}
+                >
+                  {error === "tools" ? "Reload" : "Retry"}
+                </Button>
+              ) : null}
+            </div>
+            <PresentationEditorFooter onClose={onClose} />
+          </>
+        )}
       </DialogContent>
     </Dialog>
   );

@@ -1,5 +1,14 @@
-import { useLayoutEffect, type RefObject } from "react";
-import type { AssetRecord } from "../../api/client";
+import {
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type RefObject
+} from "react";
+import type {
+  AssetRecord,
+  PresentationMediaCapabilities
+} from "../../api/client";
 import type { VideoPlayback } from "./useVideoPlayback";
 import {
   sourceTimeForPlayback,
@@ -7,15 +16,46 @@ import {
   videoBounceSeekTime,
   type PresentationVariant
 } from "./presentation-playback";
+import { observeVideoSection, videoSectionTime } from "./video-section";
 
 export function useVideoPresentation(
   videoRef: RefObject<HTMLVideoElement | null>,
   playback: VideoPlayback,
   asset: AssetRecord,
   variant: PresentationVariant,
-  enabled = true
+  enabled = true,
+  bounceTimeline?: PresentationMediaCapabilities["bounceTimeline"]
 ) {
   const rate = enabled ? (asset.presentation?.playbackRate ?? 1) : 1;
+  const range = asset.presentation?.highlight;
+  const start = variant === "full" ? 0 : (range?.startMs ?? 0) / 1000;
+  const end =
+    variant === "full"
+      ? playback.state.duration
+      : range
+        ? range.endMs / 1000
+        : (asset.durationMs ?? 0) / 1000;
+  const [{ isReady, localTimeline }, setState] = useState({
+    isReady: false,
+    localTimeline: false
+  });
+  const publishState = useCallback(
+    (next: Partial<{ isReady: boolean; localTimeline: boolean }>) => {
+      setState((previous) =>
+        Object.entries(next).every(
+          ([key, value]) => previous[key as keyof typeof previous] === value
+        )
+          ? previous
+          : { ...previous, ...next }
+      );
+    },
+    []
+  );
+  const sectionBinding = useRef<{
+    video: HTMLVideoElement;
+    key: string;
+    dispose: () => void;
+  } | null>(null);
   useLayoutEffect(() => {
     const video = videoRef.current;
     if (video) {
@@ -24,15 +64,35 @@ export function useVideoPresentation(
       video.preservesPitch = true;
       if (variant === "bounce") video.muted = true;
     }
+    const local = video?.dataset.presentationTimeline === "local";
+    publishState({ localTimeline: local });
+    const key = `${asset.id}:${video?.getAttribute("src")}:${start}:${end}:${local}`;
+    const binding = sectionBinding.current;
+    if (variant === "highlight" && video && end > start) {
+      if (binding?.video === video && binding.key === key) return;
+      binding?.dispose();
+      sectionBinding.current = {
+        video,
+        key,
+        dispose: observeVideoSection(
+          video,
+          { start: local ? 0 : start, end: local ? end - start : end },
+          (isReady) => publishState({ isReady })
+        )
+      };
+    } else {
+      binding?.dispose();
+      sectionBinding.current = null;
+      publishState({ isReady: false });
+    }
   });
-  const range = asset.presentation?.highlight;
-  const start = variant === "full" ? 0 : (range?.startMs ?? 0) / 1000;
-  const end =
-    variant === "full"
-      ? playback.state.duration
-      : range
-        ? range.endMs / 1000
-        : (asset.durationMs ?? (playback.state.duration + 2 / 24) * 500) / 1000;
+  useLayoutEffect(
+    () => () => {
+      sectionBinding.current?.dispose();
+      sectionBinding.current = null;
+    },
+    []
+  );
   const bounce = variant === "bounce";
   const mapped: VideoPlayback =
     variant === "full"
@@ -42,22 +102,34 @@ export function useVideoPresentation(
           state: {
             ...playback.state,
             currentTime: bounce
-              ? sourceTimeForVideoBounce(playback.state.currentTime, start, end)
-              : sourceTimeForPlayback(
+              ? sourceTimeForVideoBounce(
                   playback.state.currentTime,
                   start,
                   end,
-                  false
-                ),
+                  bounceTimeline
+                )
+              : localTimeline
+                ? sourceTimeForPlayback(
+                    playback.state.currentTime,
+                    start,
+                    end,
+                    false
+                  )
+                : Math.max(start, Math.min(end, playback.state.currentTime)),
             duration: end,
-            bufferedEnd: Math.min(end, start + playback.state.bufferedEnd),
+            bufferedEnd: Math.min(
+              end,
+              (bounce || localTimeline ? start : 0) + playback.state.bufferedEnd
+            ),
             muted: bounce || playback.state.muted
           },
           seek: (time) =>
             playback.seek(
               bounce
-                ? videoBounceSeekTime(time, start, end)
-                : Math.max(0, Math.min(end - start, time - start))
+                ? videoBounceSeekTime(time, start, end, bounceTimeline)
+                : localTimeline
+                  ? videoSectionTime(time, { start, end }) - start
+                  : videoSectionTime(time, { start, end })
             )
         };
   return {
@@ -65,6 +137,7 @@ export function useVideoPresentation(
     minimumTime: start,
     sectionLabel:
       variant === "full" ? undefined : bounce ? "Bounce" : "Looping highlight",
-    hasAudio: !bounce
+    hasAudio: !bounce,
+    isReady: variant !== "highlight" || isReady
   };
 }

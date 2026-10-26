@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  ApiError,
   getPresentationMediaCapabilities,
   type AssetRecord,
   type PresentationMediaCapabilities
@@ -97,6 +98,10 @@ export function usePresentationCapabilities(
   return {
     capabilities: state.key === key ? state.value : null,
     error: state.key === key ? state.error : null,
+    limitExceeded:
+      state.key === key &&
+      state.error instanceof ApiError &&
+      state.error.code === "presentation_limit_exceeded",
     retry: () => {
       cached.delete(key);
       setAttempt((current) => current + 1);

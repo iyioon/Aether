@@ -13,10 +13,18 @@ import {
   normalizeTagDraft,
   normalizeTagIdentity,
   type AspectMode,
+  layoutOptionsForView,
+  normalizeAspectForView,
   type GridSize,
   type LibraryUrlState,
   type ViewMode
 } from "../library-state";
+import {
+  readViewAspects,
+  writeViewAspects,
+  readViewerUsesSavedFraming,
+  writeViewerUsesSavedFraming
+} from "./view-layout-state";
 import { useTagSuggestions } from "../tags/useTagSuggestions";
 
 interface UseLibraryControlsOptions {
@@ -35,8 +43,27 @@ export function useLibraryControls({
   const [highlightsOnly, setHighlightsOnly] = useState(
     initialState.highlightsOnly ?? false
   );
+  const [viewerUsesSavedFraming, setViewerUsesSavedFramingState] = useState(
+    readViewerUsesSavedFraming
+  );
+  const setViewerUsesSavedFraming = useCallback((enabled: boolean) => {
+    setViewerUsesSavedFramingState(enabled);
+    writeViewerUsesSavedFraming(enabled);
+  }, []);
   const [gridSize, setGridSize] = useState<GridSize>(initialState.gridSize);
-  const [aspect, setAspect] = useState<AspectMode>(initialState.aspect);
+  const [viewAspects, setViewAspects] = useState(() => ({
+    ...readViewAspects(),
+    [initialState.view]: normalizeAspectForView(
+      initialState.view,
+      initialState.aspect
+    )
+  }));
+  const aspect = normalizeAspectForView(view, viewAspects[view]);
+  function setAspect(next: AspectMode) {
+    if (!layoutOptionsForView(view).includes(next)) return;
+    setViewAspects((current) => ({ ...current, [view]: next }));
+  }
+  useEffect(() => writeViewAspects(viewAspects), [viewAspects]);
   const [sort, setSort] = useState<SortMode>(initialState.sort);
   const [sortDirection, setSortDirection] = useState<SortDirection>(
     initialState.sortDirection
@@ -57,7 +84,10 @@ export function useLibraryControls({
     setView(state.view);
     setHighlightsOnly(state.highlightsOnly ?? false);
     setGridSize(state.gridSize);
-    setAspect(state.aspect);
+    setViewAspects((current) => ({
+      ...current,
+      [state.view]: normalizeAspectForView(state.view, state.aspect)
+    }));
     setSort(state.sort);
     setSortDirection(state.sortDirection);
     setMediaType(state.mediaType);
@@ -132,6 +162,8 @@ export function useLibraryControls({
   }
 
   return {
+    viewerUsesSavedFraming,
+    setViewerUsesSavedFraming,
     highlightsOnly,
     setHighlightsOnly,
     applyLibraryState,

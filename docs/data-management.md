@@ -19,7 +19,9 @@ Presentation settings live in the database and are included in normal backups.
 Restore accepts earlier supported schemas and upgrades them when the server
 opens the restored database. Generated presentation files are optional cache;
 they regenerate when absent. Keep the database when preserving saved highlights,
-framing, speed and loop preferences. A full rebuild discards these edits along
+per-aspect framing, speed and loop preferences.
+Returning to an older application version requires restoring a compatible backup;
+do not point it at the upgraded database. A full rebuild discards these edits along
 with other per-asset metadata. Selective resets are available in Settings and
 advance revisions to reject stale editor saves.
 
@@ -41,8 +43,8 @@ npm run backup
 ```
 
 The backup is written under `aether-data/backups`. It includes the database but
-not `private.env`. Add `--include-cache` if you also want generated thumbnails
-and video previews:
+not `private.env`. Add `--include-cache` to include generated media such as
+thumbnails, video previews, presentation renditions and animation atlases:
 
 ```bash
 npm run backup -- --include-cache

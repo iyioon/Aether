@@ -12,6 +12,14 @@ import {
   runMediaCommand,
   withVideoProcessingSlot
 } from "./video-processing.js";
+import {
+  createBouncePlan,
+  inspectBounceSource,
+  videoBounceMaxDurationMs,
+  type VideoBouncePlan,
+  type VideoBounceProfile
+} from "./presentation-bounce.js";
+export { videoBounceMaxDurationMs } from "./presentation-bounce.js";
 
 export {
   PresentationMediaError,
@@ -21,10 +29,9 @@ export const ANIMATION_LIMITS = {
   durationMs: 60_000,
   frames: 600,
   inputPixels: 64_000_000,
-  frameSize: 512,
+  frameSize: 2048,
   outputBytes: 64 * 1024 * 1024
 } as const;
-export const VIDEO_BOUNCE_MAX_DURATION_MS = 10_000;
 
 export interface PresentationMediaCapabilities {
   kind: "still" | "video" | "animation";
@@ -33,6 +40,9 @@ export interface PresentationMediaCapabilities {
   height: number | null;
   hasAudio: boolean;
   maxBounceDurationMs: number;
+  bounceUnavailable?: boolean;
+  bounceOverBudget?: boolean;
+  bounceTimeline?: { sourceTimesMs: number[]; durationsMs: number[] };
   maxHighlightDurationMs: number;
   maxAnimationDurationMs: number;
   maxAnimationFrames: number;
@@ -55,6 +65,7 @@ interface MediaProbe {
   durationMs: number | null;
   hasAudio: boolean;
   animation?: AnimationProbe;
+  videoBounce?: VideoBounceProfile | null;
 }
 interface ProbeStream {
   index: number;
@@ -73,6 +84,46 @@ interface ProbePayload {
 
 const probes = new WeakMap<AetherDatabase, Map<string, Promise<MediaProbe>>>();
 let queuedProbes = 0;
+const bouncePlans = new WeakMap<
+  AetherDatabase,
+  Map<string, Promise<VideoBouncePlan>>
+>();
+let queuedBouncePlans = 0;
+
+export async function getPresentationVideoBouncePlan(
+  db: AetherDatabase,
+  file: ResolvedAssetFile,
+  range: { startMs: number; endMs: number }
+): Promise<VideoBouncePlan> {
+  const media = await probePresentationMedia(db, file);
+  if (!media.videoBounce)
+    throw new PresentationMediaError("bounce_source_not_supported");
+  let cache = bouncePlans.get(db);
+  if (!cache) {
+    cache = new Map();
+    bouncePlans.set(db, cache);
+  }
+  const key = `${file.asset.id}:${file.mtimeMs}:${file.sizeBytes}:${range.startMs}:${range.endMs}`;
+  const existing = cache.get(key);
+  if (existing) return existing;
+  if (queuedBouncePlans >= 8)
+    throw new PresentationMediaError("processing_busy", 503);
+  queuedBouncePlans++;
+  const profile = media.videoBounce;
+  const job = withVideoProcessingSlot(() =>
+    createBouncePlan(file.sourcePath, range.startMs, range.endMs, profile)
+  ).finally(() => {
+    queuedBouncePlans--;
+  });
+  cache.set(key, job);
+  if (cache.size > 64) cache.delete(cache.keys().next().value!);
+  try {
+    return await job;
+  } catch (error) {
+    cache.delete(key);
+    throw error;
+  }
+}
 
 export async function getPresentationMediaCapabilities({
   db,
@@ -85,21 +136,64 @@ export async function getPresentationMediaCapabilities({
 }): Promise<PresentationMediaCapabilities> {
   void config;
   const media = await probePresentationMedia(db, file);
+  const presentation = presentationForFile(db, file);
+  let bounceTimeline: PresentationMediaCapabilities["bounceTimeline"];
+  const maxBounceDurationMs =
+    media.kind === "video"
+      ? media.videoBounce
+        ? videoBounceMaxDurationMs(
+            media.videoBounce.width,
+            media.videoBounce.height,
+            media.videoBounce.frameRate,
+            media.videoBounce.bitDepth
+          )
+        : 0
+      : ANIMATION_LIMITS.durationMs;
+  let bounceUnavailable = media.kind === "video" && !media.videoBounce;
+  let bounceOverBudget = false;
+  if (
+    media.kind === "video" &&
+    media.videoBounce &&
+    presentation.loopMode === "bounce"
+  ) {
+    const range = presentation.highlight ?? {
+      startMs: 0,
+      endMs: media.durationMs!
+    };
+    if (range.endMs - range.startMs <= maxBounceDurationMs) {
+      try {
+        const plan = await getPresentationVideoBouncePlan(db, file, range);
+        bounceTimeline = {
+          sourceTimesMs: plan.sourceTimesMs,
+          durationsMs: plan.durationsMs
+        };
+      } catch (error) {
+        if (!(error instanceof PresentationMediaError)) throw error;
+        if (error.code === "bounce_duration_exceeded") bounceOverBudget = true;
+        else if (
+          error.code === "bounce_timing_not_supported" ||
+          error.code === "bounce_source_not_supported"
+        )
+          bounceUnavailable = true;
+        else throw error;
+      }
+    }
+  }
   return {
     kind: media.kind,
     durationMs: media.durationMs,
     width: media.width,
     height: media.height,
     hasAudio: media.hasAudio,
-    maxBounceDurationMs:
-      media.kind === "video"
-        ? VIDEO_BOUNCE_MAX_DURATION_MS
-        : ANIMATION_LIMITS.durationMs,
+    maxBounceDurationMs: bounceUnavailable ? 0 : maxBounceDurationMs,
+    ...(bounceUnavailable ? { bounceUnavailable: true } : {}),
+    ...(bounceOverBudget ? { bounceOverBudget: true } : {}),
+    ...(bounceTimeline ? { bounceTimeline } : {}),
     maxHighlightDurationMs:
       media.kind === "video" ? 120_000 : ANIMATION_LIMITS.durationMs,
     maxAnimationDurationMs: ANIMATION_LIMITS.durationMs,
     maxAnimationFrames: ANIMATION_LIMITS.frames,
-    renditionKeys: presentationForFile(db, file).renditionKeys
+    renditionKeys: presentation.renditionKeys
   };
 }
 
@@ -151,6 +245,10 @@ async function inspectMedia(file: ResolvedAssetFile): Promise<MediaProbe> {
     if (
       !Number.isSafeInteger(video.width) ||
       !Number.isSafeInteger(video.height) ||
+      video.width <= 0 ||
+      video.height <= 0 ||
+      video.width > 32768 ||
+      video.height > 32768 ||
       video.width * video.height > ANIMATION_LIMITS.inputPixels
     )
       throw new PresentationMediaError("presentation_limit_exceeded", 422);
@@ -175,11 +273,22 @@ async function inspectMedia(file: ResolvedAssetFile): Promise<MediaProbe> {
     const durationMs = Math.round(Number(data.format?.duration) * 1000);
     if (!Number.isFinite(durationMs) || durationMs <= 0)
       throw new PresentationMediaError("media_duration_unavailable");
+    let videoBounce: VideoBounceProfile | null = null;
+    try {
+      videoBounce = await inspectBounceSource(file.sourcePath);
+    } catch (error) {
+      if (
+        !(error instanceof PresentationMediaError) ||
+        error.code !== "bounce_source_not_supported"
+      )
+        throw error;
+    }
     return {
       kind: "video",
       width: rotated ? video.height : width,
       height: rotated ? width : video.height,
       durationMs,
+      videoBounce,
       hasAudio: Boolean(
         data.streams?.some((stream) => stream.codec_type === "audio")
       )
@@ -344,6 +453,8 @@ async function inspectFfmpegAnimation(
 
 function validateAnimation(animation: AnimationProbe): void {
   if (
+    animation.width > ANIMATION_LIMITS.frameSize ||
+    animation.height > ANIMATION_LIMITS.frameSize ||
     animation.delays.length > ANIMATION_LIMITS.frames ||
     animation.width * animation.height * animation.delays.length >
       ANIMATION_LIMITS.inputPixels ||

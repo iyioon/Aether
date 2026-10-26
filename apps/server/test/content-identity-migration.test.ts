@@ -121,7 +121,7 @@ describe("content identity migration", () => {
         );
       }
 
-      expect(applyMigrations(db)).toEqual([16, 17, 18]);
+      expect(applyMigrations(db)).toEqual([16, 17, 18, 19, 20]);
 
       expect(
         db

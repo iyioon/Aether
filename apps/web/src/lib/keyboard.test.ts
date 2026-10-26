@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   feedKeyboardCommand,
+  hasOpenKeyboardLayer,
   hasShortcutModifier,
   scoreAfterKeyboardAdjustment,
   viewerKeyboardCommand
@@ -42,5 +43,18 @@ describe("keyboard commands", () => {
     expect(
       hasShortcutModifier({ altKey: false, ctrlKey: true, metaKey: false })
     ).toBe(true);
+  });
+
+  it("treats an open context menu as a keyboard layer", () => {
+    const menu = {} as Element;
+    const root = {
+      querySelector: (selector: string) =>
+        selector
+          .split(", ")
+          .includes("[data-slot='context-menu-content'][data-state='open']")
+          ? menu
+          : null
+    } as unknown as ParentNode;
+    expect(hasOpenKeyboardLayer(root)).toBe(true);
   });
 });

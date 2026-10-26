@@ -1,4 +1,9 @@
-import type { MediaPresentation, PresentationValues } from "../../api/client";
+import type {
+  MediaPresentation,
+  PresentationValues,
+  PresentationAspect,
+  PresentationFraming
+} from "../../api/client";
 
 export const PRESENTATION_SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
 export const MIN_HIGHLIGHT_DURATION_MS = 100;
@@ -7,6 +12,8 @@ export const MAX_PRESENTATION_ZOOM = 4;
 export function defaultPresentationValues(): PresentationValues {
   return {
     highlight: null,
+    aspectFraming: {},
+    feedFraming: {},
     fit: "auto",
     focalX: 0.5,
     focalY: 0.5,
@@ -35,16 +42,78 @@ export function getPresentationValues(
   }
   return {
     highlight: presentation.highlight ? { ...presentation.highlight } : null,
-    fit:
-      presentation.fit === "contain" || presentation.fit === "cover"
-        ? presentation.fit
-        : "auto",
-    focalX: presentationClamp(presentation.focalX ?? 0.5, 0, 1),
-    focalY: presentationClamp(presentation.focalY ?? 0.5, 0, 1),
-    zoom: presentationClamp(presentation.zoom ?? 1, 1, MAX_PRESENTATION_ZOOM),
+    ...normalizeFraming(presentation),
+    aspectFraming: Object.fromEntries(
+      (["Square", "Portrait", "Landscape"] as const).flatMap((aspect) => {
+        const frame = presentation.aspectFraming?.[aspect];
+        return frame ? [[aspect, normalizeFraming(frame)]] : [];
+      })
+    ),
+    feedFraming: Object.fromEntries(
+      (["portrait", "landscape"] as const).flatMap((orientation) => {
+        const frame = presentation.feedFraming?.[orientation];
+        return frame
+          ? [[orientation, { ...normalizeFraming(frame), fit: "cover" }]]
+          : [];
+      })
+    ),
     playbackRate: presentationClamp(presentation.playbackRate ?? 1, 0.5, 2),
     loopMode: presentation.loopMode === "bounce" ? "bounce" : "repeat"
   };
+}
+
+function normalizeFraming(
+  frame: Partial<PresentationFraming>
+): PresentationFraming {
+  return {
+    fit: frame.fit === "contain" || frame.fit === "cover" ? frame.fit : "auto",
+    focalX: Number.isFinite(frame.focalX)
+      ? presentationClamp(frame.focalX!, 0, 1)
+      : 0.5,
+    focalY: Number.isFinite(frame.focalY)
+      ? presentationClamp(frame.focalY!, 0, 1)
+      : 0.5,
+    zoom: Number.isFinite(frame.zoom)
+      ? presentationClamp(frame.zoom!, 1, MAX_PRESENTATION_ZOOM)
+      : 1
+  };
+}
+
+export function presentationFramingForAspect(
+  values: PresentationValues,
+  aspect: PresentationAspect,
+  defaultFit?: "contain" | "cover"
+): PresentationFraming {
+  const framing = normalizeFraming(
+    aspect === "Original" ? values : (values.aspectFraming?.[aspect] ?? {})
+  );
+  if (framing.fit === "auto" && defaultFit) framing.fit = defaultFit;
+  return framing;
+}
+
+export function setPresentationFraming(
+  values: PresentationValues,
+  aspect: PresentationAspect,
+  frame: PresentationFraming
+): PresentationValues {
+  const framing = normalizeFraming(frame);
+  if (aspect === "Original") return { ...values, ...framing };
+  const aspectFraming = { ...values.aspectFraming };
+  if (framingEqual(framing, normalizeFraming({}))) delete aspectFraming[aspect];
+  else aspectFraming[aspect] = framing;
+  return { ...values, aspectFraming };
+}
+
+function framingEqual(
+  left: PresentationFraming,
+  right: PresentationFraming
+): boolean {
+  return (
+    left.fit === right.fit &&
+    left.focalX === right.focalX &&
+    left.focalY === right.focalY &&
+    left.zoom === right.zoom
+  );
 }
 
 export function presentationRange(
@@ -99,11 +168,12 @@ export function presentationValidationMessage(
   if (values.highlight && end - start > maxHighlightDurationMs) {
     return `Choose a highlight of ${maxHighlightDurationMs / 1000} seconds or less.`;
   }
+  if (values.loopMode === "bounce" && maxBounceDurationMs <= 0)
+    return "Bounce is unavailable for this file. Choose Repeat instead.";
   if (
     values.loopMode === "bounce" &&
     (!Number.isFinite(durationMs) ||
       durationMs <= 0 ||
-      maxBounceDurationMs <= 0 ||
       end - start > maxBounceDurationMs)
   ) {
     return `Bounce needs a section of ${Math.max(0, maxBounceDurationMs / 1000)} seconds or less.`;
@@ -142,10 +212,17 @@ export function presentationValuesEqual(
   right: PresentationValues
 ): boolean {
   return (
-    left.fit === right.fit &&
-    left.focalX === right.focalX &&
-    left.focalY === right.focalY &&
-    left.zoom === right.zoom &&
+    (["Original", "Square", "Portrait", "Landscape"] as const).every((aspect) =>
+      framingEqual(
+        presentationFramingForAspect(left, aspect),
+        presentationFramingForAspect(right, aspect)
+      )
+    ) &&
+    (["portrait", "landscape"] as const).every((orientation) => {
+      const a = left.feedFraming?.[orientation];
+      const b = right.feedFraming?.[orientation];
+      return a && b ? framingEqual(a, b) : a === b;
+    }) &&
     left.playbackRate === right.playbackRate &&
     left.loopMode === right.loopMode &&
     ((left.highlight === null && right.highlight === null) ||

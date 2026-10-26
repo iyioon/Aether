@@ -79,6 +79,7 @@ The cache contains data that Aether can recreate from source files:
 - WebP image thumbnails
 - JPEG video posters
 - short browser-friendly video previews
+- prepared presentation video and animation frame atlases
 
 Concurrent requests for the same preview share one generation job. When a scan
 removes an asset, its generated files are removed. A startup sweep also clears
@@ -103,10 +104,16 @@ database.
 
 `LibraryViewOptions` groups the existing library controls behind one toolbar
 button, using the shared shadcn Popover on desktop and Sheet at the mobile
-breakpoint. Tabs separate Filters, Sort, and Gallery Layout; only controls that
+breakpoint. Tabs separate Filters, Sort, and Layout (Compare omits Sort); only controls that
 affect the current view are shown. The panel owns its active tab, while
 `useLibraryControls` continues to own query settings and open/close state.
-Changes use the existing query, URL, and restoration paths. Clearing filters
+Changes use the existing query, URL, and restoration paths. The bounded
+`toolbar/view-layout-state.ts` cache retains independent aspect choices for
+Gallery and Ranking, migrating the older Comparison preference and normalizing
+older Feed preferences to Portrait. Explicit
+URL and restored active-view state take precedence. Card-info visibility is
+stored separately per view; Feed and Ranking default to none. Feed stays Portrait
+and Ranking defaults to Original proportions. Grid size remains Gallery-only. Clearing filters
 leaves search, sort, and layout untouched.
 
 The web app saves the page, library query, comparison workspace, Settings tab
@@ -153,7 +160,10 @@ pause, and mute state. Commands run in the originating user gesture, and stale
 play requests and detached element listeners cannot update a replacement source.
 Preview and viewer keep their existing source selection and poster-to-first-frame
 behavior. Feed keyboard commands use registered playback commands.
-Feed details, actions, and playback controls share one visibility state. Tapping
+Feed transports use the shared portal pattern to stay anchored to the portrait
+media frame. Decoded dimensions supplement indexed metadata for Original layouts
+in Gallery and Ranking. Feed details, actions, and playback
+controls share one visibility state. Tapping
 the media hides or reveals them together without changing playback; hidden
 controls leave the pointer, keyboard, and accessibility navigation paths.
 
@@ -181,13 +191,24 @@ and native presentation capabilities are detected at runtime.
 
 ## Saved Media Presentation
 
+### Metadata
+
 Schema migration 18 adds versioned per-asset presentation metadata: optional
 source-time highlight, fit policy, normalized focal point, bounded zoom,
 playback rate, and repeat/bounce preference. Repository hydration batches these
 records with library, detail, comparison, and mutation results. Saves use an
 expected revision in a transaction; resets also advance revisions, so an old
-editor cannot restore cleared preferences. Known identical content retains edits
+editor cannot restore cleared preferences. Migration 19 adds a bounded JSON
+map for Square, Portrait and Landscape frames; the original fields represent
+Original framing. Existing custom crops migrate into each aspect preset. Missing
+presets use neutral centered defaults, independent of Original. Older clients
+that omit the map preserve it; an explicit empty map clears it. Framing reset
+clears all presets. The migration 20 `feed_framing` column is retained for database
+and backup compatibility; the current Feed uses the Portrait preset. Older maps
+survive ordinary saves and are cleared by framing reset. Known identical content retains edits
 through safe moves or timestamp changes; a content replacement clears them.
+
+### Processing And Delivery
 
 `routes-presentation.ts` validates edits and verifies the resolved source before
 and after capability probing. `presentation-media.ts` verifies still/video/
@@ -211,8 +232,51 @@ only their superseded registered files. No private response enters the service
 worker shell cache. Source downloads remain unchanged. Reset/delete/scan cache
 cleanup includes presentation files while preserving unrelated current jobs.
 
+### Editor And Framing
+
 The shared editor uses explicit draft Save/Cancel, Playback/Framing sections and
-a single preview. Time handles follow the [W3C multi-thumb slider pattern](https://www.w3.org/WAI/ARIA/apg/patterns/slider-multithumb/);
+a single preview in a fullscreen dialog. Draft framing is selected by aspect;
+switching aspects retains every draft and one Save writes them atomically.
+Gallery and Ranking resolve their selected preset through `presentation-model.ts`,
+while Feed always resolves Portrait. Desktop uses preview/inspector columns;
+compact layouts keep the preview and transport above a scrolling inspector, with safe-area
+header/footer actions. Loading and failure states share that shell. The dialog
+shell is available immediately; editing tools and metadata load in parallel,
+metadata failures offer Retry within the dialog. A failed tools download offers
+Reload, since older browsers may retain failed module requests until reload. Playback and
+Framing tabs follow the [WAI tabs pattern](https://www.w3.org/WAI/ARIA/apg/patterns/tabs/),
+retain invalid time drafts and keep one mounted preview/transport; switching tabs
+does not pause playback. Seeking pauses at a full-source timestamp. Native play
+failures restore the Play action; decode failures leave framing available.
+
+The framing selector exposes Fit and Fill only. Legacy `auto` records remain
+valid and display the invoking view's equivalent explicit choice; Original
+Ranking resolves to Fit, while other card frames resolve to Fill. This display
+resolution requires no bulk migration or asset write when the editor opens.
+Saved changes still require explicit Save.
+
+Before a preference is saved, the expanded viewer uses original proportions with
+neutral position and zoom. Its `ViewerViewOptions` shadcn dropdown can apply the
+saved frame and geometry for the invoking aspect (Gallery/Ranking selection or
+Feed Portrait).
+The on/off choice is a browser-local appearance preference stored as a boolean
+in localStorage. It survives previous/next navigation, closing and reopening,
+reloads and logout; it contains no asset or media data. Missing or invalid stored
+values default to off, and unavailable storage does not prevent viewing.
+Framing changes leave the mounted media, source URL, current time and pause intent
+intact. The menu portals inside the viewer container so it
+remains available in browser fullscreen; native iPhone video fullscreen retains
+system controls and original proportions.
+
+Feed has one portrait layout: a centered, width-limited media frame on desktop
+and the available viewport on compact screens. Transport, details, tap surfaces
+and expand actions share that frame as their positioning container. The
+navigation/curation rail stays beside it on desktop and within phone safe areas.
+Feed always applies the Portrait preset and starts the editor on Portrait;
+Gallery and Ranking retain aspect selection. Old Feed layout links, preferences
+and checkpoints normalize to Portrait without discarding other browsing state.
+Geometry changes reuse existing media bytes. Viewer framing is a display-only
+choice; editing still uses explicit Save/Cancel. Time handles follow the [W3C multi-thumb slider pattern](https://www.w3.org/WAI/ARIA/apg/patterns/slider-multithumb/);
 direct framing and reversible edits follow [Apple Photos](https://support.apple.com/en-us/104968).
 `presentation-geometry.ts` defines the common Fit/Fill, focal point and zoom
 mapping. Indexed photo and editor dimensions include EXIF orientation to match
@@ -220,30 +284,85 @@ the browser's display. Delayed curation responses preserve newer presentation re
 Unknown save outcomes are reconciled by reading the current record before retry;
 conflicts require an explicit reload rather than silently replacing a draft.
 
+### Playback And Limits
+
 `ControlledAnimation` draws verified atlas frames on canvas, retaining variable
 delays and alpha. It uses bounded shared atlas decoding, a source-time timeline,
 repeat/bounce ordering, and the same transport controls as video. The decoded
 atlas cache retains at most three 2048px atlases (48 MiB RGBA), plus two bounded
 concurrent fetch/decode jobs. Hidden or
-obsolete browser work is cancelled. Shared server generation already started
+obsolete browser work is cancelled. Inactive or hidden animation canvases release
+their backing storage; lightweight Gallery canvases use the thumbnail-size
+budget, while Feed, Comparison, viewer and editor retain source-size frames. Shared server generation already started
 finishes within its processing limits and rejects stale output. Video speed uses
 positive native playback rates;
 [negative rates are not portable](https://developer.mozilla.org/en-US/docs/Web/API/HTMLMediaElement/playbackRate),
 so saved bounce is a bounded generated sequence rather than a negative rate.
 Video drafts preview forward and disclose that Bounce applies after Save;
-saved playback uses the complete rendition, including native fullscreen. Video bounce is limited to ten seconds,
-480px/24fps with one reverse job at a time; highlights are limited to two minutes
-and 1080px. Animations are limited to sixty seconds, 600 frames, 64 million total
-source pixels, 512px frames, 2048px atlases and 64 MiB encoded output. Atlas jobs
+saved bounce playback uses a complete rendition, including native fullscreen.
+Repeat highlights use the authenticated original stream and a shared source-time
+section observer (`video-section.ts`). It clamps seeks and loop boundaries, waits
+for a selected frame before revealing the video, and cancels frame callbacks on
+hide or replacement. It uses
+[media currentTime](https://developer.mozilla.org/en-US/docs/Web/API/HTMLMediaElement/currentTime)
+and presented-frame callbacks with a timeupdate/animation-frame fallback. An
+unsupported native codec uses the complete encoded section with an explicit local
+timeline; this compatibility copy remains limited to two minutes and 1080px.
+Video Bounce prepares a silent native video from the selected source frames,
+with reversed interior frames so the endpoints are not repeated. It preserves
+coded dimensions, sample aspect ratio, rotation, color metadata and variable
+frame durations for supported 8/10-bit YUV 4:2:0 SDR inputs (`yuv420p` or
+`yuv420p10le`) with even coded dimensions of at least 16px. Encoded timestamps
+use a microsecond timebase; each output packet is checked against the selected
+source timeline at that precision. HDR, Dolby Vision,
+interlaced video, odd dimensions, nonzero stream/container timestamp origins and
+unsupported formats/profiles have Bounce disabled; ordinary source playback and
+Repeat remain available. Timestamp-origin support requires separate browser and
+container timeline validation before that restriction can be relaxed.
+
+Lossless HEVC uses an `hvc1` MP4 when the browser reports HEVC support. A lossless
+H.264 QP0/High444 Predictive copy provides an alternative for supporting browsers.
+Decoded-frame equality is distinct from copying the original bitstream or using
+a visually lossless quality setting. Browser codec claims do not establish
+native iPhone compatibility; real-device acceptance is tracked separately.
+
+One reverse job runs at a time. Limits are ten seconds, 600 frames, a 256 MiB
+decoded-frame work budget reserving two 4:2:0 buffers, and 128 MiB output. The
+pixel estimate uses 1.5 bytes per pixel for 8-bit or 3 for 10-bit; codec overhead
+is additional. Actual selected frame counts are checked beyond rate estimates.
+Capabilities and save validation expose the source-dependent duration limit.
+The source/range timeline cache admits eight pending probes and retains at most
+64 entries. Bounce keys include `bounce-lossless-v3`, invalidating earlier lossy
+output without changing full-source or animation identities.
+Animations retain source dimensions up to 2048px per side in lossless PNG atlases,
+with an adaptive tile grid. Limits remain sixty seconds, 600 frames, 64 million
+total source pixels, 2048px atlases and 64 MiB encoded output. Larger sources are
+rejected rather than downscaled. PNG composition retains decoded 8-bit RGBA;
+HDR/high-bit-depth and color-profile fidelity are not guaranteed by the current
+FFmpeg/sharp/canvas pipeline. Rendition identity v2 invalidates older scaled
+atlases; ordinary successful publication removes superseded registered files. Atlas jobs
 have a two-minute budget, including a sixty-second source-decoding deadline.
 These are editing/playback budgets,
 not restrictions on indexing ordinary source media.
 
-The highlight-only preference follows validated URL/resume state. Comparison
-ignores temporal edits, uses full source/1×/repeat, and applies saved framing in
-a separately remembered aspect ratio. Presentation-only reset leaves navigation,
+The highlight-only preference follows validated URL/resume state and is also
+available in the viewer View options menu, alongside the independent framing
+choice. The highlight option is disabled for items without a saved section
+without clearing the remembered preference. Comparison applies that range
+selection while keeping 1×/repeat and its saved View options framing. Layout changes leave the ordered pair
+and Undo untouched; comparison cards do not expose Edit. Presentation-only reset leaves navigation,
 ranking and Undo intact. Per-asset edits remain server-owned; private in-memory
 capability/atlas caches are cleared on sign-out.
+
+### Gallery And Viewer Actions
+
+Gallery actions use the shared Radix ContextMenu primitive, matching existing
+menu tokens and the [Radix desktop/touch interaction](https://www.radix-ui.com/primitives/docs/components/context-menu).
+Keyboard context-menu keys, focus restoration, scroll cancellation and trailing
+touch clicks are guarded. Curation holds do not trigger a menu. Viewer chrome
+supports explicit media clicks alongside idle hiding; Info keeps media running
+while its focus layer guards shortcuts. Thumbnail/source layers share framing
+and swap only after decode/presentation, without blur, scale or crossfade dimming.
 
 ## Pairwise Ranking
 

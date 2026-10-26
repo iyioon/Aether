@@ -110,6 +110,20 @@ export function recordPresentationFiles(
   paths: string[]
 ): Array<{ assetId: string; path: string }> {
   return db.transaction(() => {
+    const retiredBounce = variant.startsWith("bounce-")
+      ? (db
+          .prepare(
+            "SELECT asset_id AS assetId, path FROM derivatives WHERE asset_id = ? AND kind GLOB 'presentation:bounce-*' AND kind NOT GLOB ?"
+          )
+          .all(file.asset.id, `presentation:bounce-*:${key}:*`) as Array<{
+          assetId: string;
+          path: string;
+        }>)
+      : [];
+    if (variant.startsWith("bounce-"))
+      db.prepare(
+        "DELETE FROM derivatives WHERE asset_id = ? AND kind GLOB 'presentation:bounce-*' AND kind NOT GLOB ?"
+      ).run(file.asset.id, `presentation:bounce-*:${key}:*`);
     const obsolete = db
       .prepare(
         "SELECT asset_id AS assetId, path FROM derivatives WHERE asset_id = ? AND kind GLOB ?"
@@ -135,7 +149,9 @@ export function recordPresentationFiles(
         createdAt: new Date().toISOString()
       })
     );
-    return obsolete.filter((entry) => !paths.includes(entry.path));
+    return [...retiredBounce, ...obsolete].filter(
+      (entry) => !paths.includes(entry.path)
+    );
   })();
 }
 

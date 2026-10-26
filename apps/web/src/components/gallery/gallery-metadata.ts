@@ -1,3 +1,5 @@
+import type { ViewMode } from "../library-state";
+
 export type GalleryMetadataField =
   "title" | "mediaType" | "size" | "score" | "tags" | "favorite";
 
@@ -19,24 +21,34 @@ export const defaultGalleryMetadataFields = new Set<GalleryMetadataField>([
   "size"
 ]);
 
-const GALLERY_METADATA_STORAGE_KEY = "aether.gallery.metadata-fields";
+function metadataKey(view: ViewMode): string {
+  return `aether.${view}.metadata-fields`;
+}
 
-export function readGalleryMetadataFields(): Set<GalleryMetadataField> {
+export function defaultMetadataFields(
+  view: ViewMode
+): Set<GalleryMetadataField> {
+  return new Set(view === "gallery" ? defaultGalleryMetadataFields : []);
+}
+
+export function readGalleryMetadataFields(
+  view: ViewMode = "gallery"
+): Set<GalleryMetadataField> {
   if (typeof window === "undefined") {
-    return new Set(defaultGalleryMetadataFields);
+    return defaultMetadataFields(view);
   }
 
   try {
-    const rawValue = window.localStorage.getItem(GALLERY_METADATA_STORAGE_KEY);
+    const rawValue = window.localStorage.getItem(metadataKey(view));
 
-    if (!rawValue) {
-      return new Set(defaultGalleryMetadataFields);
+    if (!rawValue || rawValue.length > 512) {
+      return defaultMetadataFields(view);
     }
 
     const parsedValue = JSON.parse(rawValue) as unknown;
 
     if (!Array.isArray(parsedValue)) {
-      return new Set(defaultGalleryMetadataFields);
+      return defaultMetadataFields(view);
     }
 
     const allowedFields = new Set(
@@ -50,22 +62,20 @@ export function readGalleryMetadataFields(): Set<GalleryMetadataField> {
 
     return new Set(fields);
   } catch {
-    return new Set(defaultGalleryMetadataFields);
+    return defaultMetadataFields(view);
   }
 }
 
 export function writeGalleryMetadataFields(
-  fields: ReadonlySet<GalleryMetadataField>
+  fields: ReadonlySet<GalleryMetadataField>,
+  view: ViewMode = "gallery"
 ): void {
   if (typeof window === "undefined") {
     return;
   }
 
   try {
-    window.localStorage.setItem(
-      GALLERY_METADATA_STORAGE_KEY,
-      JSON.stringify([...fields])
-    );
+    window.localStorage.setItem(metadataKey(view), JSON.stringify([...fields]));
   } catch {
     // Metadata visibility remains usable when storage is full or restricted.
   }

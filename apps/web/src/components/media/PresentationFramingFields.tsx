@@ -10,12 +10,13 @@ import {
 } from "../ui/select";
 import { Slider } from "../ui/slider";
 import { MAX_PRESENTATION_ZOOM } from "./presentation-model";
+import type { AspectMode } from "../library-state";
 
 interface PresentationFramingFieldsProps {
   draft: PresentationValues;
-  aspect: string;
+  aspect: AspectMode;
   disabled: boolean;
-  onAspectChange: (aspect: string) => void;
+  onAspectChange: (aspect: AspectMode) => void;
   onChange: (values: PresentationValues) => void;
 }
 
@@ -33,44 +34,46 @@ export function PresentationFramingFields({
     <div className="media-editor-fields">
       <div className="media-editor-columns">
         <div className="media-editor-field">
-          <Label htmlFor={fitId}>Framing</Label>
-          <Select
-            value={draft.fit}
-            disabled={disabled}
-            onValueChange={(fit) =>
-              onChange({
-                ...draft,
-                fit: fit === "cover" || fit === "contain" ? fit : "auto",
-                ...(fit === "contain"
-                  ? { zoom: 1, focalX: 0.5, focalY: 0.5 }
-                  : {})
-              })
-            }
-          >
-            <SelectTrigger id={fitId}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent className="media-editor-select-options">
-              <SelectItem value="auto">Auto</SelectItem>
-              <SelectItem value="contain">Fit</SelectItem>
-              <SelectItem value="cover">Fill</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="media-editor-field">
-          <Label htmlFor={aspectId}>Preview shape</Label>
+          <Label htmlFor={aspectId}>Media layout</Label>
           <Select
             value={aspect}
             disabled={disabled}
-            onValueChange={onAspectChange}
+            onValueChange={(value) => onAspectChange(value as AspectMode)}
           >
             <SelectTrigger id={aspectId}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent className="media-editor-select-options">
-              <SelectItem value="1">Square</SelectItem>
-              <SelectItem value="0.75">Portrait</SelectItem>
-              <SelectItem value="1.7777777777777777">Landscape</SelectItem>
+              <SelectItem value="Original">Original</SelectItem>
+              <SelectItem value="Square">Square</SelectItem>
+              <SelectItem value="Portrait">Portrait</SelectItem>
+              <SelectItem value="Landscape">Landscape</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="media-editor-field">
+          <Label htmlFor={fitId}>Framing</Label>
+          <Select
+            value={draft.fit === "contain" ? "contain" : "cover"}
+            disabled={disabled}
+            onValueChange={(fit) => {
+              if (fit !== "cover" && fit !== "contain") return;
+              onChange({
+                ...draft,
+                fit,
+                ...(fit === "contain"
+                  ? { zoom: 1, focalX: 0.5, focalY: 0.5 }
+                  : {})
+              });
+            }}
+          >
+            <SelectTrigger id={fitId}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="media-editor-select-options">
+              <SelectItem value="contain">Fit</SelectItem>
+              <SelectItem value="cover">Fill</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -99,6 +102,9 @@ export function PresentationFramingFields({
           }}
         />
       </div>
+      <p className="media-editor-hint">
+        Each layout keeps its own framing. Save applies all changes.
+      </p>
       <p className="media-editor-hint">
         {draft.fit === "contain"
           ? "Fit keeps the complete frame visible."

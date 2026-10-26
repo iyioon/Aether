@@ -92,7 +92,7 @@ export function estimateGalleryRowHeight({
   return mediaHeight + chromeHeight + GALLERY_CARD_BORDER_WIDTH * 2;
 }
 
-function mediaAspectRatio(
+export function mediaAspectRatio(
   asset: AssetRecord,
   measuredAspectRatio?: string
 ): number {

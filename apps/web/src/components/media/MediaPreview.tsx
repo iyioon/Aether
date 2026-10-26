@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Image, Video } from "lucide-react";
-import type { AssetRecord } from "../../api/client";
+import type { AssetRecord, PresentationAspect } from "../../api/client";
 import { isMediaImageReady, markMediaImageReady } from "./media-image-cache";
 import {
   isAnimatedImagePreview,
@@ -13,15 +14,20 @@ import { useVideoPlayback } from "./useVideoPlayback";
 import { VideoControls } from "./VideoControls";
 import { ControlledAnimation } from "./ControlledAnimation";
 import { usePresentationPreferences } from "./presentation-context";
-import { getPresentationValues } from "./presentation-model";
+import {
+  getPresentationValues,
+  presentationFramingForAspect
+} from "./presentation-model";
 import { presentationMediaStyle } from "./presentation-geometry";
 import {
+  bounceDurationExceeded,
   playbackVariant,
   presentationPlaybackUrl,
   presentationPosterUrl
 } from "./presentation-playback";
 import { useVideoPresentation } from "./useVideoPresentation";
 import { usePresentationCapabilities } from "./usePresentationCapabilities";
+import { useBounceCodec } from "./useBounceCodec";
 
 const VIDEO_HOLD_DELAY_MS = 320;
 
@@ -31,8 +37,10 @@ export interface MediaPlaybackCommands {
 }
 
 interface MediaPreviewProps {
+  controlsContainer?: HTMLElement | null;
   asset: AssetRecord;
-  presentationPlayback?: boolean;
+  applyPlaybackPreferences?: boolean;
+  framingAspect?: PresentationAspect;
   defaultFit?: "contain" | "cover";
   isActive?: boolean;
   muted?: boolean;
@@ -58,8 +66,10 @@ interface MediaPreviewProps {
 
 export const MediaPreview = memo(function MediaPreview({
   asset,
-  presentationPlayback = true,
+  controlsContainer,
+  applyPlaybackPreferences = true,
   defaultFit = "cover",
+  framingAspect = "Original",
   isActive = true,
   muted = true,
   onAudibleAutoplayBlocked,
@@ -80,7 +90,7 @@ export const MediaPreview = memo(function MediaPreview({
 }: MediaPreviewProps) {
   const preferences = usePresentationPreferences();
   playbackPaused = playbackPaused || preferences.isPlaybackPaused;
-  const highlightsOnly = presentationPlayback && preferences.highlightsOnly;
+  const highlightsOnly = preferences.highlightsOnly;
   const surfaceRef = useRef<HTMLSpanElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
@@ -122,19 +132,24 @@ export const MediaPreview = memo(function MediaPreview({
   const animationCandidate =
     asset.mediaType === "image" &&
     /\.(gif|webp|apng|png|avif)$/i.test(asset.name);
-  const variant = presentationPlayback
+  const variant = applyPlaybackPreferences
     ? playbackVariant(asset, highlightsOnly)
-    : "full";
+    : highlightsOnly && asset.presentation?.highlight
+      ? "highlight"
+      : "full";
   const {
     capabilities,
     error: capabilitiesError,
+    limitExceeded,
     retry: retryCapabilities
   } = usePresentationCapabilities(
     asset,
     !staticPreview &&
       !isPageHidden &&
       (isVisible || (showVideoTimeline && isActive)) &&
-      (animationCandidate || variant !== "full")
+      (animationCandidate ||
+        variant === "bounce" ||
+        (variant === "highlight" && (!useOriginalVideo || originalVideoFailed)))
   );
   const playbackAsset = capabilities
     ? {
@@ -152,30 +167,48 @@ export const MediaPreview = memo(function MediaPreview({
     : asset;
   const controlledAnimation =
     capabilities?.kind === "animation" && !staticPreview;
-  const mediaStyle = presentationMediaStyle(
-    getPresentationValues(asset.presentation),
-    defaultFit
+  const values = getPresentationValues(asset.presentation);
+  const framedValues = {
+    ...values,
+    ...presentationFramingForAspect(values, framingAspect)
+  };
+  const bounceOverBudget =
+    variant === "bounce" &&
+    (capabilities?.bounceOverBudget ||
+      bounceDurationExceeded(playbackAsset, capabilities?.maxBounceDurationMs));
+  const bounceUnavailable =
+    variant === "bounce" && capabilities?.bounceUnavailable;
+  const bounceCodec = useBounceCodec(
+    asset.presentation?.renditionKeys.bounce ?? asset.id
   );
+  const mediaStyle = presentationMediaStyle(framedValues, defaultFit);
   const posterSource =
     presentationPosterUrl(playbackAsset, highlightsOnly, thumbnailSize) ??
     thumbnailUrl(asset.id, thumbnailSize);
   const videoSource =
     asset.mediaType === "video"
-      ? variant !== "full"
-        ? presentationPlaybackUrl(playbackAsset, variant)
-        : useOriginalVideo
-          ? originalVideoFailed
-            ? videoPreviewUrl(asset.id, tall ? 720 : 480)
-            : mediaUrl(asset.id)
-          : videoPreviewFailed
+      ? variant === "bounce"
+        ? presentationPlaybackUrl(playbackAsset, variant, bounceCodec.codec)
+        : variant === "highlight"
+          ? useOriginalVideo && !originalVideoFailed
             ? mediaUrl(asset.id)
-            : videoPreviewUrl(asset.id, tall ? 720 : 480)
+            : presentationPlaybackUrl(playbackAsset, variant)
+          : useOriginalVideo
+            ? originalVideoFailed
+              ? videoPreviewUrl(asset.id, tall ? 720 : 480)
+              : mediaUrl(asset.id)
+            : videoPreviewFailed
+              ? mediaUrl(asset.id)
+              : videoPreviewUrl(asset.id, tall ? 720 : 480)
       : "";
 
   const isVideoPlaybackVisible = isVisible || (showVideoTimeline && isActive);
   const shouldLoadVideo =
     asset.mediaType === "video" &&
     !staticPreview &&
+    !bounceOverBudget &&
+    !bounceUnavailable &&
+    (variant !== "bounce" || capabilities !== null) &&
     (isVideoPlaybackVisible || preloadPreview);
   const isVideoPlaybackAllowed =
     asset.mediaType === "video" &&
@@ -201,9 +234,11 @@ export const MediaPreview = memo(function MediaPreview({
     playback,
     playbackAsset,
     variant,
-    presentationPlayback
+    applyPlaybackPreferences,
+    capabilities?.bounceTimeline
   );
-  const isVideoReady = readyVideoSource === videoSource;
+  const isVideoReady =
+    readyVideoSource === videoSource && presentationVideo.isReady;
   const didVideoPosterFail = failedVideoPosterSource === posterSource;
   const isVideoPosterReady =
     !didVideoPosterFail &&
@@ -304,6 +339,24 @@ export const MediaPreview = memo(function MediaPreview({
   );
 
   useEffect(() => {
+    const video = videoRef.current;
+    if (
+      variant === "highlight" &&
+      presentationVideo.isReady &&
+      shouldLoadVideo &&
+      video &&
+      video.readyState >= 2 &&
+      !video.seeking
+    )
+      revealVideoAfterPresentedFrame(video);
+  }, [
+    variant,
+    presentationVideo.isReady,
+    shouldLoadVideo,
+    revealVideoAfterPresentedFrame
+  ]);
+
+  useEffect(() => {
     cancelPendingVideoReveal();
     videoFrameRequestSequenceRef.current += 1;
     setReadyVideoSource(null);
@@ -329,16 +382,7 @@ export const MediaPreview = memo(function MediaPreview({
     setLoadedThumbnailSource(null);
     cancelPendingVideoReveal();
     videoFrameRequestSequenceRef.current += 1;
-  }, [
-    asset.id,
-    asset.mtimeMs,
-    asset.sizeBytes,
-    cancelPendingVideoReveal,
-    isAnimatedImage,
-    tall,
-    thumbnailSize,
-    staticPreview
-  ]);
+  }, [asset.id, asset.mtimeMs, asset.sizeBytes, cancelPendingVideoReveal]);
 
   useEffect(() => {
     if (!isActive) {
@@ -595,6 +639,47 @@ export const MediaPreview = memo(function MediaPreview({
     }
   }, [asset.mediaType, cancelPendingVideoReveal, shouldLoadVideo]);
 
+  const videoToggle = (
+    <button
+      className="media-video-playback-toggle"
+      type="button"
+      aria-label={`Toggle controls for ${asset.name}; press and hold to pause`}
+      onClick={(event) => {
+        event.stopPropagation();
+
+        if (event.detail === 0) {
+          onVideoPress?.();
+        }
+      }}
+      onPointerDown={(event) => {
+        event.stopPropagation();
+        event.currentTarget.setPointerCapture(event.pointerId);
+        startVideoHold();
+      }}
+      onPointerUp={(event) => {
+        event.stopPropagation();
+        finishVideoHold();
+      }}
+      onPointerCancel={cancelVideoHold}
+      onLostPointerCapture={cancelVideoHold}
+    />
+  );
+
+  const transport = (
+    <VideoControls
+      className="video-controls--feed"
+      playback={presentationVideo.playback}
+      minimumTime={presentationVideo.minimumTime}
+      sectionLabel={presentationVideo.sectionLabel}
+      hasAudio={presentationVideo.hasAudio}
+      seekLabel={`Seek ${asset.name}`}
+      onTogglePlayback={toggleVideoPlayback}
+      onToggleMuted={onToggleMuted}
+      onExpand={onExpand}
+      expandLabel={`Open ${asset.name} in viewer`}
+    />
+  );
+
   if (
     hasError ||
     (asset.mediaType === "video" &&
@@ -645,7 +730,11 @@ export const MediaPreview = memo(function MediaPreview({
           .join(" ")}
       >
         {capabilitiesError && !controlledAnimation ? (
-          showVideoTimeline ? (
+          limitExceeded ? (
+            <span className="controlled-animation__error" role="status">
+              This file exceeds the playback processing limit.
+            </span>
+          ) : showVideoTimeline ? (
             <button
               type="button"
               className="media-presentation-retry"
@@ -665,14 +754,16 @@ export const MediaPreview = memo(function MediaPreview({
         {controlledAnimation ? (
           <ControlledAnimation
             asset={playbackAsset}
+            maxCanvasDimension={
+              useOriginalImage || useOriginalVideo ? undefined : thumbnailSize
+            }
             onRetry={retryCapabilities}
             renditionKey={capabilities.renditionKeys.full}
             presentation={
-              presentationPlayback
-                ? getPresentationValues(asset.presentation)
+              applyPlaybackPreferences
+                ? framedValues
                 : {
-                    ...getPresentationValues(asset.presentation),
-                    highlight: null,
+                    ...framedValues,
                     playbackRate: 1,
                     loopMode: "repeat"
                   }
@@ -682,6 +773,7 @@ export const MediaPreview = memo(function MediaPreview({
             paused={playbackPaused}
             controls={showVideoTimeline}
             controlsClassName="video-controls--feed"
+            controlsContainer={controlsContainer}
             onPlaybackReady={(commands) =>
               onVideoControlsReady?.(
                 asset.id,
@@ -717,13 +809,17 @@ export const MediaPreview = memo(function MediaPreview({
                 loading={isActive ? "eager" : "lazy"}
                 onLoad={(event) => {
                   const image = event.currentTarget;
-                  void image.decode().then(
-                    () => {
-                      markMediaImageReady(posterSource);
-                      setLoadedThumbnailSource(posterSource);
-                    },
-                    () => setLoadedThumbnailSource(posterSource)
-                  );
+                  const ready = () => {
+                    if (
+                      !image.isConnected ||
+                      image.getAttribute("src") !== posterSource ||
+                      image.naturalWidth === 0
+                    )
+                      return;
+                    markMediaImageReady(posterSource);
+                    setLoadedThumbnailSource(posterSource);
+                  };
+                  void image.decode().then(ready, ready);
                 }}
               />
             ) : null}
@@ -751,25 +847,23 @@ export const MediaPreview = memo(function MediaPreview({
               fetchPriority={useOriginalImage && isActive ? "high" : "auto"}
               onLoad={(event) => {
                 const image = event.currentTarget;
-                void image.decode().then(
-                  () => {
-                    markMediaImageReady(previewSource);
-                    setLoadedImageSource(previewSource);
-                    onDimensionsKnown?.(
-                      asset.id,
-                      image.naturalWidth,
-                      image.naturalHeight
-                    );
-                  },
-                  () => {
-                    setLoadedImageSource(previewSource);
-                    onDimensionsKnown?.(
-                      asset.id,
-                      image.naturalWidth,
-                      image.naturalHeight
-                    );
-                  }
-                );
+                const ready = () => {
+                  if (
+                    imageRef.current !== image ||
+                    !image.isConnected ||
+                    image.getAttribute("src") !== previewSource ||
+                    image.naturalWidth === 0
+                  )
+                    return;
+                  markMediaImageReady(previewSource);
+                  setLoadedImageSource(previewSource);
+                  onDimensionsKnown?.(
+                    asset.id,
+                    image.naturalWidth,
+                    image.naturalHeight
+                  );
+                };
+                void image.decode().then(ready, ready);
               }}
               onError={() => {
                 if (useOriginalImage && !originalImageFailed) {
@@ -846,17 +940,29 @@ export const MediaPreview = memo(function MediaPreview({
           autoPlay={shouldAutoplayVideo}
           data-preview-source={
             shouldLoadVideo
-              ? useOriginalVideo
-                ? originalVideoFailed
-                  ? "preview-fallback"
-                  : "original"
-                : videoPreviewFailed
-                  ? "original"
-                  : "preview"
+              ? variant === "bounce"
+                ? "bounce"
+                : variant === "highlight"
+                  ? !useOriginalVideo || originalVideoFailed
+                    ? "highlight-fallback"
+                    : "original"
+                  : useOriginalVideo
+                    ? originalVideoFailed
+                      ? "preview-fallback"
+                      : "original"
+                    : videoPreviewFailed
+                      ? "original"
+                      : "preview"
               : "poster"
           }
+          data-presentation-timeline={
+            variant === "highlight" &&
+            (!useOriginalVideo || originalVideoFailed)
+              ? "local"
+              : "source"
+          }
           muted={variant === "bounce" || muted}
-          loop
+          loop={variant !== "highlight"}
           playsInline
           preload={
             shouldLoadVideo ? (preloadPreview ? "auto" : "metadata") : "none"
@@ -892,7 +998,16 @@ export const MediaPreview = memo(function MediaPreview({
             cancelPendingVideoReveal();
             videoFrameRequestSequenceRef.current += 1;
             setReadyVideoSource(null);
+            if (variant === "bounce" && bounceCodec.tryFallback()) return;
 
+            if (
+              variant === "highlight" &&
+              useOriginalVideo &&
+              !originalVideoFailed
+            ) {
+              setOriginalVideoFailed(true);
+              return;
+            }
             if (variant !== "full") {
               setVideoPlaybackFailed(true);
               return;
@@ -911,7 +1026,13 @@ export const MediaPreview = memo(function MediaPreview({
           }}
         />
       ) : null}
-      {videoPlaybackFailed && variant !== "full" ? (
+      {bounceUnavailable || bounceOverBudget ? (
+        <span className="media-presentation-retry" role="status">
+          {bounceUnavailable
+            ? "Bounce is unavailable for this file. Choose Repeat in Edit media."
+            : "Shorten this Bounce section in Edit media."}
+        </span>
+      ) : videoPlaybackFailed && variant !== "full" ? (
         <button
           type="button"
           className="media-presentation-retry"
@@ -922,46 +1043,27 @@ export const MediaPreview = memo(function MediaPreview({
             videoRef.current?.load();
           }}
         >
-          Playback unavailable. Retry
+          {variant === "bounce"
+            ? "Bounce unavailable. Retry"
+            : "Playback unavailable. Retry"}
         </button>
       ) : null}
       {showVideoTimeline && !staticPreview ? (
         <>
-          <button
-            className="media-video-playback-toggle"
-            type="button"
-            aria-label={`Toggle controls for ${asset.name}; press and hold to pause`}
-            onClick={(event) => {
-              event.stopPropagation();
-
-              if (event.detail === 0) {
-                onVideoPress?.();
-              }
-            }}
-            onPointerDown={(event) => {
-              event.stopPropagation();
-              event.currentTarget.setPointerCapture(event.pointerId);
-              startVideoHold();
-            }}
-            onPointerUp={(event) => {
-              event.stopPropagation();
-              finishVideoHold();
-            }}
-            onPointerCancel={cancelVideoHold}
-            onLostPointerCapture={cancelVideoHold}
-          />
-          <VideoControls
-            className="video-controls--feed"
-            playback={presentationVideo.playback}
-            minimumTime={presentationVideo.minimumTime}
-            sectionLabel={presentationVideo.sectionLabel}
-            hasAudio={presentationVideo.hasAudio}
-            seekLabel={`Seek ${asset.name}`}
-            onTogglePlayback={toggleVideoPlayback}
-            onToggleMuted={onToggleMuted}
-            onExpand={onExpand}
-            expandLabel={`Open ${asset.name} in viewer`}
-          />
+          {controlsContainer ? (
+            createPortal(
+              <>
+                {videoToggle}
+                {transport}
+              </>,
+              controlsContainer
+            )
+          ) : (
+            <>
+              {videoToggle}
+              {transport}
+            </>
+          )}
         </>
       ) : null}
     </span>

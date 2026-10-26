@@ -192,6 +192,14 @@ for (const hasTouch of [false, true]) {
         exact: true
       });
       await expectPlaying(video);
+      const frameBounds = (await item.locator(".feed-frame").boundingBox())!;
+      const controlsBounds = (await controls.boundingBox())!;
+      expect(controlsBounds.x).toBeCloseTo(frameBounds.x, 0);
+      expect(controlsBounds.width).toBeCloseTo(frameBounds.width, 0);
+      expect(controlsBounds.y + controlsBounds.height).toBeCloseTo(
+        frameBounds.y + frameBounds.height,
+        0
+      );
       const formerPauseBounds = (await pauseButton.boundingBox())!;
       if (hasTouch) await toggle.tap();
       else await toggle.click();
@@ -318,7 +326,7 @@ test("keeps mobile Feed full height with a reachable view switcher through rotat
     const expectFullViewport = async () => {
       await expect
         .poll(() =>
-          item.locator(".feed-frame").evaluate((node) => {
+          item.evaluate((node) => {
             const rect = node.getBoundingClientRect();
             return Math.max(
               Math.abs(rect.top),
@@ -331,6 +339,11 @@ test("keeps mobile Feed full height with a reachable view switcher through rotat
         )
         .toBeLessThanOrEqual(1);
       await expectPaused(item.locator("video"), true);
+      const itemBounds = (await item.boundingBox())!;
+      const frameBounds = (await item.locator(".feed-frame").boundingBox())!;
+      expect(frameBounds.width).toBeCloseTo(itemBounds.width, 0);
+      expect(frameBounds.height).toBeCloseTo(itemBounds.height, 0);
+      await expect(item).toHaveAttribute("data-aspect", "Portrait");
     };
     await expectFullViewport();
     await expectSwitcher(59, 0);
@@ -703,6 +716,12 @@ for (const viewport of [
       serviceWorkers: "block"
     });
     try {
+      await context.addInitScript(() =>
+        localStorage.setItem(
+          "aether.feed.metadata-fields",
+          '["title", "mediaType"]'
+        )
+      );
       const page = await context.newPage();
       const item = await openFeed(page);
       await page.addStyleTag({
@@ -884,6 +903,7 @@ async function expectSafeTargets(
           width: rect.width,
           height: rect.height,
           reachable: hit === target || target.contains(hit),
+          label: target.getAttribute("aria-label"),
           edgesReachable: [
             [rect.left + 2, rect.top + 2],
             [rect.right - 2, rect.bottom - 2]
@@ -907,7 +927,9 @@ async function expectSafeTargets(
     expect(target.right).toBeLessThanOrEqual(geometry.width - insets.right);
     expect(target.bottom).toBeLessThanOrEqual(geometry.height - insets.bottom);
     expect(target.reachable).toBe(true);
-    expect(target.edgesReachable).toBe(true);
+    expect(target.edgesReachable, JSON.stringify({ index, ...target })).toBe(
+      true
+    );
     expect(Math.abs(target.top - geometry.targets[0].top)).toBeLessThanOrEqual(
       1
     );

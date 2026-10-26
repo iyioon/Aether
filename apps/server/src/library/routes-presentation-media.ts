@@ -32,14 +32,15 @@ import {
 
 const VersionQuery = z.object({ v: z.string().regex(/^[a-f0-9]{32}$/) });
 const PlaybackQuery = VersionQuery.extend({
-  variant: z.enum(["full", "highlight", "bounce"]).default("full")
-});
+  variant: z.enum(["full", "highlight", "bounce"]).default("full"),
+  codec: z.enum(["hevc", "h264"]).optional()
+}).refine((query) => !query.codec || query.variant === "bounce");
 const PosterQuery = VersionQuery.extend({
   variant: z.enum(["full", "highlight"]).default("full"),
   size: z.coerce.number().int().min(160).max(1280).default(640)
 });
 const AtlasParams = AssetParams.extend({
-  index: z.coerce.number().int().min(0).max(37)
+  index: z.coerce.number().int().min(0).max(599)
 });
 
 export function registerPresentationMediaRoutes(
@@ -77,14 +78,17 @@ export function registerPresentationMediaRoutes(
           config,
           file,
           variant: query.data.variant,
-          key: query.data.v
+          key: query.data.v,
+          codec: query.data.codec
         });
         return await sendPresentationFile(
           request,
           reply,
           file,
           media,
-          query.data.v
+          query.data.variant === "bounce"
+            ? `${query.data.v}-${query.data.codec ?? "hevc"}`
+            : query.data.v
         );
       } catch (error) {
         return mediaFailure(reply, error);

@@ -51,11 +51,7 @@ import { useLibraryControls } from "./toolbar/useLibraryControls";
 import { PresentationContext } from "./media/presentation-context";
 import { clearPresentationCapabilities } from "./media/usePresentationCapabilities";
 import { animationAtlasCache } from "./media/animation-atlas-cache";
-const PresentationEditorDialog = lazy(() =>
-  import("./media/PresentationEditorDialog").then(
-    ({ PresentationEditorDialog }) => ({ default: PresentationEditorDialog })
-  )
-);
+import { PresentationEditorDialog } from "./media/PresentationEditorDialog";
 
 interface AppShellProps {
   appearance: AppearanceSettings;
@@ -190,12 +186,6 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
       });
     }
   }, [scanState]);
-  const {
-    clearFields: clearGalleryMetadataFields,
-    fields: galleryMetadataFields,
-    resetFields: resetGalleryMetadataFields,
-    toggleField: toggleGalleryMetadataField
-  } = useGalleryMetadataFields();
   const { handleMediaDimensionsKnown, measuredAspectRatios } =
     useMeasuredAspectRatios();
   const [editingAsset, setEditingAsset] = useState<AssetRecord | null>(null);
@@ -217,6 +207,8 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     gridSize,
     highlightsOnly,
     setHighlightsOnly,
+    viewerUsesSavedFraming,
+    setViewerUsesSavedFraming,
     mediaType,
     isOptionsOpen,
     scoreFilter,
@@ -243,6 +235,12 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     selectedFolderId,
     tree
   });
+  const {
+    clearFields: clearGalleryMetadataFields,
+    fields: galleryMetadataFields,
+    resetFields: resetGalleryMetadataFields,
+    toggleField: toggleGalleryMetadataField
+  } = useGalleryMetadataFields(view);
   const currentViewRef = useRef(view);
   currentViewRef.current = view;
   const shouldReloadAfterScoreChange =
@@ -854,7 +852,6 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
 
                   {view === "gallery" ? (
                     <GalleryGrid
-                      onEditAsset={setEditingAsset}
                       assets={assets}
                       aspect={aspect}
                       metadataFields={galleryMetadataFields}
@@ -880,10 +877,13 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
                         void saveAssetScore(asset, { score: score })
                       }
                       onSelectAsset={openAnchoredAsset}
+                      onInfoAsset={(asset) => setAnnotationAssetId(asset.id)}
+                      onEditAsset={setEditingAsset}
                       onToggleSelection={toggleAssetSelection}
                     />
                   ) : view === "feed" ? (
                     <FeedPreview
+                      metadataFields={galleryMetadataFields}
                       onEditAsset={setEditingAsset}
                       assets={assets}
                       isLoading={isAssetContentPending}
@@ -910,7 +910,10 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
                     />
                   ) : (
                     <ComparisonView
-                      onEditAsset={setEditingAsset}
+                      aspect={aspect}
+                      metadataFields={galleryMetadataFields}
+                      measuredAspectRatios={measuredAspectRatios}
+                      onMediaDimensionsKnown={handleMediaDimensionsKnown}
                       workspace={comparisonWorkspace}
                       onWorkspaceChange={(workspace) => {
                         pushLocationRef.current = true;
@@ -937,7 +940,11 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
         {selectedAsset ? (
           <Suspense fallback={null}>
             <MediaViewer
-              presentationPlayback={view !== "compare"}
+              useSavedFraming={viewerUsesSavedFraming}
+              onFramingChange={setViewerUsesSavedFraming}
+              framingAspect={aspect}
+              applyPlaybackPreferences={view !== "compare"}
+              onHighlightsOnlyChange={setHighlightsOnly}
               onEditAsset={setEditingAsset}
               asset={selectedAsset}
               hasNext={
@@ -980,17 +987,17 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
           </Suspense>
         ) : null}
         {editingAsset ? (
-          <Suspense fallback={null}>
-            <PresentationEditorDialog
-              key={editingAsset.id}
-              asset={editingAsset}
-              onClose={() => setEditingAsset(null)}
-              onSaved={(updated) => {
-                handleAssetUpdated(updated);
-                setComparisonAssetUpdate(updated);
-              }}
-            />
-          </Suspense>
+          <PresentationEditorDialog
+            key={editingAsset.id}
+            asset={editingAsset}
+            initialAspect={aspect}
+            originalFit={view === "compare" ? "contain" : "cover"}
+            onClose={() => setEditingAsset(null)}
+            onSaved={(updated) => {
+              handleAssetUpdated(updated);
+              setComparisonAssetUpdate(updated);
+            }}
+          />
         ) : null}
       </SidebarProvider>
     </PresentationContext.Provider>

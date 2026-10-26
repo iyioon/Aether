@@ -69,8 +69,8 @@ describe("data restore", () => {
         fixture.backupDir,
         `INSERT INTO assets (id, root_id, relative_path, name, extension, media_type, size_bytes, mtime_ms, indexed_at, status)
         VALUES ('asset', 'root-restored', 'photo.jpg', 'photo.jpg', '.jpg', 'image', 10, 100, '2026-10-22', 'indexed');
-        INSERT INTO asset_presentations (asset_id, revision, highlight_start_ms, highlight_end_ms, fit, focal_x, focal_y, zoom, playback_rate, loop_mode, updated_at)
-        VALUES ('asset', 5, NULL, NULL, 'cover', 0.3, 0.7, 2, 1, 'repeat', '2026-10-22');`
+        INSERT INTO asset_presentations (asset_id, revision, highlight_start_ms, highlight_end_ms, fit, focal_x, focal_y, zoom, playback_rate, loop_mode, updated_at, aspect_framing, feed_framing)
+        VALUES ('asset', 5, NULL, NULL, 'cover', 0.3, 0.7, 2, 1, 'repeat', '2026-10-22', '{"Square":{"fit":"cover","focalX":0.1,"focalY":0.9,"zoom":3}}', '{"portrait":{"fit":"cover","focalX":0.4,"focalY":0.6,"zoom":1}}');`
       );
       await restoreDataDirectory({
         paths: fixture.paths,
@@ -82,7 +82,7 @@ describe("data restore", () => {
         expect(
           restored
             .prepare(
-              "SELECT revision, fit, focal_x, focal_y, zoom FROM asset_presentations WHERE asset_id = 'asset'"
+              "SELECT revision, fit, focal_x, focal_y, zoom, aspect_framing, feed_framing FROM asset_presentations WHERE asset_id = 'asset'"
             )
             .get()
         ).toEqual({
@@ -90,7 +90,13 @@ describe("data restore", () => {
           fit: "cover",
           focal_x: 0.3,
           focal_y: 0.7,
-          zoom: 2
+          zoom: 2,
+          feed_framing: JSON.stringify({
+            portrait: { fit: "cover", focalX: 0.4, focalY: 0.6, zoom: 1 }
+          }),
+          aspect_framing: JSON.stringify({
+            Square: { fit: "cover", focalX: 0.1, focalY: 0.9, zoom: 3 }
+          })
         });
       } finally {
         restored.close();

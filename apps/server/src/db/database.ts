@@ -509,6 +509,27 @@ const migrations: Migration[] = [
            AND highlight_start_ms >= 0 AND highlight_end_ms > highlight_start_ms))
       );
     `
+  },
+  {
+    version: 19,
+    name: "independent_aspect_framing",
+    sql: `
+      ALTER TABLE asset_presentations ADD COLUMN aspect_framing TEXT NOT NULL DEFAULT '{}'
+        CHECK(json_valid(aspect_framing) AND json_type(aspect_framing) = 'object' AND length(aspect_framing) <= 2048);
+      UPDATE asset_presentations SET aspect_framing = json_object(
+        'Square', json_object('fit', fit, 'focalX', focal_x, 'focalY', focal_y, 'zoom', zoom),
+        'Portrait', json_object('fit', fit, 'focalX', focal_x, 'focalY', focal_y, 'zoom', zoom),
+        'Landscape', json_object('fit', fit, 'focalX', focal_x, 'focalY', focal_y, 'zoom', zoom)
+      ) WHERE fit != 'auto' OR focal_x != 0.5 OR focal_y != 0.5 OR zoom != 1;
+    `
+  },
+  {
+    version: 20,
+    name: "feed_viewport_framing",
+    sql: `
+      ALTER TABLE asset_presentations ADD COLUMN feed_framing TEXT NOT NULL DEFAULT '{}'
+        CHECK(json_valid(feed_framing) AND json_type(feed_framing) = 'object' AND length(feed_framing) <= 1024);
+    `
   }
 ];
 
@@ -599,7 +620,9 @@ const REQUIRED_TABLE_COLUMNS = new Map<string, readonly string[]>([
       "zoom",
       "playback_rate",
       "loop_mode",
-      "updated_at"
+      "updated_at",
+      "aspect_framing",
+      "feed_framing"
     ]
   ],
   [

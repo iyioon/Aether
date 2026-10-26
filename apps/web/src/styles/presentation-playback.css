@@ -17,7 +17,8 @@
 }
 .media-presentation-retry {
   position: absolute;
-  inset: auto 0 4rem;
+  inset: auto 0
+    calc(var(--video-controls-height) + var(--media-safe-area-bottom) + 12px);
   z-index: 4;
   margin-inline: auto;
   padding: 0.5rem 0.75rem;
@@ -68,7 +69,4 @@
   padding: 8px;
   border-radius: var(--radius);
   background: var(--popover);
-}
-.feed-frame .controlled-animation .video-controls {
-  z-index: 4;
 }

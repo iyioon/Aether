@@ -17,7 +17,7 @@ Use this list before a public release or a production update.
 
 ```bash
 npm ci
-npm audit --omit=dev
+npm audit --omit=dev --audit-level=high
 npm run verify
 npm run test:e2e
 docker compose config -q
@@ -81,17 +81,61 @@ Never test rebuild or wipe against the only copy of a real library database.
 
 ## Presentation Acceptance
 
-- In Gallery, Feed, viewer and Comparison, open the same editor. Check that
+- Check the portrait Feed on desktop and phones: centered desktop media,
+  controls/details attached to that frame, safe phone controls and an inline
+  heart-only favorite indicator. Confirm no aspect selector in Feed, old layout links still
+  restore the same item, and Edit starts on the saved Portrait frame.
+- Keep a video and animation playing while switching editor tabs; seek in either
+  tab, check invalid time entries survive switching, and check loading/Retry/Cancel
+  use the same reachable shell. Inspect phone portrait and short landscape.
+- In Gallery, verify that hovering a card shows no Edit or Download action;
+  right-click, Shift+F10 or touch-hold the preview for Info/Edit/Download. Check
+  focus return, scroll cancellation, score/heart holds, download and selection mode. Feed and viewer use a pencil
+  for Edit; Comparison cards have no Edit icon. Open the fullscreen editor on
+  desktop, phone portrait and short landscape. Check that
   Cancel discards drafts, Save survives reload, Reset needs Save, and editing
   cannot vote, navigate, favorite or score accidentally.
 - Use a video plus variable-delay/transparent GIF, WebP, APNG and AVIF. Save a
   highlight, speed and loop preference. Turn Play highlights only on/off,
-  verify selected-start posters, source-time seeking, exact range, silent video
+  verify selected-start posters, source-time seeking, exact range, original-stream
+  repeat highlights in Feed/viewer/Comparison and explicit codec fallback. Check
+  sharp, consistently framed thumbnail handoff, original-size animation frames, silent video
   bounce and retained animation transparency. Test a first-time preparation,
   failure/retry, unsupported or over-budget file, and a changed source before scan.
-- Test Fit/Fill/Auto, drag, pinch, keyboard movement and zoom across card shapes,
-  viewer and both orientations. Comparison aspect changes retain pair/Undo and
-  temporal playback remains full/1×/repeat.
+- Verify native lossless Bounce with eligible 8/10-bit SDR sources and variable
+  frame timing: decoded-frame hashes, timestamps, coded dimensions, SAR, color
+  metadata and rotation must match the selected source frames. Confirm no
+  repeated endpoints, no audio, cache reuse, and explicit time/frame/memory/output
+  rejection. HDR, Dolby Vision, interlaced, odd-sized, nonzero timestamp-origin
+  and unsupported inputs must offer Repeat without blocking source playback.
+  Validate actual HEVC playback
+  and native fullscreen on an iPhone 16 Home Screen installation; record this
+  separately from browser codec detection and desktop tests.
+- Test Fit/Fill, drag, pinch, keyboard movement and zoom across shapes and
+  orientations. The grid stays visible in both modes. Legacy Auto displays the
+  matching Fit/Fill choice: Original Ranking uses Fit, other card frames use
+  Fill. Opening/Cancel must not write assets or change revisions.
+- Switch aspects before saving. Independent drafts must survive switching,
+  one Save and reload. Gallery/Ranking use the matching saved frame; Feed uses
+  Portrait. Check still images, videos and animations.
+- Open the viewer from each aspect with no stored preference. Use saved framing
+  starts off; enabling it applies the invoking frame without changing time or
+  pause. Verify both on and off persist through previous/next, close/reopen,
+  reload and sign-out/sign-in. Other browsers keep their own choice; unavailable
+  storage must not break viewing. The stored preference contains only a boolean,
+  and toggling does not edit saved frames. Native iPhone video fullscreen keeps
+  original proportions and system controls.
+- Gallery/Ranking remember shape and each view remembers card info. Feed stays
+  Portrait; Ranking starts with Original, and both initially hide info.
+  Comparison layout changes retain pair/Undo and 1×/repeat while toggling full
+  source/highlights.
+- Click/tap viewer media to hide/show controls, check idle hiding and keyboard
+  focus, and keep video/animation playing while opening and closing Info. Use the
+  viewer View options menu with mouse, keyboard and touch, including browser
+  fullscreen and phone safe areas. Toggle Play highlights only and confirm the
+  library preference agrees. Items without a saved section disable the option
+  without clearing it. Keep controls visible while the menu is open; check
+  Escape, outside dismissal and focus return without closing the viewer.
 - Save from two tabs to check conflict/reload; interrupt a Save response and
   verify retry cannot overwrite newer settings. Reset only playback or framing
   and confirm other edits, scores, tags, favorites, navigation and Undo survive.

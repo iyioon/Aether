@@ -81,7 +81,7 @@ async function assetNamed(name: string) {
   if (!asset) throw new Error("Expected indexed fixture.");
   return asset;
 }
-async function video(name = "clip.mp4", duration = 1) {
+async function video(name = "clip.mp4", duration = 1, size = "48x32") {
   await runMediaCommand(
     "ffmpeg",
     [
@@ -91,13 +91,15 @@ async function video(name = "clip.mp4", duration = 1) {
       "-f",
       "lavfi",
       "-i",
-      `testsrc2=size=48x32:rate=24:duration=${duration}`,
+      `testsrc2=size=${size}:rate=24:duration=${duration}`,
       "-f",
       "lavfi",
       "-i",
       `sine=frequency=440:duration=${duration}`,
       "-c:v",
       "libx264",
+      "-preset",
+      "ultrafast",
       "-pix_fmt",
       "yuv420p",
       "-c:a",
@@ -123,6 +125,164 @@ function setHighlight(
 }
 
 describe("presentation video delivery", () => {
+  it("keeps original HDR playback available when lossless Bounce is unsupported", async () => {
+    await video();
+    const source = path.join(cwd, "media", "hdr.mp4");
+    await runMediaCommand(
+      "ffmpeg",
+      [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        path.join(cwd, "media", "clip.mp4"),
+        "-an",
+        "-vf",
+        "setparams=color_trc=smpte2084:color_primaries=bt2020:colorspace=bt2020nc",
+        "-c:v",
+        "libx264",
+        "-color_trc",
+        "smpte2084",
+        "-color_primaries",
+        "bt2020",
+        "-colorspace",
+        "bt2020nc",
+        "-y",
+        source
+      ],
+      10_000
+    );
+    const asset = await assetNamed("hdr.mp4");
+    const capabilities = (
+      await app.inject(`/api/assets/${asset.id}/presentation-media`)
+    ).json();
+    expect(capabilities).toMatchObject({
+      kind: "video",
+      maxBounceDurationMs: 0,
+      bounceUnavailable: true
+    });
+    const original = await app.inject(
+      `/api/assets/${asset.id}/playback?variant=full&v=${capabilities.renditionKeys.full}`
+    );
+    expect(original.statusCode).toBe(200);
+    expect(original.rawPayload).toEqual(await readFile(source));
+    const edited = setHighlight(asset.id, 250, 750, "bounce");
+    const bounce = await app.inject(
+      `/api/assets/${asset.id}/playback?variant=bounce&v=${edited.presentation.renditionKeys.bounce}`
+    );
+    expect(bounce.statusCode).toBe(415);
+    expect(bounce.json()).toEqual({ error: "bounce_source_not_supported" });
+  });
+
+  it("keeps codec caches separate and exposes the clipped source clock for lossless Bounce", async () => {
+    const initial = await video();
+    const asset = setHighlight(initial.id, 320, 810, "bounce");
+    const capabilities = (
+      await app.inject(`/api/assets/${asset.id}/presentation-media`)
+    ).json();
+    expect(capabilities.bounceTimeline.sourceTimesMs).toHaveLength(13);
+    expect(capabilities.bounceTimeline.sourceTimesMs[0]).toBe(320);
+    expect(
+      capabilities.bounceTimeline.durationsMs.reduce(
+        (sum: number, duration: number) => sum + duration,
+        0
+      )
+    ).toBeCloseTo(490);
+    const url = `/api/assets/${asset.id}/playback?variant=bounce&v=${asset.presentation.renditionKeys.bounce}`;
+    const hevc = await app.inject(`${url}&codec=hevc`);
+    const h264 = await app.inject(`${url}&codec=h264`);
+    expect(hevc.statusCode).toBe(200);
+    expect(h264.statusCode).toBe(200);
+    expect(hevc.headers.etag).not.toBe(h264.headers.etag);
+    expect(h264.headers["cache-control"]).toContain("private");
+    expect(h264.headers["cache-control"]).toContain("immutable");
+    const head = await app.inject({ method: "HEAD", url: `${url}&codec=h264` });
+    expect(head.rawPayload.length).toBe(0);
+    expect(head.headers.etag).toBe(h264.headers.etag);
+    const partial = await app.inject({
+      url: `${url}&codec=h264`,
+      headers: { range: "bytes=0-31" }
+    });
+    expect(partial.statusCode).toBe(206);
+    expect(partial.rawPayload).toEqual(h264.rawPayload.subarray(0, 32));
+    expect((await app.inject(`${url}&codec=vp9`)).statusCode).toBe(400);
+    expect(
+      (
+        await app.inject(
+          `/api/assets/${asset.id}/playback?variant=full&v=${asset.presentation.renditionKeys.full}&codec=h264`
+        )
+      ).statusCode
+    ).toBe(400);
+    const oldFiles = db
+      .prepare(
+        "SELECT path FROM derivatives WHERE asset_id = ? AND kind GLOB 'presentation:bounce-*'"
+      )
+      .all(asset.id) as Array<{ path: string }>;
+    expect(oldFiles).toHaveLength(2);
+    const updated = setHighlight(asset.id, 350, 850, "bounce");
+    expect(
+      (
+        await app.inject(
+          `/api/assets/${asset.id}/playback?variant=bounce&v=${updated.presentation.renditionKeys.bounce}&codec=h264`
+        )
+      ).statusCode
+    ).toBe(200);
+    for (const old of oldFiles)
+      expect(await stat(old.path).catch(() => null)).toBeNull();
+  });
+
+  it("preserves bounce resolution and reports a source-dependent reverse memory budget", async () => {
+    const initial = await video("large.mp4", 5, "1280x720");
+    const sourcePath = path.join(cwd, "media", "large.mp4");
+    const source = await readFile(sourcePath);
+    const capabilities = await app.inject(
+      `/api/assets/${initial.id}/presentation-media`
+    );
+    expect(capabilities.json()).toMatchObject({
+      width: 1280,
+      height: 720,
+      maxBounceDurationMs: 4041
+    });
+    const asset = setHighlight(initial.id, 250, 750, "bounce");
+    const response = await app.inject(
+      `/api/assets/${asset.id}/playback?variant=bounce&v=${asset.presentation.renditionKeys.bounce}`
+    );
+    expect(response.statusCode).toBe(200);
+    const outputPath = path.join(cwd, "bounce-resolution.mp4");
+    await writeFile(outputPath, response.rawPayload);
+    const output = JSON.parse(
+      (
+        await runMediaCommand(
+          "ffprobe",
+          [
+            "-v",
+            "error",
+            "-show_entries",
+            "stream=codec_type,width,height,nb_frames,r_frame_rate",
+            "-of",
+            "json",
+            outputPath
+          ],
+          10_000
+        )
+      ).stdout
+    );
+    expect(output.streams).toHaveLength(1);
+    expect(output.streams[0]).toMatchObject({
+      codec_type: "video",
+      width: 1280,
+      height: 720,
+      nb_frames: "22"
+    });
+    const tooLong = setHighlight(asset.id, 0, 4200, "bounce");
+    const rejected = await app.inject(
+      `/api/assets/${asset.id}/playback?variant=bounce&v=${tooLong.presentation.renditionKeys.bounce}`
+    );
+    expect(rejected.statusCode).toBe(422);
+    expect(rejected.json()).toEqual({ error: "bounce_duration_exceeded" });
+    expect(await readFile(sourcePath)).toEqual(source);
+  }, 20_000);
+
   it("probes current media, streams full originals, and preserves HEAD, ranges and validators", async () => {
     const asset = await video();
     const caps = await app.inject(`/api/assets/${asset.id}/presentation-media`);
@@ -334,6 +494,34 @@ describe("presentation video delivery", () => {
       height: 1080,
       sample_aspect_ratio: "1:1"
     });
+    const bounce = await app.inject(
+      `/api/assets/${asset.id}/playback?variant=bounce&v=${highlighted.presentation.renditionKeys.bounce}`
+    );
+    expect(bounce.statusCode).toBe(200);
+    const bouncePath = path.join(cwd, "oriented-bounce.mp4");
+    await writeFile(bouncePath, bounce.rawPayload);
+    const bounceProbe = JSON.parse(
+      (
+        await runMediaCommand(
+          "ffprobe",
+          [
+            "-v",
+            "error",
+            "-show_entries",
+            "stream=width,height,sample_aspect_ratio",
+            "-of",
+            "json",
+            bouncePath
+          ],
+          10_000
+        )
+      ).stdout
+    );
+    expect(bounceProbe.streams[0]).toMatchObject({
+      width: 48,
+      height: 32,
+      sample_aspect_ratio: "2:1"
+    });
   });
 
   it("returns refreshed version keys after external changes without mutating source identity", async () => {
@@ -495,9 +683,11 @@ function chunk(kind: string, data: Buffer): Buffer {
   crc.writeUInt32BE(crc32(payload));
   return Buffer.concat([header, payload, crc]);
 }
-async function animatedPng(destination: string): Promise<void> {
-  const width = 16;
-  const height = 12;
+async function animatedPng(
+  destination: string,
+  width = 16,
+  height = 12
+): Promise<void> {
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(width);
   ihdr.writeUInt32BE(height, 4);
@@ -547,21 +737,25 @@ async function animatedPng(destination: string): Promise<void> {
   await writeFile(destination, Buffer.concat(chunks));
 }
 
-async function animatedFixture(format: "gif" | "webp" | "apng" | "avif") {
+async function animatedFixture(
+  format: "gif" | "webp" | "apng" | "avif",
+  width = 16,
+  height = 12
+) {
   const apngPath = path.join(cwd, "media", "source.png");
-  await animatedPng(apngPath);
+  await animatedPng(apngPath, width, height);
   if (format === "apng") return assetNamed("source.png");
   const destination = path.join(cwd, "media", `animation.${format}`);
   if (format === "gif" || format === "webp") {
-    const raw = Buffer.alloc(16 * 12 * 3 * 4);
+    const raw = Buffer.alloc(width * height * 3 * 4);
     for (let frame = 0; frame < 3; frame++)
-      for (let pixel = 0; pixel < 16 * 12; pixel++) {
-        const offset = (frame * 16 * 12 + pixel) * 4;
+      for (let pixel = 0; pixel < width * height; pixel++) {
+        const offset = (frame * width * height + pixel) * 4;
         raw[offset + frame] = 255;
-        raw[offset + 3] = pixel % 16 < 4 ? 0 : 255;
+        raw[offset + 3] = pixel % width < 4 ? 0 : 255;
       }
     const processor = sharp(raw, {
-      raw: { width: 16, height: 36, channels: 4, pageHeight: 12 }
+      raw: { width, height: height * 3, channels: 4, pageHeight: height }
     });
     await processor[format]({ delay: [100, 200, 300], loop: 0 }).toFile(
       destination
@@ -662,6 +856,81 @@ async function verifyAvifFixtureTiming(sourcePath: string): Promise<void> {
 }
 
 describe("controllable transparent animations", () => {
+  it.each(["gif", "webp", "apng", "avif"] as const)(
+    "preserves original %s frame dimensions with bounded adaptive atlases",
+    async (format) => {
+      const asset = await animatedFixture(format, 1280, 720);
+      const file = (await resolveAssetFile(db, asset.id))!;
+      const source = await readFile(file.sourcePath);
+      const key = getPresentationRenditionKeys(asset, asset.presentation).full;
+      const first = await ensurePresentationAnimation({
+        db,
+        config,
+        file,
+        key
+      });
+      expect(first.manifest).toMatchObject({
+        width: 1280,
+        height: 720,
+        durationMs: 600
+      });
+      expect(
+        first.manifest.frames.map(({ width, height, atlas, x, y }) => ({
+          width,
+          height,
+          atlas,
+          x,
+          y
+        }))
+      ).toEqual([
+        { width: 1280, height: 720, atlas: 0, x: 0, y: 0 },
+        { width: 1280, height: 720, atlas: 0, x: 0, y: 720 },
+        { width: 1280, height: 720, atlas: 1, x: 0, y: 0 }
+      ]);
+      expect(first.manifest.frames.map((frame) => frame.durationMs)).toEqual([
+        100, 200, 300
+      ]);
+      expect(first.manifest.atlases).toHaveLength(2);
+      for (const atlas of first.manifest.atlases) {
+        expect(atlas.width).toBeLessThanOrEqual(2048);
+        expect(atlas.height).toBeLessThanOrEqual(2048);
+        expect((await app.inject(atlas.url)).statusCode).toBe(200);
+      }
+      const decoded = await sharp(first.atlasPaths[0]!)
+        .ensureAlpha()
+        .raw()
+        .toBuffer();
+      expect(decoded[3]).toBe(0);
+      expect(decoded[8 * 4]).toBeGreaterThan(230);
+      expect(decoded[8 * 4 + 3]).toBe(255);
+      expect(
+        (await ensurePresentationAnimation({ db, config, file, key })).manifest
+      ).toEqual(first.manifest);
+      expect(await readFile(file.sourcePath)).toEqual(source);
+    }
+  );
+
+  it("rejects overlarge animation dimensions rather than silently resizing frames", async () => {
+    const raw = Buffer.alloc(2049 * 12 * 2 * 4, 255);
+    raw.fill(0, 2049 * 12 * 4);
+    await sharp(raw, {
+      raw: { width: 2049, height: 24, channels: 4, pageHeight: 12 }
+    })
+      .gif({ delay: [100, 200] })
+      .toFile(path.join(cwd, "media", "too-wide.gif"));
+    const asset = await assetNamed("too-wide.gif");
+    const response = await app.inject(
+      `/api/assets/${asset.id}/presentation-media`
+    );
+    expect(response.statusCode).toBe(422);
+    expect(response.json()).toEqual({ error: "presentation_limit_exceeded" });
+    expect(
+      await stat(path.join(config.cacheDir, "presentations", asset.id)).catch(
+        () => null
+      )
+    ).toBeNull();
+  });
+
   it.each(["gif", "webp", "apng", "avif"] as const)(
     "decodes complete %s timelines into transparent composited atlases",
     async (format) => {

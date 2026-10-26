@@ -1,5 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { LoaderCircle, RotateCcw } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import {
   ApiError,
   type AssetRecord,
@@ -7,22 +6,26 @@ import {
   type PresentationValues
 } from "../../api/client";
 import { Button } from "../ui/button";
-import { Dialog, DialogContent, DialogTitle } from "../ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
+import { galleryAspectRatio } from "../gallery/gallery-layout";
 import { PresentationFrame } from "./PresentationFrame";
 import { PresentationFramingFields } from "./PresentationFramingFields";
 import { PresentationPlaybackFields } from "./PresentationPlaybackFields";
-import { presentationMediaStyle } from "./presentation-geometry";
 import {
   defaultPresentationValues,
   getPresentationValues,
+  presentationFramingForAspect,
+  setPresentationFraming,
   presentationClamp,
   presentationRange,
   presentationValidationMessage,
   presentationValuesEqual,
   updatePresentationRange
 } from "./presentation-model";
-import { mediaUrl } from "./media-urls";
+import { PresentationPreview } from "./PresentationPreview";
+import type { AspectMode } from "../library-state";
+import { PresentationTransport } from "./PresentationTransport";
+import { PresentationEditorFooter } from "./PresentationEditorFooter";
 
 export interface MediaPresentationPreviewProps {
   presentation: PresentationValues;
@@ -30,19 +33,22 @@ export interface MediaPresentationPreviewProps {
   isPlaying: boolean;
   onTimeChange: (ms: number) => void;
   onDurationChange: (ms: number) => void;
+  onPlayingChange: (playing: boolean) => void;
+  onPlaybackAvailableChange: (available: boolean) => void;
 }
 
 export interface MediaPresentationEditorProps {
+  initialAspect?: AspectMode;
+  originalFit?: "contain" | "cover";
+  onPendingChange: (pending: boolean) => void;
   asset: AssetRecord;
   capabilities: PresentationMediaCapabilities;
-  isLoading?: boolean;
   onSave: (
     values: PresentationValues,
     expectedRevision: number
   ) => Promise<AssetRecord>;
   onReload?: () => Promise<AssetRecord>;
   onClose: () => void;
-  renderPreview?: (props: MediaPresentationPreviewProps) => ReactNode;
 }
 
 interface PresentationEditorError {
@@ -65,6 +71,10 @@ function saveError(error: unknown): PresentationEditorError {
   if (error instanceof ApiError) {
     const messages: Record<string, string> = {
       bounce_duration_exceeded: "Choose a shorter highlight to use Bounce.",
+      bounce_source_not_supported:
+        "Bounce is unavailable for this file. Choose Repeat instead.",
+      bounce_timing_not_supported:
+        "This file’s timing cannot be used for Bounce. Choose Repeat instead.",
       highlight_duration_exceeded: "Choose a shorter highlight before saving.",
       presentation_timing_not_supported:
         "Playback editing is unavailable for this file.",
@@ -83,14 +93,14 @@ function saveError(error: unknown): PresentationEditorError {
 
 export function MediaPresentationEditor({
   asset,
+  initialAspect = "Square",
+  originalFit = "cover",
+  onPendingChange,
   capabilities,
-  isLoading = false,
   onSave,
   onReload,
-  onClose,
-  renderPreview
+  onClose
 }: MediaPresentationEditorProps) {
-  const descriptionId = useId();
   const [original, setOriginal] = useState(() =>
     getPresentationValues(asset.presentation)
   );
@@ -99,9 +109,28 @@ export function MediaPresentationEditor({
   const [tab, setTab] = useState(
     capabilities.kind === "still" ? "framing" : "playback"
   );
-  const [aspect, setAspect] = useState("1");
+  const [aspect, setAspect] = useState<AspectMode>(initialAspect);
+  const framing = presentationFramingForAspect(
+    draft,
+    aspect,
+    aspect === "Original" ? originalFit : "cover"
+  );
+  const framedDraft = {
+    ...draft,
+    ...framing,
+    ...(framing.fit === "contain" ? { focalX: 0.5, focalY: 0.5, zoom: 1 } : {})
+  };
+  function changeFraming(values: PresentationValues) {
+    setDraft((current) => setPresentationFraming(current, aspect, values));
+  }
+  const aspectRatio =
+    aspect === "Original"
+      ? (capabilities.width ?? asset.width ?? 1) /
+        (capabilities.height ?? asset.height ?? 1)
+      : galleryAspectRatio(aspect);
   const [playheadMs, setPlayheadMs] = useState(draft.highlight?.startMs ?? 0);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackAvailable, setPlaybackAvailable] = useState(true);
   const [observedDuration, setObservedDuration] = useState(0);
   const [invalidFields, setInvalidFields] = useState({
     start: false,
@@ -121,7 +150,7 @@ export function MediaPresentationEditor({
       ? Math.max(0, Math.round(duration))
       : 0;
   const [startMs, endMs] = presentationRange(draft, durationMs);
-  const disabled = pending !== null || isLoading;
+  const disabled = pending !== null;
   const unsupportedTemporal =
     capabilities.timingUnavailable &&
     (draft.highlight !== null ||
@@ -185,6 +214,7 @@ export function MediaPresentationEditor({
       return;
     }
     pendingRef.current = true;
+    onPendingChange(true);
     setPending("save");
     setIsPlaying(false);
     setError(null);
@@ -199,6 +229,7 @@ export function MediaPresentationEditor({
       }
     } finally {
       pendingRef.current = false;
+      onPendingChange(false);
       if (activeRef.current) {
         setPending(null);
       }
@@ -210,6 +241,7 @@ export function MediaPresentationEditor({
       return;
     }
     pendingRef.current = true;
+    onPendingChange(true);
     setPending("reload");
     setIsPlaying(false);
     try {
@@ -234,6 +266,7 @@ export function MediaPresentationEditor({
       }
     } finally {
       pendingRef.current = false;
+      onPendingChange(false);
       if (activeRef.current) {
         setPending(null);
       }
@@ -242,115 +275,97 @@ export function MediaPresentationEditor({
 
   const framingFields = (
     <PresentationFramingFields
-      draft={draft}
+      draft={framedDraft}
       aspect={aspect}
       disabled={disabled}
       onAspectChange={setAspect}
-      onChange={setDraft}
+      onChange={changeFraming}
     />
   );
 
   return (
-    <Dialog
-      open
-      onOpenChange={(open) => {
-        if (!open && !pendingRef.current) onClose();
-      }}
-    >
-      <DialogContent
-        className="media-editor"
-        showCloseButton={false}
-        aria-describedby={descriptionId}
-        aria-busy={isLoading || pending !== null}
-        onInteractOutside={(event) => event.preventDefault()}
-        onEscapeKeyDown={(event) => {
-          if (pendingRef.current) event.preventDefault();
-        }}
-      >
-        <header className="media-editor-header">
-          <DialogTitle>Edit media</DialogTitle>
-          <p id={descriptionId} title={asset.name}>
-            {asset.name}
-          </p>
-        </header>
-        <div className="media-editor-body">
+    <>
+      <div className="media-editor-body">
+        <div className="media-editor-preview">
           <PresentationFrame
-            values={draft}
+            values={framedDraft}
             source={{
               width: capabilities.width ?? asset.width ?? 1,
               height: capabilities.height ?? asset.height ?? 1
             }}
-            aspect={Number(aspect)}
+            aspect={aspectRatio}
             editing={tab === "framing"}
             disabled={disabled}
-            onChange={setDraft}
+            onChange={changeFraming}
           >
-            {renderPreview ? (
-              renderPreview({
-                presentation: draft,
-                playheadMs,
-                isPlaying,
-                onTimeChange: setPlayheadMs,
-                onDurationChange: setObservedDuration
-              })
-            ) : (
-              <img
-                src={mediaUrl(asset.id)}
-                alt={asset.name}
-                draggable={false}
-                style={presentationMediaStyle(draft, "cover")}
-              />
-            )}
+            <PresentationPreview
+              asset={asset}
+              capabilities={capabilities}
+              presentation={framedDraft}
+              playheadMs={playheadMs}
+              isPlaying={isPlaying}
+              onTimeChange={setPlayheadMs}
+              onDurationChange={setObservedDuration}
+              onPlayingChange={setIsPlaying}
+              onPlaybackAvailableChange={setPlaybackAvailable}
+            />
           </PresentationFrame>
+          {timed ? (
+            <PresentationTransport
+              durationMs={durationMs}
+              playheadMs={playheadMs}
+              isPlaying={isPlaying}
+              disabled={disabled || !playbackAvailable}
+              onPlayingChange={(playing) => {
+                if (playing && (playheadMs < startMs || playheadMs >= endMs))
+                  setPlayheadMs(startMs);
+                setIsPlaying(playing);
+              }}
+              onSeek={setPlayheadMs}
+            />
+          ) : null}
+        </div>
+        <div className="media-editor-inspector">
           {timed ? (
             <Tabs
               value={tab}
               className="media-editor-tabs"
-              onValueChange={(next) => {
-                setTab(next);
-                setInvalidFields({ start: false, end: false });
-                setIsPlaying(false);
-              }}
+              onValueChange={setTab}
             >
-              {timed ? (
-                <TabsList aria-label="Media editing sections">
-                  <TabsTrigger value="playback">Playback</TabsTrigger>
-                  <TabsTrigger value="framing">Framing</TabsTrigger>
-                </TabsList>
-              ) : null}
-              {timed ? (
-                <TabsContent value="playback">
-                  <PresentationPlaybackFields
-                    draft={draft}
-                    durationMs={durationMs}
-                    maxBounceDurationMs={capabilities.maxBounceDurationMs}
-                    disabled={disabled}
-                    isLoading={isLoading}
-                    bouncePreviewDeferred={capabilities.kind === "video"}
-                    playheadMs={playheadMs}
-                    isPlaying={isPlaying}
-                    resetKey={resetKey}
-                    onPlayingChange={(playing) => {
-                      if (
-                        playing &&
-                        (playheadMs < startMs || playheadMs >= endMs)
-                      )
-                        setPlayheadMs(startMs);
-                      setIsPlaying(playing);
-                    }}
-                    onSeek={setPlayheadMs}
-                    onRangeChange={changeRange}
-                    onChange={setDraft}
-                    onInvalidChange={(field, invalid) =>
-                      setInvalidFields((current) => ({
-                        ...current,
-                        [field]: invalid
-                      }))
-                    }
-                  />
-                </TabsContent>
-              ) : null}
-              <TabsContent value="framing">{framingFields}</TabsContent>
+              <TabsList aria-label="Media editing sections">
+                <TabsTrigger value="playback">Playback</TabsTrigger>
+                <TabsTrigger value="framing">Framing</TabsTrigger>
+              </TabsList>
+              <TabsContent
+                value="playback"
+                forceMount
+                hidden={tab !== "playback"}
+              >
+                <PresentationPlaybackFields
+                  draft={draft}
+                  durationMs={durationMs}
+                  maxBounceDurationMs={capabilities.maxBounceDurationMs}
+                  disabled={disabled}
+                  bouncePreviewDeferred={capabilities.kind === "video"}
+                  playheadMs={playheadMs}
+                  resetKey={resetKey}
+                  onRangeChange={changeRange}
+                  onChange={setDraft}
+                  onInvalidChange={(field, invalid) =>
+                    setInvalidFields((current) => ({
+                      ...current,
+                      [field]: invalid
+                    }))
+                  }
+                />
+              </TabsContent>
+              <TabsContent
+                value="framing"
+                forceMount
+                hidden={tab !== "framing"}
+              >
+                {framingFields}
+              </TabsContent>
             </Tabs>
           ) : (
             framingFields
@@ -386,43 +401,21 @@ export function MediaPresentationEditor({
             </div>
           ) : null}
         </div>
-        <footer className="media-editor-footer">
-          <Button
-            type="button"
-            variant="ghost"
-            disabled={disabled || !canReset}
-            onClick={() => {
-              setResetKey((current) => current + 1);
-              setDraft(defaultPresentationValues());
-              setPlayheadMs(0);
-              setIsPlaying(false);
-              setInvalidFields({ start: false, end: false });
-            }}
-          >
-            <RotateCcw aria-hidden="true" />
-            Reset
-          </Button>
-          <div>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={pending !== null}
-              onClick={onClose}
-            >
-              Cancel
-            </Button>
-            <Button type="button" disabled={!canSave} onClick={save}>
-              {pending === "save" ? (
-                <LoaderCircle
-                  className="media-editor-spinner"
-                  aria-hidden="true"
-                />
-              ) : null}
-              {pending === "save" ? "Saving…" : "Save"}
-            </Button>
-          </div>
-        </footer>
-      </DialogContent>
-    </Dialog>
+      </div>
+      <PresentationEditorFooter
+        pending={pending}
+        canReset={!disabled && canReset}
+        canSave={canSave}
+        onClose={onClose}
+        onSave={() => void save()}
+        onReset={() => {
+          setResetKey((current) => current + 1);
+          setDraft(defaultPresentationValues());
+          setPlayheadMs(0);
+          setIsPlaying(false);
+          setInvalidFields({ start: false, end: false });
+        }}
+      />
+    </>
   );
 }

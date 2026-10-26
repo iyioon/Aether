@@ -33,6 +33,7 @@ const OPEN_KEYBOARD_LAYER_SELECTOR = [
   "[data-slot='alert-dialog-content'][data-state='open']",
   "[data-slot='dialog-content'][data-state='open']",
   "[data-slot='dropdown-menu-content'][data-state='open']",
+  "[data-slot='context-menu-content'][data-state='open']",
   "[data-slot='popover-content'][data-state='open']",
   "[data-slot='sheet-content'][data-state='open']"
 ].join(", ");

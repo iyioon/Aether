@@ -1,21 +1,11 @@
-import { CornerUpLeft, Ratio, Shuffle, Trophy } from "lucide-react";
+import { CornerUpLeft, Shuffle, Trophy } from "lucide-react";
 import type { ComparisonPairResponse } from "../../api/client";
-import { aspectOptions, type AspectMode } from "../library-state";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger
-} from "../ui/dropdown-menu";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Progress } from "../ui/progress";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 
 interface ComparisonSessionFooterProps {
-  aspect: AspectMode;
-  onAspectChange: (aspect: AspectMode) => void;
   canUndo: boolean;
   isLoading: boolean;
   isPairCommitted: boolean;
@@ -27,8 +17,6 @@ interface ComparisonSessionFooterProps {
 }
 
 export function ComparisonSessionFooter({
-  aspect,
-  onAspectChange,
   canUndo,
   isLoading,
   isPairCommitted,
@@ -63,36 +51,6 @@ export function ComparisonSessionFooter({
         </div>
       </div>
       <div className="comparison-session-actions">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              aria-label="Comparison aspect ratio"
-              title={`Aspect ratio: ${aspect}`}
-              size="icon-sm"
-              variant="outline"
-            >
-              <Ratio aria-hidden="true" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="comparison-aspect-menu">
-            <DropdownMenuRadioGroup
-              value={aspect}
-              onValueChange={(value) => {
-                if (aspectOptions.some((option) => option === value))
-                  onAspectChange(value as AspectMode);
-              }}
-            >
-              {[
-                "Original",
-                ...aspectOptions.filter((option) => option !== "Original")
-              ].map((option) => (
-                <DropdownMenuRadioItem key={option} value={option}>
-                  {option}
-                </DropdownMenuRadioItem>
-              ))}
-            </DropdownMenuRadioGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
         <Tooltip>
           <TooltipTrigger asChild>
             <Button

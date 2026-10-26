@@ -7,10 +7,7 @@ import type {
 import { LeaderboardView } from "./LeaderboardView";
 import { Card } from "../ui/card";
 import { Skeleton } from "../ui/skeleton";
-import {
-  readComparisonAspect,
-  writeComparisonAspect
-} from "./comparison-layout-state";
+import type { GalleryMetadataField } from "../gallery/gallery-metadata";
 import type { AspectMode } from "../library-state";
 import type { ComparisonWorkspace } from "../app-navigation-state";
 
@@ -26,6 +23,14 @@ function preloadRankingSession(): void {
 }
 
 interface ComparisonViewProps {
+  measuredAspectRatios: Record<string, string>;
+  onMediaDimensionsKnown: (
+    assetId: string,
+    width: number,
+    height: number
+  ) => void;
+  aspect: AspectMode;
+  metadataFields: ReadonlySet<GalleryMetadataField>;
   workspace: ComparisonWorkspace;
   onWorkspaceChange: (workspace: ComparisonWorkspace) => void;
   assetUpdate: AssetRecord | null;
@@ -37,7 +42,6 @@ interface ComparisonViewProps {
   tagFilters: string[];
   onAssetsUpdated: (assets: AssetRecord[]) => void;
   onOpenFullscreen: (asset: AssetRecord) => void;
-  onEditAsset?: (asset: AssetRecord) => void;
   onRankingChanged: () => void;
 }
 
@@ -45,11 +49,6 @@ export function ComparisonView(props: ComparisonViewProps) {
   const onRankingChanged = props.onRankingChanged;
   const { workspace, onWorkspaceChange } = props;
   const [leaderboardRevision, setLeaderboardRevision] = useState(0);
-  const [aspect, setAspect] = useState(readComparisonAspect);
-  const handleAspectChange = useCallback((next: AspectMode) => {
-    setAspect(next);
-    writeComparisonAspect(next);
-  }, []);
 
   const openLeaderboard = useCallback(() => {
     setLeaderboardRevision((current) => current + 1);
@@ -65,8 +64,6 @@ export function ComparisonView(props: ComparisonViewProps) {
       <Suspense fallback={<RankingSessionLoading />}>
         <RankingSession
           {...props}
-          aspect={aspect}
-          onAspectChange={handleAspectChange}
           onExit={openLeaderboard}
           onRankingChanged={handleRankingChanged}
         />

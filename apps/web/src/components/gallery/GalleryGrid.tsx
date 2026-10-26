@@ -11,19 +11,12 @@ import {
   type UIEvent as ReactUIEvent
 } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import {
-  ArrowUp,
-  Download,
-  SlidersHorizontal,
-  SlidersVertical
-} from "lucide-react";
+import { ArrowUp, SlidersHorizontal } from "lucide-react";
 import type { AssetRecord } from "../../api/client";
 import { useAutoLoadSentinel } from "../../hooks/useAutoLoadSentinel";
 import type { AspectMode, GridSize } from "../library-state";
-import { IconButton } from "../IconButton";
 import { GalleryCardCuration } from "../GalleryCardCuration";
 import { MediaPreview } from "../media/MediaPreview";
-import { downloadUrl } from "../media/media-urls";
 import {
   checkpointScrollPositionOnPageLifecycle,
   findScrollAnchorItem,
@@ -46,6 +39,7 @@ import {
 } from "./gallery-layout";
 import type { GalleryMetadataField } from "./gallery-metadata";
 import { GalleryCardSkeleton } from "./GalleryCardSkeleton";
+import { GalleryCardActions } from "./GalleryCardActions";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
 
@@ -68,13 +62,14 @@ interface GalleryGridProps {
   onLoadMore: () => void;
   onActiveAssetChange: (assetId: string) => void;
   onFavoriteAsset: (asset: AssetRecord, favorite: boolean) => void;
+  onInfoAsset: (asset: AssetRecord) => void;
+  onEditAsset: (asset: AssetRecord) => void;
   onMediaDimensionsKnown: (
     assetId: string,
     width: number,
     height: number
   ) => void;
   onScoreAsset: (asset: AssetRecord, score: number) => void;
-  onEditAsset?: (asset: AssetRecord) => void;
   onSelectAsset: (assetId: string) => void;
   onToggleSelection: (assetId: string) => void;
 }
@@ -88,13 +83,14 @@ interface GalleryAssetCardProps {
   measuredAspectRatio?: string;
   metadataFields: ReadonlySet<GalleryMetadataField>;
   onFavoriteAsset: (asset: AssetRecord, favorite: boolean) => void;
+  onInfoAsset: (asset: AssetRecord) => void;
+  onEditAsset: (asset: AssetRecord) => void;
   onMediaDimensionsKnown: (
     assetId: string,
     width: number,
     height: number
   ) => void;
   onScoreAsset: (asset: AssetRecord, score: number) => void;
-  onEditAsset?: (asset: AssetRecord) => void;
   onSelectAsset: (assetId: string) => void;
   onToggleSelection: (assetId: string) => void;
 }
@@ -118,9 +114,10 @@ export function GalleryGrid({
   onLoadMore,
   onActiveAssetChange,
   onFavoriteAsset,
+  onInfoAsset,
+  onEditAsset,
   onMediaDimensionsKnown,
   onScoreAsset,
-  onEditAsset,
   onSelectAsset,
   onToggleSelection
 }: GalleryGridProps) {
@@ -148,9 +145,10 @@ export function GalleryGrid({
   const onActiveAssetChangeRef = useRef(onActiveAssetChange);
   const galleryActionsRef = useRef({
     onFavoriteAsset,
+    onInfoAsset,
+    onEditAsset,
     onMediaDimensionsKnown,
     onScoreAsset,
-    onEditAsset,
     onSelectAsset,
     onToggleSelection
   });
@@ -159,9 +157,10 @@ export function GalleryGrid({
   onActiveAssetChangeRef.current = onActiveAssetChange;
   galleryActionsRef.current = {
     onFavoriteAsset,
+    onInfoAsset,
+    onEditAsset,
     onMediaDimensionsKnown,
     onScoreAsset,
-    onEditAsset,
     onSelectAsset,
     onToggleSelection
   };
@@ -178,6 +177,12 @@ export function GalleryGrid({
     },
     []
   );
+  const handleInfoAsset = useCallback((asset: AssetRecord) => {
+    galleryActionsRef.current.onInfoAsset(asset);
+  }, []);
+  const handleEditAsset = useCallback((asset: AssetRecord) => {
+    galleryActionsRef.current.onEditAsset(asset);
+  }, []);
   const handleMediaDimensionsKnown = useCallback(
     (assetId: string, width: number, height: number) => {
       galleryActionsRef.current.onMediaDimensionsKnown(assetId, width, height);
@@ -186,9 +191,6 @@ export function GalleryGrid({
   );
   const handleScoreAsset = useCallback((asset: AssetRecord, score: number) => {
     galleryActionsRef.current.onScoreAsset(asset, score);
-  }, []);
-  const handleEditAsset = useCallback((asset: AssetRecord) => {
-    galleryActionsRef.current.onEditAsset?.(asset);
   }, []);
   const handleSelectAsset = useCallback((assetId: string) => {
     galleryActionsRef.current.onSelectAsset(assetId);
@@ -1007,9 +1009,10 @@ export function GalleryGrid({
                     measuredAspectRatio={measuredAspectRatios[asset.id]}
                     metadataFields={metadataFields}
                     onFavoriteAsset={handleFavoriteAsset}
+                    onInfoAsset={handleInfoAsset}
+                    onEditAsset={handleEditAsset}
                     onMediaDimensionsKnown={handleMediaDimensionsKnown}
                     onScoreAsset={handleScoreAsset}
-                    onEditAsset={onEditAsset ? handleEditAsset : undefined}
                     onSelectAsset={handleSelectAsset}
                     onToggleSelection={handleToggleSelection}
                   />
@@ -1057,9 +1060,10 @@ const GalleryAssetCard = memo(function GalleryAssetCard({
   measuredAspectRatio,
   metadataFields,
   onFavoriteAsset,
+  onInfoAsset,
+  onEditAsset,
   onMediaDimensionsKnown,
   onScoreAsset,
-  onEditAsset,
   onSelectAsset,
   onToggleSelection
 }: GalleryAssetCardProps) {
@@ -1081,88 +1085,74 @@ const GalleryAssetCard = memo(function GalleryAssetCard({
   const tileStyle = mediaTileStyle(asset, aspect, measuredAspectRatio);
 
   return (
-    <Card
-      className={[
-        "media-tile gap-0 py-0",
-        isSelectionMode ? "selection-mode" : "",
-        isSelected ? "selected" : ""
-      ]
-        .filter(Boolean)
-        .join(" ")}
-      style={tileStyle}
+    <GalleryCardActions
+      asset={asset}
+      disabled={isSelectionMode}
+      onInfo={onInfoAsset}
+      onEdit={onEditAsset}
     >
-      {isSelectionMode ? (
+      <Card
+        className={[
+          "media-tile gap-0 py-0",
+          isSelectionMode ? "selection-mode" : "",
+          isSelected ? "selected" : ""
+        ]
+          .filter(Boolean)
+          .join(" ")}
+        style={tileStyle}
+      >
+        {isSelectionMode ? (
+          <button
+            className="tile-selection-surface"
+            type="button"
+            aria-label={`${isSelected ? "Deselect" : "Select"} ${asset.name}`}
+            aria-pressed={isSelected}
+            onClick={() => onToggleSelection(asset.id)}
+          />
+        ) : null}
         <button
-          className="tile-selection-surface"
+          className="media-preview-button"
           type="button"
-          aria-label={`${isSelected ? "Deselect" : "Select"} ${asset.name}`}
-          aria-pressed={isSelected}
-          onClick={() => onToggleSelection(asset.id)}
-        />
-      ) : null}
-      <button
-        className="media-preview-button"
-        type="button"
-        disabled={isSelectionMode}
-        onClick={() => onSelectAsset(asset.id)}
-      >
-        <MediaPreview
-          asset={asset}
-          onDimensionsKnown={onMediaDimensionsKnown}
-        />
-      </button>
-      {onEditAsset ? (
-        <IconButton
-          className="tile-edit media-overlay-button"
-          icon={SlidersVertical}
-          iconSize={15}
-          label={`Edit ${asset.name}`}
-          title="Edit media"
-          aria-haspopup="dialog"
           disabled={isSelectionMode}
-          tabIndex={isSelectionMode ? -1 : undefined}
-          onClick={() => onEditAsset(asset)}
-        />
-      ) : null}
-      <a
-        className="icon-link tile-download"
-        href={downloadUrl(asset.id)}
-        aria-label="Download media"
-        aria-disabled={isSelectionMode || undefined}
-        tabIndex={isSelectionMode ? -1 : undefined}
-        title="Download"
-      >
-        <Download size={15} />
-      </a>
-      {hasCardInfo ? (
-        <div className="tile-info">
-          {hasTitle ? (
-            <div className="tile-meta">
-              <span title={asset.name}>{asset.name}</span>
-            </div>
-          ) : null}
-          {hasSecondaryMetadata ? (
-            <div className="tile-submeta">
-              {secondaryMetadata.map((entry) => (
-                <span key={entry}>{entry}</span>
-              ))}
-            </div>
-          ) : null}
-          {hasCuration ? (
-            <GalleryCardCuration
-              asset={asset}
-              disabled={isSelectionMode || isSavingScore}
-              hiddenTagCount={hiddenTagCount}
-              isBusy={isSavingScore}
-              showFavorite={showFavoriteControl}
-              showScore={showScoreControl}
-              tags={tagBadges}
-              onFavoriteChange={onFavoriteAsset}
-              onScoreChange={onScoreAsset}
-            />
-          ) : null}
-        </div>
-      ) : null}
-    </Card>
+          aria-label={`Open ${asset.name}`}
+          onClick={() => onSelectAsset(asset.id)}
+        >
+          <MediaPreview
+            framingAspect={aspect}
+            asset={asset}
+            onDimensionsKnown={onMediaDimensionsKnown}
+          />
+        </button>
+        {hasCardInfo ? (
+          <div className="tile-info">
+            {hasTitle ? (
+              <div className="tile-meta">
+                <span title={asset.name}>{asset.name}</span>
+              </div>
+            ) : null}
+            {hasSecondaryMetadata ? (
+              <div className="tile-submeta">
+                {secondaryMetadata.map((entry) => (
+                  <span key={entry}>{entry}</span>
+                ))}
+              </div>
+            ) : null}
+            {hasCuration ? (
+              <GalleryCardCuration
+                asset={asset}
+                disabled={isSelectionMode || isSavingScore}
+                hiddenTagCount={hiddenTagCount}
+                isBusy={isSavingScore}
+                showFavorite={showFavoriteControl}
+                showScore={showScoreControl}
+                tags={tagBadges}
+                onFavoriteChange={onFavoriteAsset}
+                onScoreChange={onScoreAsset}
+              />
+            ) : null}
+          </div>
+        ) : null}
+      </Card>
+    </GalleryCardActions>
   );
 });

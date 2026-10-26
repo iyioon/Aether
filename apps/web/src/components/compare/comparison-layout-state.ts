@@ -29,14 +29,3 @@ export function readComparisonAspect(): AspectMode {
     return "Original";
   }
 }
-
-export function writeComparisonAspect(aspect: AspectMode): void {
-  try {
-    window.localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({ version: 1, aspect })
-    );
-  } catch {
-    /* Storage is optional. */
-  }
-}

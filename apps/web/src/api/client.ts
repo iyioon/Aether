@@ -27,12 +27,22 @@ export type SortMode = "date" | "filename" | "score" | "random";
 export type SortDirection = "desc" | "asc";
 export type ScoreFilter = "all" | "favorites" | "ranked" | "unranked";
 
-export interface PresentationValues {
-  highlight: { startMs: number; endMs: number } | null;
+export type PresentationAspect =
+  "Original" | "Square" | "Portrait" | "Landscape";
+
+export interface PresentationFraming {
   fit: "auto" | "contain" | "cover";
   focalX: number;
   focalY: number;
   zoom: number;
+}
+
+export interface PresentationValues extends PresentationFraming {
+  highlight: { startMs: number; endMs: number } | null;
+  aspectFraming?: Partial<
+    Record<Exclude<PresentationAspect, "Original">, PresentationFraming>
+  >;
+  feedFraming?: Partial<Record<"portrait" | "landscape", PresentationFraming>>;
   playbackRate: number;
   loopMode: "repeat" | "bounce";
 }
@@ -50,6 +60,12 @@ export interface PresentationMediaCapabilities {
   height: number | null;
   hasAudio: boolean;
   maxBounceDurationMs: number;
+  bounceUnavailable?: boolean;
+  bounceOverBudget?: boolean;
+  bounceTimeline?: {
+    sourceTimesMs: number[];
+    durationsMs: number[];
+  };
   maxAnimationDurationMs?: number;
   maxAnimationFrames?: number;
   maxHighlightDurationMs?: number;

@@ -16,10 +16,10 @@ import {
   Download,
   Info,
   LoaderCircle,
-  SlidersVertical,
+  Pencil,
   X
 } from "lucide-react";
-import type { AssetRecord } from "../../api/client";
+import type { AssetRecord, PresentationAspect } from "../../api/client";
 import {
   hasShortcutModifier,
   isDirectionalKeyboardTarget,
@@ -38,14 +38,21 @@ import { VideoControls } from "./VideoControls";
 import { useVideoPlayback, type VideoPlayback } from "./useVideoPlayback";
 import { usePresentationPreferences } from "./presentation-context";
 import { usePresentationCapabilities } from "./usePresentationCapabilities";
-import { getPresentationValues } from "./presentation-model";
+import {
+  getPresentationValues,
+  presentationFramingForAspect
+} from "./presentation-model";
+import { galleryAspectRatio } from "../gallery/gallery-layout";
+import { ViewerViewOptions } from "./ViewerViewOptions";
 import { presentationMediaStyle } from "./presentation-geometry";
 import {
+  bounceDurationExceeded,
   playbackVariant,
   presentationPlaybackUrl,
   presentationPosterUrl
 } from "./presentation-playback";
 import { useVideoPresentation } from "./useVideoPresentation";
+import { useBounceCodec } from "./useBounceCodec";
 import { ControlledAnimation } from "./ControlledAnimation";
 import {
   canPresentVideoFullscreen,
@@ -54,7 +61,10 @@ import {
 
 interface MediaViewerProps {
   asset: AssetRecord;
-  presentationPlayback?: boolean;
+  applyPlaybackPreferences?: boolean;
+  framingAspect?: PresentationAspect;
+  useSavedFraming: boolean;
+  onFramingChange: (enabled: boolean) => void;
   hasNext: boolean;
   hasPrevious: boolean;
   isInfoOpen: boolean;
@@ -64,6 +74,7 @@ interface MediaViewerProps {
   onNext: () => void;
   onPrevious: () => void;
   onEditAsset?: (asset: AssetRecord) => void;
+  onHighlightsOnlyChange: (value: boolean) => void;
 }
 
 interface ViewerStageSize {
@@ -78,6 +89,7 @@ interface ViewerTouchStart {
 
 interface ViewerPosterState {
   assetId: string;
+  source: string;
   status: "ready" | "error";
 }
 
@@ -96,7 +108,10 @@ const SWIPE_DISTANCE_PX = 56;
 
 export function MediaViewer({
   asset,
-  presentationPlayback = true,
+  applyPlaybackPreferences = true,
+  framingAspect = "Original",
+  useSavedFraming,
+  onFramingChange,
   hasNext,
   hasPrevious,
   isInfoOpen,
@@ -105,23 +120,35 @@ export function MediaViewer({
   onToggleInfo,
   onNext,
   onPrevious,
-  onEditAsset
+  onEditAsset,
+  onHighlightsOnlyChange
 }: MediaViewerProps) {
   const { highlightsOnly: savedHighlightsOnly, isPlaybackPaused } =
     usePresentationPreferences();
-  const highlightsOnly = presentationPlayback && savedHighlightsOnly;
-  const playbackBlocked = isInfoOpen || isPlaybackPaused;
+  const highlightsOnly = savedHighlightsOnly;
+  const playbackBlocked = isPlaybackPaused;
+  const [optionsOpen, setOptionsOpen] = useState(false);
+  const optionsOpenRef = useRef(false);
+  const [originalVideoFailed, setOriginalVideoFailed] = useState(false);
   const isAnimationCandidate =
     asset.mediaType === "image" &&
     /\.(gif|webp|png|apng|avif)$/i.test(asset.name);
   const capabilityState = usePresentationCapabilities(
     asset,
-    (presentationPlayback &&
-      asset.mediaType === "video" &&
-      playbackVariant(asset, highlightsOnly) !== "full") ||
+    (asset.mediaType === "video" &&
+      ((applyPlaybackPreferences &&
+        playbackVariant(asset, highlightsOnly) === "bounce") ||
+        originalVideoFailed)) ||
       isAnimationCandidate
   );
-  const presentation = getPresentationValues(asset.presentation);
+  const values = getPresentationValues(asset.presentation);
+  const presentation = {
+    ...values,
+    ...(useSavedFraming
+      ? presentationFramingForAspect(values, framingAspect)
+      : { fit: "contain" as const, focalX: 0.5, focalY: 0.5, zoom: 1 })
+  };
+  const defaultFit = useSavedFraming ? "cover" : "contain";
   const effectiveAsset = useMemo(
     () =>
       capabilityState.capabilities && asset.presentation
@@ -137,22 +164,46 @@ export function MediaViewer({
         : asset,
     [asset, capabilityState.capabilities]
   );
-  const variant = presentationPlayback
+  const variant = applyPlaybackPreferences
     ? playbackVariant(effectiveAsset, highlightsOnly)
-    : "full";
+    : highlightsOnly && effectiveAsset.presentation?.highlight
+      ? "highlight"
+      : "full";
+  const bounceOverBudget =
+    variant === "bounce" &&
+    (capabilityState.capabilities?.bounceOverBudget ||
+      bounceDurationExceeded(
+        effectiveAsset,
+        capabilityState.capabilities?.maxBounceDurationMs
+      ));
+  const bounceUnavailable =
+    variant === "bounce" && capabilityState.capabilities?.bounceUnavailable;
+  const bounceCodec = useBounceCodec(
+    effectiveAsset.presentation?.renditionKeys.bounce ?? asset.id
+  );
   const videoSource =
-    variant === "full"
-      ? mediaUrl(asset.id)
-      : presentationPlaybackUrl(effectiveAsset, variant) || mediaUrl(asset.id);
+    variant === "bounce" &&
+    (!capabilityState.capabilities || bounceUnavailable || bounceOverBudget)
+      ? ""
+      : variant !== "bounce" && !originalVideoFailed
+        ? mediaUrl(asset.id)
+        : presentationPlaybackUrl(effectiveAsset, variant, bounceCodec.codec) ||
+          mediaUrl(asset.id);
   const isControlledAnimation =
     capabilityState.capabilities?.kind === "animation";
-  const mediaStyle = presentationMediaStyle(presentation, "contain");
+  const mediaStyle = presentationMediaStyle(presentation, defaultFit);
   const [retryAttempt, setRetryAttempt] = useState(0);
   const [failedAnimationKey, setFailedAnimationKey] = useState<string | null>(
     null
   );
   const animationKey = `${asset.id}:${effectiveAsset.presentation?.renditionKeys.full ?? ""}:${retryAttempt}`;
   const viewerStageRef = useRef<HTMLDivElement | null>(null);
+  const [viewerStageElement, setViewerStageElement] =
+    useState<HTMLDivElement | null>(null);
+  const attachViewerStage = useCallback((element: HTMLDivElement | null) => {
+    viewerStageRef.current = element;
+    setViewerStageElement(element);
+  }, []);
   const viewerDialogRef = useRef<HTMLDivElement | null>(null);
   const viewerVideoRef = useRef<HTMLVideoElement | null>(null);
   const animationPlaybackRef = useRef<VideoPlayback | null>(null);
@@ -161,8 +212,10 @@ export function MediaViewer({
   const userPausedRef = useRef(false);
   const resumeMutedPlaybackRef = useRef(false);
   const controlsInteractionRef = useRef(false);
-  const isInfoOpenRef = useRef(playbackBlocked);
-  isInfoOpenRef.current = playbackBlocked;
+  const playbackBlockedRef = useRef(playbackBlocked);
+  playbackBlockedRef.current = playbackBlocked;
+  const infoOpenRef = useRef(isInfoOpen);
+  infoOpenRef.current = isInfoOpen;
   const activeAssetIdRef = useRef(asset.id);
   const cancelVideoRevealRef = useRef<(() => void) | null>(null);
   const controlsTimerRef = useRef<number | null>(null);
@@ -174,11 +227,15 @@ export function MediaViewer({
   const scoreFeedbackRemovalTimerRef = useRef<number | null>(null);
   const scoreFeedbackTimerRef = useRef<number | null>(null);
   const touchStartRef = useRef<ViewerTouchStart | null>(null);
+  const suppressMediaClickRef = useRef(false);
   const videoFrameRequestSequenceRef = useRef(0);
   const lastReadyVideoPosterSourceRef = useRef<string | null>(null);
   const previousViewedAssetRef = useRef({
     id: asset.id,
-    mediaType: asset.mediaType
+    mediaType: asset.mediaType,
+    videoSource: "",
+    posterSource: "",
+    retryAttempt: -1
   });
   const [isOpen, setIsOpen] = useState(true);
   const [controlsVisible, setControlsVisible] = useState(true);
@@ -199,45 +256,72 @@ export function MediaViewer({
   >(null);
   const [viewerStageSize, setViewerStageSize] =
     useState<ViewerStageSize | null>(null);
-  const [viewerVideoSize, setViewerVideoSize] =
+  const [decodedMediaSize, setDecodedMediaSize] =
     useState<ViewerStageSize | null>(null);
   const [keyboardAnnouncement, setKeyboardAnnouncement] = useState("");
   const [scoreFeedback, setScoreFeedback] =
     useState<ViewerScoreFeedback | null>(null);
   const storedMediaSize = useMemo<ViewerStageSize | null>(() => {
+    const width = asset.width ?? capabilityState.capabilities?.width;
+    const height = asset.height ?? capabilityState.capabilities?.height;
     if (
-      !asset.width ||
-      !asset.height ||
-      asset.width <= 0 ||
-      asset.height <= 0
+      !width ||
+      !height ||
+      !Number.isFinite(width) ||
+      !Number.isFinite(height) ||
+      width <= 0 ||
+      height <= 0
     ) {
       return null;
     }
 
-    return { width: asset.width, height: asset.height };
-  }, [asset.height, asset.width]);
-  const viewerMediaSize =
-    asset.mediaType === "video"
-      ? (viewerVideoSize ?? storedMediaSize)
-      : storedMediaSize;
+    return { width, height };
+  }, [
+    asset.height,
+    asset.width,
+    capabilityState.capabilities?.height,
+    capabilityState.capabilities?.width
+  ]);
+  const viewerMediaSize = decodedMediaSize ?? storedMediaSize;
   const viewerMediaFrameStyle = useMemo(
     () =>
-      presentation.fit === "cover"
-        ? { width: "100%", height: "100%" }
-        : mediaViewerFrameStyle(viewerMediaSize, viewerStageSize),
-    [presentation.fit, viewerMediaSize, viewerStageSize]
+      useSavedFraming
+        ? mediaViewerFrameStyle(
+            framingAspect !== "Original"
+              ? { width: galleryAspectRatio(framingAspect), height: 1 }
+              : viewerMediaSize,
+            viewerStageSize
+          )
+        : undefined,
+    [viewerMediaSize, viewerStageSize, useSavedFraming, framingAspect]
+  );
+  const playback = useVideoPlayback({
+    videoRef: viewerVideoRef,
+    sourceKey: `${videoSource}:${retryAttempt}`,
+    enabled: asset.mediaType === "video" && failedVideoAssetId !== asset.id
+  });
+  const presentedPlayback = useVideoPresentation(
+    viewerVideoRef,
+    playback,
+    effectiveAsset,
+    variant,
+    applyPlaybackPreferences,
+    capabilityState.capabilities?.bounceTimeline
   );
   const viewerPosterSource =
     asset.mediaType === "video"
       ? (presentationPosterUrl(effectiveAsset, highlightsOnly) ??
         thumbnailUrl(asset.id))
       : "";
-  const isViewerPosterSettled = viewerPosterState?.assetId === asset.id;
+  const isViewerPosterSettled =
+    viewerPosterState?.assetId === asset.id &&
+    viewerPosterState.source === viewerPosterSource;
   const isViewerPosterReady =
     isViewerPosterSettled && viewerPosterState.status === "ready";
   const isViewerPosterFailed =
     isViewerPosterSettled && viewerPosterState.status === "error";
-  const isViewerVideoReady = readyVideoAssetId === asset.id;
+  const isViewerVideoReady =
+    readyVideoAssetId === asset.id && presentedPlayback.isReady;
   const isViewerVideoFailed = failedVideoAssetId === asset.id;
   const hasFallbackVideoPoster =
     asset.mediaType === "video" &&
@@ -254,18 +338,6 @@ export function MediaViewer({
         isViewerVideoReady ||
         (isViewerPosterSettled && isViewerVideoFailed);
   const isViewerVideoVisible = isViewerVideoReady;
-  const playback = useVideoPlayback({
-    videoRef: viewerVideoRef,
-    sourceKey: `${videoSource}:${retryAttempt}`,
-    enabled: asset.mediaType === "video" && !isViewerVideoFailed
-  });
-  const presentedPlayback = useVideoPresentation(
-    viewerVideoRef,
-    playback,
-    effectiveAsset,
-    variant,
-    presentationPlayback
-  );
   const {
     togglePlayback: togglePlaybackCommand,
     toggleMuted: toggleMutedCommand
@@ -280,6 +352,8 @@ export function MediaViewer({
     }
 
     isClosingRef.current = true;
+    optionsOpenRef.current = false;
+    setOptionsOpen(false);
     viewerVideoRef.current?.pause();
     setIsOpen(false);
     closeTimerRef.current = window.setTimeout(() => {
@@ -298,7 +372,9 @@ export function MediaViewer({
       const focused = document.activeElement;
       if (
         controlsInteractionRef.current ||
-        isInfoOpenRef.current ||
+        optionsOpenRef.current ||
+        playbackBlockedRef.current ||
+        infoOpenRef.current ||
         viewerVideoRef.current?.paused ||
         animationPlaybackRef.current?.state.paused ||
         (focused instanceof Element &&
@@ -315,6 +391,39 @@ export function MediaViewer({
     setControlsVisible(true);
     hideControlsLater();
   }, [hideControlsLater]);
+
+  const toggleControls = useCallback(() => {
+    if (suppressMediaClickRef.current) {
+      suppressMediaClickRef.current = false;
+      return;
+    }
+    if (
+      infoOpenRef.current ||
+      playbackBlockedRef.current ||
+      optionsOpenRef.current
+    )
+      return;
+    if (controlsTimerRef.current !== null) {
+      window.clearTimeout(controlsTimerRef.current);
+      controlsTimerRef.current = null;
+    }
+    // Keep keyboard focus visible while allowing a pointer tap to hide chrome.
+    const focused = document.activeElement;
+    if (focused instanceof HTMLElement && focused.closest(".viewer-chrome"))
+      viewerStageRef.current?.focus({ preventScroll: true });
+    setControlsVisible((visible) => !visible);
+    hideControlsLater();
+  }, [hideControlsLater]);
+
+  const changeOptionsOpen = useCallback(
+    (open: boolean) => {
+      optionsOpenRef.current = open;
+      setOptionsOpen(open);
+      if (open) revealControls();
+      else hideControlsLater();
+    },
+    [hideControlsLater, revealControls]
+  );
 
   const cancelPendingVideoReveal = useCallback(() => {
     cancelVideoRevealRef.current?.();
@@ -349,7 +458,7 @@ export function MediaViewer({
       !video ||
       userPausedRef.current ||
       document.hidden ||
-      isInfoOpenRef.current ||
+      playbackBlockedRef.current ||
       isClosingRef.current
     ) {
       return;
@@ -359,7 +468,7 @@ export function MediaViewer({
       viewerVideoRef.current === video &&
       !userPausedRef.current &&
       !document.hidden &&
-      !isInfoOpenRef.current &&
+      !playbackBlockedRef.current &&
       !isClosingRef.current;
     video
       .play()
@@ -381,6 +490,23 @@ export function MediaViewer({
           .catch(() => undefined);
       });
   }, []);
+
+  useEffect(() => {
+    const video = viewerVideoRef.current;
+    if (
+      variant === "highlight" &&
+      presentedPlayback.isReady &&
+      video &&
+      video.readyState >= 2 &&
+      !video.seeking
+    )
+      revealVideoAfterPresentedFrame(video, asset.id);
+  }, [
+    asset.id,
+    variant,
+    presentedPlayback.isReady,
+    revealVideoAfterPresentedFrame
+  ]);
 
   const toggleViewerVideoPlayback = useCallback(() => {
     if (isControlledAnimation) {
@@ -541,6 +667,7 @@ export function MediaViewer({
 
   const navigateAndPlayViewerVideo = useCallback(
     (direction: -1 | 1) => {
+      changeOptionsOpen(false);
       if (direction > 0) {
         onNext();
       } else {
@@ -549,10 +676,11 @@ export function MediaViewer({
 
       revealControls();
     },
-    [onNext, onPrevious, revealControls]
+    [onNext, onPrevious, revealControls, changeOptionsOpen]
   );
 
   useEffect(() => {
+    changeOptionsOpen(false);
     revealControls();
 
     return () => {
@@ -560,7 +688,7 @@ export function MediaViewer({
         window.clearTimeout(controlsTimerRef.current);
       }
     };
-  }, [asset.id, revealControls]);
+  }, [asset.id, revealControls, changeOptionsOpen]);
 
   useEffect(
     () => () => {
@@ -572,7 +700,7 @@ export function MediaViewer({
   );
 
   useEffect(() => {
-    if (!playbackBlocked) {
+    if (!playbackBlocked && !isInfoOpen) {
       hideControlsLater();
       return;
     }
@@ -582,10 +710,10 @@ export function MediaViewer({
       controlsTimerRef.current = null;
     }
     setControlsVisible(true);
-  }, [hideControlsLater, playbackBlocked]);
+  }, [hideControlsLater, playbackBlocked, isInfoOpen]);
 
   useEffect(() => {
-    const stage = viewerStageRef.current;
+    const stage = viewerStageElement;
 
     if (!stage) {
       return;
@@ -593,9 +721,9 @@ export function MediaViewer({
 
     let animationFrame: number | null = null;
     const measureStage = () => {
-      const rect = stage.getBoundingClientRect();
-      const width = Math.max(0, Math.floor(rect.width));
-      const height = Math.max(0, Math.floor(rect.height));
+      // Ignore the opening animation's transform when measuring layout space.
+      const width = stage.clientWidth;
+      const height = stage.clientHeight;
 
       setViewerStageSize((current) =>
         current?.width === width && current.height === height
@@ -636,7 +764,7 @@ export function MediaViewer({
       }
       window.removeEventListener("resize", scheduleMeasure);
     };
-  }, []);
+  }, [viewerStageElement]);
 
   useLayoutEffect(() => {
     const previousAsset = previousViewedAssetRef.current;
@@ -648,21 +776,34 @@ export function MediaViewer({
     setFallbackVideoPosterSource(
       canReusePreviousPoster ? lastReadyVideoPosterSourceRef.current : null
     );
-    setViewerVideoSize(null);
-    userPausedRef.current = false;
+    if (previousAsset.posterSource !== viewerPosterSource)
+      setViewerPosterState(null);
+    previousViewedAssetRef.current = {
+      id: asset.id,
+      mediaType: asset.mediaType,
+      videoSource,
+      posterSource: viewerPosterSource,
+      retryAttempt
+    };
+    if (
+      previousAsset.id === asset.id &&
+      previousAsset.videoSource === videoSource &&
+      previousAsset.retryAttempt === retryAttempt
+    )
+      return;
+    setDecodedMediaSize(null);
+    if (previousAsset.id !== asset.id) {
+      userPausedRef.current = false;
+      setOriginalVideoFailed(false);
+    }
     nativeFullscreenRef.current = false;
     resumeMutedPlaybackRef.current = false;
     controlsInteractionRef.current = false;
     setUseNativeControls(false);
     setReadyVideoAssetId(null);
     setFailedVideoAssetId(null);
-    setViewerPosterState(null);
     cancelPendingVideoReveal();
     videoFrameRequestSequenceRef.current += 1;
-    previousViewedAssetRef.current = {
-      id: asset.id,
-      mediaType: asset.mediaType
-    };
   }, [
     asset.id,
     asset.mediaType,
@@ -716,7 +857,7 @@ export function MediaViewer({
       video?.pause();
     };
     const restore = () => {
-      if (document.hidden || isInfoOpenRef.current) return;
+      if (document.hidden || playbackBlockedRef.current) return;
       if (resumeMutedPlaybackRef.current && viewerVideoRef.current?.muted) {
         resumeMutedPlaybackRef.current = false;
         playViewerVideo();
@@ -760,6 +901,8 @@ export function MediaViewer({
     function handleKeyDown(event: KeyboardEvent) {
       if (
         playbackBlocked ||
+        isInfoOpen ||
+        optionsOpenRef.current ||
         event.defaultPrevented ||
         event.isComposing ||
         hasShortcutModifier(event) ||
@@ -834,6 +977,7 @@ export function MediaViewer({
     hasNext,
     hasPrevious,
     playbackBlocked,
+    isInfoOpen,
     navigateAndPlayViewerVideo,
     onToggleInfo,
     toggleViewerSound,
@@ -841,17 +985,18 @@ export function MediaViewer({
   ]);
 
   function handleTouchStart(event: ReactTouchEvent<HTMLDivElement>) {
-    revealControls();
+    suppressMediaClickRef.current = event.touches.length !== 1;
 
-    if (isInteractiveTarget(event.target)) {
+    if (optionsOpenRef.current || isInteractiveTarget(event.target)) {
       touchStartRef.current = null;
       return;
     }
 
     const touch = event.changedTouches[0];
-    touchStartRef.current = touch
-      ? { x: touch.clientX, y: touch.clientY }
-      : null;
+    touchStartRef.current =
+      touch && event.touches.length === 1
+        ? { x: touch.clientX, y: touch.clientY }
+        : null;
   }
 
   function handleTouchEnd(event: ReactTouchEvent<HTMLDivElement>) {
@@ -865,6 +1010,8 @@ export function MediaViewer({
 
     const deltaX = touch.clientX - start.x;
     const deltaY = touch.clientY - start.y;
+
+    if (Math.hypot(deltaX, deltaY) > 12) suppressMediaClickRef.current = true;
 
     if (
       Math.abs(deltaX) < SWIPE_DISTANCE_PX ||
@@ -899,12 +1046,16 @@ export function MediaViewer({
         aria-describedby={undefined}
         aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight Space M I Escape"
         onEscapeKeyDown={(event) => {
+          if (optionsOpenRef.current) {
+            event.preventDefault();
+            return;
+          }
           if (document.fullscreenElement === viewerDialogRef.current) {
             event.preventDefault();
             void document.exitFullscreen().catch(() => undefined);
             return;
           }
-          if (playbackBlocked) {
+          if (playbackBlocked || isInfoOpen) {
             event.preventDefault();
             return;
           }
@@ -918,9 +1069,19 @@ export function MediaViewer({
         }}
         onFocusCapture={() => setControlsVisible(true)}
         onBlurCapture={hideControlsLater}
-        onPointerMove={revealControls}
+        onPointerMove={(event) => {
+          if (
+            event.pointerType !== "touch" &&
+            (event.movementX !== 0 || event.movementY !== 0)
+          )
+            revealControls();
+        }}
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
+        onTouchCancel={() => {
+          touchStartRef.current = null;
+          suppressMediaClickRef.current = true;
+        }}
       >
         <DialogTitle className="sr-only">{asset.name}</DialogTitle>
 
@@ -953,9 +1114,19 @@ export function MediaViewer({
                 onEditAsset(asset);
               }}
             >
-              <SlidersVertical />
+              <Pencil />
             </Button>
           ) : null}
+          <ViewerViewOptions
+            container={viewerDialogRef.current}
+            open={optionsOpen}
+            onOpenChange={changeOptionsOpen}
+            useSavedFraming={useSavedFraming}
+            onFramingChange={onFramingChange}
+            highlightsOnly={highlightsOnly}
+            hasHighlight={Boolean(asset.presentation?.highlight)}
+            onHighlightsOnlyChange={onHighlightsOnlyChange}
+          />
           <Button
             className="media-overlay-button"
             size="icon"
@@ -993,8 +1164,18 @@ export function MediaViewer({
           </Button>
         ) : null}
 
-        <figure className="viewer-stage">
-          <div className="viewer-fit-area" ref={viewerStageRef} tabIndex={-1}>
+        <figure
+          className="viewer-stage"
+          role="presentation"
+          onClick={(event) => {
+            if (!isInteractiveTarget(event.target)) toggleControls();
+          }}
+        >
+          <div
+            className="viewer-fit-area"
+            ref={attachViewerStage}
+            tabIndex={-1}
+          >
             {!isMediaReady ? (
               <div
                 className="viewer-loading"
@@ -1022,11 +1203,10 @@ export function MediaViewer({
                     effectiveAsset.presentation?.renditionKeys.full ?? ""
                   }
                   presentation={
-                    presentationPlayback
+                    applyPlaybackPreferences
                       ? presentation
                       : {
                           ...presentation,
-                          highlight: null,
                           playbackRate: 1,
                           loopMode: "repeat"
                         }
@@ -1039,8 +1219,10 @@ export function MediaViewer({
                   controlsContainer={viewerDialogRef.current}
                   onPlaybackReady={(value) => {
                     animationPlaybackRef.current = value;
+                    if (value && controlsTimerRef.current === null)
+                      hideControlsLater();
                   }}
-                  defaultFit="contain"
+                  defaultFit={defaultFit}
                   className="viewer-controlled-animation"
                   onExpand={
                     canPresentVideoFullscreen(viewerDialogRef.current, null)
@@ -1063,7 +1245,20 @@ export function MediaViewer({
                   alt={asset.name}
                   width={asset.width ?? undefined}
                   height={asset.height ?? undefined}
-                  onLoad={() => setReadyAssetId(asset.id)}
+                  onLoad={(event) => {
+                    const image = event.currentTarget;
+                    if (
+                      activeAssetIdRef.current !== asset.id ||
+                      !image.isConnected
+                    )
+                      return;
+                    if (image.naturalWidth > 0 && image.naturalHeight > 0)
+                      setDecodedMediaSize({
+                        width: image.naturalWidth,
+                        height: image.naturalHeight
+                      });
+                    setReadyAssetId(asset.id);
+                  }}
                   onError={() => setReadyAssetId(asset.id)}
                 />
               ) : (
@@ -1126,6 +1321,7 @@ export function MediaViewer({
                           lastReadyVideoPosterSourceRef.current = posterSource;
                           setViewerPosterState({
                             assetId,
+                            source: posterSource,
                             status: "ready"
                           });
                         };
@@ -1147,6 +1343,7 @@ export function MediaViewer({
                           }
                           setViewerPosterState({
                             assetId: asset.id,
+                            source: viewerPosterSource,
                             status: "error"
                           });
                         }
@@ -1157,14 +1354,19 @@ export function MediaViewer({
                     key={`${videoSource}:${retryAttempt}`}
                     ref={bindViewerVideo}
                     className="viewer-video"
-                    src={videoSource}
+                    src={videoSource || undefined}
                     style={mediaStyle}
                     width={asset.width ?? undefined}
                     height={asset.height ?? undefined}
                     controls={useNativeControls}
                     autoPlay
                     muted={variant === "bounce" || isViewerVideoMuted}
-                    loop
+                    data-presentation-timeline={
+                      variant === "highlight" && originalVideoFailed
+                        ? "local"
+                        : "source"
+                    }
+                    loop={variant !== "highlight"}
                     playsInline
                     preload="auto"
                     onPlay={() => {
@@ -1180,10 +1382,15 @@ export function MediaViewer({
                       setReadyVideoAssetId(null);
                     }}
                     onLoadedMetadata={(event) => {
+                      if (
+                        activeAssetIdRef.current !== asset.id ||
+                        viewerVideoRef.current !== event.currentTarget
+                      )
+                        return;
                       const { videoHeight, videoWidth } = event.currentTarget;
 
                       if (videoWidth > 0 && videoHeight > 0) {
-                        setViewerVideoSize({
+                        setDecodedMediaSize({
                           width: videoWidth,
                           height: videoHeight
                         });
@@ -1195,7 +1402,7 @@ export function MediaViewer({
                       if (systemControls) userPausedRef.current = false;
                       if (
                         document.hidden ||
-                        isInfoOpenRef.current ||
+                        playbackBlockedRef.current ||
                         isClosingRef.current ||
                         (userPausedRef.current && !systemControls)
                       ) {
@@ -1206,7 +1413,8 @@ export function MediaViewer({
                         event.currentTarget,
                         asset.id
                       );
-                      revealControls();
+                      if (controlsTimerRef.current === null)
+                        hideControlsLater();
                     }}
                     onSeeked={(event) => {
                       revealVideoAfterPresentedFrame(
@@ -1218,7 +1426,11 @@ export function MediaViewer({
                       cancelPendingVideoReveal();
                       videoFrameRequestSequenceRef.current += 1;
                       setReadyVideoAssetId(null);
-                      setFailedVideoAssetId(asset.id);
+                      if (variant === "bounce" && bounceCodec.tryFallback())
+                        return;
+                      if (variant === "highlight" && !originalVideoFailed) {
+                        setOriginalVideoFailed(true);
+                      } else setFailedVideoAssetId(asset.id);
                     }}
                   />
                 </>
@@ -1256,23 +1468,42 @@ export function MediaViewer({
           />
         ) : null}
 
-        {isViewerVideoFailed ||
+        {bounceUnavailable ||
+        bounceOverBudget ||
+        isViewerVideoFailed ||
         failedAnimationKey === animationKey ||
         capabilityState.error ? (
           <div className="viewer-playback-error" role="status">
-            {isViewerVideoFailed || capabilityState.error ? (
-              <span>Playback could not be prepared.</span>
+            {bounceUnavailable ||
+            bounceOverBudget ||
+            isViewerVideoFailed ||
+            capabilityState.error ? (
+              <span>
+                {bounceUnavailable
+                  ? "Bounce is unavailable for this file. Choose Repeat in Edit media."
+                  : bounceOverBudget
+                    ? "Shorten this Bounce section in Edit media."
+                    : capabilityState.limitExceeded
+                      ? "This file exceeds the playback processing limit."
+                      : variant === "bounce"
+                        ? "Bounce could not be prepared or played. Try a shorter highlight or choose Repeat in Edit media."
+                        : "Playback could not be prepared."}
+              </span>
             ) : null}
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => {
-                capabilityState.retry();
-                setRetryAttempt((current) => current + 1);
-              }}
-            >
-              Retry
-            </Button>
+            {!bounceUnavailable &&
+            !bounceOverBudget &&
+            !capabilityState.limitExceeded ? (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  capabilityState.retry();
+                  setRetryAttempt((current) => current + 1);
+                }}
+              >
+                Retry
+              </Button>
+            ) : null}
           </div>
         ) : null}
 
@@ -1359,6 +1590,8 @@ function mediaViewerFrameStyle(
 function isInteractiveTarget(target: EventTarget | null): boolean {
   return (
     target instanceof HTMLElement &&
-    Boolean(target.closest("button, a, input, textarea, select, video"))
+    Boolean(
+      target.closest("button, a, input, textarea, select, video[controls]")
+    )
   );
 }

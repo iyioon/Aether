@@ -1,6 +1,19 @@
-import type { AssetRecord } from "../../api/client";
+import type {
+  AssetRecord,
+  PresentationMediaCapabilities
+} from "../../api/client";
+
+type BounceTimeline = PresentationMediaCapabilities["bounceTimeline"];
+export type BounceCodec = "hevc" | "h264";
 
 export type PresentationVariant = "full" | "highlight" | "bounce";
+
+export function bounceDurationExceeded(asset: AssetRecord, maximumMs?: number) {
+  if (maximumMs === undefined) return false;
+  const range = asset.presentation?.highlight;
+  const duration = range ? range.endMs - range.startMs : asset.durationMs;
+  return duration === null || duration === undefined || duration > maximumMs;
+}
 
 export function playbackVariant(
   asset: AssetRecord,
@@ -18,11 +31,12 @@ export function playbackVariant(
 
 export function presentationPlaybackUrl(
   asset: AssetRecord,
-  variant: PresentationVariant
+  variant: PresentationVariant,
+  codec?: BounceCodec
 ) {
   const key = asset.presentation?.renditionKeys[variant];
   return key
-    ? `/api/assets/${encodeURIComponent(asset.id)}/playback?variant=${variant}&v=${encodeURIComponent(key)}`
+    ? `/api/assets/${encodeURIComponent(asset.id)}/playback?variant=${variant}&v=${encodeURIComponent(key)}${variant === "bounce" && codec ? `&codec=${codec}` : ""}`
     : "";
 }
 
@@ -56,23 +70,44 @@ export function sourceTimeForPlayback(
   );
 }
 
-/** Source frame shown by the bounded 24fps video bounce rendition. */
 export function sourceTimeForVideoBounce(
   time: number,
   start: number,
-  end: number
+  end: number,
+  timeline?: BounceTimeline
 ) {
-  const count = Math.max(1, Math.round(Math.max(0, end - start) * 24));
+  const count = timeline?.sourceTimesMs.length ?? 0;
+  if (!timeline || count === 0) return start;
   const outputCount = count < 3 ? count : count * 2 - 2;
-  const index = Math.max(
-    0,
-    Math.min(outputCount - 1, Math.floor(Math.max(0, time) * 24 + 1e-6))
-  );
-  const sourceIndex = index < count ? index : count * 2 - 2 - index;
-  return Math.min(end, start + sourceIndex / 24);
+  let elapsed = 0;
+  for (let index = 0; index < outputCount; index++) {
+    const sourceIndex = index < count ? index : count * 2 - 2 - index;
+    const duration = timeline.durationsMs[sourceIndex] ?? 0;
+    if (
+      Math.max(0, time) * 1000 < elapsed + duration - 1e-6 ||
+      index === outputCount - 1
+    )
+      return Math.max(
+        start,
+        Math.min(end, timeline.sourceTimesMs[sourceIndex]! / 1000)
+      );
+    elapsed += duration;
+  }
+  return start;
 }
 
-export function videoBounceSeekTime(time: number, start: number, end: number) {
-  const count = Math.max(1, Math.round(Math.max(0, end - start) * 24));
-  return Math.max(0, Math.min((count - 1) / 24, time - start));
+export function videoBounceSeekTime(
+  time: number,
+  start: number,
+  end: number,
+  timeline?: BounceTimeline
+) {
+  if (!timeline?.sourceTimesMs.length) return 0;
+  const target = Math.max(start, Math.min(end, time)) * 1000;
+  let elapsed = 0;
+  for (let index = 0; index < timeline.sourceTimesMs.length - 1; index++) {
+    if (target < timeline.sourceTimesMs[index + 1]!) break;
+    elapsed += timeline.durationsMs[index] ?? 0;
+  }
+  return elapsed / 1000;
 }

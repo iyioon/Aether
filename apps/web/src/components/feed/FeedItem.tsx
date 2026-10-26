@@ -1,16 +1,19 @@
 import { Maximize2 } from "lucide-react";
-import { memo, type MutableRefObject } from "react";
+import { memo, useCallback, useState, type MutableRefObject } from "react";
 import type { AssetRecord } from "../../api/client";
 import {
   MediaPreview,
   type MediaPlaybackCommands
 } from "../media/MediaPreview";
+import type { GalleryMetadataField } from "../gallery/gallery-metadata";
+import { MediaCardInfo } from "../media/MediaCardInfo";
 import { IconButton } from "../IconButton";
 
 export type FeedSoundState = "blocked" | "muted" | "on";
 
 interface FeedItemProps {
   asset: AssetRecord;
+  metadataFields: ReadonlySet<GalleryMetadataField>;
   feedSoundState: FeedSoundState;
   index: number;
   isActive: boolean;
@@ -36,6 +39,7 @@ interface FeedItemProps {
 
 export const FeedItem = memo(function FeedItem({
   asset,
+  metadataFields,
   feedSoundState,
   index,
   isActive,
@@ -55,19 +59,30 @@ export const FeedItem = memo(function FeedItem({
   renderMedia,
   showLoadSentinel
 }: FeedItemProps) {
+  const [controlsContainer, setControlsContainer] =
+    useState<HTMLElement | null>(null);
+  const registerItem = useCallback(
+    (node: HTMLElement | null) => {
+      onRegisterItem(index, node);
+    },
+    [index, onRegisterItem]
+  );
   return (
     <article
       className={isFeedChromeHidden ? "feed-item details-hidden" : "feed-item"}
       aria-label={`${asset.mediaType}: ${asset.name}`}
       data-feed-index={index}
+      data-aspect="Portrait"
       data-audio-state={feedSoundState}
-      ref={(node) => onRegisterItem(index, node)}
+      ref={registerItem}
     >
       {renderMedia ? (
-        <div className="feed-frame">
+        <div className="feed-frame" ref={setControlsContainer}>
           <div className="media-preview-button">
             <MediaPreview
               asset={asset}
+              controlsContainer={controlsContainer}
+              framingAspect="Portrait"
               isActive={isActive}
               muted={isFeedMuted}
               onAudibleAutoplayBlocked={onAudibleAutoplayBlocked}
@@ -83,28 +98,28 @@ export const FeedItem = memo(function FeedItem({
               useOriginalImage
               useOriginalVideo
             />
-            {asset.mediaType !== "video" ? (
-              <button
-                className="feed-image-tap-surface"
-                type="button"
-                aria-label={`${isFeedChromeHidden ? "Show" : "Hide"} feed controls and details`}
-                title={isFeedChromeHidden ? "Show details" : "Hide details"}
-                onClick={onToggleFeedChrome}
-              />
-            ) : null}
           </div>
-          <div className="feed-meta">
+          {asset.mediaType !== "video" ? (
             <button
-              className="feed-meta-button"
+              className="feed-image-tap-surface"
               type="button"
-              aria-haspopup="dialog"
-              aria-label={`Open details for ${asset.name}`}
-              title="Open details"
-              onClick={() => onOpenAnnotations(asset.id)}
-            >
-              <span>{asset.mediaType}</span>
-              <strong title={asset.name}>{asset.name}</strong>
-            </button>
+              aria-label={`${isFeedChromeHidden ? "Show" : "Hide"} feed controls and details`}
+              onClick={onToggleFeedChrome}
+            />
+          ) : null}
+          <div className="feed-meta" data-has-info={metadataFields.size > 0}>
+            {metadataFields.size > 0 ? (
+              <button
+                className="feed-meta-button"
+                type="button"
+                aria-haspopup="dialog"
+                aria-label={`Open details for ${asset.name}`}
+                title="Open details"
+                onClick={() => onOpenAnnotations(asset.id)}
+              >
+                <MediaCardInfo asset={asset} fields={metadataFields} compact />
+              </button>
+            ) : null}
           </div>
           {asset.mediaType !== "video" ? (
             <div className="feed-actions">

@@ -103,7 +103,7 @@
 .viewer-media-frame.is-video-ready .viewer-video {
   opacity: 1;
   pointer-events: auto;
-  transition: opacity var(--aether-motion-fast) ease;
+  transition: none;
 }
 
 .viewer-actions {
@@ -114,6 +114,25 @@
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.viewer-view-options {
+  width: 224px;
+  max-width: calc(
+    100vw - var(--media-safe-area-left) - var(--media-safe-area-right) - 24px
+  );
+  font-size: 13px;
+}
+
+.viewer-view-options [data-slot="dropdown-menu-checkbox-item"] {
+  min-height: 36px;
+  font-size: inherit;
+}
+
+@media (pointer: coarse), (max-width: 767px) {
+  .viewer-view-options [data-slot="dropdown-menu-checkbox-item"] {
+    min-height: 44px;
+  }
 }
 
 .viewer-chrome {

@@ -35,8 +35,10 @@
   min-height: 44px;
 }
 
-.controlled-animation:has(.video-controls) .controlled-animation__error {
-  bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+.controlled-animation[data-has-controls="true"] .controlled-animation__error {
+  bottom: calc(
+    var(--video-controls-height) + var(--media-safe-area-bottom) + 12px
+  );
 }
 
 .controlled-animation > .video-controls {

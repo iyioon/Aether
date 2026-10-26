@@ -41,8 +41,23 @@ export function PresentationFrame({
     }
     const update = () => {
       const rectangle = stage.getBoundingClientRect();
-      const width = Math.round(rectangle.width);
-      const height = Math.round(rectangle.height);
+      const style = getComputedStyle(stage);
+      const width = Math.max(
+        0,
+        Math.round(
+          rectangle.width -
+            parseFloat(style.paddingLeft) -
+            parseFloat(style.paddingRight)
+        )
+      );
+      const height = Math.max(
+        0,
+        Math.round(
+          rectangle.height -
+            parseFloat(style.paddingTop) -
+            parseFloat(style.paddingBottom)
+        )
+      );
       setSize((previous) =>
         previous.width === width && previous.height === height
           ? previous
@@ -179,7 +194,7 @@ export function PresentationFrame({
         }}
       >
         <div className="media-editor-preview-content">{children}</div>
-        {interactive ? (
+        {editing ? (
           <div className="media-editor-grid" aria-hidden="true" />
         ) : null}
       </div>

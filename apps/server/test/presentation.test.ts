@@ -23,7 +23,11 @@ import {
   defaultPresentationValues,
   getPresentationRenditionKeys
 } from "../src/library/presentation.js";
-import { getPresentationsByAssetId } from "../src/library/repository-presentation.js";
+import {
+  getPresentationsByAssetId,
+  countPresentationEdits,
+  resetPresentationEdits
+} from "../src/library/repository-presentation.js";
 import {
   folderIdFor,
   getAsset,
@@ -135,6 +139,104 @@ describe("saved media presentation", () => {
     );
   });
 
+  it("saves independent aspect frames atomically, preserves them for legacy clients and clears them on reset", async () => {
+    const asset = await image("one.jpg");
+    const square = { fit: "cover", focalX: 0.1, focalY: 0.8, zoom: 2 };
+    const portrait = { fit: "contain", focalX: 0.5, focalY: 0.5, zoom: 1 };
+    const values = {
+      ...defaultPresentationValues(),
+      aspectFraming: { Square: square, Portrait: portrait }
+    };
+    const saved = await put(asset.id, { ...values, expectedRevision: 0 });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json().asset.presentation).toMatchObject({
+      ...values,
+      zoom: 1,
+      revision: 1
+    });
+    expect(countPresentationEdits(db)).toEqual({ framing: 1, playback: 0 });
+    const keys = saved.json().asset.presentation.renditionKeys;
+    const legacy = await put(asset.id, {
+      ...defaultPresentationValues(),
+      expectedRevision: 1,
+      focalX: 0.8
+    });
+    expect(legacy.json().asset.presentation).toMatchObject({
+      aspectFraming: values.aspectFraming,
+      focalX: 0.8,
+      revision: 2,
+      renditionKeys: keys
+    });
+    resetPresentationEdits(db, { playback: true }, now());
+    expect(getAsset(db, asset.id)?.presentation.aspectFraming).toEqual(
+      values.aspectFraming
+    );
+    const cleared = await put(asset.id, {
+      ...defaultPresentationValues(),
+      aspectFraming: {},
+      expectedRevision: 2
+    });
+    expect(cleared.json().asset.presentation.aspectFraming).toEqual({});
+    expect(countPresentationEdits(db)).toEqual({ framing: 0, playback: 0 });
+    await put(asset.id, { ...values, expectedRevision: 3 });
+    resetPresentationEdits(db, { framing: true }, now());
+    expect(getAsset(db, asset.id)?.presentation).toMatchObject({
+      ...defaultPresentationValues(),
+      aspectFraming: {},
+      revision: 5
+    });
+    expect(countPresentationEdits(db)).toEqual({ framing: 0, playback: 0 });
+  });
+
+  it("keeps explicit Feed crops separate, preserves omitted overrides, clears them and hydrates all reads", async () => {
+    const asset = await image("one.jpg");
+    const frame = { fit: "cover", focalX: 0.5, focalY: 0.5, zoom: 1 };
+    const values = {
+      ...defaultPresentationValues(),
+      feedFraming: { portrait: frame, landscape: { ...frame, zoom: 2 } }
+    };
+    const saved = await put(asset.id, { ...values, expectedRevision: 0 });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json().asset.presentation.feedFraming).toEqual(
+      values.feedFraming
+    );
+    expect(countPresentationEdits(db)).toEqual({ framing: 1, playback: 0 });
+    const keys = saved.json().asset.presentation.renditionKeys;
+    const legacy = await put(asset.id, {
+      ...defaultPresentationValues(),
+      expectedRevision: 1
+    });
+    expect(legacy.json().asset.presentation).toMatchObject({
+      feedFraming: values.feedFraming,
+      revision: 2,
+      renditionKeys: keys
+    });
+    for (const record of [
+      getAsset(db, asset.id),
+      list()[0],
+      getAssetsByIds(db, [asset.id])[0]
+    ])
+      expect(record?.presentation.feedFraming).toEqual(values.feedFraming);
+    resetPresentationEdits(db, { playback: true }, now());
+    expect(getAsset(db, asset.id)?.presentation.feedFraming).toEqual(
+      values.feedFraming
+    );
+    const cleared = await put(asset.id, {
+      ...defaultPresentationValues(),
+      expectedRevision: 2,
+      feedFraming: {}
+    });
+    expect(cleared.json().asset.presentation.feedFraming).toEqual({});
+    expect(countPresentationEdits(db)).toEqual({ framing: 0, playback: 0 });
+    await put(asset.id, { ...values, expectedRevision: 3 });
+    resetPresentationEdits(db, { framing: true }, now());
+    expect(getAsset(db, asset.id)?.presentation).toMatchObject({
+      revision: 5,
+      feedFraming: {}
+    });
+    expect(countPresentationEdits(db)).toEqual({ framing: 0, playback: 0 });
+  });
+
   it("allows only one concurrent expected revision and preserves the winning edit", async () => {
     const asset = await image("one.jpg");
     const responses = await Promise.all([
@@ -164,6 +266,54 @@ describe("saved media presentation", () => {
   it("rejects unknown fields, invalid bounds and timing edits on still images", async () => {
     const asset = await image("one.jpg");
     for (const edit of [
+      {
+        aspectFraming: {
+          Circle: { fit: "cover", focalX: 0.5, focalY: 0.5, zoom: 1 }
+        }
+      },
+      {
+        aspectFraming: {
+          Square: { fit: "cover", focalX: -1, focalY: 0.5, zoom: 1 }
+        }
+      },
+      {
+        aspectFraming: {
+          Square: { fit: "cover", focalX: 0.5, focalY: 0.5, zoom: 5 }
+        }
+      },
+      {
+        aspectFraming: {
+          Square: {
+            fit: "cover",
+            focalX: 0.5,
+            focalY: 0.5,
+            zoom: 1,
+            path: "/private"
+          }
+        }
+      },
+      { aspectFraming: [] },
+      { feedFraming: [] },
+      {
+        feedFraming: {
+          unknown: { fit: "cover", focalX: 0.5, focalY: 0.5, zoom: 1 }
+        }
+      },
+      {
+        feedFraming: {
+          portrait: { fit: "contain", focalX: 0.5, focalY: 0.5, zoom: 1 }
+        }
+      },
+      {
+        feedFraming: {
+          portrait: { fit: "cover", focalX: -1, focalY: 0.5, zoom: 1 }
+        }
+      },
+      {
+        feedFraming: {
+          landscape: { fit: "cover", focalX: 0.5, focalY: 0.5, zoom: 5 }
+        }
+      },
       { zoom: 0.9 },
       { zoom: 4.1 },
       { focalX: -0.1 },
@@ -305,6 +455,9 @@ describe("saved media presentation", () => {
       values: {
         ...defaultPresentationValues(),
         zoom: 2,
+        aspectFraming: {
+          Square: { fit: "cover", focalX: 0.2, focalY: 0.6, zoom: 3 }
+        },
         playbackRate: 2,
         highlight: { startMs: 100, endMs: 500 },
         loopMode: "bounce"
@@ -331,6 +484,9 @@ describe("saved media presentation", () => {
       tags: [{ displayName: "Keep" }],
       presentation: {
         zoom: 2,
+        aspectFraming: {
+          Square: { fit: "cover", focalX: 0.2, focalY: 0.6, zoom: 3 }
+        },
         playbackRate: 1,
         highlight: null,
         loopMode: "repeat",
@@ -596,7 +752,13 @@ describe("saved media presentation", () => {
     await put(asset.id, {
       ...defaultPresentationValues(),
       expectedRevision: 0,
-      zoom: 2
+      zoom: 2,
+      feedFraming: {
+        portrait: { fit: "cover", focalX: 0.5, focalY: 0.5, zoom: 1 }
+      },
+      aspectFraming: {
+        Portrait: { fit: "cover", focalX: 0.1, focalY: 0.9, zoom: 2 }
+      }
     });
     const source = getAssetSource(db, asset.id)!;
     const identity = db
@@ -624,6 +786,12 @@ describe("saved media presentation", () => {
     upsertAsset(db, input);
     expect(getAsset(db, asset.id)?.presentation).toMatchObject({
       revision: 1,
+      feedFraming: {
+        portrait: { fit: "cover", focalX: 0.5, focalY: 0.5, zoom: 1 }
+      },
+      aspectFraming: {
+        Portrait: { fit: "cover", focalX: 0.1, focalY: 0.9, zoom: 2 }
+      },
       zoom: 2
     });
     upsertAsset(db, {
@@ -633,6 +801,8 @@ describe("saved media presentation", () => {
     });
     expect(getAsset(db, asset.id)?.presentation).toMatchObject({
       revision: 2,
+      aspectFraming: {},
+      feedFraming: {},
       zoom: 1
     });
     db.prepare("DELETE FROM asset_presentations WHERE asset_id = ?").run(

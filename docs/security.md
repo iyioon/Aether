@@ -44,8 +44,11 @@ browser history.
 
 Saved navigation and ranking state includes filters, asset IDs, and scroll
 positions in local storage. Signing out clears that state. Appearance
-preferences remain in this browser. The service worker caches only public
-application files; private API responses and media bypass it.
+preferences remain in this browser. The viewer's Use saved framing preference
+stores only a boolean in localStorage and remains after signing out; it contains
+no asset IDs, media paths or media content. Each browser/device keeps its own
+choice. The service worker caches only public application files; private API
+responses and media bypass it.
 
 Comparison preloading requests a small number of upcoming items through the
 same authenticated media routes. Its queue stays in memory and stops when the
@@ -117,7 +120,14 @@ semantics. Their opaque keys contain no private paths. Capability/manifest
 responses use `no-store`; the PWA never caches private media or metadata.
 FFmpeg permits local media protocols/containers only and uses fixed argument
 arrays, bounded work queues, deadlines, metadata/output limits, and serialized
-reverse work. Animation decoding has frame, duration, pixel and byte limits.
+reverse work. Lossless Bounce retains supported source pixels and timing without
+writing the source. It rejects unsupported profiles/metadata and bounds section
+duration, frame count, decoded-frame work and output bytes; codec overhead is
+additional to the decoded-frame budget. Larger sources receive a shorter limit.
+Animation decoding has
+frame, duration, source-size, pixel and byte limits, and rejects excess dimensions
+instead of downscaling. Native repeat highlights use the same authenticated
+original-stream route and do not create another source copy.
 Unsafe source/cache symlinks are rejected. Temporary files are removed on
 failure; stale generation is rejected, and successful replacements remove only
 superseded registered files. These limits reduce resource exposure; Aether still

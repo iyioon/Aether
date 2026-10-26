@@ -39,7 +39,7 @@ test("applies and restores sort, filters, and gallery layout from one panel", as
   await panel.getByRole("tab", { name: "Layout", exact: true }).click();
   await panel.getByRole("combobox", { name: "Grid size" }).click();
   await page.getByRole("option", { name: "Large", exact: true }).click();
-  await panel.getByRole("combobox", { name: "Aspect ratio" }).click();
+  await panel.getByRole("combobox", { name: "Media layout" }).click();
   await page.getByRole("option", { name: "Landscape", exact: true }).click();
   await expect(page.locator(".virtual-gallery")).toHaveAttribute(
     "data-aspect",
@@ -141,13 +141,18 @@ test("keeps view options scoped to the current view and dismisses nested control
   await expect(panel).toHaveCount(0);
   await page.getByRole("button", { name: "Feed view", exact: true }).click();
   await trigger.click();
-  await expect(panel.getByRole("tab")).toHaveText(["Filters", "Sort"]);
+  await expect(panel.getByRole("tab")).toHaveText([
+    "Filters",
+    "Sort",
+    "Layout"
+  ]);
   await panel.getByRole("button", { name: "Close view options" }).click();
   await page
     .getByRole("button", { name: "Compare and rank", exact: true })
     .click();
   await trigger.click();
-  await expect(panel.getByRole("tablist")).toHaveCount(0);
+  await expect(panel.getByRole("tab")).toHaveText(["Filters", "Layout"]);
+  await panel.getByRole("tab", { name: "Filters", exact: true }).click();
   await expect(
     panel.getByRole("radiogroup", { name: "Media filters" })
   ).toBeVisible();
@@ -155,6 +160,75 @@ test("keeps view options scoped to the current view and dismisses nested control
   await expect(panel).toHaveCount(0);
   await page.getByRole("button", { name: "Library", exact: true }).click();
   await expect(trigger).toHaveAttribute("aria-expanded", "false");
+});
+
+test("remembers independent layout and card info in Gallery, Feed and Ranking", async ({
+  page
+}) => {
+  const trigger = page.getByRole("button", { name: /^View options/ });
+  const panel = page.getByRole("dialog", { name: "View options", exact: true });
+  async function layout(aspect: string | null, title: boolean) {
+    await trigger.click();
+    await panel.getByRole("tab", { name: "Layout", exact: true }).click();
+    if (aspect) {
+      await panel.getByRole("combobox", { name: "Media layout" }).click();
+      await page.getByRole("option", { name: aspect, exact: true }).click();
+    } else
+      await expect(
+        panel.getByRole("combobox", { name: "Media layout" })
+      ).toHaveCount(0);
+    await panel
+      .getByRole("checkbox", { name: "Title", exact: true })
+      .setChecked(title);
+    await panel.getByRole("button", { name: "Close view options" }).click();
+  }
+  await layout("Portrait", true);
+  await page.getByRole("button", { name: "Feed view", exact: true }).click();
+  await expect(page.locator(".feed-item").first()).toHaveAttribute(
+    "data-aspect",
+    "Portrait"
+  );
+  await expect(page.locator(".feed-meta-button")).toHaveCount(0);
+  await layout(null, true);
+  await expect(page.locator(".feed-meta-button").first()).toBeVisible();
+  const frame = (await page.locator(".feed-frame").first().boundingBox())!;
+  expect(frame.width).toBeLessThan(frame.height);
+  expect(frame.width).toBeLessThanOrEqual(470);
+  await page
+    .getByRole("button", { name: "Compare and rank", exact: true })
+    .click();
+  await page
+    .locator(".leaderboard-header")
+    .getByRole("button", { name: "Rank media", exact: true })
+    .click();
+  const cards = page.locator(".comparison-card");
+  await expect(cards).toHaveCount(2);
+  await expect(cards.first()).toHaveAttribute("data-aspect", "Original");
+  await expect(cards.locator(".media-card-info")).toHaveCount(0);
+  const ids = await cards.evaluateAll((items) =>
+    items.map((item) => item.getAttribute("data-asset-id"))
+  );
+  await layout("Landscape", true);
+  await expect(cards.locator(".media-card-info")).toHaveCount(2);
+  expect(
+    await cards.evaluateAll((items) =>
+      items.map((item) => item.getAttribute("data-asset-id"))
+    )
+  ).toEqual(ids);
+  await expect(cards.getByRole("button", { name: /^Edit / })).toHaveCount(0);
+  await page.reload();
+  await expect(cards.first()).toHaveAttribute("data-aspect", "Landscape");
+  await page.getByRole("button", { name: "Feed view", exact: true }).click();
+  await expect(page.locator(".feed-item").first()).toHaveAttribute(
+    "data-aspect",
+    "Portrait"
+  );
+  await expect(page.locator(".feed-meta-button").first()).toBeVisible();
+  await page.getByRole("button", { name: "Gallery view", exact: true }).click();
+  await expect(page.locator(".virtual-gallery")).toHaveAttribute(
+    "data-aspect",
+    "Portrait"
+  );
 });
 
 test("restores gallery content when a pending sort returns to the previous query", async ({

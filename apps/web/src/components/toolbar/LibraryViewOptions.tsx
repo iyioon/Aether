@@ -28,7 +28,7 @@ export function LibraryViewOptions(props: LibraryViewOptionsProps) {
   const isMobile = useIsMobile();
   const titleId = useId();
   const [tab, setTab] = useState("filters");
-  const activeTab = view === "feed" && tab === "layout" ? "filters" : tab;
+  const activeTab = view === "compare" && tab === "sort" ? "filters" : tab;
   const filterCount =
     Number(mediaType !== "all") +
     Number(scoreFilter !== "all") +
@@ -70,49 +70,39 @@ export function LibraryViewOptions(props: LibraryViewOptionsProps) {
           <X aria-hidden="true" />
         </Button>
       </div>
-      {view === "compare" ? (
-        <div className="view-options-body">
-          <FilterControls {...props} />
-        </div>
-      ) : (
-        <Tabs
-          className="view-options-tabs"
-          value={activeTab}
-          onValueChange={setTab}
-        >
-          <TabsList aria-label="View options sections">
-            <TabsTrigger value="filters">Filters</TabsTrigger>
+      <Tabs
+        className="view-options-tabs"
+        value={activeTab}
+        onValueChange={setTab}
+      >
+        <TabsList aria-label="View options sections">
+          <TabsTrigger value="filters">Filters</TabsTrigger>
+          {view !== "compare" ? (
             <TabsTrigger value="sort">Sort</TabsTrigger>
-            {view === "gallery" ? (
-              <TabsTrigger value="layout">Layout</TabsTrigger>
-            ) : null}
-          </TabsList>
-          <div className="view-options-body" key={activeTab}>
-            <TabsContent value="filters">
-              <FilterControls {...props} />
-            </TabsContent>
-            <TabsContent value="sort">
-              <SortControls {...props} />
-            </TabsContent>
-            {view === "gallery" ? (
-              <TabsContent value="layout">
-                <LayoutControls {...props} />
-              </TabsContent>
-            ) : null}
-          </div>
-        </Tabs>
-      )}
-      {view !== "compare" ? (
-        <Label className="view-options-playback">
-          <Checkbox
-            checked={props.highlightsOnly}
-            onCheckedChange={(checked) =>
-              props.onHighlightsOnlyChange(checked === true)
-            }
-          />
-          Play highlights only
-        </Label>
-      ) : null}
+          ) : null}
+          <TabsTrigger value="layout">Layout</TabsTrigger>
+        </TabsList>
+        <div className="view-options-body" key={activeTab}>
+          <TabsContent value="filters">
+            <FilterControls {...props} />
+          </TabsContent>
+          <TabsContent value="sort">
+            <SortControls {...props} />
+          </TabsContent>
+          <TabsContent value="layout">
+            <LayoutControls {...props} />
+          </TabsContent>
+        </div>
+      </Tabs>
+      <Label className="view-options-playback">
+        <Checkbox
+          checked={props.highlightsOnly}
+          onCheckedChange={(checked) =>
+            props.onHighlightsOnlyChange(checked === true)
+          }
+        />
+        Play highlights only
+      </Label>
     </>
   );
 

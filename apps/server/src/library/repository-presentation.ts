@@ -9,6 +9,8 @@ import {
 
 interface PresentationRow {
   asset_id: string;
+  aspect_framing: string;
+  feed_framing: string;
   revision: number;
   highlight_start_ms: number | null;
   highlight_end_ms: number | null;
@@ -105,15 +107,16 @@ export function saveAssetPresentation(
     });
     db.prepare(
       `INSERT INTO asset_presentations
-      (asset_id, revision, highlight_start_ms, highlight_end_ms, fit, focal_x, focal_y, zoom, playback_rate, loop_mode, updated_at)
-      VALUES (@assetId, @revision, @startMs, @endMs, @fit, @focalX, @focalY, @zoom, @playbackRate, @loopMode, @updatedAt)
+      (asset_id, revision, highlight_start_ms, highlight_end_ms, fit, focal_x, focal_y, zoom, playback_rate, loop_mode, updated_at, aspect_framing, feed_framing)
+      VALUES (@assetId, @revision, @startMs, @endMs, @fit, @focalX, @focalY, @zoom, @playbackRate, @loopMode, @updatedAt, @aspectFraming, @feedFraming)
       ON CONFLICT(asset_id) DO UPDATE SET
         revision = excluded.revision,
         highlight_start_ms = excluded.highlight_start_ms,
         highlight_end_ms = excluded.highlight_end_ms,
         fit = excluded.fit, focal_x = excluded.focal_x, focal_y = excluded.focal_y,
         zoom = excluded.zoom, playback_rate = excluded.playback_rate,
-        loop_mode = excluded.loop_mode, updated_at = excluded.updated_at`
+        loop_mode = excluded.loop_mode, updated_at = excluded.updated_at,
+        aspect_framing = excluded.aspect_framing, feed_framing = excluded.feed_framing`
     ).run({
       assetId: input.assetId,
       revision: input.expectedRevision + 1,
@@ -123,6 +126,19 @@ export function saveAssetPresentation(
       focalX: values.focalX,
       focalY: values.focalY,
       zoom: values.zoom,
+      aspectFraming: JSON.stringify(
+        Object.fromEntries(
+          Object.entries(values.aspectFraming ?? {}).filter(
+            ([, frame]) =>
+              frame &&
+              (frame.fit !== "auto" ||
+                frame.focalX !== 0.5 ||
+                frame.focalY !== 0.5 ||
+                frame.zoom !== 1)
+          )
+        )
+      ),
+      feedFraming: JSON.stringify(values.feedFraming ?? {}),
       playbackRate: values.playbackRate,
       loopMode: values.loopMode,
       updatedAt: input.updatedAt
@@ -139,7 +155,7 @@ export function countPresentationEdits(db: AetherDatabase): {
     .prepare(
       `SELECT
     COALESCE(SUM(highlight_start_ms IS NOT NULL OR playback_rate != 1 OR loop_mode != 'repeat'), 0) AS playback,
-    COALESCE(SUM(fit != 'auto' OR focal_x != 0.5 OR focal_y != 0.5 OR zoom != 1), 0) AS framing
+    COALESCE(SUM(fit != 'auto' OR focal_x != 0.5 OR focal_y != 0.5 OR zoom != 1 OR aspect_framing != '{}' OR feed_framing != '{}'), 0) AS framing
     FROM asset_presentations`
     )
     .get() as { playback: number; framing: number };
@@ -170,10 +186,12 @@ export function resetPresentationEdits(
       "fit = 'auto'",
       "focal_x = 0.5",
       "focal_y = 0.5",
-      "zoom = 1"
+      "zoom = 1",
+      "aspect_framing = '{}'",
+      "feed_framing = '{}'"
     );
     changed.push(
-      "fit != 'auto' OR focal_x != 0.5 OR focal_y != 0.5 OR zoom != 1"
+      "fit != 'auto' OR focal_x != 0.5 OR focal_y != 0.5 OR zoom != 1 OR aspect_framing != '{}' OR feed_framing != '{}'"
     );
   }
   if (assignments.length === 0) return;
@@ -189,6 +207,12 @@ function rowValues(row: PresentationRow): PresentationValues {
       row.highlight_start_ms === null || row.highlight_end_ms === null
         ? null
         : { startMs: row.highlight_start_ms, endMs: row.highlight_end_ms },
+    aspectFraming: JSON.parse(
+      row.aspect_framing
+    ) as PresentationValues["aspectFraming"],
+    feedFraming: JSON.parse(
+      row.feed_framing
+    ) as PresentationValues["feedFraming"],
     fit: row.fit,
     focalX: row.focal_x,
     focalY: row.focal_y,
@@ -201,15 +225,15 @@ function rowValues(row: PresentationRow): PresentationValues {
 /** Clears edits when an indexed identity is reused for different source bytes. */
 export function createPresentationSourceReconciler(db: AetherDatabase) {
   const reset = db.prepare(`INSERT INTO asset_presentations
-    (asset_id, revision, highlight_start_ms, highlight_end_ms, fit, focal_x, focal_y, zoom, playback_rate, loop_mode, updated_at)
-    SELECT a.id, 1, NULL, NULL, 'auto', 0.5, 0.5, 1, 1, 'repeat', @updatedAt
+    (asset_id, revision, highlight_start_ms, highlight_end_ms, fit, focal_x, focal_y, zoom, playback_rate, loop_mode, updated_at, aspect_framing, feed_framing)
+    SELECT a.id, 1, NULL, NULL, 'auto', 0.5, 0.5, 1, 1, 'repeat', @updatedAt, '{}', '{}'
     FROM assets a WHERE a.id = @assetId
       AND NOT (a.content_sha256 IS NOT NULL AND a.content_sha256 = @contentSha256)
       AND (a.content_sha256 IS NOT @contentSha256 OR a.size_bytes != @sizeBytes OR a.mtime_ms != @mtimeMs)
     ON CONFLICT(asset_id) DO UPDATE SET
       highlight_start_ms = NULL, highlight_end_ms = NULL, fit = 'auto',
       focal_x = 0.5, focal_y = 0.5, zoom = 1, playback_rate = 1,
-      loop_mode = 'repeat', revision = asset_presentations.revision + 1, updated_at = @updatedAt`);
+      loop_mode = 'repeat', aspect_framing = '{}', feed_framing = '{}', revision = asset_presentations.revision + 1, updated_at = @updatedAt`);
   return (input: {
     assetId: string;
     contentSha256: string;

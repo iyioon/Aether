@@ -1,5 +1,4 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { Pause, Play } from "lucide-react";
 import type { PresentationValues } from "../../api/client";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -94,13 +93,9 @@ interface PresentationPlaybackFieldsProps {
   durationMs: number;
   maxBounceDurationMs: number;
   disabled: boolean;
-  isLoading: boolean;
   bouncePreviewDeferred: boolean;
   playheadMs: number;
-  isPlaying: boolean;
   resetKey: number;
-  onPlayingChange: (playing: boolean) => void;
-  onSeek: (time: number) => void;
   onRangeChange: (start: number, end: number) => void;
   onChange: (values: PresentationValues) => void;
   onInvalidChange: (field: "start" | "end", invalid: boolean) => void;
@@ -111,13 +106,9 @@ export function PresentationPlaybackFields({
   durationMs,
   maxBounceDurationMs,
   disabled,
-  isLoading,
   bouncePreviewDeferred,
   playheadMs,
-  isPlaying,
   resetKey,
-  onPlayingChange,
-  onSeek,
   onRangeChange,
   onChange,
   onInvalidChange
@@ -129,40 +120,6 @@ export function PresentationPlaybackFields({
   const hasTimeline = durationMs > 0;
   return (
     <div className="media-editor-fields">
-      <div className="media-editor-transport">
-        <Button
-          type="button"
-          variant="outline"
-          size="icon"
-          disabled={disabled || !hasTimeline}
-          aria-label={isPlaying ? "Pause preview" : "Play preview"}
-          onClick={() => onPlayingChange(!isPlaying)}
-        >
-          {isPlaying ? (
-            <Pause aria-hidden="true" />
-          ) : (
-            <Play aria-hidden="true" />
-          )}
-        </Button>
-        <Slider
-          min={0}
-          max={durationMs || 1}
-          step={1}
-          value={[Math.min(playheadMs, durationMs)]}
-          disabled={disabled || !hasTimeline}
-          thumbLabels={["Preview position"]}
-          formatValue={formatPresentationTime}
-          onValueChange={([time]) => {
-            if (time !== undefined) {
-              onPlayingChange(false);
-              onSeek(time);
-            }
-          }}
-        />
-        <output className="media-editor-time">
-          {formatPresentationTime(playheadMs)}
-        </output>
-      </div>
       <fieldset
         className="media-editor-highlight"
         disabled={disabled || !hasTimeline}
@@ -282,7 +239,7 @@ export function PresentationPlaybackFields({
             : "Forward and reverse · muted"}
         </p>
       ) : null}
-      {!hasTimeline && !isLoading ? (
+      {!hasTimeline ? (
         <p className="media-editor-hint">
           Playback editing is unavailable for this file.
         </p>

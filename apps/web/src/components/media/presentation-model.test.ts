@@ -5,6 +5,8 @@ import {
   getPresentationValues,
   parsePresentationTime,
   presentationRange,
+  presentationFramingForAspect,
+  setPresentationFraming,
   presentationSaveOutcome,
   presentationValidationMessage,
   presentationValuesEqual,
@@ -19,6 +21,61 @@ describe("saved presentation drafts", () => {
     draft.highlight!.startMs = 900;
     expect(saved.highlight.startMs).toBe(300);
     expect(draft).toMatchObject({ zoom: 2, focalX: 0.5, playbackRate: 1 });
+  });
+
+  it("resolves legacy automatic framing for the editor without changing saved values", () => {
+    const values = { ...defaultPresentationValues(), focalX: 0.2, zoom: 2 };
+    expect(
+      presentationFramingForAspect(values, "Original", "contain")
+    ).toMatchObject({ fit: "contain", focalX: 0.2, zoom: 2 });
+    expect(
+      presentationFramingForAspect(values, "Original", "cover")
+    ).toMatchObject({ fit: "cover", focalX: 0.2, zoom: 2 });
+    expect(
+      presentationFramingForAspect(values, "Square", "cover")
+    ).toMatchObject({ fit: "cover", focalX: 0.5, zoom: 1 });
+    expect(values.fit).toBe("auto");
+    expect(values.aspectFraming).toEqual({});
+    const explicit = { ...values, fit: "contain" as const };
+    expect(
+      presentationFramingForAspect(explicit, "Original", "cover").fit
+    ).toBe("contain");
+    expect(presentationFramingForAspect(values, "Original").fit).toBe("auto");
+  });
+
+  it("retains independent drafts across aspect changes and normalizes nested saved values", () => {
+    const original = { ...defaultPresentationValues(), zoom: 4 };
+    const square = { fit: "cover" as const, focalX: 0.2, focalY: 0.8, zoom: 2 };
+    const portrait = {
+      fit: "contain" as const,
+      focalX: 0.5,
+      focalY: 0.5,
+      zoom: 1
+    };
+    const first = setPresentationFraming(original, "Square", square);
+    const second = setPresentationFraming(first, "Portrait", portrait);
+    expect(presentationFramingForAspect(second, "Square")).toEqual(square);
+    expect(presentationFramingForAspect(second, "Portrait")).toEqual(portrait);
+    expect(presentationFramingForAspect(second, "Landscape").zoom).toBe(1);
+    expect(presentationFramingForAspect(second, "Original").zoom).toBe(4);
+    expect(original.aspectFraming).toEqual({});
+    expect(first.aspectFraming?.Portrait).toBeUndefined();
+    const draft = getPresentationValues(second);
+    draft.aspectFraming!.Square!.zoom = 3;
+    expect(second.aspectFraming?.Square?.zoom).toBe(2);
+    expect(presentationValuesEqual(second, draft)).toBe(false);
+    const reset = setPresentationFraming(
+      first,
+      "Square",
+      defaultPresentationValues()
+    );
+    expect(reset.aspectFraming).toEqual({});
+    expect(presentationValuesEqual(reset, original)).toBe(true);
+    expect(
+      getPresentationValues({
+        aspectFraming: { Square: { ...square, focalX: NaN, zoom: Infinity } }
+      }).aspectFraming?.Square
+    ).toMatchObject({ focalX: 0.5, zoom: 1 });
   });
 
   it("reconciles uncertain writes without overwriting a concurrent edit or restore", () => {
@@ -38,6 +95,49 @@ describe("saved presentation drafts", () => {
     );
     expect(
       presentationSaveOutcome({ ...current, revision: 0 }, desired, 1)
+    ).toBe("conflict");
+  });
+
+  it("preserves neutral Feed overrides as distinct from automatic framing in uncertain writes", () => {
+    const defaults = defaultPresentationValues();
+    const neutral = {
+      fit: "cover" as const,
+      focalX: 0.5,
+      focalY: 0.5,
+      zoom: 1
+    };
+    const values = { ...defaults, feedFraming: { portrait: neutral } };
+    expect(presentationValuesEqual(defaults, values)).toBe(false);
+    expect(
+      presentationValuesEqual(values, {
+        ...values,
+        feedFraming: { portrait: { ...neutral } }
+      })
+    ).toBe(true);
+    const copied = getPresentationValues(values);
+    copied.feedFraming!.portrait!.zoom = 2;
+    expect(values.feedFraming.portrait.zoom).toBe(1);
+    expect(
+      presentationSaveOutcome(
+        {
+          ...values,
+          revision: 2,
+          renditionKeys: { full: "f", highlight: "h", bounce: "b" }
+        },
+        values,
+        1
+      )
+    ).toBe("saved");
+    expect(
+      presentationSaveOutcome(
+        {
+          ...defaults,
+          revision: 2,
+          renditionKeys: { full: "f", highlight: "h", bounce: "b" }
+        },
+        values,
+        1
+      )
     ).toBe("conflict");
   });
 
@@ -130,6 +230,13 @@ describe("saved presentation drafts", () => {
         10000
       )
     ).toContain("10 seconds");
+    expect(
+      presentationValidationMessage(
+        { ...defaults, loopMode: "bounce" },
+        1000,
+        0
+      )
+    ).toBe("Bounce is unavailable for this file. Choose Repeat instead.");
     expect(
       presentationValidationMessage(
         {

@@ -23,6 +23,7 @@ import {
 } from "../scroll-restoration";
 import { FeedItem, type FeedSoundState } from "./FeedItem";
 import { FeedNavRail } from "./FeedNavRail";
+import type { GalleryMetadataField } from "../gallery/gallery-metadata";
 import {
   FEED_PRELOAD_DISTANCE,
   FEED_TOUCH_DISTANCE,
@@ -44,6 +45,7 @@ interface FeedTouchStart {
 }
 
 interface FeedPreviewProps {
+  metadataFields: ReadonlySet<GalleryMetadataField>;
   assets: AssetRecord[];
   isLoading: boolean;
   isLoadingMore: boolean;
@@ -66,6 +68,7 @@ interface FeedPreviewProps {
 }
 
 export function FeedPreview({
+  metadataFields,
   assets,
   isLoading,
   isLoadingMore,
@@ -703,6 +706,7 @@ export function FeedPreview({
       >
         {assets.map((asset, index) => (
           <FeedItem
+            metadataFields={metadataFields}
             asset={asset}
             feedSoundState={feedSoundState}
             index={index}

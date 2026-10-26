@@ -11,9 +11,10 @@ import {
 } from "./presentation-cache.js";
 import {
   probePresentationMedia,
-  VIDEO_BOUNCE_MAX_DURATION_MS
+  getPresentationVideoBouncePlan
 } from "./presentation-media.js";
 import { LOCAL_MEDIA_INPUT_ARGS, runMediaCommand } from "./video-processing.js";
+import { generateLosslessBounce } from "./presentation-bounce.js";
 
 export const VIDEO_HIGHLIGHT_MAX_DURATION_MS = 120_000;
 export type { PresentationFile } from "./presentation-cache.js";
@@ -25,13 +26,15 @@ export async function ensurePresentationVideo({
   config,
   file,
   variant,
-  key
+  key,
+  codec = "hevc"
 }: {
   db: AetherDatabase;
   config: AppConfig;
   file: ResolvedAssetFile;
   variant: PresentationVariant;
   key: string;
+  codec?: "hevc" | "h264";
 }): Promise<PresentationFile> {
   const capabilities = await probePresentationMedia(db, file);
   if (capabilities.kind !== "video")
@@ -53,8 +56,10 @@ export async function ensurePresentationVideo({
   const durationMs = range.endMs - range.startMs;
   if (range.endMs > capabilities.durationMs! + 100 || durationMs <= 0)
     throw new PresentationMediaError("invalid_highlight", 422);
-  if (variant === "bounce" && durationMs > VIDEO_BOUNCE_MAX_DURATION_MS)
-    throw new PresentationMediaError("bounce_duration_exceeded", 422);
+  const bouncePlan =
+    variant === "bounce"
+      ? await getPresentationVideoBouncePlan(db, file, range)
+      : null;
   if (durationMs > VIDEO_HIGHLIGHT_MAX_DURATION_MS)
     throw new PresentationMediaError("highlight_duration_exceeded", 422);
   return ensurePresentationDerivative(
@@ -63,10 +68,23 @@ export async function ensurePresentationVideo({
     file,
     variant,
     key,
-    "mp4",
+    variant === "bounce" && codec === "h264" ? "h264.mp4" : "mp4",
     async (temporaryPath) => {
       const seconds = durationMs / 1000;
-      const scale = `scale=trunc(iw*sar/2)*2:ih,setsar=1,scale=${variant === "bounce" ? 480 : 1080}:${variant === "bounce" ? 480 : 1080}:force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p`;
+      if (bouncePlan && capabilities.videoBounce) {
+        await withReverseSlot(() =>
+          generateLosslessBounce(
+            file.sourcePath,
+            temporaryPath,
+            bouncePlan,
+            capabilities.videoBounce!,
+            codec
+          )
+        );
+        return "video/mp4";
+      }
+      const scale =
+        "scale=trunc(iw*sar/2)*2:ih,setsar=1,scale=1080:1080:force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p";
       const sourceArgs = [
         "-hide_banner",
         "-loglevel",
@@ -99,50 +117,26 @@ export async function ensurePresentationVideo({
         "-y",
         temporaryPath
       ];
-      if (variant === "bounce") {
-        const frameCount = Math.max(1, Math.round(seconds * 24));
-        const forward = `[0:v:0]trim=duration=${seconds},${scale},fps=24,trim=end_frame=${frameCount},setpts=PTS-STARTPTS`;
-        const filter =
-          frameCount < 3
-            ? `${forward}[out]`
-            : `${forward},split=2[forward][reverse];[reverse]reverse,trim=start_frame=1:end_frame=${frameCount - 1},setpts=PTS-STARTPTS[backward];[forward][backward]concat=n=2:v=1:a=0[out]`;
-        await withReverseSlot(() =>
-          runMediaCommand(
-            "ffmpeg",
-            [
-              ...sourceArgs.slice(0, -2),
-              "-filter_complex",
-              filter,
-              "-map",
-              "[out]",
-              "-an",
-              ...encodingArgs
-            ],
-            90_000
-          )
-        );
-      } else {
-        await runMediaCommand(
-          "ffmpeg",
-          [
-            ...sourceArgs,
-            "-map",
-            "0:v:0",
-            "-map",
-            "0:a:0?",
-            "-vf",
-            scale,
-            "-c:a",
-            "aac",
-            "-b:a",
-            "128k",
-            "-ac",
-            "2",
-            ...encodingArgs
-          ],
-          120_000
-        );
-      }
+      await runMediaCommand(
+        "ffmpeg",
+        [
+          ...sourceArgs,
+          "-map",
+          "0:v:0",
+          "-map",
+          "0:a:0?",
+          "-vf",
+          scale,
+          "-c:a",
+          "aac",
+          "-b:a",
+          "128k",
+          "-ac",
+          "2",
+          ...encodingArgs
+        ],
+        120_000
+      );
       const outputProbe = JSON.parse(
         (
           await runMediaCommand(
@@ -161,12 +155,7 @@ export async function ensurePresentationVideo({
         ).stdout
       ) as { format?: { duration?: string } };
       const outputDuration = Number(outputProbe.format?.duration);
-      const expectedDuration =
-        variant === "bounce"
-          ? (Math.round(seconds * 24) < 3
-              ? Math.max(1, Math.round(seconds * 24))
-              : Math.round(seconds * 24) * 2 - 2) / 24
-          : seconds;
+      const expectedDuration = seconds;
       if (
         !Number.isFinite(outputDuration) ||
         Math.abs(outputDuration - expectedDuration) > 0.15

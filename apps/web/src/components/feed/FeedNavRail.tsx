@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, SlidersVertical } from "lucide-react";
+import { ChevronDown, ChevronUp, Pencil } from "lucide-react";
 import { IconButton } from "../IconButton";
 import {
   MediaFavoriteButton,
@@ -86,7 +86,7 @@ export function FeedNavRail({
         {onEditAsset ? (
           <IconButton
             className="feed-edit-button feed-nav-button media-overlay-button"
-            icon={SlidersVertical}
+            icon={Pencil}
             label={`Edit ${activeMediaName}`}
             title="Edit media"
             aria-haspopup="dialog"

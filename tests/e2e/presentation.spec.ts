@@ -288,7 +288,7 @@ test("saves and cancels framing and keeps the comparison pair while changing its
     await expect(viewer).toBeVisible();
     if (timedAsset.mediaType === "video") {
       const video = viewer.locator("video");
-      await expect(video).toHaveAttribute("src", /media$/);
+      await expect(video).toHaveAttribute("src", /media(?:\?|$)/);
       await expect
         .poll(() =>
           video.evaluate((node: HTMLVideoElement) => node.playbackRate)
@@ -717,7 +717,7 @@ test("edits playback from mobile Feed and keeps safe controls together through h
       .check();
     await options.getByRole("button", { name: "Close view options" }).tap();
     const media = page.locator(".feed-item video").first();
-    await expect(media).toHaveAttribute("src", /\/media$/);
+    await expect(media).toHaveAttribute("src", /\/media(?:\?|$)/);
     await expect
       .poll(() => media.evaluate((node: HTMLVideoElement) => node.playbackRate))
       .toBe(1.5);
@@ -1307,7 +1307,7 @@ test("retains a sharp, identically framed thumbnail until the original image dec
         Portrait: { fit: "cover", focalX: 0.2, focalY: 0.8, zoom: 1.4 }
       }
     });
-    await page.route(`**/api/assets/${photo.id}/media`, async (route) => {
+    await page.route(`**/api/assets/${photo.id}/media?*`, async (route) => {
       await gate;
       await route.continue().catch(() => undefined);
     });
@@ -1919,7 +1919,7 @@ test("loops original video sections in Feed and Comparison, with an explicit cod
     });
     await open(page, "feed", "video", asset.name, true);
     const video = page.locator(".feed-item video").first();
-    await expect(video).toHaveAttribute("src", /\/media$/);
+    await expect(video).toHaveAttribute("src", /\/media(?:\?|$)/);
     await expect(video).toHaveAttribute("data-presentation-timeline", "source");
     await expect(
       page.locator(".feed-item .media-video-shell").first()
@@ -1968,7 +1968,7 @@ test("loops original video sections in Feed and Comparison, with an explicit cod
       `.comparison-card[data-asset-id="${asset.id}"] video`
     );
     await expect(comparisonVideo).toHaveCount(1);
-    await expect(comparisonVideo).toHaveAttribute("src", /\/media$/);
+    await expect(comparisonVideo).toHaveAttribute("src", /\/media(?:\?|$)/);
     await expect
       .poll(() =>
         comparisonVideo.evaluate((node: HTMLVideoElement) => node.playbackRate)
@@ -1979,7 +1979,7 @@ test("loops original video sections in Feed and Comparison, with an explicit cod
         comparisonVideo.evaluate((node: HTMLVideoElement) => node.currentTime)
       )
       .toBeGreaterThanOrEqual(2);
-    await page.route(`**/api/assets/${asset.id}/media`, (route) =>
+    await page.route(`**/api/assets/${asset.id}/media?*`, (route) =>
       route.abort("failed")
     );
     await open(page, "feed", "video", asset.name, true);
@@ -2060,7 +2060,7 @@ test("auto-hides viewer controls after a delayed original starts without reveali
       ...defaults,
       highlight: { startMs: 500, endMs: 1200 }
     });
-    await page.route(`**/api/assets/${asset.id}/media`, async (route) => {
+    await page.route(`**/api/assets/${asset.id}/media?*`, async (route) => {
       await gate;
       await route.continue().catch(() => undefined);
     });

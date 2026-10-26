@@ -9,6 +9,7 @@ import {
   readdir,
   readFile,
   realpath,
+  rename,
   rm,
   writeFile
 } from "node:fs/promises";
@@ -21,6 +22,7 @@ export interface CreateBackupOptions {
   cacheDir?: string;
   includeCache?: boolean;
   keep?: number;
+  stagingDir?: string;
   now?: Date;
 }
 
@@ -68,6 +70,7 @@ export async function createConfigBackup({
   cacheDir,
   includeCache = false,
   keep,
+  stagingDir,
   now = new Date()
 }: CreateBackupOptions): Promise<CreateBackupResult> {
   await assertBackupOutputSeparated({
@@ -80,8 +83,11 @@ export async function createConfigBackup({
   await access(sourceDatabasePath, constants.R_OK);
 
   const backupDir = path.join(outputDir, `aether-${backupTimestamp(now)}`);
-  const databasePath = path.join(backupDir, "aether.sqlite");
-  const manifestPath = path.join(backupDir, "manifest.json");
+  const workingDir = stagingDir
+    ? path.join(stagingDir, path.basename(backupDir))
+    : backupDir;
+  const databasePath = path.join(workingDir, "aether.sqlite");
+  const manifestPath = path.join(workingDir, "manifest.json");
 
   await mkdir(outputDir, { recursive: true, mode: 0o700 });
   const outputStats = await lstat(outputDir);
@@ -89,10 +95,22 @@ export async function createConfigBackup({
     throw new Error("Backup output must be a real directory.");
   }
 
-  // The timestamped directory must be newly and exclusively created. This
-  // prevents a pre-existing symlink from redirecting backup data or chmod.
-  await mkdir(backupDir, { mode: 0o700 });
-  await chmod(backupDir, 0o700);
+  if (stagingDir) {
+    const stagingStats = await lstat(stagingDir);
+    if (!stagingStats.isDirectory() || stagingStats.isSymbolicLink())
+      throw new Error("Backup staging requires a private process directory.");
+    const existing = await lstat(backupDir).catch(
+      (error: NodeJS.ErrnoException) => {
+        if (error.code !== "ENOENT") throw error;
+        return null;
+      }
+    );
+    if (existing) throw new Error("The backup destination already exists.");
+  }
+  // Build internal backups inside the private process scope. A crash leaves
+  // only abandoned temporary work; completed backup directories publish atomically.
+  await mkdir(workingDir, { mode: 0o700 });
+  await chmod(workingDir, 0o700);
   let backupComplete = false;
 
   try {
@@ -125,7 +143,7 @@ export async function createConfigBackup({
     if (includeCache && cacheDir) {
       await access(cacheDir, constants.R_OK);
       files.push(
-        ...(await copyCacheFiles(cacheDir, path.join(backupDir, "cache")))
+        ...(await copyCacheFiles(cacheDir, path.join(workingDir, "cache")))
       );
     }
 
@@ -142,10 +160,11 @@ export async function createConfigBackup({
       flag: "wx",
       mode: 0o600
     });
+    if (stagingDir) await rename(workingDir, backupDir);
     backupComplete = true;
   } finally {
     if (!backupComplete) {
-      await rm(backupDir, { recursive: true, force: true }).catch(
+      await rm(workingDir, { recursive: true, force: true }).catch(
         () => undefined
       );
     }
@@ -158,8 +177,8 @@ export async function createConfigBackup({
 
   return {
     backupDir,
-    databasePath,
-    manifestPath,
+    databasePath: path.join(backupDir, "aether.sqlite"),
+    manifestPath: path.join(backupDir, "manifest.json"),
     includedCache: includeCache && Boolean(cacheDir),
     prunedBackups
   };
@@ -249,6 +268,13 @@ async function copyCacheFiles(
   for (const entry of entries.sort((left, right) =>
     left.name.localeCompare(right.name)
   )) {
+    // Cache backups include published media, never unfinished processor work.
+    if (
+      entry.name.endsWith(".tmp") ||
+      entry.name.startsWith("work-") ||
+      entry.name.startsWith(".decode-")
+    )
+      continue;
     const sourcePath = path.join(sourceDir, entry.name);
     const destinationPath = path.join(destinationDir, entry.name);
     const relativePath = relativeDir

@@ -587,10 +587,13 @@ test("removes failed video posters while the original media remains playable", a
         body: JSON.stringify({ error: "thumbnail_generation_failed" })
       })
     );
-    await context.route(/\/api\/assets\/[^/]+\/media$/, async (route) => {
-      await mediaGate.wait;
-      await route.continue();
-    });
+    await context.route(
+      /\/api\/assets\/[^/]+\/media(?:\?|$)/,
+      async (route) => {
+        await mediaGate.wait;
+        await route.continue();
+      }
+    );
     const page = await context.newPage();
     await page.goto(feedUrl(), { waitUntil: "domcontentloaded" });
     const item = page.locator('.feed-item[data-feed-index="0"]');
@@ -626,11 +629,14 @@ test("keeps healthy posters until a video frame arrives and discards a failed in
   const secondMedia = createRequestGate();
   const secondPoster = createRequestGate();
   try {
-    await context.route(/\/api\/assets\/[^/]+\/media$/, async (route) => {
-      const assetId = new URL(route.request().url()).pathname.split("/")[3];
-      await (assetId === videoAssetIds[0] ? firstMedia : secondMedia).wait;
-      await route.continue();
-    });
+    await context.route(
+      /\/api\/assets\/[^/]+\/media(?:\?|$)/,
+      async (route) => {
+        const assetId = new URL(route.request().url()).pathname.split("/")[3];
+        await (assetId === videoAssetIds[0] ? firstMedia : secondMedia).wait;
+        await route.continue();
+      }
+    );
     await context.route(/\/api\/assets\/[^/]+\/thumbnail\?/, async (route) => {
       if (route.request().url().includes(`/assets/${videoAssetIds[1]}/`)) {
         await secondPoster.wait;

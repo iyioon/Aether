@@ -1,6 +1,6 @@
 # Media Playback And Presentation Plan
 
-Status: Presentation and lossless Bounce implemented; automated local and container checks verified. Device acceptance is tracked below. HEIC remains separate.\
+Status: Presentation, lossless Bounce and HEIC implemented; automated local, browser and container checks verified. Device acceptance is tracked below.\
 Reviewed: 2026-10-26.
 
 ## Outcome And Scope
@@ -10,26 +10,25 @@ presentation across Gallery, Feed, viewer and Comparison. Presentation includes
 highlights, position/zoom, speed and repeat/bounce for videos and animated GIF,
 WebP, APNG and AVIF. Source files and downloads remain unchanged.
 
-The current delivery covers presentation settings. HEIC decoding is the next
-independent feature. A video identification/loading badge is excluded. iOS may
+The current delivery covers presentation settings and HEIC photos. A video identification/loading badge is excluded. iOS may
 reserve a status-bar strip; do not compensate with physical-screen dimensions
 or unsupported fullscreen tricks.
 
 ## Delivery Tracker
 
-| ID  | Deliverable                                     | State                               | Remaining acceptance                                             |
-| --- | ----------------------------------------------- | ----------------------------------- | ---------------------------------------------------------------- |
-| M0  | Capability and resource proofs                  | Local and container proofs verified | HEIC proof; actual iPhone acceptance; representative server load |
-| M1  | Shared controls and safe areas                  | Implemented                         | Installed iPhone, VoiceOver and rotation checks                  |
-| M2  | Saved presentation, revisions, cache and resets | Implemented                         | Production deployment acceptance                                 |
-| M2a | Controlled GIF/WebP/APNG/AVIF                   | Implemented                         | Real-device playback and resource acceptance                     |
-| M3  | HEIC/HEIF display                               | Not started                         | Decoder choice, fixtures, packaging, all media surfaces          |
-| M4  | Highlights, speed, repeat and posters           | Implemented                         | Device and native fullscreen acceptance                          |
-| M5  | Framing and Comparison aspects                  | Implemented                         | Device acceptance across orientation changes                     |
-| M6  | Video and animation bounce                      | Local and container proofs verified | Real iPhone; representative server load                          |
-| M7  | Cross-feature verification                      | Automated gates verified            | Actual devices and representative server load                    |
+| ID  | Deliverable                                     | State                               | Remaining acceptance                                     |
+| --- | ----------------------------------------------- | ----------------------------------- | -------------------------------------------------------- |
+| M0  | Capability and resource proofs                  | Local and container proofs verified | Actual iPhone acceptance; representative server load     |
+| M1  | Shared controls and safe areas                  | Implemented                         | Installed iPhone, VoiceOver and rotation checks          |
+| M2  | Saved presentation, revisions, cache and resets | Implemented                         | Production deployment acceptance                         |
+| M2a | Controlled GIF/WebP/APNG/AVIF                   | Implemented                         | Real-device playback and resource acceptance             |
+| M3  | HEIC/HEIF display                               | Automated gates verified            | Actual iPhone acceptance and representative library load |
+| M4  | Highlights, speed, repeat and posters           | Implemented                         | Device and native fullscreen acceptance                  |
+| M5  | Framing and Comparison aspects                  | Implemented                         | Device acceptance across orientation changes             |
+| M6  | Video and animation bounce                      | Local and container proofs verified | Real iPhone; representative server load                  |
+| M7  | Cross-feature verification                      | Automated gates verified            | Actual devices and representative server load            |
 
-HEIC remains independent and does not block presentation verification.
+HEIC uses the shared media surfaces and preserves the original download.
 
 ## Product Decisions
 
@@ -181,10 +180,11 @@ H.264 profile guidance; reported HEVC support still requires device testing.
    Debian FFmpeg package through the `media-verification` Docker target. Require
    that result alongside the production image health check; local decoder
    fixtures do not establish production-container support.
-4. Start M3 separately: prove real HEVC-backed HEIC pixel decoding, select a
-   reproducible decoder for native/container setup, then integrate thumbnail,
-   viewer and cache behavior with failure/security fixtures. Metadata-only
-   decoding is insufficient; see [sharp HEIF requirements](https://sharp.pixelplumbing.com/api-output/#heif).
+4. Verify HEIC through Gallery, Feed, Compare, viewer and framing on actual devices.
+   Maintained libheif CLI tools decode genuine HEVC primary photos into full-size
+   profile-preserving PNGs; tests cover 8/10-bit SDR, alpha, orientation, collections,
+   stale sources, bounded work and unchanged downloads. Unsupported HDR and
+   resource limits fail explicitly. See [HEIC tools](../installation.md#heic-tools).
 5. Preserve decoded-frame hash and timestamp regression coverage for lossless
    Bounce. Native and container tests cover VFR, 8/10-bit samples, source
    color/orientation, frame boundaries and resource rejection. Do not extend

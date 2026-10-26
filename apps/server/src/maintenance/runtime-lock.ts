@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
 import { performance } from "node:perf_hooks";
-import { open, readFile, rename, rm } from "node:fs/promises";
+import { open, readFile, readdir, rename, rm } from "node:fs/promises";
+import path from "node:path";
 import type { AetherDataPaths } from "../config/data-directory.js";
 import { pathExists } from "../config/data-directory.js";
 
@@ -14,6 +15,7 @@ interface RuntimeLock {
   startedAt: string;
   updatedAt: string;
   token: string;
+  purpose?: "runtime" | "maintenance";
 }
 
 const HEARTBEAT_INTERVAL_MS = 10_000;
@@ -24,7 +26,8 @@ const PROCESS_INSTANCE_ID = randomUUID();
 const PROCESS_STARTED_AT = new Date(performance.timeOrigin).toISOString();
 
 export async function acquireRuntimeLock(
-  paths: AetherDataPaths
+  paths: AetherDataPaths,
+  purpose: "runtime" | "maintenance" = "runtime"
 ): Promise<() => Promise<void>> {
   await clearStaleRuntimeLock(paths);
 
@@ -37,7 +40,8 @@ export async function acquireRuntimeLock(
     processStartedAt: PROCESS_STARTED_AT,
     startedAt: now,
     updatedAt: now,
-    token: randomUUID()
+    token: randomUUID(),
+    purpose
   };
 
   let handle;
@@ -62,6 +66,14 @@ export async function acquireRuntimeLock(
   }
 
   await handle.close();
+  try {
+    await removeAbandonedHeartbeatFiles(paths, lock.token);
+  } catch (error) {
+    const currentLock = await readRuntimeLock(paths.runtimeLockPath);
+    if (currentLock?.token === lock.token)
+      await rm(paths.runtimeLockPath, { force: true });
+    throw error;
+  }
   let released = false;
   let pendingHeartbeat = Promise.resolve();
   const heartbeat = setInterval(() => {
@@ -90,6 +102,41 @@ export async function acquireRuntimeLock(
       // the next start, so release failures must not mask the original error.
     }
   };
+}
+
+async function removeAbandonedHeartbeatFiles(
+  paths: AetherDataPaths,
+  currentToken: string
+): Promise<void> {
+  const lockName = path.basename(paths.runtimeLockPath);
+  const pattern =
+    /^runtime\.lock\.[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\.tmp$/;
+  // The new lock is exclusive and its heartbeat has not started yet.
+  for (const entry of await readdir(paths.dataDir, { withFileTypes: true })) {
+    if (
+      !pattern.test(entry.name) ||
+      entry.name === `${lockName}.${currentToken}.tmp`
+    )
+      continue;
+    if (entry.isFile() || entry.isSymbolicLink())
+      await rm(path.join(paths.dataDir, entry.name), { force: true });
+  }
+}
+
+/** Online backups may share a runtime, but never an offline maintenance swap. */
+export async function assertNoMaintenanceInProgress(
+  paths: AetherDataPaths
+): Promise<void> {
+  if (!(await pathExists(paths.runtimeLockPath))) return;
+  const lock = await readRuntimeLock(paths.runtimeLockPath);
+  if (!lock)
+    throw new Error(
+      "Cannot verify whether maintenance is active. Stop Aether and retry the backup."
+    );
+  if (!lock.purpose || lock.purpose === "maintenance") {
+    await assertDataDirectoryInactive(paths);
+    return;
+  }
 }
 
 export async function assertDataDirectoryInactive(
@@ -187,7 +234,10 @@ async function readRuntimeLock(filePath: string): Promise<RuntimeLock | null> {
         typeof value.processStartedAt === "string") &&
       typeof value.startedAt === "string" &&
       typeof value.updatedAt === "string" &&
-      typeof value.token === "string"
+      typeof value.token === "string" &&
+      (value.purpose === undefined ||
+        value.purpose === "runtime" ||
+        value.purpose === "maintenance")
     ) {
       return value as unknown as RuntimeLock;
     }

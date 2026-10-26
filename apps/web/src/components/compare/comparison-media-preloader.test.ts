@@ -182,7 +182,7 @@ describe("comparison media preloader", () => {
     expect(MockImage.instances).toHaveLength(6);
     expect(
       MockImage.instances.every((image) =>
-        /\/thumbnail\?size=640$/.test(image.requestedSource)
+        /\/thumbnail\?size=640&v=/.test(image.requestedSource)
       )
     ).toBe(true);
     expect(
@@ -209,7 +209,7 @@ describe("comparison media preloader", () => {
     expect(sources).toHaveLength(3);
     expect(new Set(sources).size).toBe(3);
     expect(
-      sources.every((source) => source.endsWith("/thumbnail?size=640"))
+      sources.every((source) => source.includes("/thumbnail?size=640&v="))
     ).toBe(true);
     loader.update([pair(left, right)]);
     await loadImages();
@@ -225,7 +225,9 @@ describe("comparison media preloader", () => {
 
     expect(fetch).toHaveBeenCalledOnce();
     const call = vi.mocked(fetch).mock.calls[0];
-    expect(call?.[0]).toBe(`/api/assets/${video.id}/media`);
+    expect(call?.[0]).toBe(
+      `/api/assets/${video.id}/media?v=${video.mtimeMs}-${video.sizeBytes}`
+    );
     expect(call?.[1]).toMatchObject({
       credentials: "same-origin",
       headers: { Range: "bytes=0-524287" },
@@ -290,7 +292,7 @@ describe("comparison media preloader", () => {
     expect(MockImage.instances).toHaveLength(2);
     expect(
       MockImage.instances.every((image) =>
-        image.requestedSource.endsWith("/thumbnail?size=640")
+        image.requestedSource.includes("/thumbnail?size=640&v=")
       )
     ).toBe(true);
     expect(fetch).not.toHaveBeenCalled();
@@ -315,7 +317,7 @@ describe("comparison media preloader", () => {
       expect(MockImage.instances).toHaveLength(2);
       expect(
         MockImage.instances.every((image) =>
-          image.requestedSource.endsWith("/thumbnail?size=640")
+          image.requestedSource.includes("/thumbnail?size=640&v=")
         )
       ).toBe(true);
       expect(fetch).not.toHaveBeenCalled();

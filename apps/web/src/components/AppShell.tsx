@@ -50,6 +50,7 @@ import { LibraryControlStrip } from "./toolbar/LibraryControlStrip";
 import { useLibraryControls } from "./toolbar/useLibraryControls";
 import { PresentationContext } from "./media/presentation-context";
 import { clearPresentationCapabilities } from "./media/usePresentationCapabilities";
+import { clearMediaImageCache } from "./media/media-image-cache";
 import { animationAtlasCache } from "./media/animation-atlas-cache";
 import { PresentationEditorDialog } from "./media/PresentationEditorDialog";
 
@@ -640,6 +641,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
       clearRandomOrderState();
       clearAppResumeState();
       clearPresentationCapabilities();
+      clearMediaImageCache();
       animationAtlasCache.clear();
     };
     try {

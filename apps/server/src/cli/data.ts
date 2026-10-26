@@ -8,6 +8,12 @@ import {
   wipeDataDirectory
 } from "../maintenance/data-directory.js";
 import { restoreDataDirectory } from "../maintenance/restore.js";
+import {
+  createPrivateTemporaryFiles,
+  type PrivateTemporaryFiles
+} from "../maintenance/private-temporary-files.js";
+
+process.umask(0o077);
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -23,6 +29,7 @@ const mediaRootPaths = resolveConfiguredMediaRootPaths(
   process.env.AETHER_MEDIA_ROOTS ?? "",
   workspaceRoot
 );
+let temporaryFiles: PrivateTemporaryFiles | undefined;
 
 try {
   if (command === "status") {
@@ -43,6 +50,7 @@ try {
     if (!restoreSource) {
       throw new Error("Restore requires --from <backup-dir>.");
     }
+    temporaryFiles = await createPrivateTemporaryFiles(paths);
     const result = await restoreDataDirectory({
       paths,
       workspaceRoot,
@@ -57,7 +65,9 @@ try {
   }
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
+  process.exitCode = 1;
+} finally {
+  await temporaryFiles?.close();
 }
 
 function readOption(commandArgs: string[], flag: string): string | null {

@@ -1,27 +1,38 @@
-import { mkdir, mkdtemp, realpath, utimes, writeFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  realpath,
+  rename,
+  rm,
+  symlink,
+  utimes,
+  writeFile
+} from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
 import type { FastifyInstance } from "fastify";
 import sharp from "sharp";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { hashPassword } from "../src/auth/password.js";
 import { loadConfig, type AppConfig } from "../src/config/config.js";
 import { openDatabase, type AetherDatabase } from "../src/db/database.js";
 import { buildApp } from "../src/http/app.js";
-import { stableId } from "../src/library/ids.js";
 import {
   folderIdFor,
   getAsset,
-  getDerivative,
   listAssets
 } from "../src/library/repository.js";
 import {
   parseRangeHeader,
+  openAssetFile,
   resolveAssetFile
 } from "../src/library/media-serving.js";
 import { scanLibrary } from "../src/library/scanner.js";
 import { ensureImageThumbnail } from "../src/library/thumbnails.js";
+import { ensureVideoPoster } from "../src/library/video-derivatives.js";
+import * as processing from "../src/library/video-processing.js";
 
 describe("media serving", () => {
   let cwd: string;
@@ -47,8 +58,10 @@ describe("media serving", () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     await app.close();
     db.close();
+    await rm(cwd, { recursive: true, force: true });
   });
 
   it("parses simple, open-ended, and suffix byte ranges", () => {
@@ -59,6 +72,41 @@ describe("media serving", () => {
     expect(parseRangeHeader("bytes=10-", 10)).toBe("invalid");
     expect(parseRangeHeader("bytes=-4", 0)).toBe("invalid");
     expect(parseRangeHeader("items=0-2", 10)).toBe("invalid");
+  });
+
+  it("rejects source replacement and symlink swaps between resolution and streaming", async () => {
+    const source = path.join(cwd, "media", "clip.mp4");
+    const privateFile = path.join(config.configDir, "private.txt");
+    await writeFile(source, "public");
+    await writeFile(privateFile, "secret");
+    await scanLibrary(db, config.mediaRoots);
+    const resolved = (await resolveAssetFile(db, firstAsset("all").id))!;
+    await rename(source, `${source}.old`);
+    await symlink(privateFile, source);
+    await expect(openAssetFile(resolved)).rejects.toThrow();
+    await rm(source);
+    await writeFile(source, "public");
+    await utimes(source, resolved.mtimeMs / 1000, resolved.mtimeMs / 1000);
+    await expect(openAssetFile(resolved)).rejects.toThrow();
+  });
+
+  it("checks authentication again for previously cached media validators", async () => {
+    await writeFile(path.join(cwd, "media", "clip.mp4"), "0123456789");
+    await scanLibrary(db, config.mediaRoots);
+    const asset = firstAsset("all");
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/assets/${asset.id}/media`,
+      cookies: await loginCookies()
+    });
+    expect(response.headers["cache-control"]).toBe("private, no-cache");
+    const blocked = await app.inject({
+      method: "GET",
+      url: `/api/assets/${asset.id}/media`,
+      headers: { "if-none-match": String(response.headers.etag) }
+    });
+    expect(blocked.statusCode).toBe(401);
+    expect(blocked.headers["cache-control"]).toBe("no-store");
   });
 
   it("streams indexed media and supports byte ranges", async () => {
@@ -75,7 +123,7 @@ describe("media serving", () => {
 
     expect(full.statusCode).toBe(200);
     expect(full.headers["accept-ranges"]).toBe("bytes");
-    expect(full.headers["cache-control"]).toBe("private, max-age=3600");
+    expect(full.headers["cache-control"]).toBe("private, no-cache");
     expect(full.headers["content-length"]).toBe("10");
     expect(full.headers["content-type"]).toContain("video/mp4");
     expect(full.body).toBe("0123456789");
@@ -369,19 +417,13 @@ describe("media serving", () => {
     expect(updatedAsset?.durationMs).toBeGreaterThan(0);
     expect(updatedAsset?.codec).toBeTruthy();
 
-    const derivative = getDerivative(
-      db,
-      stableId(
-        "derivative",
-        asset.id,
-        "poster",
-        "v2",
-        "128",
-        String(asset.mtimeMs)
+    const derivative = db
+      .prepare(
+        "SELECT status, path FROM derivatives WHERE asset_id = ? AND kind = 'poster'"
       )
-    );
+      .get(asset.id) as { status: string; path: string };
     expect(derivative?.status).toBe("ready");
-    expect(derivative?.path).toContain("v2-");
+    expect(derivative?.path).toContain("-v3-");
   });
 
   it("generates cached video previews and supports byte ranges", async () => {
@@ -401,22 +443,20 @@ describe("media serving", () => {
     expect(response.headers["content-type"]).toContain("video/mp4");
     expect(response.rawPayload.byteLength).toBeGreaterThan(0);
 
-    const derivative = getDerivative(
-      db,
-      stableId(
-        "derivative",
-        asset.id,
-        "preview",
-        "v3",
-        "720",
-        "2",
-        String(asset.mtimeMs)
+    const derivative = db
+      .prepare(
+        "SELECT status, path, width, height FROM derivatives WHERE asset_id = ? AND kind = 'preview'"
       )
-    );
+      .get(asset.id) as {
+      status: string;
+      path: string;
+      width: number;
+      height: number;
+    };
     expect(derivative?.status).toBe("ready");
     expect(derivative?.width).toBe(720);
     expect(derivative?.height).toBe(2);
-    expect(derivative?.path).toContain("v3-");
+    expect(derivative?.path).toContain("-v4-");
     expect(
       derivative?.path ? await hasAudioStream(derivative.path) : false
     ).toBe(true);
@@ -433,6 +473,101 @@ describe("media serving", () => {
     expect(partial.statusCode).toBe(206);
     expect(partial.headers["content-range"]).toMatch(/^bytes 0-15\/\d+$/);
     expect(partial.rawPayload.byteLength).toBe(16);
+  });
+
+  it("retires replaced video derivatives and refuses symlinked cache directories", async () => {
+    const source = path.join(cwd, "media", "clip.mp4");
+    await createTestVideo(source);
+    await scanLibrary(db, config.mediaRoots);
+    const asset = firstAsset("video");
+    const cookies = await loginCookies();
+    const url = `/api/assets/${asset.id}/thumbnail?size=128`;
+    expect((await app.inject({ method: "GET", url, cookies })).statusCode).toBe(
+      200
+    );
+    const previous = db
+      .prepare(
+        "SELECT path FROM derivatives WHERE asset_id = ? AND kind = 'poster'"
+      )
+      .get(asset.id) as { path: string };
+    await utimes(source, new Date(), new Date(Date.now() + 2000));
+    await scanLibrary(db, config.mediaRoots, undefined, config.cacheDir);
+    expect((await app.inject({ method: "GET", url, cookies })).statusCode).toBe(
+      200
+    );
+    await expect(lstat(previous.path)).rejects.toMatchObject({
+      code: "ENOENT"
+    });
+    const outside = path.join(cwd, "outside");
+    await mkdir(outside);
+    await rm(path.join(config.cacheDir, "posters"), { recursive: true });
+    await symlink(outside, path.join(config.cacheDir, "posters"));
+    const blocked = await app.inject({ method: "GET", url, cookies });
+    expect(blocked.statusCode).toBe(403);
+    expect(blocked.body).not.toContain(cwd);
+  });
+
+  it("does not let a failed obsolete video job retire its successful replacement", async () => {
+    const source = path.join(cwd, "media", "clip.mp4");
+    await createTestVideo(source);
+    await scanLibrary(db, config.mediaRoots);
+    const asset = firstAsset("video");
+    const original = (await resolveAssetFile(db, asset.id))!;
+    let release!: () => void;
+    let started!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const waiting = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const run = processing.runMediaCommand;
+    let blocked = false;
+    vi.spyOn(processing, "runMediaCommand").mockImplementation(
+      async (command, args, timeout) => {
+        if (command === "ffmpeg" && !blocked) {
+          blocked = true;
+          started();
+          await gate;
+          throw new Error("Obsolete processing failed.");
+        }
+        return run(command, args, timeout);
+      }
+    );
+    const obsolete = ensureVideoPoster({
+      db,
+      config,
+      file: original,
+      size: 128
+    }).then(
+      () => null,
+      (error: unknown) => error
+    );
+    try {
+      await waiting;
+      await utimes(source, new Date(), new Date(Date.now() + 2000));
+      await scanLibrary(db, config.mediaRoots, undefined, config.cacheDir);
+      const current = (await resolveAssetFile(db, asset.id))!;
+      const fresh = await ensureVideoPoster({
+        db,
+        config,
+        file: current,
+        size: 128
+      });
+      release();
+      expect(await obsolete).toBeInstanceOf(Error);
+      expect(await lstat(fresh.path)).toBeDefined();
+      expect(
+        db
+          .prepare(
+            "SELECT status, path FROM derivatives WHERE asset_id = ? AND kind = 'poster'"
+          )
+          .get(asset.id)
+      ).toEqual({ status: "ready", path: fresh.path });
+    } finally {
+      release();
+      await obsolete;
+    }
   });
 
   function firstAsset(type: "all" | "image" | "video") {

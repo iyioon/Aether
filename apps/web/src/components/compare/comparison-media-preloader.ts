@@ -340,11 +340,11 @@ function getResources(
   }
 
   for (const asset of assets.values()) {
-    add(thumbnailUrl(asset.id), "image");
+    add(thumbnailUrl(asset), "image");
   }
   for (const asset of assets.values()) {
     if (asset.mediaType === "video" && includeVideoData) {
-      add(mediaUrl(asset.id), "video");
+      add(mediaUrl(asset), "video");
     }
   }
   return resources;

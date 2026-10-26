@@ -145,6 +145,17 @@ Never test rebuild or wipe against the only copy of a real library database.
   return, and native fullscreen section bounds. Record real-device acceptance
   separately from browser emulation.
 
+## HEIC Acceptance
+
+- Index genuine 8-bit and10-bit SDR HEIC/HEIF photos, including rotated photos,
+  transparency, wide-gamut profiles and a48MP iPhone photo.
+- Check thumbnails, Feed, Compare, fullscreen viewing and saved framing on
+  desktop and an actual iPhone. Confirm original download hashes match sources.
+- Restart, replace or remove a source and scan; confirm retired display files and
+  thumbnails disappear without changing unrelated settings or source files.
+- Check unsupported HDR, corrupt files and decoder/resource limits fail safely.
+  Native setup must include the decoder; container checks use the runtime tools.
+
 ## Security
 
 - A strong password hash and unique session secret are set.
@@ -155,6 +166,13 @@ Never test rebuild or wipe against the only copy of a real library database.
 - Proxy headers are trusted only from the configured reverse proxy.
 - Optional tag suggestions remain disabled unless the destination is understood.
 - External backups are tracked and removed separately when required.
+- Server state and native temporary files remain inside the data directory.
+  Check interrupted jobs and a container restart for abandoned-work cleanup.
+- Cached private media revalidates authentication after logout; secure logout
+  requests browser cache clearing. Browser downloads/history and older caches
+  remain device-managed and require separate removal when needed.
+- Interrupted restore recovery is inspected before restarting or deleting files;
+  maintenance refuses concurrent backup work.
 
 ## Release
 

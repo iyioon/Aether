@@ -15,7 +15,11 @@ import {
   removeAssetDerivativeCache,
   sweepDerivativeCache
 } from "../src/library/derivative-cache.js";
-import { scanLibrary } from "../src/library/scanner.js";
+import { LibraryScanner, scanLibrary } from "../src/library/scanner.js";
+import {
+  defaultPresentationValues,
+  getPresentationRenditionKeys
+} from "../src/library/presentation.js";
 
 const fixtureDirectories: string[] = [];
 
@@ -219,6 +223,146 @@ describe("privacy lifecycle", () => {
     await expect(access(outsideSentinel)).resolves.toBeUndefined();
   });
 
+  it("retires old-source cache records and files without pruning active generation work", async () => {
+    const directory = await createFixtureDirectory();
+    const cache = path.join(directory, "cache");
+    const db = openDatabase(path.join(directory, "config"));
+    try {
+      insertAsset(db, "asset-live");
+      const stale = path.join(cache, "display-images", "asset-live", "old.png");
+      const work = path.join(
+        cache,
+        "display-images",
+        "asset-live",
+        "work-active",
+        "frame.png"
+      );
+      const outside = path.join(directory, "outside-private.png");
+      await Promise.all([
+        writeFixtureFile(stale),
+        writeFixtureFile(work),
+        writeFixtureFile(outside)
+      ]);
+      const insert = db.prepare(`INSERT INTO derivatives
+        (id, asset_id, kind, width, height, path, source_mtime_ms, status, created_at)
+        VALUES (?, 'asset-live', ?, 0, 0, ?, 0, 'ready', '2026-10-26')`);
+      insert.run("stale-display", "display-image", stale);
+      insert.run("unsafe-old", "old-thumbnail", outside);
+      expect((await sweepDerivativeCache(db, cache)).removedEntries).toBe(1);
+      await expect(access(stale)).rejects.toMatchObject({ code: "ENOENT" });
+      expect(await readFile(outside, "utf8")).toBe("fixture");
+      await expect(access(work)).resolves.toBeUndefined();
+      expect(
+        db.prepare("SELECT COUNT(*) AS count FROM derivatives").get()
+      ).toEqual({ count: 0 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("discards unfinished derivative records only during the offline startup sweep", async () => {
+    const directory = await createFixtureDirectory();
+    const cache = path.join(directory, "cache");
+    const db = openDatabase(path.join(directory, "config"));
+    try {
+      insertAsset(db, "asset-live");
+      const failed = path.join(cache, "thumbnails", "asset-live", "failed.tmp");
+      await writeFixtureFile(failed);
+      db.prepare(
+        `INSERT INTO derivatives (id, asset_id, kind, width, height, path, source_mtime_ms, status, error, created_at)
+        VALUES ('failed', 'asset-live', 'thumbnail', 128, 128, ?, 1, 'failed', '/private/old/file', '2026-10-26')`
+      ).run(failed);
+      db.prepare(
+        "UPDATE assets SET error = '/private/old/source.jpg' WHERE id = 'asset-live'"
+      ).run();
+      await sweepDerivativeCache(db, cache);
+      expect(
+        db.prepare("SELECT COUNT(*) AS count FROM derivatives").get()
+      ).toEqual({ count: 1 });
+      await sweepDerivativeCache(db, cache, { pruneStaleFiles: true });
+      expect(
+        db.prepare("SELECT COUNT(*) AS count FROM derivatives").get()
+      ).toEqual({ count: 0 });
+      expect(
+        db.prepare("SELECT error FROM assets WHERE id = 'asset-live'").get()
+      ).toEqual({ error: null });
+      await expect(access(failed)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("prunes retired presentation identities at startup while retaining current full animation files", async () => {
+    const directory = await createFixtureDirectory();
+    const cache = path.join(directory, "cache");
+    const db = openDatabase(path.join(directory, "config"));
+    try {
+      insertAsset(db, "asset-live");
+      const keys = getPresentationRenditionKeys(
+        { id: "asset-live", mtimeMs: 1, sizeBytes: 1 },
+        defaultPresentationValues()
+      );
+      const current = path.join(
+        cache,
+        "presentations",
+        "asset-live",
+        "animation.json"
+      );
+      const retired = path.join(
+        cache,
+        "presentations",
+        "asset-live",
+        "old-bounce.mp4"
+      );
+      await Promise.all([writeFixtureFile(current), writeFixtureFile(retired)]);
+      const insert = db.prepare(`INSERT INTO derivatives
+        (id, asset_id, kind, width, height, path, source_mtime_ms, status, created_at)
+        VALUES (?, 'asset-live', ?, 0, 0, ?, 1, 'ready', '2026-10-26')`);
+      insert.run("current", `presentation:animation:${keys.full}:0`, current);
+      insert.run("old", `presentation:bounce-mp4:${"0".repeat(32)}:0`, retired);
+      await sweepDerivativeCache(db, cache, { pruneStaleFiles: true });
+      await expect(access(current)).resolves.toBeUndefined();
+      await expect(access(retired)).rejects.toMatchObject({ code: "ENOENT" });
+      expect(db.prepare("SELECT id FROM derivatives").all()).toEqual([
+        { id: "current" }
+      ]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("bounds completed scan history and removes historical failure paths", async () => {
+    const directory = await createFixtureDirectory();
+    const db = openDatabase(path.join(directory, "config"));
+    try {
+      const insert =
+        db.prepare(`INSERT INTO jobs (id, type, status, priority, attempts, error, created_at, updated_at)
+        VALUES (?, 'library_scan', 'failed', 0, 1, ?, ?, ?)`);
+      for (let index = 0; index < 40; index += 1) {
+        const timestamp = new Date(
+          Date.UTC(2026, 9, 26, 0, index)
+        ).toISOString();
+        insert.run(
+          `job-${index}`,
+          `ENOENT: /private/library/${index}.jpg`,
+          timestamp,
+          timestamp
+        );
+      }
+      const scanner = new LibraryScanner(db, []);
+      expect(scanner.listJobs(100)).toHaveLength(20);
+      expect(
+        scanner
+          .listJobs(100)
+          .every((job) => job.error === "Library scan failed.")
+      ).toBe(true);
+      expect(scanner.listJobs(100)[0]?.id).toBe("job-39");
+      await scanner.stop();
+    } finally {
+      db.close();
+    }
+  });
+
   it("refuses to follow a symlinked derivative cache directory", async () => {
     const fixtureDirectory = await createFixtureDirectory();
     const cacheDirectory = path.join(fixtureDirectory, "cache");
@@ -264,7 +408,8 @@ describe("privacy lifecycle", () => {
       const cachedFiles = [
         path.join(config.cacheDir, "thumbnails", asset.id, "thumbnail.webp"),
         path.join(config.cacheDir, "posters", asset.id, "poster.jpg"),
-        path.join(config.cacheDir, "previews", asset.id, "preview.mp4")
+        path.join(config.cacheDir, "previews", asset.id, "preview.mp4"),
+        path.join(config.cacheDir, "display-images", asset.id, "display.png")
       ];
       await Promise.all(cachedFiles.map(writeFixtureFile));
       await rm(sourceFile);

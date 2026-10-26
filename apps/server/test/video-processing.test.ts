@@ -51,4 +51,17 @@ describe("bounded media processing", () => {
       runMediaCommand(process.execPath, ["-e", "setTimeout(()=>{},1000)"], 25)
     ).rejects.toThrow("timed out");
   });
+
+  it("allows a bounded metadata stdout override without raising the default or exceeding one MiB", async () => {
+    const result = await runMediaCommand(
+      process.execPath,
+      ["-e", "process.stdout.write('x'.repeat(128*1024))"],
+      2000,
+      256 * 1024
+    );
+    expect(result.stdout.length).toBe(128 * 1024);
+    await expect(
+      runMediaCommand(process.execPath, [], 2000, 2 * 1024 * 1024)
+    ).rejects.toThrow("Invalid media command output limit");
+  });
 });

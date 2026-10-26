@@ -1,5 +1,11 @@
-import { createReadStream, existsSync } from "node:fs";
-import { chmod, mkdir, rename, stat, unlink } from "node:fs/promises";
+import { replaceSourceDerivative } from "./repository-derivatives.js";
+import type { UpsertDerivativeInput } from "./repository-types.js";
+import {
+  ensurePrivateCacheDirectory,
+  openPrivateCacheFile
+} from "../security/private-cache-file.js";
+import { createHash } from "node:crypto";
+import { chmod, rename, unlink } from "node:fs/promises";
 import path from "node:path";
 import type { FastifyReply } from "fastify";
 import type { AppConfig } from "../config/config.js";
@@ -8,16 +14,13 @@ import { stableId } from "./ids.js";
 import {
   parseRangeHeader,
   sendRangeNotSatisfiable,
-  type ByteRange,
+  resolveAssetFile,
   type ResolvedAssetFile
 } from "./media-serving.js";
-import {
-  getDerivative,
-  updateAssetMediaMetadata,
-  upsertDerivative
-} from "./repository.js";
+import { getDerivative, updateAssetMediaMetadata } from "./repository.js";
 import type { ThumbnailFile } from "./thumbnails.js";
 import {
+  LOCAL_MEDIA_INPUT_ARGS,
   runMediaCommand,
   withVideoProcessingSlot
 } from "./video-processing.js";
@@ -51,8 +54,8 @@ interface VideoMetadata {
 const POSTER_TIMEOUT_MS = 20_000;
 const PREVIEW_TIMEOUT_MS = 45_000;
 const PROBE_TIMEOUT_MS = 10_000;
-const VIDEO_POSTER_CACHE_VERSION = "v2";
-const VIDEO_PREVIEW_CACHE_VERSION = "v3";
+const VIDEO_POSTER_CACHE_VERSION = "v3";
+const VIDEO_PREVIEW_CACHE_VERSION = "v4";
 
 const pendingPosterJobs = new Map<string, Promise<ThumbnailFile>>();
 const pendingPreviewJobs = new Map<string, Promise<VideoPreviewFile>>();
@@ -76,7 +79,7 @@ export async function ensureVideoPoster({
   const posterPath = posterPathFor(
     config.cacheDir,
     file.asset.id,
-    file.mtimeMs,
+    videoSourceKey(file),
     size
   );
   const derivativeId = stableId(
@@ -85,18 +88,24 @@ export async function ensureVideoPoster({
     "poster",
     VIDEO_POSTER_CACHE_VERSION,
     String(size),
-    String(file.mtimeMs)
+    videoSourceKey(file)
   );
+  await ensurePrivateCacheDirectory(config.cacheDir, "posters", file.asset.id);
+  await verifyVideoSource(db, file);
   const existing = getDerivative(db, derivativeId);
 
-  if (existing?.status === "ready" && existsSync(posterPath)) {
+  if (
+    existing?.status === "ready" &&
+    (await cachedVideoFileExists(posterPath, config.cacheDir))
+  ) {
     return {
       path: posterPath,
       contentType: "image/jpeg"
     };
   }
 
-  const pending = pendingPosterJobs.get(derivativeId);
+  const jobKey = `${config.cacheDir}:${derivativeId}`;
+  const pending = pendingPosterJobs.get(jobKey);
 
   if (pending) {
     return pending;
@@ -111,10 +120,10 @@ export async function ensureVideoPoster({
       derivativeId
     })
   ).finally(() => {
-    pendingPosterJobs.delete(derivativeId);
+    pendingPosterJobs.delete(jobKey);
   });
 
-  pendingPosterJobs.set(derivativeId, job);
+  pendingPosterJobs.set(jobKey, job);
   return job;
 }
 
@@ -142,7 +151,7 @@ export async function ensureVideoPreview({
   const previewPath = previewPathFor(
     config.cacheDir,
     file.asset.id,
-    file.mtimeMs,
+    videoSourceKey(file),
     previewSize,
     previewDurationSeconds
   );
@@ -153,18 +162,24 @@ export async function ensureVideoPreview({
     VIDEO_PREVIEW_CACHE_VERSION,
     String(previewSize),
     String(previewDurationSeconds),
-    String(file.mtimeMs)
+    videoSourceKey(file)
   );
+  await ensurePrivateCacheDirectory(config.cacheDir, "previews", file.asset.id);
+  await verifyVideoSource(db, file);
   const existing = getDerivative(db, derivativeId);
 
-  if (existing?.status === "ready" && existsSync(previewPath)) {
+  if (
+    existing?.status === "ready" &&
+    (await cachedVideoFileExists(previewPath, config.cacheDir))
+  ) {
     return {
       path: previewPath,
       contentType: "video/mp4"
     };
   }
 
-  const pending = pendingPreviewJobs.get(derivativeId);
+  const jobKey = `${config.cacheDir}:${derivativeId}`;
+  const pending = pendingPreviewJobs.get(jobKey);
 
   if (pending) {
     return pending;
@@ -180,10 +195,10 @@ export async function ensureVideoPreview({
       derivativeId
     })
   ).finally(() => {
-    pendingPreviewJobs.delete(derivativeId);
+    pendingPreviewJobs.delete(jobKey);
   });
 
-  pendingPreviewJobs.set(derivativeId, job);
+  pendingPreviewJobs.set(jobKey, job);
   return job;
 }
 
@@ -200,12 +215,10 @@ async function generateVideoPoster({
   posterPath: string;
   derivativeId: string;
 }): Promise<ThumbnailFile> {
-  const posterDirectory = path.dirname(posterPath);
-  await mkdir(posterDirectory, { recursive: true, mode: 0o700 });
-  await chmod(posterDirectory, 0o700);
   const temporaryPath = `${posterPath}.${process.pid}.${Date.now()}.tmp`;
 
   try {
+    await verifyVideoSource(db, file);
     const metadata = await cachedOrProbeVideoMetadata(file);
 
     await runMediaCommand(
@@ -214,6 +227,7 @@ async function generateVideoPoster({
         "-hide_banner",
         "-loglevel",
         "error",
+        ...LOCAL_MEDIA_INPUT_ARGS,
         "-i",
         file.sourcePath,
         "-map",
@@ -234,13 +248,15 @@ async function generateVideoPoster({
       POSTER_TIMEOUT_MS
     );
 
+    await verifyVideoSource(db, file);
     await chmod(temporaryPath, 0o600);
     await rename(temporaryPath, posterPath);
+    await verifyVideoSource(db, file);
     updateAssetMediaMetadata(db, {
       assetId: file.asset.id,
       ...metadata
     });
-    upsertDerivative(db, {
+    await recordVideoDerivative(db, file, {
       id: derivativeId,
       assetId: file.asset.id,
       kind: "poster",
@@ -262,22 +278,6 @@ async function generateVideoPoster({
       unlink(temporaryPath).catch(() => undefined),
       unlink(posterPath).catch(() => undefined)
     ]);
-    try {
-      upsertDerivative(db, {
-        id: derivativeId,
-        assetId: file.asset.id,
-        kind: "poster",
-        width: size,
-        height: size,
-        path: posterPath,
-        sourceMtimeMs: file.mtimeMs,
-        status: "failed",
-        error: errorMessage(error),
-        createdAt: new Date().toISOString()
-      });
-    } catch {
-      // The asset may have been removed by a scan while this job was running.
-    }
     throw error;
   }
 }
@@ -297,12 +297,10 @@ async function generateVideoPreview({
   previewPath: string;
   derivativeId: string;
 }): Promise<VideoPreviewFile> {
-  const previewDirectory = path.dirname(previewPath);
-  await mkdir(previewDirectory, { recursive: true, mode: 0o700 });
-  await chmod(previewDirectory, 0o700);
   const temporaryPath = `${previewPath}.${process.pid}.${Date.now()}.tmp`;
 
   try {
+    await verifyVideoSource(db, file);
     const metadata = await cachedOrProbeVideoMetadata(file);
 
     await runMediaCommand(
@@ -311,6 +309,7 @@ async function generateVideoPreview({
         "-hide_banner",
         "-loglevel",
         "error",
+        ...LOCAL_MEDIA_INPUT_ARGS,
         "-i",
         file.sourcePath,
         "-map",
@@ -343,13 +342,15 @@ async function generateVideoPreview({
       PREVIEW_TIMEOUT_MS
     );
 
+    await verifyVideoSource(db, file);
     await chmod(temporaryPath, 0o600);
     await rename(temporaryPath, previewPath);
+    await verifyVideoSource(db, file);
     updateAssetMediaMetadata(db, {
       assetId: file.asset.id,
       ...metadata
     });
-    upsertDerivative(db, {
+    await recordVideoDerivative(db, file, {
       id: derivativeId,
       assetId: file.asset.id,
       kind: "preview",
@@ -371,22 +372,6 @@ async function generateVideoPreview({
       unlink(temporaryPath).catch(() => undefined),
       unlink(previewPath).catch(() => undefined)
     ]);
-    try {
-      upsertDerivative(db, {
-        id: derivativeId,
-        assetId: file.asset.id,
-        kind: "preview",
-        width: size,
-        height: durationSeconds,
-        path: previewPath,
-        sourceMtimeMs: file.mtimeMs,
-        status: "failed",
-        error: errorMessage(error),
-        createdAt: new Date().toISOString()
-      });
-    } catch {
-      // The asset may have been removed by a scan while this job was running.
-    }
     throw error;
   }
 }
@@ -394,29 +379,63 @@ async function generateVideoPreview({
 export async function sendVideoPreview({
   reply,
   preview,
-  rangeHeader
+  rangeHeader,
+  cacheDir
 }: {
   reply: FastifyReply;
   preview: VideoPreviewFile;
   rangeHeader: string | undefined;
+  cacheDir: string;
 }): Promise<FastifyReply> {
-  const fileStat = await stat(preview.path);
+  const handle = await openPrivateCacheFile(preview.path, cacheDir);
+  const fileStat = await handle.stat().catch(async (error: unknown) => {
+    await handle.close();
+    throw error;
+  });
   const range = parseRangeHeader(rangeHeader, fileStat.size);
 
   if (range === "invalid") {
+    await handle.close();
     return sendRangeNotSatisfiable(reply, fileStat.size);
   }
 
   reply.header("accept-ranges", "bytes");
-  reply.header("cache-control", "private, max-age=86400");
+  reply.header("cache-control", "private, no-cache");
   reply.type(preview.contentType);
 
-  if (range) {
-    return sendPreviewRange(reply, preview.path, fileStat.size, range);
+  const etag = `"${createHash("sha256").update(`${preview.path}:${fileStat.size}:${fileStat.mtimeMs}`).digest("hex").slice(0, 32)}"`;
+  reply.header("etag", etag);
+  if (
+    !range &&
+    reply.request.headers["if-none-match"]
+      ?.split(",")
+      .some(
+        (candidate) =>
+          candidate.trim().replace(/^W\//, "") === etag ||
+          candidate.trim() === "*"
+      )
+  ) {
+    await handle.close();
+    return reply.code(304).send();
   }
-
-  reply.header("content-length", String(fileStat.size));
-  return reply.send(createReadStream(preview.path));
+  if (range) {
+    reply
+      .code(206)
+      .header(
+        "content-range",
+        `bytes ${range.start}-${range.end}/${fileStat.size}`
+      )
+      .header("content-length", String(range.end - range.start + 1));
+  } else reply.header("content-length", String(fileStat.size));
+  if (reply.request.method === "HEAD") {
+    await handle.close();
+    return reply.send();
+  }
+  return reply.send(
+    handle.createReadStream(
+      range ? { start: range.start, end: range.end } : undefined
+    )
+  );
 }
 
 export async function probeVideoMetadata(
@@ -431,6 +450,7 @@ export async function probeVideoMetadata(
     [
       "-v",
       "error",
+      ...LOCAL_MEDIA_INPUT_ARGS,
       "-select_streams",
       "v:0",
       "-show_entries",
@@ -482,45 +502,24 @@ async function cachedOrProbeVideoMetadata(
   return job;
 }
 
-function sendPreviewRange(
-  reply: FastifyReply,
-  previewPath: string,
-  sizeBytes: number,
-  range: ByteRange
-): FastifyReply {
-  const chunkSize = range.end - range.start + 1;
-  reply.code(206);
-  reply.header(
-    "content-range",
-    `bytes ${range.start}-${range.end}/${sizeBytes}`
-  );
-  reply.header("content-length", String(chunkSize));
-  return reply.send(
-    createReadStream(previewPath, {
-      start: range.start,
-      end: range.end
-    })
-  );
-}
-
 function posterPathFor(
   cacheDir: string,
   assetId: string,
-  mtimeMs: number,
+  sourceKey: string,
   size: number
 ): string {
   return path.join(
     cacheDir,
     "posters",
     assetId,
-    `${VIDEO_POSTER_CACHE_VERSION}-${mtimeMs}-${size}.jpg`
+    `${sourceKey}-${VIDEO_POSTER_CACHE_VERSION}-${size}.jpg`
   );
 }
 
 function previewPathFor(
   cacheDir: string,
   assetId: string,
-  mtimeMs: number,
+  sourceKey: string,
   size: number,
   durationSeconds: number
 ): string {
@@ -528,7 +527,7 @@ function previewPathFor(
     cacheDir,
     "previews",
     assetId,
-    `${VIDEO_PREVIEW_CACHE_VERSION}-${mtimeMs}-${size}-${durationSeconds}.mp4`
+    `${sourceKey}-${VIDEO_PREVIEW_CACHE_VERSION}-${size}-${durationSeconds}.mp4`
   );
 }
 
@@ -555,10 +554,6 @@ function durationMsOrNull(value: unknown): number | null {
     : null;
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Video processing failed.";
-}
-
 export class UnsupportedVideoPosterError extends Error {
   constructor(message: string) {
     super(message);
@@ -570,5 +565,66 @@ export class UnsupportedVideoPreviewError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "UnsupportedVideoPreviewError";
+  }
+}
+
+function videoSourceKey(file: ResolvedAssetFile): string {
+  return stableId(
+    "video-source-v1",
+    file.asset.id,
+    String(file.mtimeMs),
+    String(file.sizeBytes),
+    String(file.device ?? ""),
+    String(file.inode ?? "")
+  );
+}
+
+async function verifyVideoSource(
+  db: AetherDatabase,
+  file: ResolvedAssetFile
+): Promise<void> {
+  const current = await resolveAssetFile(db, file.asset.id);
+  if (
+    !current ||
+    current.sourcePath !== file.sourcePath ||
+    current.mtimeMs !== file.mtimeMs ||
+    current.sizeBytes !== file.sizeBytes ||
+    current.device !== file.device ||
+    current.inode !== file.inode
+  )
+    throw new UnsupportedVideoPreviewError(
+      "Video source changed during processing."
+    );
+}
+
+async function cachedVideoFileExists(
+  filePath: string,
+  cacheDir: string
+): Promise<boolean> {
+  try {
+    const handle = await openPrivateCacheFile(filePath, cacheDir);
+    await handle.close();
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+async function recordVideoDerivative(
+  db: AetherDatabase,
+  file: ResolvedAssetFile,
+  input: UpsertDerivativeInput
+): Promise<void> {
+  const obsolete = replaceSourceDerivative(db, input, videoSourceKey(file));
+  const directory = path.dirname(input.path);
+  const kind = path.basename(path.dirname(directory));
+  const cacheDir = path.dirname(path.dirname(directory));
+  await ensurePrivateCacheDirectory(cacheDir, kind, file.asset.id);
+  for (const entry of obsolete) {
+    if (path.dirname(entry) === directory)
+      await unlink(entry).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== "ENOENT") throw error;
+      });
   }
 }

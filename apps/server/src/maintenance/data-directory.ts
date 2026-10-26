@@ -8,6 +8,7 @@ import {
   rmdir
 } from "node:fs/promises";
 import path from "node:path";
+import { homedir } from "node:os";
 import type { AetherDataPaths } from "../config/data-directory.js";
 import {
   assertSafeDataDirectoryTarget,
@@ -17,6 +18,11 @@ import {
   requireManagedDataSubdirectories
 } from "../config/data-directory.js";
 import { acquireRuntimeLock } from "./runtime-lock.js";
+import { assertNoOtherTemporaryWork } from "./private-temporary-files.js";
+import {
+  hasPreservedRestoreState,
+  removeRestoreArtifacts
+} from "./restore-recovery.js";
 
 export interface DataDirectoryEntryStatus {
   path: string;
@@ -32,16 +38,19 @@ export interface DataDirectoryStatus {
   config: DataDirectoryEntryStatus;
   cache: DataDirectoryEntryStatus;
   backups: DataDirectoryEntryStatus;
+  temporary: DataDirectoryEntryStatus;
+  interruptedRestore: boolean;
 }
 
 export async function getDataDirectoryStatus(
   paths: AetherDataPaths
 ): Promise<DataDirectoryStatus> {
   const initialized = await hasValidMarker(paths);
-  const [config, cache, backups] = await Promise.all([
+  const [config, cache, backups, temporary] = await Promise.all([
     inspectEntry(paths.configDir),
     inspectEntry(paths.cacheDir),
-    inspectEntry(paths.backupDir)
+    inspectEntry(paths.backupDir),
+    inspectEntry(paths.tempDir)
   ]);
 
   return {
@@ -50,7 +59,9 @@ export async function getDataDirectoryStatus(
     privateEnv: await pathExists(paths.privateEnvPath),
     config,
     cache,
-    backups
+    backups,
+    temporary,
+    interruptedRestore: initialized && (await hasPreservedRestoreState(paths))
   };
 }
 
@@ -64,21 +75,25 @@ export async function rebuildDataDirectory(
     workspaceRoot,
     mediaRootPaths,
     async () => {
+      await removeRestoreArtifacts(paths, true);
       await Promise.all([
         rm(paths.configDir, { recursive: true, force: true }),
         rm(paths.cacheDir, { recursive: true, force: true }),
-        rm(paths.backupDir, { recursive: true, force: true })
+        rm(paths.backupDir, { recursive: true, force: true }),
+        rm(paths.tempDir, { recursive: true, force: true })
       ]);
 
       await Promise.all([
         mkdir(paths.configDir, { recursive: true, mode: 0o700 }),
         mkdir(paths.cacheDir, { recursive: true, mode: 0o700 }),
-        mkdir(paths.backupDir, { recursive: true, mode: 0o700 })
+        mkdir(paths.backupDir, { recursive: true, mode: 0o700 }),
+        mkdir(paths.tempDir, { recursive: true, mode: 0o700 })
       ]);
       await Promise.all([
         chmod(paths.configDir, 0o700),
         chmod(paths.cacheDir, 0o700),
-        chmod(paths.backupDir, 0o700)
+        chmod(paths.backupDir, 0o700),
+        chmod(paths.tempDir, 0o700)
       ]);
     }
   );
@@ -131,12 +146,13 @@ export async function withDataDirectoryMaintenanceLock<T>(
   operation: () => Promise<T>
 ): Promise<T> {
   await requireSafeDataDirectory(paths, workspaceRoot, mediaRootPaths);
-  const releaseLock = await acquireRuntimeLock(paths);
+  const releaseLock = await acquireRuntimeLock(paths, "maintenance");
 
   try {
     // Revalidate after taking the exclusive lock so a path change between the
     // preflight check and lock acquisition cannot widen the deletion target.
     await requireSafeDataDirectory(paths, workspaceRoot, mediaRootPaths);
+    await assertNoOtherTemporaryWork(paths);
     return await operation();
   } finally {
     await releaseLock();
@@ -153,10 +169,29 @@ async function requireSafeDataDirectory(
   await requireManagedDataSubdirectories(paths, true);
   assertDataDirectoryOutsideMediaRoots(paths.dataDir, mediaRootPaths);
 
-  const [canonicalDataDir, ...canonicalMediaRoots] = await Promise.all([
+  const [
+    canonicalDataDir,
+    canonicalWorkspace,
+    canonicalHome,
+    ...canonicalMediaRoots
+  ] = await Promise.all([
     canonicalPath(paths.dataDir),
+    canonicalPath(workspaceRoot),
+    canonicalPath(homedir()),
     ...mediaRootPaths.map(canonicalPath)
   ]);
+  assertSafeDataDirectoryTarget(
+    { ...paths, dataDir: canonicalDataDir },
+    canonicalWorkspace
+  );
+  if (
+    canonicalDataDir === canonicalHome ||
+    canonicalHome.startsWith(`${canonicalDataDir}${path.sep}`)
+  ) {
+    throw new Error(
+      "AETHER_DATA_DIR cannot be the user's home directory or one of its parents."
+    );
+  }
   assertDataDirectoryOutsideMediaRoots(canonicalDataDir, canonicalMediaRoots);
 }
 

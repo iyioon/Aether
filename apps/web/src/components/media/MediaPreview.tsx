@@ -4,6 +4,7 @@ import { Image, Video } from "lucide-react";
 import type { AssetRecord, PresentationAspect } from "../../api/client";
 import { isMediaImageReady, markMediaImageReady } from "./media-image-cache";
 import {
+  imageDisplayUrl,
   isAnimatedImagePreview,
   mediaUrl,
   thumbnailUrl,
@@ -184,22 +185,22 @@ export const MediaPreview = memo(function MediaPreview({
   const mediaStyle = presentationMediaStyle(framedValues, defaultFit);
   const posterSource =
     presentationPosterUrl(playbackAsset, highlightsOnly, thumbnailSize) ??
-    thumbnailUrl(asset.id, thumbnailSize);
+    thumbnailUrl(asset, thumbnailSize);
   const videoSource =
     asset.mediaType === "video"
       ? variant === "bounce"
         ? presentationPlaybackUrl(playbackAsset, variant, bounceCodec.codec)
         : variant === "highlight"
           ? useOriginalVideo && !originalVideoFailed
-            ? mediaUrl(asset.id)
+            ? mediaUrl(asset)
             : presentationPlaybackUrl(playbackAsset, variant)
           : useOriginalVideo
             ? originalVideoFailed
-              ? videoPreviewUrl(asset.id, tall ? 720 : 480)
-              : mediaUrl(asset.id)
+              ? videoPreviewUrl(asset, tall ? 720 : 480)
+              : mediaUrl(asset)
             : videoPreviewFailed
-              ? mediaUrl(asset.id)
-              : videoPreviewUrl(asset.id, tall ? 720 : 480)
+              ? mediaUrl(asset)
+              : videoPreviewUrl(asset, tall ? 720 : 480)
       : "";
 
   const isVideoPlaybackVisible = isVisible || (showVideoTimeline && isActive);
@@ -699,7 +700,7 @@ export const MediaPreview = memo(function MediaPreview({
   }
 
   if (asset.mediaType === "image") {
-    const originalSource = mediaUrl(asset.id);
+    const originalSource = imageDisplayUrl(asset);
     const shouldUseOriginalImage =
       (!animationCandidate || capabilities?.kind === "still") &&
       ((useOriginalImage && !originalImageFailed) ||
@@ -707,7 +708,7 @@ export const MediaPreview = memo(function MediaPreview({
     const isProgressiveImage = shouldUseOriginalImage;
     const previewSource = shouldUseOriginalImage
       ? originalSource
-      : thumbnailUrl(asset.id, thumbnailSize);
+      : thumbnailUrl(asset, thumbnailSize);
     const isImageReady =
       loadedImageSource === previewSource ||
       (!shouldUseOriginalImage && isMediaImageReady(previewSource));

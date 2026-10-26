@@ -7,6 +7,21 @@ export const VIDEO_BOUNCE_MAX_FRAMES = 600;
 export const VIDEO_BOUNCE_MAX_DECODED_BYTES = 256 * 1024 * 1024;
 export const VIDEO_BOUNCE_MAX_OUTPUT_BYTES = 128 * 1024 * 1024;
 const MICROSECONDS = 1_000_000;
+let displayRotationSupport: Promise<boolean> | null = null;
+
+function supportsDisplayRotation(): Promise<boolean> {
+  displayRotationSupport ??= runMediaCommand(
+    "ffmpeg",
+    ["-hide_banner", "-h"],
+    5000
+  )
+    .then((result) => /^\s*-display_rotation\b/m.test(result.stdout))
+    .catch((error: unknown) => {
+      displayRotationSupport = null;
+      throw error;
+    });
+  return displayRotationSupport;
+}
 
 export interface VideoBounceProfile {
   width: number;
@@ -116,6 +131,9 @@ function canonicalMatrix(stream: ProbeStream): boolean {
     ) &&
     [2, 5, 6, 7].every((index) => values[index] === 0) &&
     values[8] === 1073741824 &&
+    values[0]! ** 2 + values[1]! ** 2 === 65536 ** 2 &&
+    values[3]! ** 2 + values[4]! ** 2 === 65536 ** 2 &&
+    values[0]! * values[3]! + values[1]! * values[4]! === 0 &&
     values[0]! * values[4]! - values[1]! * values[3]! === 65536 ** 2
   );
 }
@@ -506,6 +524,8 @@ export async function generateLosslessBounce(
     ["-color_primaries", profile.colorPrimaries],
     ["-chroma_sample_location", profile.chromaLocation]
   ].flatMap(([option, value]) => (value ? [option!, value] : []));
+  const useDisplayRotation =
+    profile.rotation !== 0 && (await supportsDisplayRotation());
   try {
     await runMediaCommand(
       "ffmpeg",
@@ -577,6 +597,9 @@ export async function generateLosslessBounce(
           "-loglevel",
           "error",
           "-noautorotate",
+          ...(useDisplayRotation
+            ? ["-display_rotation:v:0", String(profile.rotation)]
+            : []),
           ...LOCAL_MEDIA_INPUT_ARGS,
           "-i",
           encodedPath,
@@ -584,8 +607,10 @@ export async function generateLosslessBounce(
           "0:v:0",
           "-c",
           "copy",
-          "-metadata:s:v:0",
-          `rotate=${profile.rotation}`,
+          // Older FFmpeg releases lack the input display-matrix override.
+          ...(!useDisplayRotation
+            ? ["-metadata:s:v:0", `rotate=${profile.rotation}`]
+            : []),
           "-video_track_timescale",
           "1000000",
           "-movflags",

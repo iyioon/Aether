@@ -21,6 +21,7 @@ const KNOWN_INITIAL_ENTRIES = new Set([
   "config",
   "cache",
   "backups",
+  "tmp",
   "runtime.lock"
 ]);
 
@@ -29,6 +30,7 @@ export interface AetherDataPaths {
   configDir: string;
   cacheDir: string;
   backupDir: string;
+  tempDir: string;
   privateEnvPath: string;
   markerPath: string;
   runtimeLockPath: string;
@@ -51,6 +53,7 @@ export function resolveDataPaths(
     configDir: path.join(dataDir, "config"),
     cacheDir: path.join(dataDir, "cache"),
     backupDir: path.join(dataDir, "backups"),
+    tempDir: path.join(dataDir, "tmp"),
     privateEnvPath: path.join(dataDir, PRIVATE_ENV_FILE),
     markerPath: path.join(dataDir, DATA_DIRECTORY_MARKER),
     runtimeLockPath: path.join(dataDir, "runtime.lock")
@@ -116,7 +119,8 @@ export async function initializeDataDirectory(
   await Promise.all([
     mkdir(paths.configDir, { recursive: true, mode: 0o700 }),
     mkdir(paths.cacheDir, { recursive: true, mode: 0o700 }),
-    mkdir(paths.backupDir, { recursive: true, mode: 0o700 })
+    mkdir(paths.backupDir, { recursive: true, mode: 0o700 }),
+    mkdir(paths.tempDir, { recursive: true, mode: 0o700 })
   ]);
   await requireManagedDataSubdirectories(paths);
   await Promise.all([
@@ -124,6 +128,7 @@ export async function initializeDataDirectory(
     chmod(paths.configDir, 0o700),
     chmod(paths.cacheDir, 0o700),
     chmod(paths.backupDir, 0o700),
+    chmod(paths.tempDir, 0o700),
     chmod(paths.markerPath, 0o600)
   ]);
 
@@ -184,7 +189,12 @@ export async function requireManagedDataSubdirectories(
   paths: AetherDataPaths,
   allowMissing = false
 ): Promise<void> {
-  for (const directory of [paths.configDir, paths.cacheDir, paths.backupDir]) {
+  for (const directory of [
+    paths.configDir,
+    paths.cacheDir,
+    paths.backupDir,
+    paths.tempDir
+  ]) {
     if (allowMissing && !(await pathExists(directory))) {
       continue;
     }

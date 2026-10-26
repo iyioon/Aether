@@ -2,6 +2,7 @@ import {
   access,
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   rm,
   symlink,
@@ -15,6 +16,53 @@ import { openDatabase } from "../src/db/database.js";
 import { createConfigBackup } from "../src/maintenance/backup.js";
 
 describe("config backups", () => {
+  it("publishes internal backups from private temporary work and cleans failed staging", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "aether-backup-staging-"));
+    const configDir = path.join(cwd, "config");
+    const outputDir = path.join(cwd, "backups");
+    const stagingDir = path.join(cwd, "tmp");
+    await mkdir(configDir);
+    await mkdir(stagingDir);
+    const db = openDatabase(configDir);
+    try {
+      const now = new Date("2026-10-26T00:00:00.000Z");
+      const result = await createConfigBackup({
+        configDir,
+        outputDir,
+        stagingDir,
+        now
+      });
+      expect(await readdir(stagingDir)).toEqual([]);
+      expect(await readdir(result.backupDir)).toEqual([
+        "aether.sqlite",
+        "manifest.json"
+      ]);
+      expect(result.databasePath).toBe(
+        path.join(result.backupDir, "aether.sqlite")
+      );
+      await expect(
+        createConfigBackup({ configDir, outputDir, stagingDir, now })
+      ).rejects.toThrow("already exists");
+      await expect(
+        createConfigBackup({
+          configDir,
+          outputDir,
+          stagingDir,
+          includeCache: true,
+          cacheDir: path.join(cwd, "missing"),
+          now: new Date(now.getTime() + 1000)
+        })
+      ).rejects.toThrow();
+      expect(await readdir(stagingDir)).toEqual([]);
+      expect(await readdir(outputDir)).toEqual([
+        path.basename(result.backupDir)
+      ]);
+    } finally {
+      db.close();
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("creates a consistent SQLite backup with a manifest", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "aether-backup-"));
     const configDir = path.join(cwd, "config");
@@ -126,6 +174,48 @@ describe("config backups", () => {
     } finally {
       db.close();
       await rm(cwd, { force: true, recursive: true });
+    }
+  });
+
+  it("omits incomplete processor outputs and decoder scratch from cache backups", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "aether-backup-"));
+    const configDir = path.join(cwd, "config");
+    const cacheDir = path.join(cwd, "cache");
+    const assetDir = path.join(cacheDir, "display-images", "asset");
+    await mkdir(assetDir, { recursive: true });
+    const db = openDatabase(configDir);
+    try {
+      await writeFile(path.join(assetDir, "ready.png"), "published bytes");
+      await writeFile(
+        path.join(assetDir, "ready.png.unique.tmp"),
+        "unfinished"
+      );
+      for (const name of ["work-123456", ".decode-123456"]) {
+        await mkdir(path.join(assetDir, name));
+        await writeFile(
+          path.join(assetDir, name, "source.png"),
+          "scratch bytes"
+        );
+      }
+      const backup = await createConfigBackup({
+        configDir,
+        cacheDir,
+        includeCache: true,
+        outputDir: path.join(cwd, "backups")
+      });
+      const manifest = JSON.parse(
+        await readFile(backup.manifestPath, "utf8")
+      ) as { files: Array<{ path: string }> };
+      expect(manifest.files.map((file) => file.path)).toEqual([
+        "aether.sqlite",
+        "cache/display-images/asset/ready.png"
+      ]);
+      expect(
+        await readFile(path.join(assetDir, "ready.png.unique.tmp"), "utf8")
+      ).toBe("unfinished");
+    } finally {
+      db.close();
+      await rm(cwd, { recursive: true, force: true });
     }
   });
 

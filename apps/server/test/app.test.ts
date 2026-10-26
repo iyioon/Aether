@@ -1,12 +1,14 @@
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { link, mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { hashPassword } from "../src/auth/password.js";
 import { loadConfig } from "../src/config/config.js";
 import { openDatabase, type AetherDatabase } from "../src/db/database.js";
 import { buildApp } from "../src/http/app.js";
+import { createSession } from "../src/auth/sessions.js";
+import { recordFailedLogin } from "../src/auth/login-attempts.js";
 
 describe("app security foundation", () => {
   let app: FastifyInstance;
@@ -39,6 +41,8 @@ describe("app security foundation", () => {
   afterEach(async () => {
     await app.close();
     db.close();
+    vi.useRealTimers();
+    await rm(configuredCwd, { recursive: true, force: true });
   });
 
   it("keeps health public and protects library routes", async () => {
@@ -58,6 +62,86 @@ describe("app security foundation", () => {
     );
     expect(health.headers["x-content-type-options"]).toBe("nosniff");
     expect(health.headers["x-frame-options"]).toBe("DENY");
+  });
+
+  it("prunes expired authentication history on startup and while idle", async () => {
+    await app.close();
+    const expired = createSession(db, 1);
+    const active = createSession(db, 1);
+    db.prepare("UPDATE sessions SET expires_at = ? WHERE id = ?").run(
+      "2000-01-01T00:00:00.000Z",
+      expired.id
+    );
+    recordFailedLogin(
+      db,
+      "stale-address-hash",
+      { maxFailures: 5, windowMs: 60_000, lockoutMs: 60_000 },
+      new Date("2000-01-01")
+    );
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    app = await buildApp({ config: configuredConfig, db, logger: false });
+    expect(
+      db.prepare("SELECT id FROM sessions WHERE id = ?").get(expired.id)
+    ).toBeUndefined();
+    expect(db.prepare("SELECT key FROM login_attempts").all()).toHaveLength(0);
+    db.prepare("UPDATE sessions SET expires_at = ? WHERE id = ?").run(
+      new Date(Date.now() + 1000).toISOString(),
+      active.id
+    );
+    await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
+    expect(db.prepare("SELECT id FROM sessions").all()).toHaveLength(0);
+    await app.close();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("never exposes private files through public web symlinks", async () => {
+    await app.close();
+    const webDistDir = path.join(configuredCwd, "web-dist");
+    await mkdir(path.join(webDistDir, "assets"), { recursive: true });
+    await writeFile(path.join(webDistDir, "index.html"), "<main>Aether</main>");
+    await writeFile(
+      path.join(configuredConfig.configDir, "secret.txt"),
+      "private-value"
+    );
+    await symlink(
+      path.join(configuredConfig.configDir, "secret.txt"),
+      path.join(webDistDir, "assets", "leak.txt")
+    );
+    await symlink(configuredConfig.configDir, path.join(webDistDir, "private"));
+    app = await buildApp({
+      config: { ...configuredConfig, webDistDir },
+      db,
+      logger: false
+    });
+    await link(
+      path.join(configuredConfig.configDir, "secret.txt"),
+      path.join(webDistDir, "assets", "linked.txt")
+    );
+    for (const url of [
+      "/assets/leak.txt",
+      "/assets/linked.txt",
+      "/private/secret.txt",
+      "/%61pi/tree",
+      "/api%2Ftree"
+    ]) {
+      const response = await app.inject({ method: "GET", url });
+      expect(response.body).not.toContain("private-value");
+      expect(response.body).not.toContain(configuredCwd);
+      if (
+        url.includes("secret.txt") ||
+        url.includes("leak.txt") ||
+        url.includes("linked.txt")
+      )
+        expect(response.statusCode).toBe(404);
+    }
+    await rm(path.join(webDistDir, "index.html"));
+    await symlink(
+      path.join(configuredConfig.configDir, "secret.txt"),
+      path.join(webDistDir, "index.html")
+    );
+    const replacedIndex = await app.inject({ method: "GET", url: "/" });
+    expect(replacedIndex.statusCode).toBe(404);
+    expect(replacedIndex.body).not.toContain("private-value");
   });
 
   it("keeps the login endpoint rate-limited", async () => {
@@ -455,6 +539,7 @@ describe("app security foundation", () => {
     });
 
     expect(logout.statusCode).toBe(200);
+    expect(logout.headers["clear-site-data"]).toBeUndefined();
     expect(db.prepare("SELECT COUNT(*) AS count FROM sessions").get()).toEqual({
       count: 0
     });
@@ -468,6 +553,40 @@ describe("app security foundation", () => {
       expect(cleared).toMatchObject({ value: "", maxAge: 0, path: "/" });
       expect(Boolean(cleared?.secure)).toBe(cookieName.startsWith("__Host-"));
     }
+  });
+
+  it("asks secure browsers to clear cached media on logout without clearing preferences", async () => {
+    await app.close();
+    app = await buildApp({
+      config: {
+        ...configuredConfig,
+        cookieSecure: true,
+        sessionCookieName: "__Host-aether_session",
+        csrfCookieName: "__Host-aether_csrf"
+      },
+      db,
+      logger: false
+    });
+    const login = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { password: "correct horse battery staple" }
+    });
+    const session = login.cookies.find(
+      (entry) => entry.name === "__Host-aether_session"
+    )!;
+    const csrf = login.cookies.find(
+      (entry) => entry.name === "__Host-aether_csrf"
+    )!;
+    const logout = await app.inject({
+      method: "POST",
+      url: "/api/auth/logout",
+      cookies: { [session.name]: session.value },
+      headers: { "x-csrf-token": csrf.value }
+    });
+    expect(logout.statusCode).toBe(200);
+    expect(logout.headers["clear-site-data"]).toBe('"cache"');
+    expect(logout.headers["cache-control"]).toBe("no-store");
   });
 
   it("invalidates all sessions whenever secure cookie mode changes", async () => {

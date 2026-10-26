@@ -2,12 +2,18 @@ import { chmod, lstat, readdir, rm, unlink } from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import path from "node:path";
 import type { AetherDatabase } from "../db/database.js";
+import {
+  deleteDerivativeRecords,
+  removeObsoleteDerivativeRecords
+} from "./repository-derivatives.js";
+import { getPresentationsByAssetId } from "./repository-presentation.js";
 
 const cacheKinds = [
   "thumbnails",
   "posters",
   "previews",
-  "presentations"
+  "presentations",
+  "display-images"
 ] as const;
 
 export interface DerivativeCacheCleanupResult {
@@ -107,6 +113,7 @@ export async function sweepDerivativeCache(
   cacheDir: string,
   options: SweepOptions = {}
 ): Promise<DerivativeCacheCleanupResult> {
+  const obsolete = removeObsoleteDerivativeRecords(db, options.pruneStaleFiles);
   const liveAssetIds = new Set(
     (db.prepare("SELECT id FROM assets").all() as Array<{ id: string }>).map(
       (row) => row.id
@@ -120,6 +127,14 @@ export async function sweepDerivativeCache(
   try {
     if (!(await requireRealDirectory(cacheDir, true))) {
       return { removedEntries: 0 };
+    }
+
+    for (const entry of obsolete) {
+      const filePath = await safeRegisteredFilePath(cacheDir, entry);
+      if (filePath && (await pathExists(filePath))) {
+        await unlink(filePath);
+        removedEntries += 1;
+      }
     }
 
     for (const kind of cacheKinds) {
@@ -178,6 +193,33 @@ export async function sweepDerivativeCache(
   return { removedEntries };
 }
 
+async function safeRegisteredFilePath(
+  cacheDir: string,
+  entry: { assetId: string; path: string }
+): Promise<string | null> {
+  if (!isSafePathSegment(entry.assetId)) return null;
+  const filePath = path.resolve(entry.path);
+  const [kind, assetId, fileName, ...rest] = path
+    .relative(path.resolve(cacheDir), filePath)
+    .split(path.sep);
+  if (
+    !cacheKinds.includes(kind as (typeof cacheKinds)[number]) ||
+    assetId !== entry.assetId ||
+    !fileName ||
+    rest.length
+  )
+    return null;
+  const kindDirectory = path.join(cacheDir, kind!);
+  if (!(await requireRealDirectory(kindDirectory, true))) return null;
+  const assetDirectory = path.join(kindDirectory, assetId);
+  if (!(await requireRealDirectory(assetDirectory, true))) return null;
+  const stats = await lstat(filePath).catch((error: unknown) => {
+    if (isMissingPathError(error)) return null;
+    throw error;
+  });
+  return stats?.isFile() || stats?.isSymbolicLink() ? filePath : null;
+}
+
 function referencedDerivativeFiles(
   db: AetherDatabase,
   cacheDir: string,
@@ -185,17 +227,52 @@ function referencedDerivativeFiles(
 ): Set<string> {
   const rows = db
     .prepare(
-      `SELECT asset_id, path
-       FROM derivatives
-       WHERE status = 'ready'`
+      `SELECT d.id, d.asset_id, d.kind, d.path, a.mtime_ms, a.size_bytes
+       FROM derivatives d JOIN assets a ON a.id = d.asset_id
+       WHERE d.status = 'ready'`
     )
-    .all() as Array<{ asset_id: string; path: string }>;
+    .all() as Array<{
+    id: string;
+    asset_id: string;
+    kind: string;
+    path: string;
+    mtime_ms: number;
+    size_bytes: number;
+  }>;
   const cacheRoot = path.resolve(cacheDir);
   const referenced = new Set<string>();
+  const invalid: string[] = [];
+  const assets = [
+    ...new Map(
+      rows.map((row) => [
+        row.asset_id,
+        { id: row.asset_id, mtimeMs: row.mtime_ms, sizeBytes: row.size_bytes }
+      ])
+    ).values()
+  ];
+  const presentations = getPresentationsByAssetId(db, assets);
 
   for (const row of rows) {
     if (!liveAssetIds.has(row.asset_id) || !isSafePathSegment(row.asset_id)) {
+      invalid.push(row.id);
       continue;
+    }
+
+    if (row.kind.startsWith("presentation:")) {
+      const [, variant, key] = row.kind.split(":");
+      const keys = presentations.get(row.asset_id)!.renditionKeys;
+      const expected =
+        variant === "animation" || variant?.startsWith("full-")
+          ? keys.full
+          : variant?.startsWith("highlight-")
+            ? keys.highlight
+            : variant?.startsWith("bounce-")
+              ? keys.bounce
+              : null;
+      if (key !== expected) {
+        invalid.push(row.id);
+        continue;
+      }
     }
 
     const resolvedPath = path.resolve(row.path);
@@ -205,6 +282,7 @@ function referencedDerivativeFiles(
       path.isAbsolute(relativePath) ||
       relativePath === ""
     ) {
+      invalid.push(row.id);
       continue;
     }
 
@@ -217,12 +295,14 @@ function referencedDerivativeFiles(
       !fileName ||
       remainder.length > 0
     ) {
+      invalid.push(row.id);
       continue;
     }
 
     referenced.add(resolvedPath);
   }
 
+  deleteDerivativeRecords(db, invalid);
   return referenced;
 }
 

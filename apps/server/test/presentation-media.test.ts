@@ -195,7 +195,7 @@ describe("presentation video delivery", () => {
     expect(h264.statusCode).toBe(200);
     expect(hevc.headers.etag).not.toBe(h264.headers.etag);
     expect(h264.headers["cache-control"]).toContain("private");
-    expect(h264.headers["cache-control"]).toContain("immutable");
+    expect(h264.headers["cache-control"]).toBe("private, no-cache");
     const head = await app.inject({ method: "HEAD", url: `${url}&codec=h264` });
     expect(head.rawPayload.length).toBe(0);
     expect(head.headers.etag).toBe(h264.headers.etag);
@@ -303,7 +303,7 @@ describe("presentation video delivery", () => {
       await readFile(path.join(cwd, "media", "clip.mp4"))
     );
     expect(response.headers["cache-control"]).toContain("private");
-    expect(response.headers["cache-control"]).toContain("immutable");
+    expect(response.headers["cache-control"]).toBe("private, no-cache");
     const head = await app.inject({ method: "HEAD", url });
     expect(head.rawPayload.length).toBe(0);
     expect(head.headers["content-length"]).toBe(

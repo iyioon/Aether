@@ -6,6 +6,13 @@ import {
   resolveDataPaths
 } from "../config/data-directory.js";
 import { createConfigBackup } from "../maintenance/backup.js";
+import {
+  createPrivateTemporaryFiles,
+  type PrivateTemporaryFiles
+} from "../maintenance/private-temporary-files.js";
+import { assertNoMaintenanceInProgress } from "../maintenance/runtime-lock.js";
+
+process.umask(0o077);
 
 const args = process.argv.slice(2);
 
@@ -24,9 +31,13 @@ const outputDir = path.resolve(
     dataPaths.backupDir
 );
 const includeCache = args.includes("--include-cache");
+let temporaryFiles: PrivateTemporaryFiles | undefined;
 
 try {
   await requireDataDirectoryMarker(dataPaths);
+  await assertNoMaintenanceInProgress(dataPaths);
+  temporaryFiles = await createPrivateTemporaryFiles(dataPaths);
+  await assertNoMaintenanceInProgress(dataPaths);
   await requireManagedDataSubdirectories(dataPaths);
   const keep = readPositiveIntegerOption(args, "--keep") ?? undefined;
   const result = await createConfigBackup({
@@ -34,13 +45,17 @@ try {
     outputDir,
     cacheDir: dataPaths.cacheDir,
     includeCache,
+    stagingDir:
+      outputDir === dataPaths.backupDir ? temporaryFiles.directory : undefined,
     keep
   });
 
   console.log(JSON.stringify(result, null, 2));
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
+  process.exitCode = 1;
+} finally {
+  await temporaryFiles?.close();
 }
 
 function readOption(args: string[], name: string): string | null {

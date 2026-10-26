@@ -57,7 +57,9 @@ directory unless written from the repository root.
 Use Node.js 24, matching `.nvmrc`, Docker, and CI. The project uses npm
 workspaces, TypeScript, and ES modules. FFmpeg 5.1 or newer, matching ffprobe,
 and the libx264/libx265 encoders are required for media processing and tests.
-Browser tests require Chrome; Docker checks require Docker Compose.
+HEIC processing requires updated libheif CLI tools with the libde265 decoder;
+HEIC tests also require `heif-enc` and the x265 plugin. See
+[HEIC tools](docs/installation.md#heic-tools). Browser tests require Chrome; Docker checks require Docker Compose.
 
 Use `npm ci` for a clean checkout. Follow the [setup instructions](README.md)
 with disposable media and data; preserve existing local environment files.
@@ -72,7 +74,7 @@ Development normally uses API port 3030 and web port 5173.
 | `npm run test:e2e`                                  | Run browser scenarios after a production build                                              |
 | `npm audit --omit=dev --audit-level=high`           | Check production dependencies as CI does                                                    |
 | `docker compose config -q` / `docker compose build` | Validate packaging and build the container                                                  |
-| `docker build --target media-verification .`        | Verify presentation decoders with the container's FFmpeg version                            |
+| `docker build --target media-verification .`        | Verify media decoders with the container's FFmpeg/libheif versions                          |
 
 Run commands from the repository root. `npm run verify` includes a build;
 otherwise run `npm run build` before browser tests. Phone and PWA scenarios use

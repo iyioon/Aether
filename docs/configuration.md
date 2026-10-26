@@ -30,6 +30,7 @@ aether-data/
   config/
   cache/
   backups/
+  tmp/          # private process work, cleaned after use
   runtime.lock  # present only while Aether is running
 ```
 

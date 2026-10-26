@@ -13,6 +13,7 @@ export const LOCAL_MEDIA_INPUT_ARGS = [
 ] as const;
 
 const MAX_PROCESS_OUTPUT_BYTES = 96 * 1024;
+const MAX_EXTENDED_STDOUT_BYTES = 1024 * 1024;
 const MAX_VIDEO_PROCESSING_JOBS = 2;
 
 const videoProcessingQueue: Array<() => void> = [];
@@ -21,8 +22,15 @@ let activeVideoProcessingJobs = 0;
 export async function runMediaCommand(
   command: string,
   args: string[],
-  timeoutMs: number
+  timeoutMs: number,
+  maxStdoutBytes = MAX_PROCESS_OUTPUT_BYTES
 ): Promise<CommandResult> {
+  if (
+    !Number.isSafeInteger(maxStdoutBytes) ||
+    maxStdoutBytes <= 0 ||
+    maxStdoutBytes > MAX_EXTENDED_STDOUT_BYTES
+  )
+    throw new MediaProcessingError("Invalid media command output limit.");
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       stdio: ["ignore", "pipe", "pipe"]
@@ -43,7 +51,7 @@ export async function runMediaCommand(
     child.stdout.on("data", (chunk: Buffer) => {
       stdoutBytes += chunk.byteLength;
 
-      if (stdoutBytes <= MAX_PROCESS_OUTPUT_BYTES) {
+      if (stdoutBytes <= maxStdoutBytes) {
         stdout.push(chunk);
       } else {
         outputExceeded = true;

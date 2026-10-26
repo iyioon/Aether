@@ -5,16 +5,23 @@ import {
 } from "./config/data-directory.js";
 import { loadPrivateEnv, loadProjectEnv } from "./config/env.js";
 import { openDatabase } from "./db/database.js";
-import { buildApp } from "./http/app.js";
+import type { buildApp as BuildApp } from "./http/app.js";
 import { acquireRuntimeLock } from "./maintenance/runtime-lock.js";
 import { closeServerRuntime } from "./maintenance/server-runtime.js";
+import {
+  createPrivateTemporaryFiles,
+  removeAbandonedTemporaryFiles,
+  type PrivateTemporaryFiles
+} from "./maintenance/private-temporary-files.js";
+import { prepareRestoreStateForStartup } from "./maintenance/restore-recovery.js";
 
 // Every runtime file created by the server is private by default. Explicit
 // modes in the data/cache helpers provide the same protection to CLI paths.
 process.umask(0o077);
 
-let app: Awaited<ReturnType<typeof buildApp>> | undefined;
+let app: Awaited<ReturnType<typeof BuildApp>> | undefined;
 let db: ReturnType<typeof openDatabase> | undefined;
+let temporaryFiles: PrivateTemporaryFiles | undefined;
 let releaseRuntimeLock: (() => Promise<void>) | undefined;
 let shuttingDown = false;
 
@@ -22,12 +29,14 @@ async function closeRuntimeResources(): Promise<void> {
   const application = app;
   const database = db;
   const releaseLock = releaseRuntimeLock;
+  const temporary = temporaryFiles;
 
   // Clear the shared references first so concurrent failure paths cannot close
   // the same resource twice. closeServerRuntime still attempts every step.
   app = undefined;
   db = undefined;
   releaseRuntimeLock = undefined;
+  temporaryFiles = undefined;
 
   await closeServerRuntime({
     closeApplication: async () => {
@@ -37,7 +46,11 @@ async function closeRuntimeResources(): Promise<void> {
       database?.close();
     },
     releaseLock: async () => {
-      await releaseLock?.();
+      try {
+        await temporary?.close();
+      } finally {
+        await releaseLock?.();
+      }
     }
   });
 }
@@ -90,8 +103,12 @@ async function start(): Promise<void> {
       );
     }
 
+    await prepareRestoreStateForStartup(dataPaths);
+    await removeAbandonedTemporaryFiles(dataPaths);
+    temporaryFiles = await createPrivateTemporaryFiles(dataPaths);
     const config = await loadConfig(process.env, rootDir);
     db = openDatabase(config.configDir);
+    const { buildApp } = await import("./http/app.js");
     app = await buildApp({ config, db });
 
     process.once("SIGINT", () => {

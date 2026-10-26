@@ -15,6 +15,7 @@ as a public media service.
 - Search, tags, favorites, scores, filters, and batch editing.
 - Authenticated image and video delivery with video seeking.
 - Cached thumbnails, posters, and browser-friendly video previews.
+- HEIC/HEIF photos in every view, with original-quality display and downloads.
 - Saved highlights, playback preferences and independent media framing, with
   controlled GIF, WebP, APNG and AVIF playback.
 - One password, server-side sessions, login throttling, and CSRF protection.
@@ -28,6 +29,8 @@ as a public media service.
 - Node.js 24
 - npm
 - FFmpeg 5.1 or newer, with matching ffprobe and libx264/libx265 encoders
+- Updated libheif command-line tools with an HEVC decoder for HEIC photos
+  (included in Docker; see [native setup](docs/installation.md#heic-tools))
 - Docker and Docker Compose, if you prefer a container
 
 ## Quick Start

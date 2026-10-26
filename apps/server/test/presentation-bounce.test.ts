@@ -174,11 +174,28 @@ describe("lossless native Bounce", () => {
   }, 15_000);
 
   it("preserves variable frame durations and partial boundary holds", async () => {
-    const file = await fixture("variable.mkv", 10, 0.4, [
-      "settb=1/1000000",
-      "setpts='if(lt(N,2),if(lt(N,1),0,100000),if(lt(N,3),300000,700000))'"
-    ]);
+    // Explicit MP4 sample durations keep the final 100 ms hold unambiguous.
+    const file = await fixture(
+      "variable.mp4",
+      10,
+      0.4,
+      [
+        "settb=1/1000000",
+        "setpts='if(lt(N,2),if(lt(N,1),0,100000),if(lt(N,3),300000,700000))'"
+      ],
+      [
+        "-c:v",
+        "libx264",
+        "-bf",
+        "0",
+        "-enc_time_base",
+        "1/1000000",
+        "-bsf:v",
+        "setts=duration=100000"
+      ]
+    );
     const profile = await inspectBounceSource(file);
+    expect(profile.durationMs).toBe(800);
     const original = await hashes(file, profile);
     const full = await verifyBoth(file, 0, 800, profile, original);
     expect(full.sourceTimesMs).toEqual([0, 100, 300, 700]);
@@ -253,7 +270,7 @@ describe("lossless native Bounce", () => {
     await verifyBoth(file, 0, 500, profile, await hashes(file, profile));
   });
 
-  it("rejects HDR, odd coded geometry, and reflected display matrices explicitly", async () => {
+  it("rejects HDR, odd coded geometry, and reflected or sheared display matrices explicitly", async () => {
     const hdr = await fixture("hdr.mkv", 24, 0.2, [
       "format=yuv420p10le",
       "setparams=range=limited:color_primaries=bt2020:color_trc=smpte2084:colorspace=bt2020nc"
@@ -300,6 +317,14 @@ describe("lossless native Bounce", () => {
     bytes.writeInt32BE(65536, matrix + 16);
     await writeFile(reflected, bytes);
     await expect(inspectBounceSource(reflected)).rejects.toMatchObject({
+      code: "bounce_source_not_supported"
+    });
+    const sheared = path.join(directory, "sheared.mov");
+    [65536, 0, 0, 65536, 65536, 0, 0, 0, 1073741824].forEach((value, index) =>
+      bytes.writeInt32BE(value, matrix + index * 4)
+    );
+    await writeFile(sheared, bytes);
+    await expect(inspectBounceSource(sheared)).rejects.toMatchObject({
       code: "bounce_source_not_supported"
     });
   });

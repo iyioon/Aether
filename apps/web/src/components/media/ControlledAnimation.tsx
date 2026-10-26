@@ -127,7 +127,7 @@ export function ControlledAnimation({
   const failed = errorKey === sourceKey;
   const painted = paintedKey === sourceKey;
   const poster =
-    presentationPosterUrl(asset, highlightsOnly) ?? thumbnailUrl(asset.id);
+    presentationPosterUrl(asset, highlightsOnly) ?? thumbnailUrl(asset);
   const mediaStyle = {
     ...presentationMediaStyle(presentation, defaultFit),
     ...style

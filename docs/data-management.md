@@ -6,11 +6,13 @@ Aether keeps all server-managed state in one directory. The default is
 This directory contains:
 
 - the SQLite database and its temporary files
-- thumbnails, video posters, preview clips, presentation renditions and animation atlases
+- thumbnails, browser-compatible image copies, video posters, preview clips,
+  presentation renditions and animation atlases
 - Aether-created backups
 - `private.env`, including media-root paths and sign-in secrets
 - a marker used to prevent maintenance commands from targeting the wrong folder
 - a runtime lock while the server is active
+- `tmp`, containing private per-process temporary work for native tools
 
 Source media stays in the folders listed in `AETHER_MEDIA_ROOTS`. It is not
 copied into the data directory, and Aether's reset commands do not delete it.
@@ -34,7 +36,33 @@ npm run data:status
 ```
 
 The command reports the resolved path, validates the marker, and shows the
-managed files it found. Use it before a rebuild, wipe, or manual move.
+managed files it found, including temporary work and preserved restore state.
+Use it before a rebuild, wipe, or manual move.
+
+## Generated Files And Retention
+
+A successful complete scan removes confirmed missing assets and their generated
+files. It also retires derivatives whose recorded source version is obsolete.
+Startup removes unfinished cache work, unreferenced files and retired
+presentation keys before accepting requests. Active generation work is preserved
+during normal scans; replacements publish only after checking the source again.
+
+Native-tool temporary files use a private process directory under `tmp`, removed
+on normal exit. Startup removes abandoned scopes only when their same-host
+process is confirmed stopped, or their creation time proves they came from a
+previous instance of the current PID after a restart. Live scopes, including an
+online backup, and foreign-host scopes are preserved. Rebuild and wipe clear all
+managed temporary
+work while the server is stopped. Offline maintenance also refuses an active
+backup; a backup started during maintenance stops before reading the database.
+Foreign-host temporary scopes require checking that host before removing them.
+Scopes whose PID belongs to another live process are retained conservatively,
+even when that PID may have been reused.
+
+The latest 20 finished scan jobs are kept. Expired sessions and stale sign-in
+throttle records are pruned at startup and hourly. Comparison history remains
+with the database because current rankings, Undo and safe request retries depend
+on it; a ranking reset or confirmed removal of the related media clears it.
 
 ## Back Up The Database
 
@@ -50,11 +78,20 @@ thumbnails, video previews, presentation renditions and animation atlases:
 npm run backup -- --include-cache
 ```
 
+Internal backups are assembled in a private process scope under `tmp` and
+published only after their database and manifest are complete. Interrupted work
+is cleaned with abandoned temporary scopes. External backup outputs remain
+operator-managed.
+
 Use `--keep` to retain only the newest Aether backup folders:
 
 ```bash
 npm run backup -- --keep 14
 ```
+
+Backups are otherwise retained until you remove them. Cache-inclusive backups
+omit unfinished processor outputs and decoder scratch directories. They never
+include the separate `tmp` directory.
 
 An explicit external output directory is also supported:
 
@@ -83,6 +120,14 @@ all devices must sign in again and old cookies cannot become active later.
 If the backup includes generated cache files, they are restored. Otherwise the
 old cache is cleared so it cannot be mistaken for data belonging to the restored
 database. Source media and `private.env` are never replaced.
+
+If the process stops during a restore swap, startup refuses to open the database
+while previous recovery copies remain; it will not create an empty database over
+that state. `data:status` reports `interruptedRestore: true`. Keep the preserved
+files until you can inspect them or restore a verified backup. A successful
+verified restore removes superseded recovery files. An explicit rebuild also
+discards them along with the database. Abandoned staging copies with no preserved
+previous state are removed at startup.
 
 ## Docker Commands
 
@@ -128,7 +173,8 @@ private settings:
 npm run data:rebuild -- --confirm-rebuild
 ```
 
-This removes the database, cache, and Aether-created backups. It keeps
+This removes the database, cache, temporary work, restore recovery copies and
+Aether-created backups. It keeps
 `private.env` and the data-directory marker, then creates empty managed folders.
 The next start and scan build a new index from the source folders.
 
@@ -148,14 +194,18 @@ directory manually while Aether is stopped.
 
 The command validates both the target and its marker. It refuses broad or unsafe
 paths such as a filesystem root, home directory, project root, media root, or a
-symlinked target.
+symlinked target. The same checks apply after resolving parent-directory aliases.
 
 ## Runtime Lock
 
 `runtime.lock` prevents maintenance work while Aether is using the data
 directory. Aether normally removes it on shutdown and automatically clears a
-verifiably stale same-host lock. If a command still reports a lock, stop every
-Aether process or container and check `docker compose ps`. Remove
+verifiably stale same-host lock. Acquiring a new lock also removes abandoned
+heartbeat temporary files before its timer starts. After an abrupt container
+stop reuses the same PID, the lock may require 60 seconds without a heartbeat
+before recovery; this avoids taking a fresh lock from another process namespace.
+If a command still reports a
+lock, stop every Aether process or container and check `docker compose ps`. Remove
 `aether-data/runtime.lock` manually only after you have confirmed that no Aether
 server is running. A lock from another host is kept deliberately because this
 machine cannot prove that the other server has stopped.

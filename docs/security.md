@@ -43,7 +43,8 @@ Search text and selected tags can appear in the page URL, so they may be kept in
 browser history.
 
 Saved navigation and ranking state includes filters, asset IDs, and scroll
-positions in local storage. Signing out clears that state. Appearance
+positions in local storage. Signing out clears that state, pending image
+preloads, readiness hints, decoded animation atlases and capability caches. Appearance
 preferences remain in this browser. The viewer's Use saved framing preference
 stores only a boolean in localStorage and remains after signing out; it contains
 no asset IDs, media paths or media content. Each browser/device keeps its own
@@ -55,18 +56,25 @@ same authenticated media routes. Its queue stays in memory and stops when the
 page is hidden; it does not create a separate persistent media store.
 
 Metadata responses are marked `no-store`. Media files and generated previews
-use private browser caching so the gallery remains responsive. Signing out or
-deleting a source file cannot immediately revoke bytes that a browser already
-cached. Downloads, browser history, restored tabs, and mobile app-switcher
-screenshots are also controlled by the device, not by Aether.
+use private browser caching with `no-cache`: the browser must authenticate and
+revalidate them before reuse, including conditional requests. Versioned media
+URLs also separate changed source versions. Secure sign-out requests browser
+cache clearing where supported, while retaining appearance preferences. This
+does not guarantee removal of previously cached bytes, downloads, browser
+history, restored tabs or mobile app-switcher screenshots, which the device
+controls.
 
 Use the browser's site-data and download controls when a device must forget a
 library.
 
 ## Local Data
 
-The database, cache, internal backups, and private settings live under
-`AETHER_DATA_DIR`. They are not encrypted by Aether. Protect the host account,
+The database, cache, internal backups, native-tool temporary work and private
+settings live under `AETHER_DATA_DIR`. The process sets `TMPDIR`, `TMP` and `TEMP`
+to a protected per-process directory before loading image processors. These
+scopes are removed on normal exit; startup clears verifiably abandoned
+same-host scopes without deleting an active backup's work. They are not
+encrypted by Aether. Protect the host account,
 use encrypted storage when needed, and restrict access to the data directory.
 On removable or network storage, confirm that file permissions are actually
 enforced. Some volumes let every local account act as the file owner; use an
@@ -77,10 +85,21 @@ files that are confirmed missing. Deleted information may still exist in
 browser storage, logs, backups, filesystem snapshots, or storage hardware. See
 [Data management](data-management.md) for rebuild and wipe instructions.
 
+Startup also removes unfinished cache records, obsolete source versions and
+retired presentation files. Normal scans preserve active processor work while
+removing confirmed obsolete files. The latest 20 finished scan jobs are retained;
+stored scan failure messages exclude source paths. Expired sessions and stale
+sign-in throttling records are pruned at startup and hourly. Comparison history
+is retained for rankings, Undo and idempotent retries until the related media or
+ranking data is removed.
+
 ## Secrets
 
 Keep password hashes, session secrets, and media-root paths in
 `aether-data/private.env`. Never commit that file or the data directory.
+Private settings are read from a validated ordinary file that is neither a
+symlink nor a hard link, using no-follow opening and owner-only permissions.
+Inherited shell settings take precedence.
 
 Rotate `AETHER_SESSION_SECRET` if it is exposed. This signs every current device
 out. Change the password hash as well if the password may be known.
@@ -93,6 +112,13 @@ survive `data:wipe` and must be managed separately.
 
 Source media is never part of an Aether database backup. Back it up with the
 storage system that owns it.
+
+Internal backups publish atomically from private temporary work. Incomplete
+internal copies are removed with abandoned process scopes. Completed backups
+are retained unless an explicit `--keep` policy, rebuild or
+wipe removes them. Restore recovery copies are preserved after an interrupted
+swap, and startup refuses to create a replacement empty database while those
+copies remain. A verified restore or explicit rebuild can clear that state.
 
 ## Optional Tag Suggestions
 
@@ -115,7 +141,7 @@ Strict finite, bounded fields and an expected revision prevent malformed edits
 and stale overwrites. Processing receives resolved source records; it cannot
 write source media. A changed physical source must be rescanned before saving.
 
-Rendition and atlas routes keep authenticated private caching and HEAD/range
+Rendition and atlas routes keep authenticated private, revalidated caching and HEAD/range
 semantics. Their opaque keys contain no private paths. Capability/manifest
 responses use `no-store`; the PWA never caches private media or metadata.
 FFmpeg permits local media protocols/containers only and uses fixed argument

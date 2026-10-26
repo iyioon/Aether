@@ -77,13 +77,51 @@ search for Korean and similar writing systems.
 The cache contains data that Aether can recreate from source files:
 
 - WebP image thumbnails
+- full-resolution browser PNGs for HEIC/HEIF photos
 - JPEG video posters
 - short browser-friendly video previews
 - prepared presentation video and animation frame atlases
 
 Concurrent requests for the same preview share one generation job. When a scan
 removes an asset, its generated files are removed. A startup sweep also clears
-cache entries that no longer belong to a database asset.
+cache entries that no longer belong to a database asset or source revision.
+Private media responses require authenticated revalidation before reuse; asset
+URLs also carry source versions so replaced files cannot reuse a stale decoded
+image. Public static files are opened inside the web build through verified
+file descriptors, and source/cache streams reject symlink swaps.
+
+### HEIC Photos
+
+`heif-decoder.ts` inspects real HEVC-backed HEIC/HEIF through maintained libheif
+CLI tools. Display generation copies a bounded, verified source descriptor into
+private cache scratch space, then decodes the primary photo. It applies HEIF
+orientation once and retains alpha and embedded color profiles. 10-bit SDR uses
+a 16-bit PNG container to preserve gradation. Every temporary file is removed
+in `finally`; only the source-versioned PNG survives under `cache/display-images`.
+Thumbnails reuse that display copy. Original download routes remain unchanged.
+
+Input, decoded dimensions, collection size, output size, command output, time,
+threads and pending work are bounded: 256 MiB encoded input, at most four
+photos and 64 million total display pixels per file, at most 64 million pixels
+per coded image extent, a 512 MiB decoded-pixel budget, and 128 MiB per browser
+PNG. Native decoder overhead is additional to the pixel budget. One HEIC job
+decodes at a time, with up to 32 pending jobs. Metadata commands have 10-second
+deadlines and a 1 MiB box-dump limit; conversion has a 30-second deadline and two
+codec threads. HDR/PQ/HLG and unsupported color metadata
+fail explicitly. Unprofiled NCLX accepts sRGB or unspecified transfer only;
+non-sRGB transfer curves require a usable embedded ICC profile. Shared jobs
+avoid duplicate conversions, and source identity
+is checked again before publication. Source changes and asset removal retire
+both registered display copies and thumbnails. The browser's shared image URL
+helper selects the display route in cards, Feed, Compare, viewer and editor.
+
+The runtime container uses updated Debian Trixie packages for libheif and its
+libde265 decoder. The verification target adds the x265 fixture encoder and
+checks actual decoded pixels, alpha, primary-image selection, profiles,
+orientation, authentication and original-file integrity. See
+[libheif](https://github.com/strukturag/libheif),
+[Debian security updates](https://security-tracker.debian.org/tracker/source-package/libheif)
+and [sharp's HEIF requirements](https://sharp.pixelplumbing.com/api-output/#heif).
 
 ## Web App
 
@@ -404,7 +442,9 @@ Zero is the only unranked score. Positive scores are ranked.
 ## Data Directory
 
 **AETHER_DATA_DIR** contains the database, generated cache, internal backups,
-private settings, and a safety marker. Docker mounts the same directory at
+private settings, private native-tool temporary work under `tmp`, and a safety
+marker. Temporary process scopes are removed on exit; dead-process work is
+pruned under an exclusive runtime or maintenance lock. Docker mounts the same directory at
 **/data**. Source media remains on separate read-only mounts.
 
 See [Data management](data-management.md) for backup, rebuild, and wipe

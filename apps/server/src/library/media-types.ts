@@ -32,3 +32,13 @@ const extensionMap = new Map<string, MediaTypeInfo>([
 export function detectMediaType(extension: string): MediaTypeInfo | null {
   return extensionMap.get(extension.toLowerCase()) ?? null;
 }
+
+export function requiresImageDisplay(asset: {
+  mimeType: string | null;
+  name: string;
+}): boolean {
+  return (
+    /^image\/hei[cf](?:-sequence)?$/i.test(asset.mimeType ?? "") ||
+    /\.hei[cf]$/i.test(asset.name)
+  );
+}

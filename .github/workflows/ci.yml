@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 45
 
     steps:
@@ -30,7 +30,11 @@ jobs:
           cache: npm
 
       - name: Install system media tools
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg libheif-examples libheif-plugin-libde265 libheif-plugin-x265
+          ffmpeg -version
+          heif-info --version
 
       - name: Install dependencies
         run: npm ci

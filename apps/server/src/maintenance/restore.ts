@@ -24,6 +24,8 @@ import {
 } from "../db/database.js";
 import { BACKUP_MANIFEST_VERSION } from "./backup.js";
 import { withDataDirectoryMaintenanceLock } from "./data-directory.js";
+import { removeAbandonedTemporaryFiles } from "./private-temporary-files.js";
+import { removeRestoreArtifacts } from "./restore-recovery.js";
 
 const MAX_MANIFEST_BYTES = 1024 * 1024;
 const SQLITE_FILE = "aether.sqlite";
@@ -75,6 +77,7 @@ export async function restoreDataDirectory(
     workspaceRoot,
     mediaRootPaths,
     async () => {
+      await removeAbandonedTemporaryFiles(paths);
       const backup = await validateBackup(backupDir, paths);
       const token = randomUUID();
       const stagedDatabaseDir = path.join(
@@ -218,6 +221,7 @@ export async function restoreDataDirectory(
             ),
             rm(previousCachePath, { recursive: true, force: true })
           ]).catch(() => undefined);
+          await removeRestoreArtifacts(paths, true).catch(() => undefined);
         }
       }
     }

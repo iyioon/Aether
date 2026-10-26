@@ -81,7 +81,8 @@ function pairIds(pair: ComparisonPairResponse): [string, string] {
 
 function displaySources(pair: ComparisonPairResponse): string[] {
   return [pair.left, pair.right].map(
-    (asset) => `/api/assets/${asset.id}/thumbnail?size=640`
+    (asset) =>
+      `/api/assets/${asset.id}/thumbnail?size=640&v=${asset.mtimeMs}-${asset.sizeBytes}`
   );
 }
 
@@ -239,7 +240,7 @@ test("keeps decoded thumbnails visible while displayed originals are delayed, th
     originals.push(route);
     trackHeldRoute(page, route);
   };
-  await page.route("**/api/assets/*/media", holdOriginal);
+  await page.route("**/api/assets/*/media?*", holdOriginal);
   await page.goto(
     `/?folder=${encodeURIComponent(folderId)}&view=compare&workspace=ranking&q=candidate`
   );
@@ -395,7 +396,7 @@ test("keeps ranking available when background pair requests and media fail", asy
   await page.route("**/api/assets/*/thumbnail?*", (route) =>
     route.abort("failed")
   );
-  await page.route("**/api/assets/*/media", (route) => route.abort("failed"));
+  await page.route("**/api/assets/*/media?*", (route) => route.abort("failed"));
   await openRanking(page, folderId);
   await expect.poll(() => prefetchRequests).toBe(1);
   const response = page.waitForResponse(

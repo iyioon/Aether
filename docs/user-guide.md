@@ -11,6 +11,22 @@ Open **User guide** in the sidebar for help inside Aether.
 Aether reads existing media folders. Scores, favorites, tags and presentation
 settings stay in Aether; source files and downloads remain unchanged.
 
+## HEIC Photos
+
+HEIC and HEIF photos work in Gallery, Feed, Compare, the viewer and the framing
+editor. Aether creates browser-compatible thumbnails and a full-resolution PNG
+with the photo's orientation, transparency and color profile. Download still
+returns the original file.
+
+Aether shows the main photo from a collection or Live Photo. Some HDR photos,
+unusual color formats and very large files cannot be displayed; the original
+still remains available to download. See [supported formats and processing
+limits](architecture.md#heic-photos) for details.
+
+Native installations need the [HEIC tools](installation.md#heic-tools). If tools
+were installed after Aether started, restart the server and scan again to fill
+in photo dimensions.
+
 ## Browse
 
 - **Gallery** shows a grid. Select an item to open the viewer. Visible videos

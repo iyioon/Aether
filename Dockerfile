@@ -1,4 +1,4 @@
-FROM node:24-bookworm-slim AS build-deps
+FROM node:24-trixie-slim AS build-deps
 WORKDIR /app
 
 RUN apt-get update \
@@ -15,13 +15,14 @@ WORKDIR /app
 COPY . .
 RUN npm run build
 
-FROM build AS media-verification
+FROM build-deps AS media-verification
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ffmpeg \
+  && apt-get install -y --no-install-recommends ffmpeg libheif-examples libheif-plugin-libde265 libheif-plugin-x265 \
   && rm -rf /var/lib/apt/lists/*
-RUN npm run test -w @aether/server -- test/presentation-media.test.ts test/presentation-bounce.test.ts
+COPY . .
+RUN npm run test -w @aether/server -- test/presentation-media.test.ts test/presentation-bounce.test.ts test/heif-decoder.test.ts
 
-FROM node:24-bookworm-slim AS production-deps
+FROM node:24-trixie-slim AS production-deps
 WORKDIR /app
 
 RUN apt-get update \
@@ -34,7 +35,7 @@ COPY apps/web/package.json apps/web/package.json
 RUN npm ci --omit=dev --workspace=@aether/server --include-workspace-root=false \
   && npm cache clean --force
 
-FROM node:24-bookworm-slim AS runtime
+FROM node:24-trixie-slim AS runtime
 WORKDIR /app
 
 ENV NODE_ENV=production
@@ -44,7 +45,7 @@ ENV AETHER_DATA_DIR=/data
 ENV AETHER_WEB_DIST=/app/apps/web/dist
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates ffmpeg \
+  && apt-get install -y --no-install-recommends ca-certificates ffmpeg libheif-examples libheif-plugin-libde265 \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package.json ./

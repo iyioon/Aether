@@ -32,7 +32,12 @@ import { panelExitDurationMs } from "../../lib/motion";
 import { Button } from "../ui/button";
 import { Dialog, DialogClose, DialogContent, DialogTitle } from "../ui/dialog";
 import { markMediaImageReady } from "./media-image-cache";
-import { downloadUrl, mediaUrl, thumbnailUrl } from "./media-urls";
+import {
+  imageDisplayUrl,
+  downloadUrl,
+  mediaUrl,
+  thumbnailUrl
+} from "./media-urls";
 import { requestPresentedVideoFrame } from "./video-frame-presentation";
 import { VideoControls } from "./VideoControls";
 import { useVideoPlayback, type VideoPlayback } from "./useVideoPlayback";
@@ -186,9 +191,9 @@ export function MediaViewer({
     (!capabilityState.capabilities || bounceUnavailable || bounceOverBudget)
       ? ""
       : variant !== "bounce" && !originalVideoFailed
-        ? mediaUrl(asset.id)
+        ? mediaUrl(asset)
         : presentationPlaybackUrl(effectiveAsset, variant, bounceCodec.codec) ||
-          mediaUrl(asset.id);
+          mediaUrl(asset);
   const isControlledAnimation =
     capabilityState.capabilities?.kind === "animation";
   const mediaStyle = presentationMediaStyle(presentation, defaultFit);
@@ -311,7 +316,7 @@ export function MediaViewer({
   const viewerPosterSource =
     asset.mediaType === "video"
       ? (presentationPosterUrl(effectiveAsset, highlightsOnly) ??
-        thumbnailUrl(asset.id))
+        thumbnailUrl(asset))
       : "";
   const isViewerPosterSettled =
     viewerPosterState?.assetId === asset.id &&
@@ -1238,8 +1243,8 @@ export function MediaViewer({
                   src={
                     isAnimationCandidate &&
                     capabilityState.capabilities?.kind !== "still"
-                      ? thumbnailUrl(asset.id)
-                      : mediaUrl(asset.id)
+                      ? thumbnailUrl(asset)
+                      : imageDisplayUrl(asset)
                   }
                   style={mediaStyle}
                   alt={asset.name}

@@ -5,7 +5,7 @@ import type {
 } from "../../api/client";
 import type { MediaPresentationPreviewProps } from "./MediaPresentationEditor";
 import { ControlledAnimation } from "./ControlledAnimation";
-import { mediaUrl, thumbnailUrl } from "./media-urls";
+import { imageDisplayUrl, mediaUrl, thumbnailUrl } from "./media-urls";
 import { presentationMediaStyle } from "./presentation-geometry";
 import { presentationRange } from "./presentation-model";
 
@@ -151,7 +151,7 @@ export function PresentationPreview({
   if (asset.mediaType === "image")
     return (
       <img
-        src={mediaUrl(asset.id)}
+        src={imageDisplayUrl(asset)}
         alt={asset.name}
         draggable={false}
         style={style}
@@ -162,7 +162,7 @@ export function PresentationPreview({
     return (
       <>
         <img
-          src={thumbnailUrl(asset.id)}
+          src={thumbnailUrl(asset)}
           alt={asset.name}
           draggable={false}
           style={style}
@@ -177,7 +177,7 @@ export function PresentationPreview({
     <>
       <video
         ref={videoRef}
-        src={mediaUrl(asset.id)}
+        src={mediaUrl(asset)}
         style={style}
         muted
         playsInline

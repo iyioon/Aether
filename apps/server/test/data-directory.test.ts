@@ -24,11 +24,68 @@ import {
 } from "../src/maintenance/data-directory.js";
 import {
   acquireRuntimeLock,
-  assertDataDirectoryInactive
+  assertDataDirectoryInactive,
+  assertNoMaintenanceInProgress
 } from "../src/maintenance/runtime-lock.js";
 import { closeServerRuntime } from "../src/maintenance/server-runtime.js";
 
 describe("Aether data directory", () => {
+  it("removes abandoned heartbeat files only after taking a fresh exclusive lock", async () => {
+    const workspace = await mkdtemp(path.join(tmpdir(), "aether-data-test-"));
+    const paths = resolveDataPaths({}, workspace);
+    try {
+      await initializeDataDirectory(paths);
+      const abandoned = path.join(
+        paths.dataDir,
+        "runtime.lock.11111111-1111-4111-8111-111111111111.tmp"
+      );
+      const unrelated = path.join(paths.dataDir, "personal.tmp");
+      await writeFile(abandoned, "abandoned lock metadata");
+      await writeFile(unrelated, "preserve");
+      const release = await acquireRuntimeLock(paths);
+      try {
+        await expect(access(abandoned)).rejects.toMatchObject({
+          code: "ENOENT"
+        });
+        expect(await readFile(unrelated, "utf8")).toBe("preserve");
+        expect(
+          JSON.parse(await readFile(paths.runtimeLockPath, "utf8"))
+        ).toMatchObject({ application: "aether", pid: process.pid });
+      } finally {
+        await release();
+      }
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
+    }
+  });
+  it("allows online backups for a runtime lock and rejects maintenance locks", async () => {
+    const workspace = await mkdtemp(path.join(tmpdir(), "aether-data-test-"));
+    const paths = resolveDataPaths({}, workspace);
+    try {
+      await initializeDataDirectory(paths);
+      const releaseRuntime = await acquireRuntimeLock(paths);
+      try {
+        await expect(
+          assertNoMaintenanceInProgress(paths)
+        ).resolves.toBeUndefined();
+      } finally {
+        await releaseRuntime();
+      }
+      const releaseMaintenance = await acquireRuntimeLock(paths, "maintenance");
+      try {
+        await expect(assertNoMaintenanceInProgress(paths)).rejects.toThrow(
+          "Aether is running"
+        );
+      } finally {
+        await releaseMaintenance();
+      }
+      await expect(
+        assertNoMaintenanceInProgress(paths)
+      ).resolves.toBeUndefined();
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
+    }
+  });
   it("uses one default directory for database, cache, and backups", async () => {
     const workspace = await mkdtemp(path.join(tmpdir(), "aether-data-test-"));
     const paths = resolveDataPaths({}, workspace);
@@ -38,6 +95,7 @@ describe("Aether data directory", () => {
       configDir: path.join(workspace, "aether-data", "config"),
       cacheDir: path.join(workspace, "aether-data", "cache"),
       backupDir: path.join(workspace, "aether-data", "backups"),
+      tempDir: path.join(workspace, "aether-data", "tmp"),
       privateEnvPath: path.join(workspace, "aether-data", "private.env")
     });
 
@@ -62,6 +120,33 @@ describe("Aether data directory", () => {
     await expect(initializeDataDirectory(paths)).rejects.toThrow(
       "is not empty and is not owned by Aether"
     );
+  });
+
+  it("refuses project targets reached through a symbolic-link parent", async () => {
+    const fixture = await mkdtemp(path.join(tmpdir(), "aether-data-alias-"));
+    try {
+      const workspace = path.join(fixture, "project");
+      await mkdir(workspace);
+      const paths = resolveDataPaths({ AETHER_DATA_DIR: workspace }, fixture);
+      await initializeDataDirectory(paths);
+      await writeFile(path.join(workspace, "sentinel.txt"), "project files");
+      await symlink(fixture, path.join(fixture, "alias"));
+      const aliasPaths = resolveDataPaths(
+        { AETHER_DATA_DIR: path.join(fixture, "alias", "project") },
+        workspace
+      );
+      await expect(wipeDataDirectory(aliasPaths, workspace)).rejects.toThrow(
+        "project directory"
+      );
+      await expect(rebuildDataDirectory(aliasPaths, workspace)).rejects.toThrow(
+        "project directory"
+      );
+      expect(await readFile(path.join(workspace, "sentinel.txt"), "utf8")).toBe(
+        "project files"
+      );
+    } finally {
+      await rm(fixture, { recursive: true, force: true });
+    }
   });
 
   it("rejects filesystem, home, and project directory targets", async () => {

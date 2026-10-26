@@ -21,6 +21,17 @@ export function isMediaImageReady(source: string): boolean {
   return readyImageSources.has(source);
 }
 
+export function clearMediaImageCache(): void {
+  const entries = [...sharedImagePreloads.values()];
+  sharedImagePreloads.clear();
+  for (const entry of entries) {
+    entry.finish(false);
+    entry.consumers.clear();
+    entry.image.removeAttribute("src");
+  }
+  readyImageSources.clear();
+}
+
 export function markMediaImageReady(source: string): void {
   readyImageSources.delete(source);
   readyImageSources.set(source, true);

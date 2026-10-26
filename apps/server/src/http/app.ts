@@ -1,5 +1,5 @@
-import { createReadStream } from "node:fs";
-import { lstat, stat } from "node:fs/promises";
+import { constants } from "node:fs";
+import { lstat, open, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import cookie from "@fastify/cookie";
 import helmet from "@fastify/helmet";
@@ -128,6 +128,23 @@ export async function buildApp({
       global: false
     });
     ensureSessionCookieMode(db, config.cookieSecure);
+    const pruneAuthentication = () => {
+      deleteExpiredSessions(db);
+      pruneLoginAttempts(db, loginThrottlePolicy);
+    };
+    pruneAuthentication();
+    const authenticationCleanup = setInterval(
+      () => {
+        try {
+          pruneAuthentication();
+        } catch {
+          app.log.warn("expired authentication records could not be removed");
+        }
+      },
+      60 * 60 * 1000
+    );
+    authenticationCleanup.unref();
+    app.addHook("onClose", async () => clearInterval(authenticationCleanup));
 
     app.addHook("onSend", async (request, reply, payload) => {
       if (
@@ -257,6 +274,7 @@ export async function buildApp({
     app.post("/api/auth/logout", async (request, reply) => {
       deleteSessions(db, verifiedSessionTokens(request, config));
       clearSessionCookies(reply);
+      if (config.cookieSecure) reply.header("clear-site-data", '"cache"');
       return { authenticated: false };
     });
 
@@ -434,9 +452,10 @@ async function registerStaticWeb(
   config: AppConfig
 ): Promise<void> {
   const indexPath = path.join(config.webDistDir, "index.html");
+  const webRoot = await realpath(config.webDistDir).catch(() => null);
   const indexStats = await lstat(indexPath).catch(() => null);
 
-  if (!indexStats?.isFile() || indexStats.isSymbolicLink()) {
+  if (!webRoot || !indexStats?.isFile() || indexStats.isSymbolicLink()) {
     if (config.requireWebBuild) {
       throw new Error("The production web build is missing.");
     }
@@ -457,12 +476,15 @@ async function registerStaticWeb(
     const assetPath = resolveStaticAssetPath(config.webDistDir, requestedPath);
 
     if (assetPath) {
-      const assetStat = await stat(assetPath).catch(() => null);
-
-      if (assetStat?.isFile()) {
+      const handle = await openStaticFile(webRoot, assetPath);
+      if (handle) {
         reply.header("cache-control", cacheControlFor(requestedPath));
         reply.type(contentTypeFor(assetPath));
-        return reply.send(createReadStream(assetPath));
+        if (request.method === "HEAD") {
+          await handle.close();
+          return reply.send();
+        }
+        return reply.send(handle.createReadStream());
       }
     }
 
@@ -470,10 +492,44 @@ async function registerStaticWeb(
       return reply.code(404).send({ error: "not_found" });
     }
 
+    const handle = await openStaticFile(webRoot, indexPath);
+    if (!handle) return reply.code(404).send({ error: "not_found" });
     reply.header("cache-control", "no-cache");
     reply.type("text/html; charset=utf-8");
-    return reply.send(createReadStream(indexPath));
+    if (request.method === "HEAD") {
+      await handle.close();
+      return reply.send();
+    }
+    return reply.send(handle.createReadStream());
   });
+}
+
+async function openStaticFile(root: string, filePath: string) {
+  const canonical = await realpath(filePath).catch(() => null);
+  if (!canonical || !isPathInside(root, canonical)) return null;
+  const handle = await open(
+    filePath,
+    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
+  ).catch(() => null);
+  if (!handle) return null;
+  try {
+    const info = await handle.stat();
+    const current = await stat(canonical);
+    if (
+      !info.isFile() ||
+      info.nlink !== 1 ||
+      current.dev !== info.dev ||
+      current.ino !== info.ino ||
+      (await realpath(filePath)) !== canonical
+    ) {
+      await handle.close();
+      return null;
+    }
+    return handle;
+  } catch {
+    await handle.close();
+    return null;
+  }
 }
 
 function getStaticRequestPath(url: string): string | null {

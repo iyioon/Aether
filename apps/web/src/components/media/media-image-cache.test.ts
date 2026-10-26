@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   isMediaImageReady,
+  clearMediaImageCache,
   markMediaImageReady,
   acquireMediaImagePreload
 } from "./media-image-cache";
@@ -55,6 +56,7 @@ function installImageWindow() {
 
 describe("media image cache", () => {
   afterEach(() => {
+    clearMediaImageCache();
     MockImage.instances = [];
     vi.unstubAllGlobals();
   });
@@ -65,6 +67,41 @@ describe("media image cache", () => {
     expect(isMediaImageReady(source)).toBe(false);
     markMediaImageReady(source);
     expect(isMediaImageReady(source)).toBe(true);
+  });
+
+  it("clears private readiness and cancels pending decodes without reviving stale loads", async () => {
+    const timers = installImageWindow();
+    const source = "/api/assets/private/thumbnail";
+    markMediaImageReady("/api/assets/previous/thumbnail");
+    const pending = acquireMediaImagePreload(source);
+    const image = MockImage.instances[0]!;
+    let resolveDecode!: () => void;
+    image.decode.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveDecode = resolve;
+        })
+    );
+    const staleLoad = image.onload!;
+    staleLoad();
+    clearMediaImageCache();
+    await expect(pending.promise).resolves.toBe(false);
+    expect(image.src).toBe("");
+    expect(timers.size).toBe(0);
+    expect(isMediaImageReady("/api/assets/previous/thumbnail")).toBe(false);
+    staleLoad();
+    resolveDecode();
+    await Promise.resolve();
+    expect(isMediaImageReady(source)).toBe(false);
+    const current = acquireMediaImagePreload(source);
+    pending.release();
+    expect(MockImage.instances[1]!.src).toBe(source);
+    MockImage.instances[1]!.onload!();
+    await expect(current.promise).resolves.toBe(true);
+    clearMediaImageCache();
+    expect(MockImage.instances[1]!.src).toBe("");
+    expect(isMediaImageReady(source)).toBe(false);
+    current.release();
   });
 
   it("deduplicates preloads and resolves after the image is decoded", async () => {

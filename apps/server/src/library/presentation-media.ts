@@ -1,5 +1,8 @@
 import { open } from "node:fs/promises";
 import sharp from "sharp";
+import { inspectHeifImage } from "./heif-decoder.js";
+import { requiresImageDisplay } from "./media-types.js";
+import { ImageDerivativeError } from "./image-cache.js";
 import type { AppConfig } from "../config/config.js";
 import type { AetherDatabase } from "../db/database.js";
 import type { ResolvedAssetFile } from "./media-serving.js";
@@ -295,6 +298,22 @@ async function inspectMedia(file: ResolvedAssetFile): Promise<MediaProbe> {
     };
   }
   const mime = file.asset.mimeType;
+  if (requiresImageDisplay(file.asset)) {
+    try {
+      const image = await inspectHeifImage(file.sourcePath);
+      return {
+        kind: "still",
+        width: image.width,
+        height: image.height,
+        durationMs: null,
+        hasAudio: false
+      };
+    } catch (error) {
+      if (error instanceof ImageDerivativeError)
+        throw new PresentationMediaError(error.code, error.status);
+      throw error;
+    }
+  }
   if (
     mime === "image/avif" ||
     (mime === "image/png" && (await hasPngAnimation(file.sourcePath)))

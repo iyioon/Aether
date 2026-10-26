@@ -23,8 +23,57 @@ import { LATEST_SCHEMA_VERSION, openDatabase } from "../src/db/database.js";
 import { createConfigBackup } from "../src/maintenance/backup.js";
 import { restoreDataDirectory } from "../src/maintenance/restore.js";
 import { acquireRuntimeLock } from "../src/maintenance/runtime-lock.js";
+import {
+  hasPreservedRestoreState,
+  prepareRestoreStateForStartup
+} from "../src/maintenance/restore-recovery.js";
 
 describe("data restore", () => {
+  it("preserves interrupted swaps and refuses startup before SQLite could create an empty database", async () => {
+    const fixture = await createRestoreFixture();
+    const previous = path.join(
+      fixture.paths.configDir,
+      ".aether-restore-previous-11111111-1111-4111-8111-111111111111.sqlite"
+    );
+    try {
+      const current = path.join(fixture.paths.configDir, "aether.sqlite");
+      await rm(current);
+      await writeFile(previous, "preserved database");
+      await expect(
+        prepareRestoreStateForStartup(fixture.paths)
+      ).rejects.toThrow("interrupted restore");
+      expect(await readFile(previous, "utf8")).toBe("preserved database");
+      await expect(access(current)).rejects.toMatchObject({ code: "ENOENT" });
+      expect(await hasPreservedRestoreState(fixture.paths)).toBe(true);
+      await restoreDataDirectory({
+        paths: fixture.paths,
+        workspaceRoot: fixture.workspace,
+        backupDir: fixture.backupDir
+      });
+      expect(readRootLabels(fixture.paths.configDir)).toEqual(["restored"]);
+      expect(await hasPreservedRestoreState(fixture.paths)).toBe(false);
+      await expect(access(previous)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
+  it("removes abandoned staging only when no previous recovery copies need preservation", async () => {
+    const fixture = await createRestoreFixture();
+    try {
+      const stage = path.join(
+        fixture.paths.dataDir,
+        ".aether-restore-database-11111111-1111-4111-8111-111111111111"
+      );
+      await mkdir(stage);
+      await writeFile(path.join(stage, "aether.sqlite"), "abandoned copy");
+      await prepareRestoreStateForStartup(fixture.paths);
+      await expect(access(stage)).rejects.toMatchObject({ code: "ENOENT" });
+      expect(readRootLabels(fixture.paths.configDir)).toEqual(["current"]);
+    } finally {
+      await fixture.cleanup();
+    }
+  });
   it("restores a verified database and included cache", async () => {
     const fixture = await createRestoreFixture({ includeCache: true });
 

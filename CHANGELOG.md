@@ -6,6 +6,9 @@ Notable changes to Aether are recorded here.
 
 ### Added
 
+- HEIC/HEIF photo thumbnails, full-resolution browser display and framing,
+  retaining orientation, alpha and color profiles with original downloads.
+
 - Saved media presentation with source-time highlights, speed, Repeat/Bounce,
   independent aspect frames, Fit/Fill, position and zoom. Support controlled
   GIF, WebP, APNG and AVIF playback, selected-start posters, and separate
@@ -37,11 +40,18 @@ Notable changes to Aether are recorded here.
 
 ### Fixed
 
+- Keep native temporary work under the data directory, prune obsolete previews
+  and scan/authentication history, and guard interrupted restore recovery.
+- Verify source, cached and public static file descriptors before streaming;
+  revalidate private media, clear private in-memory media state on sign-out, and
+  request browser cache clearing on secure logout.
+
 - Keep thumbnails/posters sharp and consistently framed until the source is
   ready; missing posters no longer block supported video playback. Repeat
   highlights use original video with a complete compatibility fallback.
 - Preserve supported video frames and timing in cached, silent lossless Bounce
-  output, with explicit format, browser and processing limits.
+  output, with explicit format, browser and processing limits. Retain rotation
+  through FFmpeg 6 display-matrix handling and reject sheared source matrices.
 - Preserve explicit pause, keep Info from interrupting playback, and hide
   controls together when media is tapped. Prevent audible playback from
   restarting after backgrounding.

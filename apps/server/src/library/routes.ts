@@ -63,6 +63,7 @@ import { registerAdminRoutes } from "./routes-admin.js";
 import { registerComparisonRoutes } from "./routes-comparisons.js";
 import { registerPresentationRoutes } from "./routes-presentation.js";
 import { registerPresentationMediaRoutes } from "./routes-presentation-media.js";
+import { registerImageDisplayRoutes } from "./routes-image-display.js";
 
 export async function registerLibraryRoutes(
   app: FastifyInstance,
@@ -73,6 +74,7 @@ export async function registerLibraryRoutes(
 ): Promise<void> {
   registerPresentationRoutes(app, config, db);
   registerPresentationMediaRoutes(app, config, db);
+  registerImageDisplayRoutes(app, config, db);
   app.get("/api/tree", async () => {
     const folders = listFolders(db);
     const folderById = new Map(folders.map((folder) => [folder.id, folder]));
@@ -175,87 +177,96 @@ export async function registerLibraryRoutes(
       streamAssetFile(request, reply, db, "attachment")
   });
 
-  app.get("/api/assets/:assetId/thumbnail", async (request, reply) => {
-    const params = AssetParams.safeParse(request.params);
-    const query = ThumbnailQuery.safeParse(request.query);
+  app.route({
+    method: ["GET", "HEAD"],
+    url: "/api/assets/:assetId/thumbnail",
+    handler: async (request, reply) => {
+      const params = AssetParams.safeParse(request.params);
+      const query = ThumbnailQuery.safeParse(request.query);
 
-    if (!params.success || !query.success) {
-      return reply.code(400).send({ error: "invalid_request" });
-    }
-
-    try {
-      const file = await resolveAssetFile(db, params.data.assetId);
-
-      if (!file) {
-        return reply.code(404).send({ error: "asset_not_found" });
+      if (!params.success || !query.success) {
+        return reply.code(400).send({ error: "invalid_request" });
       }
 
-      const thumbnail =
-        file.asset.mediaType === "video"
-          ? await ensureVideoPoster({
-              db,
-              config,
-              file,
-              size: query.data.size
-            })
-          : await ensureImageThumbnail({
-              db,
-              config,
-              file,
-              size: query.data.size
-            });
+      try {
+        const file = await resolveAssetFile(db, params.data.assetId);
 
-      return sendThumbnail(reply, thumbnail);
-    } catch (error) {
-      if (
-        error instanceof UnsupportedThumbnailError ||
-        error instanceof UnsupportedVideoPosterError
-      ) {
-        return reply.code(415).send({ error: "thumbnail_not_supported" });
+        if (!file) {
+          return reply.code(404).send({ error: "asset_not_found" });
+        }
+
+        const thumbnail =
+          file.asset.mediaType === "video"
+            ? await ensureVideoPoster({
+                db,
+                config,
+                file,
+                size: query.data.size
+              })
+            : await ensureImageThumbnail({
+                db,
+                config,
+                file,
+                size: query.data.size
+              });
+
+        return await sendThumbnail(reply, thumbnail);
+      } catch (error) {
+        if (
+          error instanceof UnsupportedThumbnailError ||
+          error instanceof UnsupportedVideoPosterError
+        ) {
+          return reply.code(415).send({ error: "thumbnail_not_supported" });
+        }
+
+        return reply.code(derivativeErrorStatus(error)).send({
+          error: "thumbnail_generation_failed"
+        });
       }
-
-      return reply.code(derivativeErrorStatus(error)).send({
-        error: "thumbnail_generation_failed"
-      });
     }
   });
 
-  app.get("/api/assets/:assetId/preview", async (request, reply) => {
-    const params = AssetParams.safeParse(request.params);
-    const query = VideoPreviewQuery.safeParse(request.query);
+  app.route({
+    method: ["GET", "HEAD"],
+    url: "/api/assets/:assetId/preview",
+    handler: async (request, reply) => {
+      const params = AssetParams.safeParse(request.params);
+      const query = VideoPreviewQuery.safeParse(request.query);
 
-    if (!params.success || !query.success) {
-      return reply.code(400).send({ error: "invalid_request" });
-    }
-
-    try {
-      const file = await resolveAssetFile(db, params.data.assetId);
-
-      if (!file) {
-        return reply.code(404).send({ error: "asset_not_found" });
+      if (!params.success || !query.success) {
+        return reply.code(400).send({ error: "invalid_request" });
       }
 
-      const preview = await ensureVideoPreview({
-        db,
-        config,
-        file,
-        size: query.data.size,
-        durationSeconds: query.data.duration
-      });
+      try {
+        const file = await resolveAssetFile(db, params.data.assetId);
 
-      return sendVideoPreview({
-        reply,
-        preview,
-        rangeHeader: normalizedHeader(request.headers.range)
-      });
-    } catch (error) {
-      if (error instanceof UnsupportedVideoPreviewError) {
-        return reply.code(415).send({ error: "preview_not_supported" });
+        if (!file) {
+          return reply.code(404).send({ error: "asset_not_found" });
+        }
+
+        const preview = await ensureVideoPreview({
+          db,
+          config,
+          file,
+          size: query.data.size,
+          durationSeconds: query.data.duration
+        });
+
+        return await sendVideoPreview({
+          reply,
+          preview,
+          cacheDir: config.cacheDir,
+          rangeHeader: normalizedHeader(request.headers.range)
+        });
+      } catch (error) {
+        if (error instanceof UnsupportedVideoPreviewError) {
+          return reply.code(415).send({ error: "preview_not_supported" });
+        }
+
+        return reply.code(derivativeErrorStatus(error)).send({
+          error: "preview_generation_failed"
+        });
       }
-
-      return reply.code(derivativeErrorStatus(error)).send({
-        error: "preview_generation_failed"
-      });
     }
   });
 
@@ -546,7 +557,7 @@ async function streamAssetFile(
     };
 
     if (isAssetNotModified(file, streamHeaders)) {
-      return sendAssetNotModified({ reply, file, disposition });
+      return await sendAssetNotModified({ reply, file, disposition });
     }
 
     const range =
@@ -556,7 +567,7 @@ async function streamAssetFile(
       return sendRangeNotSatisfiable(reply, file.sizeBytes);
     }
 
-    return sendAssetStream({
+    return await sendAssetStream({
       reply,
       file,
       range,

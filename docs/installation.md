@@ -10,10 +10,36 @@ You need:
 - Node.js 24 and npm for local use
 - FFmpeg 5.1 or newer, with matching ffprobe and libx264/libx265 encoders, for
   media metadata and processing
+- Updated libheif command-line tools and its HEVC decoder for HEIC photos
 - Docker and Docker Compose for the container setup
 
 Keep source media on a readable local or mounted filesystem. Aether never needs
 write access to those folders.
+
+## HEIC Tools
+
+The Docker image includes libheif and its HEVC decoder. For native Ubuntu/Debian
+installations, install updated distribution packages:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y libheif-examples libheif-plugin-libde265
+heif-info --version
+heif-convert --help
+```
+
+Use a maintained libheif release that supports `heif-convert --codec-threads`.
+Keep the library and codec plugins updated through the distribution's security
+updates. Older Ubuntu/Debian releases may require an OS upgrade or Docker; Ubuntu
+24.04's libheif CLI lacks the required thread limit. The container uses
+Debian Trixie with security updates.
+
+On macOS, use `brew install libheif`. Restart Aether after installation so its
+process can find `heif-info` and `heif-convert` on `PATH`.
+
+Aether decodes the primary photo into a full-resolution, color-profile-preserving
+PNG for browsers. Downloads return the original HEIC file. See the
+[HEIC limits](user-guide.md#heic-photos) for supported formats and resource limits.
 
 ## Local Setup
 
@@ -164,7 +190,7 @@ npm run verify
 For Docker:
 
 ```bash
-docker compose build --pull
+docker compose build --pull --no-cache
 docker compose up -d
 docker compose ps
 ```

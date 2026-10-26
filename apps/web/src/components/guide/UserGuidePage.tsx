@@ -105,7 +105,9 @@ export function UserGuidePage() {
                   <p>
                     Aether saves your edits and organization separately. It does
                     not move, rename or change source files. Downloads always
-                    give you the original file.
+                    give you the original file. HEIC photos use a
+                    full-resolution browser copy with their orientation and
+                    color profile; downloads keep the HEIC original.
                   </p>
                 </div>
               </aside>

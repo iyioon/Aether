@@ -1,5 +1,5 @@
-import { createReadStream } from "node:fs";
-import { stat } from "node:fs/promises";
+import { constants } from "node:fs";
+import { open, realpath, stat, type FileHandle } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import type { FastifyReply } from "fastify";
 import type { AetherDatabase } from "../db/database.js";
@@ -24,6 +24,8 @@ export interface ResolvedAssetFile {
   sourcePath: string;
   sizeBytes: number;
   mtimeMs: number;
+  device?: number;
+  inode?: number;
 }
 
 export interface ByteRange {
@@ -107,13 +109,17 @@ export async function resolveAssetFile(
     },
     sourcePath,
     sizeBytes: fileStat.size,
-    mtimeMs: Math.trunc(fileStat.mtimeMs)
+    mtimeMs: Math.trunc(fileStat.mtimeMs),
+    device: fileStat.dev,
+    inode: fileStat.ino
   };
 }
 
 export function assetEntityTag(file: ResolvedAssetFile): string {
   const hash = createHash("sha256")
-    .update(`${file.asset.id}:${file.sizeBytes}:${file.mtimeMs}`)
+    .update(
+      `${file.asset.id}:${file.sizeBytes}:${file.mtimeMs}:${file.device ?? ""}:${file.inode ?? ""}`
+    )
     .digest("hex")
     .slice(0, 32);
 
@@ -215,7 +221,38 @@ export function parseRangeHeader(
   };
 }
 
-export function sendAssetStream({
+export async function openAssetFile(
+  file: ResolvedAssetFile
+): Promise<FileHandle> {
+  const handle = await open(
+    file.sourcePath,
+    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
+  );
+  try {
+    const info = await handle.stat();
+    const currentPath = await realpath(file.sourcePath);
+    const current = await stat(file.sourcePath);
+    if (
+      currentPath !== file.sourcePath ||
+      !info.isFile() ||
+      info.size !== file.sizeBytes ||
+      Math.trunc(info.mtimeMs) !== file.mtimeMs ||
+      (file.device !== undefined && info.dev !== file.device) ||
+      (file.inode !== undefined && info.ino !== file.inode) ||
+      current.dev !== info.dev ||
+      current.ino !== info.ino
+    )
+      throw new UnsafePathError(
+        "Media file changed before it could be opened."
+      );
+    return handle;
+  } catch (error) {
+    await handle.close();
+    throw error;
+  }
+}
+
+export async function sendAssetStream({
   reply,
   file,
   range,
@@ -227,7 +264,8 @@ export function sendAssetStream({
   range: ByteRange | null;
   disposition: "inline" | "attachment";
   method?: string;
-}): FastifyReply {
+}): Promise<FastifyReply> {
+  const handle = await openAssetFile(file);
   setAssetStreamHeaders(reply, file, disposition);
 
   if (range) {
@@ -240,11 +278,12 @@ export function sendAssetStream({
     reply.header("content-length", String(chunkSize));
 
     if (method === "HEAD") {
+      await handle.close();
       return reply.send();
     }
 
     return reply.send(
-      createReadStream(file.sourcePath, {
+      handle.createReadStream({
         start: range.start,
         end: range.end
       })
@@ -254,13 +293,14 @@ export function sendAssetStream({
   reply.header("content-length", String(file.sizeBytes));
 
   if (method === "HEAD") {
+    await handle.close();
     return reply.send();
   }
 
-  return reply.send(createReadStream(file.sourcePath));
+  return reply.send(handle.createReadStream());
 }
 
-export function sendAssetNotModified({
+export async function sendAssetNotModified({
   reply,
   file,
   disposition
@@ -268,7 +308,9 @@ export function sendAssetNotModified({
   reply: FastifyReply;
   file: ResolvedAssetFile;
   disposition: "inline" | "attachment";
-}): FastifyReply {
+}): Promise<FastifyReply> {
+  const handle = await openAssetFile(file);
+  await handle.close();
   setAssetStreamHeaders(reply, file, disposition);
   return reply.code(304).send();
 }
@@ -306,7 +348,7 @@ function setAssetStreamHeaders(
       : inlineDisposition(file.asset.name);
 
   reply.header("accept-ranges", "bytes");
-  reply.header("cache-control", "private, max-age=3600");
+  reply.header("cache-control", "private, no-cache");
   reply.header("content-disposition", contentDisposition);
   reply.header("etag", assetEntityTag(file));
   reply.header("last-modified", assetLastModifiedHeader(file));

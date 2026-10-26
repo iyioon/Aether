@@ -49,7 +49,15 @@ Use Node.js 24, matching `.nvmrc`, CI and Docker. The end-to-end suite starts
 isolated servers and recreates disposable files under **.e2e**, using one worker.
 It expects a local Chrome installation. Do not run competing browser suites or
 reuse a live server/data directory for these tests. FFmpeg 5.1 or newer and its
-matching ffprobe must be available for media tests.
+matching ffprobe must be available for media tests. HEIC tests also require
+`heif-info`, `heif-convert` and `heif-enc`, with libde265 and x265 plugins. On
+Ubuntu/Debian, install `libheif-examples libheif-plugin-libde265
+libheif-plugin-x265` from updated distribution packages. See
+[HEIC tools](installation.md#heic-tools).
+
+CI uses Ubuntu 26.04 for the native decoder tools and separately verifies the
+Debian Trixie production image. Keep both toolchains covered when changing media
+processing; an OS package upgrade can change codec metadata or fixture timing.
 
 Presentation video processing needs the libx264 and libx265 encoders. Synthetic
 animated AVIF fixtures also need libaom-av1. Use disposable fixtures to verify
@@ -60,7 +68,8 @@ Run `npm run build` before the browser suite. Phone layout and offline checks
 use the production web build.
 
 Run `docker build --target media-verification .` to verify presentation media
-decoding with the container's Debian FFmpeg version. CI runs this target as well
+decoding and real HEVC-backed HEIC pixel conversion with the container's
+FFmpeg/libheif versions. CI runs this target as well
 as the production image build and health check; the target does not add test
 dependencies or fixtures to the runtime image.
 

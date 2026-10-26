@@ -1,5 +1,4 @@
-import { constants } from "node:fs";
-import { open } from "node:fs/promises";
+import { openPrivateCacheFile } from "../security/private-cache-file.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { AppConfig } from "../config/config.js";
@@ -10,6 +9,7 @@ import {
   assetLastModifiedHeader,
   isAssetNotModified,
   mediaErrorStatus,
+  openAssetFile,
   requestedByteRange,
   resolveAssetFile,
   sendRangeNotSatisfiable,
@@ -88,7 +88,8 @@ export function registerPresentationMediaRoutes(
           media,
           query.data.variant === "bounce"
             ? `${query.data.v}-${query.data.codec ?? "hevc"}`
-            : query.data.v
+            : query.data.v,
+          config.cacheDir
         );
       } catch (error) {
         return mediaFailure(reply, error);
@@ -129,7 +130,8 @@ export function registerPresentationMediaRoutes(
           reply,
           file,
           media,
-          `${query.data.v}-${query.data.size}`
+          `${query.data.v}-${query.data.size}`,
+          config.cacheDir
         );
       } catch (error) {
         return mediaFailure(reply, error);
@@ -184,7 +186,8 @@ export function registerPresentationMediaRoutes(
           reply,
           file,
           { path: atlasPath, contentType: "image/png" },
-          `${query.data.v}-${params.data.index}`
+          `${query.data.v}-${params.data.index}`,
+          config.cacheDir
         );
       } catch (error) {
         return mediaFailure(reply, error);
@@ -198,22 +201,17 @@ async function sendPresentationFile(
   reply: FastifyReply,
   source: ResolvedAssetFile,
   media: PresentationFile,
-  key: string
+  key: string,
+  cacheDir: string
 ): Promise<FastifyReply> {
-  const handle = await open(
-    media.path,
-    constants.O_RDONLY | constants.O_NOFOLLOW
-  );
-  const info = await handle.stat();
-  if (
-    !info.isFile() ||
-    (media.path === source.sourcePath &&
-      (info.size !== source.sizeBytes ||
-        Math.trunc(info.mtimeMs) !== source.mtimeMs))
-  ) {
+  const handle =
+    media.path === source.sourcePath
+      ? await openAssetFile(source)
+      : await openPrivateCacheFile(media.path, cacheDir);
+  const info = await handle.stat().catch(async (error: unknown) => {
     await handle.close();
-    throw new StalePresentationRenditionError();
-  }
+    throw error;
+  });
   const file: ResolvedAssetFile = {
     ...source,
     sourcePath: media.path,
@@ -231,7 +229,7 @@ async function sendPresentationFile(
     ifRange: header(request.headers["if-range"]),
     range: header(request.headers.range)
   };
-  reply.header("cache-control", "private, max-age=31536000, immutable");
+  reply.header("cache-control", "private, no-cache");
   reply.header("accept-ranges", "bytes");
   reply.header("etag", assetEntityTag(file));
   reply.header("last-modified", assetLastModifiedHeader(file));

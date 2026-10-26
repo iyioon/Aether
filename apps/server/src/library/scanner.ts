@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { createReadStream, type BigIntStats, type Dirent } from "node:fs";
-import { readdir, stat } from "node:fs/promises";
+import { readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
 import type { MediaRootConfig } from "../config/config.js";
@@ -151,6 +151,7 @@ export class LibraryScanner {
     private readonly cacheDir?: string
   ) {
     markInterruptedScans(this.db);
+    pruneScanJobHistory(this.db);
     syncConfiguredRoots(this.db, this.roots);
   }
 
@@ -225,6 +226,7 @@ export class LibraryScanner {
         this.runningJobId = null;
         this.progress = null;
         this.rerunRequested = false;
+        pruneScanJobHistory(this.db);
 
         if (shouldRerun && !this.stopping) {
           this.startScan();
@@ -1204,6 +1206,24 @@ async function readImageDimensions(
 ): Promise<{ width: number; height: number } | null> {
   try {
     throwIfScanAborted(signal);
+    if (/\.hei[cf]$/i.test(absoluteFilePath)) {
+      const canonical = await realpath(absoluteFilePath);
+      if (canonical !== absoluteFilePath) return null;
+      const before = await stat(canonical);
+      const { inspectHeifImage } = await import("./heif-decoder.js");
+      const info = await inspectHeifImage(absoluteFilePath);
+      const after = await stat(canonical);
+      if (
+        before.dev !== after.dev ||
+        before.ino !== after.ino ||
+        before.size !== after.size ||
+        before.mtimeMs !== after.mtimeMs ||
+        (await realpath(absoluteFilePath)) !== canonical
+      )
+        return null;
+      throwIfScanAborted(signal);
+      return { width: info.width, height: info.height };
+    }
     const metadata = await sharp(absoluteFilePath, {
       failOn: "none",
       limitInputPixels: 268_402_689
@@ -1250,6 +1270,21 @@ function markInterruptedScans(db: AetherDatabase): void {
          updated_at = ?
      WHERE type = 'library_scan' AND status = 'running'`
   ).run(new Date().toISOString());
+}
+
+function pruneScanJobHistory(db: AetherDatabase): void {
+  db.transaction(() => {
+    db.prepare(
+      `DELETE FROM jobs WHERE type = 'library_scan' AND status != 'running'
+      AND id NOT IN (SELECT id FROM jobs WHERE type = 'library_scan' AND status != 'running'
+      ORDER BY updated_at DESC, id DESC LIMIT 20)`
+    ).run();
+    db.prepare(
+      `UPDATE jobs SET error = 'Library scan failed.'
+      WHERE type = 'library_scan' AND error IS NOT NULL
+      AND error NOT IN ('Scan stopped before library changes were applied.', 'Scan was interrupted before completion.', 'Library scan failed.')`
+    ).run();
+  })();
 }
 
 function errorMessage(error: unknown): string {

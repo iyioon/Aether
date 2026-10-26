@@ -1,4 +1,13 @@
-import { existsSync, lstatSync, readFileSync } from "node:fs";
+import {
+  closeSync,
+  constants,
+  existsSync,
+  fchmodSync,
+  fstatSync,
+  lstatSync,
+  openSync,
+  readFileSync
+} from "node:fs";
 import path from "node:path";
 import { parseEnv } from "node:util";
 import { resolveDataPaths } from "./data-directory.js";
@@ -71,18 +80,41 @@ function loadEnvFileIfPresent(
   allowSymlink = true,
   protectedKeys?: ReadonlySet<string>
 ): void {
-  if (!existsSync(filePath)) {
+  if (!allowSymlink) {
+    let descriptor: number | undefined;
+    try {
+      const stats = lstatSync(filePath);
+      if (!stats.isFile() || stats.isSymbolicLink() || stats.nlink !== 1)
+        throw new Error("Unsafe private environment file.");
+      descriptor = openSync(
+        filePath,
+        constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
+      );
+      const opened = fstatSync(descriptor);
+      if (
+        !opened.isFile() ||
+        opened.nlink !== 1 ||
+        opened.dev !== stats.dev ||
+        opened.ino !== stats.ino
+      )
+        throw new Error("Unsafe private environment file.");
+      fchmodSync(descriptor, 0o600);
+      for (const [key, value] of Object.entries(
+        parseEnv(readFileSync(descriptor, "utf8"))
+      )) {
+        if (process.env[key] === undefined) process.env[key] = value;
+      }
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT")
+        return;
+      throw error;
+    } finally {
+      if (descriptor !== undefined) closeSync(descriptor);
+    }
     return;
   }
 
-  if (!allowSymlink) {
-    const stats = lstatSync(filePath);
-    if (!stats.isFile() || stats.isSymbolicLink() || stats.nlink !== 1) {
-      throw new Error(
-        `Aether's private environment file must be a private real file: ${filePath}`
-      );
-    }
-  }
+  if (!existsSync(filePath)) return;
 
   if (!protectedKeys) {
     process.loadEnvFile(filePath);

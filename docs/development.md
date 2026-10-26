@@ -52,6 +52,11 @@ available for video tests.
 Run `npm run build` before the browser suite. Phone layout and offline checks
 use the production web build.
 
+Run `docker build --target media-verification .` to verify presentation media
+decoding with the container's Debian FFmpeg version. CI runs this target as well
+as the production image build and health check; the target does not add test
+dependencies or fixtures to the runtime image.
+
 ## Working Rules
 
 - Keep source media read-only.

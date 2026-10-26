@@ -72,6 +72,7 @@ Development normally uses API port 3030 and web port 5173.
 | `npm run test:e2e`                                  | Run browser scenarios after a production build                                              |
 | `npm audit --omit=dev --audit-level=high`           | Check production dependencies as CI does                                                    |
 | `docker compose config -q` / `docker compose build` | Validate packaging and build the container                                                  |
+| `docker build --target media-verification .`        | Verify presentation decoders with the container's FFmpeg version                            |
 
 Run commands from the repository root. `npm run verify` includes a build;
 otherwise run `npm run build` before browser tests. Phone and PWA scenarios use

@@ -53,6 +53,9 @@ jobs:
       - name: Build container image
         run: docker compose build
 
+      - name: Verify container media decoders
+        run: docker build --target media-verification --tag aether-media-verification .
+
       - name: Start container and check health
         run: |
           install -d -m 700 aether-data

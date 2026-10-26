@@ -15,6 +15,8 @@ as a public media service.
 - Search, tags, favorites, scores, filters, and batch editing.
 - Authenticated image and video delivery with video seeking.
 - Cached thumbnails, posters, and browser-friendly video previews.
+- Saved highlights, playback preferences and independent media framing, with
+  controlled GIF, WebP, APNG and AVIF playback.
 - One password, server-side sessions, login throttling, and CSRF protection.
 - Multiple named media roots that can move without losing their identity.
 - One local data directory for the database, cache, backups, and private settings.
@@ -23,9 +25,9 @@ as a public media service.
 
 ## Requirements
 
-- Node.js 24 or newer
+- Node.js 24
 - npm
-- FFmpeg 5.1 or newer, with the matching ffprobe version
+- FFmpeg 5.1 or newer, with matching ffprobe and libx264/libx265 encoders
 - Docker and Docker Compose, if you prefer a container
 
 ## Quick Start
@@ -33,7 +35,7 @@ as a public media service.
 ```bash
 git clone https://github.com/iyioon/Aether.git
 cd Aether
-npm install
+npm ci
 mkdir -p aether-data
 chmod 700 aether-data
 cp private.env.example aether-data/private.env

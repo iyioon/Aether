@@ -17,7 +17,7 @@ private environment files do not belong in Git.
 ## Set Up A Local Checkout
 
 ```bash
-npm install
+npm ci
 mkdir -p aether-data
 chmod 700 aether-data
 cp private.env.example aether-data/private.env
@@ -45,9 +45,16 @@ npm run test:e2e        # Playwright browser tests
 npm run data:status     # inspect the local data directory
 ```
 
-The end-to-end suite starts isolated servers and creates disposable files under
-**.e2e**. It expects a local Chrome installation. FFmpeg 5.1 or newer and its
+Use Node.js 24, matching `.nvmrc`, CI and Docker. The end-to-end suite starts
+isolated servers and recreates disposable files under **.e2e**, using one worker.
+It expects a local Chrome installation. Do not run competing browser suites or
+reuse a live server/data directory for these tests. FFmpeg 5.1 or newer and its
 matching ffprobe must be available for media tests.
+
+Presentation video processing needs the libx264 and libx265 encoders. Synthetic
+animated AVIF fixtures also need libaom-av1. Use disposable fixtures to verify
+the installed build and the production container; codec support can differ
+between local FFmpeg and the runtime package.
 
 Run `npm run build` before the browser suite. Phone layout and offline checks
 use the production web build.

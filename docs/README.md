@@ -5,8 +5,8 @@
 - [Installation](installation.md): local setup, Docker, updates, and HTTPS.
 - [Configuration](configuration.md): media roots, sign-in, file watching, and
   optional tag suggestions.
-- [User guide](user-guide.md): browsing, comparison, scores, favorites, tags,
-  and downloads.
+- [User guide](user-guide.md): browsing, presentation, comparison, organization,
+  downloads and Home Screen use.
 
 ## Keep It Safe
 

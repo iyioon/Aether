@@ -4,47 +4,51 @@ Notable changes to Aether are recorded here.
 
 ## Unreleased
 
+### Added
+
+- Saved media presentation with source-time highlights, speed, Repeat/Bounce,
+  independent aspect frames, Fit/Fill, position and zoom. Support controlled
+  GIF, WebP, APNG and AVIF playback, selected-start posters, and separate
+  playback/framing resets.
+- Shared Feed and viewer controls for playback, seeking, sound and fullscreen,
+  with reachable touch targets and iPhone safe-area spacing.
+- Gallery context actions for Info, Edit media and Download with right-click,
+  keyboard or touch hold. Edit and Download also remain in the viewer toolbar.
+- Offline interface recovery, while private media and metadata remain online.
+
+### Changed
+
+- Switch User guide topics with tabs and simplify the instructions for desktop
+  and phone layouts.
+- Group filters, sorting and layout in View options with a phone bottom sheet.
+  Keep Gallery search and buttons on one row and show active-filter counts.
+- Keep Feed in a portrait frame with attached controls/details, saved Portrait
+  framing, floating phone controls, an inline favorite indicator and consistent
+  up-arrow score icons. Gallery
+  and Ranking remember independent shapes and card details; Ranking initially
+  uses Original proportions.
+- Make Edit media fullscreen with Playback/Framing tabs, one persistent preview
+  and timeline, explicit Save/Cancel, and independent drafts for each aspect.
+  Offer Fit/Fill only while retaining older Auto settings.
+- Let the viewer apply saved framing through View options. Remember its on/off
+  choice in this browser through navigation, reopen, reload and sign-out,
+  without changing playback or saved edits. Comparison can play highlights
+  while keeping normal-speed forward repeat.
+
+### Fixed
+
+- Keep thumbnails/posters sharp and consistently framed until the source is
+  ready; missing posters no longer block supported video playback. Repeat
+  highlights use original video with a complete compatibility fallback.
+- Preserve supported video frames and timing in cached, silent lossless Bounce
+  output, with explicit format, browser and processing limits.
+- Preserve explicit pause, keep Info from interrupting playback, and hide
+  controls together when media is tapped. Prevent audible playback from
+  restarting after backgrounding.
+- Restore navigation, scrolling, Settings tabs, viewer items, comparison pairs
+  and Undo after returning. Retry interrupted comparison choices without
+  duplicate changes and prepare upcoming media within connection/resource limits.
 - Update Fastify, Zod, URI parsing, Vite and Vitest to patched releases.
-
-- Add saved, non-destructive media presentation: source-time highlights, speed,
-  repeat/bounce, Fit/Fill and focal position/zoom through one shared editor.
-  Support controlled GIF, WebP, APNG and AVIF playback, selected-start posters,
-  highlight-only browsing, Comparison aspect ratios and selective resets.
-  Protect saves with revisions and bound private rendition preparation.
-
-- Align View options typography with selection controls and tighten its spacing.
-  Keep Gallery search and buttons on one row, using a compact view menu on
-  narrow screens. Preserve leaderboard position when opening Settings changes
-  the header height.
-- Add View options to mobile Feed and hide both top controls with details and
-  playback controls when the media is tapped.
-- Combine sorting, filters, and Gallery layout in one View options panel, with
-  a phone bottom sheet, active-filter count, and immediate changes.
-- Compact Feed and viewer video controls into one row, with time labels above
-  the timeline, full-size touch targets, and preserved iPhone safe-area spacing.
-- Replace the mobile Feed header with a floating view selector at the top right,
-  keeping media full height and navigation within the safe area.
-- Let expanded Feed media extend behind the iPhone Home Screen status bar where
-  iOS permits, with a readability gradient and safe-area spacing for controls.
-- Blend Feed titles and playback controls over one continuous gradient, and
-  overlay viewer controls so tall media can use the full available height.
-- Hide and reveal Feed playback controls together with details when tapping the
-  media, while preserving playback and pause state.
-- Keep portrait video previews inside gallery cards so cropped layouts play
-  correctly and center the media.
-- Remove failed video posters from the viewer and previews while allowing
-  supported videos to keep playing.
-- Add shared Feed and viewer video controls with seeking, buffered progress,
-  sound, fullscreen, and iPhone safe-area spacing. Preserve explicit pause and
-  prevent audible playback from restarting after backgrounding.
-- Prepare upcoming comparison pairs and media in the background, limit requests
-  on slow connections, and check each transition on the server.
-- Restore navigation, comparison pairs and Undo, Settings tabs, fullscreen items,
-  and scroll positions after reopening the app.
-- Recover interrupted comparison requests without duplicate changes, and clear
-  saved state after sign-out or comparison resets.
-- Add offline interface recovery and improve phone layouts, safe areas, and
-  touch controls.
 
 ## 0.1.0 - 2026-10-11
 

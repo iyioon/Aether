@@ -6,76 +6,58 @@ import {
   GitCompareArrows,
   Grid3X3,
   Heart,
-  Keyboard,
   Search,
   ShieldCheck,
   Tag
 } from "lucide-react";
 import type { ReactNode } from "react";
-import { Badge } from "../ui/badge";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle
-} from "../ui/card";
-import { Separator } from "../ui/separator";
+import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
+
+const topics = [
+  ["start", "Get started"],
+  ["browse", "Browsing"],
+  ["edit", "Edit media"],
+  ["ranking", "Ranking"],
+  ["organize", "Organizing"],
+  ["keyboard", "Keyboard"]
+] as const;
 
 const gettingStartedSteps = [
   {
     icon: FolderSync,
     title: "Scan your folders",
     description:
-      "Use the refresh button beside Folders. Aether indexes your media without moving the original files."
+      "Select the refresh button beside Folders to find new or changed media. Your original files stay where they are."
   },
   {
     icon: Search,
-    title: "Find what you need",
+    title: "Find media",
     description:
-      "Choose a folder, search by name or path, and narrow the results with media, score, or tag filters."
+      "Choose a folder or search by name and path. Open View options to filter by type, score, favorites or tags."
   },
   {
     icon: Heart,
-    title: "Keep the best close",
+    title: "Organize your picks",
     description:
-      "Use favorites, scores, and tags to make important media easy to find again."
-  }
-] as const;
-
-const browsingViews = [
-  {
-    icon: Grid3X3,
-    title: "Gallery",
-    description:
-      "See many items at once. This is the fastest place to scan a folder, select several items, or edit details. Open an item in the viewer for a larger view; video controls overlay the media to leave its full height available."
-  },
-  {
-    icon: GalleryHorizontalEnd,
-    title: "Feed",
-    description:
-      "Move through one item at a time. On phones, Feed fills the available screen with the view selector and View options at the top right. Open View options for filters and sorting; switch to Gallery or Compare for search and folder navigation. Tap the media to hide or show the top buttons, details, and playback controls together. Videos have a compact single row for playback, seeking, sound, and viewer controls, with time labels above the timeline. The controls sit above the phone's Home indicator. Paused videos stay paused when you return to the app."
-  },
-  {
-    icon: GitCompareArrows,
-    title: "Compare",
-    description:
-      "Review the score leaderboard, then rank more media by choosing between two items at a time."
+      "Add favorites, scores and tags from an item's details. Select several Gallery cards to update them together."
   }
 ] as const;
 
 const shortcuts = [
   ["/", "Focus search"],
   ["⌘/Ctrl + B", "Show or hide the sidebar"],
-  ["↑ / ↓ or Page keys", "Move through the feed"],
-  ["← / → in viewer", "Open the previous or next item"],
-  ["↑ / ↓ in viewer", "Increase or decrease the score"],
+  ["↑ / ↓ or Page keys", "Previous or next Feed item"],
+  ["Home / End", "First or last loaded Feed item"],
+  ["Enter in Feed", "Open the current item"],
+  ["← / → in viewer", "Previous or next item"],
+  ["↑ / ↓ in viewer", "Increase or decrease score"],
   ["← / → in Compare", "Choose the left or right item"],
-  ["Enter", "Open the selected media"],
-  ["Space", "Play or pause a video"],
-  ["M", "Mute or unmute"],
-  ["I", "Open details"],
-  ["Esc", "Close the topmost panel or viewer"]
+  ["Space in Feed or viewer", "Play or pause"],
+  ["M in viewer", "Mute or unmute"],
+  ["I in viewer", "Open Info"],
+  ["Shift + F10 on a card", "Open card actions"],
+  ["Esc", "Close the current panel or viewer"]
 ] as const;
 
 export function UserGuidePage() {
@@ -83,265 +65,314 @@ export function UserGuidePage() {
     <section className="guide-page" aria-labelledby="guide-title">
       <div className="guide-shell">
         <header className="guide-hero">
-          <Badge variant="outline">User guide</Badge>
-          <h1 id="guide-title">
-            Your private media library, made easier to explore
-          </h1>
-          <p>
-            Aether helps you browse, organize, compare, and rediscover photos
-            and videos stored in your own folders.
-          </p>
+          <h1 id="guide-title">User guide</h1>
+          <p>Browse and organize the photos and videos in your folders.</p>
         </header>
 
-        <nav className="guide-nav" aria-label="On this page">
-          <a href="#guide-start">Get started</a>
-          <a href="#guide-views">Browsing views</a>
-          <a href="#guide-presentation">Presentation</a>
-          <a href="#guide-ranking">Ranking</a>
-          <a href="#guide-organize">Organizing</a>
-          <a href="#guide-shortcuts">Keyboard</a>
-        </nav>
-
-        <Separator />
-
-        <GuideSection
-          description="A simple first pass is enough. You can refine your library over time."
-          id="guide-start"
-          title="Get started"
-        >
-          <div className="guide-step-grid">
-            {gettingStartedSteps.map((step, index) => (
-              <Card className="guide-step-card" key={step.title}>
-                <CardHeader>
-                  <span className="guide-icon" aria-hidden="true">
-                    <step.icon />
-                  </span>
-                  <span className="guide-step-number">0{index + 1}</span>
-                  <CardTitle>{step.title}</CardTitle>
-                  <CardDescription>{step.description}</CardDescription>
-                </CardHeader>
-              </Card>
+        <Tabs className="guide-tabs" defaultValue="start">
+          <TabsList className="guide-tabs-list" aria-label="Guide topics">
+            {topics.map(([value, label]) => (
+              <TabsTrigger key={value} value={value}>
+                {label}
+              </TabsTrigger>
             ))}
-          </div>
-        </GuideSection>
+          </TabsList>
 
-        <GuideSection
-          description="Switch views from the top-right of the library. Your folder, search, and filters stay with you."
-          id="guide-views"
-          title="Choose the right view"
-        >
-          <div className="guide-view-grid">
-            {browsingViews.map((view) => (
-              <article className="guide-view-item" key={view.title}>
-                <span className="guide-icon" aria-hidden="true">
-                  <view.icon />
-                </span>
+          <TabsContent className="guide-tab-panel" value="start">
+            <GuideSection title="Get started">
+              <div className="guide-step-grid">
+                {gettingStartedSteps.map((step, index) => (
+                  <Card className="guide-step-card" key={step.title}>
+                    <CardHeader>
+                      <span className="guide-icon" aria-hidden="true">
+                        <step.icon />
+                      </span>
+                      <span className="guide-step-number">{index + 1}</span>
+                      <CardTitle>
+                        <h3>{step.title}</h3>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p>{step.description}</p>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+              <aside className="guide-privacy-note">
+                <ShieldCheck aria-hidden="true" />
                 <div>
-                  <h3>{view.title}</h3>
-                  <p>{view.description}</p>
+                  <h3>Your originals stay unchanged</h3>
+                  <p>
+                    Aether saves your edits and organization separately. It does
+                    not move, rename or change source files. Downloads always
+                    give you the original file.
+                  </p>
                 </div>
-              </article>
-            ))}
-          </div>
-        </GuideSection>
+              </aside>
+            </GuideSection>
+          </TabsContent>
 
-        <GuideSection
-          id="guide-presentation"
-          title="Adjust presentation"
-          description="Saved edits change how Aether displays media. Originals and downloads stay unchanged."
-        >
-          <p>
-            Open Edit media on a card, below the Feed heart, or in the viewer.
-            Choose a highlight, playback speed and Repeat or Bounce in Playback.
-            Use Framing for Fit, Fill, drag, pinch and zoom. Save applies the
-            draft; Cancel discards it. Reset restores defaults only after Save.
-          </p>
-          <p>
-            Turn on Play highlights only in View options to loop saved sections.
-            Video bounce is silent and limited to ten seconds; highlights can
-            span two minutes. GIF, WebP, APNG and AVIF playback editing supports
-            up to sixty seconds and 600 frames within the processing budget.
-            First playback may need preparation.
-          </p>
-          <p>
-            Comparison keeps full-source, normal-speed playback while using
-            saved framing; its aspect menu changes the card shape. Settings →
-            Database can reset playback or framing separately. If another window
-            saves first, reload saved settings before saving again.
-          </p>
-        </GuideSection>
+          <TabsContent className="guide-tab-panel" value="browse">
+            <GuideSection
+              title="Browse your library"
+              description="Switch views at the top right. Your folder, search and filters carry across views."
+            >
+              <div className="guide-view-grid">
+                <GuideTool icon={Grid3X3} title="Gallery">
+                  Browse a grid and select several items for batch changes.
+                  Click an item to open the viewer. Right-click a card or
+                  long-press its preview for Info, Edit media and Download.
+                </GuideTool>
+                <GuideTool icon={GalleryHorizontalEnd} title="Feed">
+                  Browse one item at a time in a portrait frame. Swipe up or
+                  down on phones, or scroll on desktop. Tap the media to hide or
+                  show the buttons, details and playback controls together.
+                </GuideTool>
+                <GuideTool icon={GitCompareArrows} title="Compare">
+                  Check the leaderboard or select Rank media to compare pairs.
+                  Choose the item you prefer, skip a pair or undo your last
+                  choice.
+                </GuideTool>
+              </div>
+              <div className="guide-text-block">
+                <h3>View options</h3>
+                <p>
+                  Use the sliders button for Filters, Sort and Layout. Compare
+                  has Filters and Layout. Gallery and Compare remember their own
+                  media layout and card info. Feed always uses Portrait; its
+                  card info starts hidden. Clear filters keeps your search, sort
+                  and layout.
+                </p>
+                <h3>The media viewer</h3>
+                <p>
+                  Click or tap the media to hide or show the controls; they also
+                  hide after a short pause. Info opens details without stopping
+                  playback. View options contains Play highlights only and Use
+                  saved framing. Saved framing starts off and is remembered in
+                  this browser when you change it.
+                </p>
+                <p>
+                  On iPhone, Safari's Share menu → Add to Home Screen opens
+                  Aether as a web app. It resumes your place when you return.
+                  Native video fullscreen uses the iPhone's playback controls.
+                </p>
+              </div>
+            </GuideSection>
+          </TabsContent>
 
-        <GuideSection
-          description="The leaderboard shows the current order. You do not need to rank everything—a few clear choices can already improve it."
-          id="guide-ranking"
-          title="How ranking works"
-        >
-          <Card className="guide-ranking-card">
-            <CardContent>
+          <TabsContent className="guide-tab-panel" value="edit">
+            <GuideSection
+              title="Edit media"
+              description="Open Edit media from a Gallery card's menu, the viewer toolbar or the pencil below the Feed heart."
+            >
+              <div className="guide-edit-grid">
+                <Card className="guide-topic-card">
+                  <CardHeader>
+                    <CardTitle>
+                      <h3>Playback</h3>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p>
+                      For videos and animated images, drag the highlight handles
+                      or enter Start and End times. Seek in the preview and use
+                      Start here or End here to mark the current frame.
+                    </p>
+                    <p>
+                      Choose a speed and loop mode. Repeat plays forward; Bounce
+                      plays forward and then backward, without sound. Supported
+                      videos use a lossless copy, prepared after Save. Some
+                      formats, including HDR video, need Repeat; long sections
+                      may be too large to prepare.
+                    </p>
+                    <p>
+                      Turn on Play highlights only in View options to loop the
+                      saved section. It is available in Gallery, Feed, Compare
+                      and the viewer. Compare always plays forward at 1×.
+                    </p>
+                  </CardContent>
+                </Card>
+                <Card className="guide-topic-card">
+                  <CardHeader>
+                    <CardTitle>
+                      <h3>Framing</h3>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p>
+                      Choose Original, Square, Portrait or Landscape. Each
+                      layout keeps its own position and zoom. Fit shows the
+                      whole item. Fill covers the frame; drag to position and
+                      pinch or use Zoom to enlarge it.
+                    </p>
+                    <p>
+                      Switch layouts to adjust each one, then Save once to keep
+                      all changes. Feed uses your Portrait frame. Gallery and
+                      Compare use the layout selected in View options.
+                    </p>
+                    <p>
+                      The viewer shows the complete original by default. Turn on
+                      Use saved framing in its View options to use the frame for
+                      the view you opened it from.
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
+              <div className="guide-text-block">
+                <h3>Save and reset</h3>
+                <p>
+                  The preview keeps playing when you switch between Playback and
+                  Framing. Seeking pauses on the chosen frame. Save keeps your
+                  changes; Cancel discards them. Reset in the editor also needs
+                  Save. To reset many items, use Settings → Database and choose
+                  playback or framing.
+                </p>
+                <p>
+                  First playback may take a moment to prepare. If another window
+                  saved changes first, reload its saved settings before saving
+                  again.
+                </p>
+              </div>
+            </GuideSection>
+          </TabsContent>
+
+          <TabsContent className="guide-tab-panel" value="ranking">
+            <GuideSection title="Rank media">
               <ol className="guide-ranking-steps">
                 <li>
                   <span>1</span>
                   <div>
-                    <strong>Start from the leaderboard.</strong>
+                    <h3>Open Compare</h3>
                     <p>
-                      Open any item to inspect it, or choose Rank media to begin
-                      a comparison session. The active folder, search, and
-                      filters carry across both views.
+                      The leaderboard shows your current order. Select Rank
+                      media to start comparing items from the active folder,
+                      search and filters.
                     </p>
                   </div>
                 </li>
                 <li>
                   <span>2</span>
                   <div>
-                    <strong>Choose the item you prefer.</strong>
+                    <h3>Choose your preference</h3>
                     <p>
-                      Select either item or use the Left and Right arrow keys.
-                      Skip the pair if you have no clear preference.
+                      Select the left or right item. Skip when you have no
+                      preference. Undo reverses the last choice.
                     </p>
                   </div>
                 </li>
                 <li>
                   <span>3</span>
                   <div>
-                    <strong>Aether updates the order.</strong>
+                    <h3>Return to the leaderboard</h3>
                     <p>
-                      It considers the full set of choices and refreshes the
-                      leaderboard when you return. Later pairs favor useful,
-                      close matchups while still mixing in new combinations.
+                      Aether updates the order from your choices. Choosing the
+                      same pair again replaces your earlier preference.
                     </p>
                   </div>
                 </li>
               </ol>
-
-              <div className="guide-ranking-notes">
-                <h3>Changing your mind is safe</h3>
+              <div className="guide-text-block">
+                <h3>Scores and progress</h3>
                 <p>
-                  Undo restores your previous choice. If the same pair appears
-                  again, the new choice replaces the old one instead of being
-                  counted twice.
+                  Zero means unranked; a positive score means ranked. You can
+                  also adjust scores by hand. Info shows the comparison score,
+                  your adjustment and the final score separately.
                 </p>
-                <h3>Progress measures comparison coverage</h3>
                 <p>
-                  Compared counts media used in at least one active pair. Active
-                  pairs reports the number of unique current matchups. These are
-                  separate from the Ranked filter, which includes media with a
-                  positive final score.
-                </p>
-                <h3>Scores still work by hand</h3>
-                <p>
-                  You can raise or lower a score directly at any time. Aether
-                  keeps that adjustment when later comparisons update the
-                  ranking. Media details shows the comparison score, manual
-                  adjustment, and final score separately, with actions to use
-                  the comparison score or reset that item's comparisons.
+                  Compared counts items used in at least one current pair.
+                  Active pairs counts distinct pairs with a saved choice.
+                  Neither means that every item is ranked.
                 </p>
               </div>
-            </CardContent>
-          </Card>
-        </GuideSection>
+            </GuideSection>
+          </TabsContent>
 
-        <GuideSection
-          description="These tools work together, but each one has a different purpose."
-          id="guide-organize"
-          title="Organize without overthinking it"
-        >
-          <div className="guide-tool-list">
-            <GuideTool
-              icon={ArrowUp}
-              title="Scores"
-              description="Zero means unranked. Positive scores establish importance, and higher scores appear first when sorting by score."
-            />
-            <GuideTool
-              icon={Heart}
-              title="Favorites"
-              description="Mark personal standouts and filter to them quickly, regardless of score."
-            />
-            <GuideTool
-              icon={Tag}
-              title="Tags"
-              description="Add names, places, events, or any labels that help you search across folders."
-            />
-            <GuideTool
-              icon={ArrowDownUp}
-              title="View options"
-              description="Open the sliders button for Filters, Sort, and Gallery Layout. On narrow screens, search and buttons share one row; use the current view button to switch views. Changes apply immediately. The button's count shows active filters; Clear filters keeps your search and layout."
-            />
-          </div>
-        </GuideSection>
+          <TabsContent className="guide-tab-panel" value="organize">
+            <GuideSection title="Organize media">
+              <div className="guide-tool-list">
+                <GuideTool icon={ArrowUp} title="Scores">
+                  Raise or lower scores from the viewer or Info. Sorting by
+                  score places higher scores first. Manual adjustments remain
+                  when comparisons change.
+                </GuideTool>
+                <GuideTool icon={Heart} title="Favorites">
+                  Select the heart to mark a favorite. Use the favorites filter
+                  to find these items regardless of score.
+                </GuideTool>
+                <GuideTool icon={Tag} title="Tags">
+                  Add labels in Info, such as a place or event. Tags help you
+                  find related media across folders. Suggestions are optional;
+                  only tags you choose are saved.
+                </GuideTool>
+                <GuideTool icon={ArrowDownUp} title="Batch changes">
+                  Choose Select media in Gallery, select your cards and apply
+                  scores, favorites or tags together. Done selecting returns to
+                  browsing.
+                </GuideTool>
+              </div>
+            </GuideSection>
+          </TabsContent>
 
-        <GuideSection
-          description="Shortcuts are optional, but these make regular browsing much faster."
-          id="guide-shortcuts"
-          title="Keyboard shortcuts"
-        >
-          <Card className="guide-shortcuts-card">
-            <CardHeader>
-              <span className="guide-icon" aria-hidden="true">
-                <Keyboard />
-              </span>
-              <CardTitle>Quick controls</CardTitle>
-            </CardHeader>
-            <CardContent className="guide-shortcut-list">
-              {shortcuts.map(([keys, action]) => (
-                <div key={keys}>
-                  <kbd>{keys}</kbd>
-                  <span>{action}</span>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        </GuideSection>
-
-        <aside className="guide-privacy-note">
-          <ShieldCheck aria-hidden="true" />
-          <div>
-            <h2>Your originals stay where they are</h2>
-            <p>
-              Aether reads media from the folders you choose. Browsing, ranking,
-              favorites, scores, and tags do not rename, move, or edit the
-              original files.
-            </p>
-          </div>
-        </aside>
+          <TabsContent className="guide-tab-panel" value="keyboard">
+            <GuideSection
+              title="Keyboard shortcuts"
+              description="Shortcuts pause while you type or use a menu or panel."
+            >
+              <dl className="guide-shortcut-list">
+                {shortcuts.map(([keys, action]) => (
+                  <div key={keys}>
+                    <dt>
+                      <kbd>{keys}</kbd>
+                    </dt>
+                    <dd>{action}</dd>
+                  </div>
+                ))}
+              </dl>
+            </GuideSection>
+          </TabsContent>
+        </Tabs>
       </div>
     </section>
   );
 }
 
-interface GuideSectionProps {
+function GuideSection({
+  children,
+  description,
+  title
+}: {
   children: ReactNode;
-  description: string;
-  id: string;
+  description?: string;
   title: string;
-}
-
-function GuideSection({ children, description, id, title }: GuideSectionProps) {
+}) {
   return (
-    <section className="guide-section" id={id}>
+    <section className="guide-section">
       <header>
         <h2>{title}</h2>
-        <p>{description}</p>
+        {description ? <p>{description}</p> : null}
       </header>
       {children}
     </section>
   );
 }
 
-interface GuideToolProps {
-  description: string;
+function GuideTool({
+  children,
+  icon: Icon,
+  title
+}: {
+  children: ReactNode;
   icon: typeof ArrowUp;
   title: string;
-}
-
-function GuideTool({ description, icon: Icon, title }: GuideToolProps) {
+}) {
   return (
-    <article>
+    <article className="guide-tool">
       <span className="guide-icon" aria-hidden="true">
         <Icon />
       </span>
       <div>
         <h3>{title}</h3>
-        <p>{description}</p>
+        <p>{children}</p>
       </div>
     </article>
   );

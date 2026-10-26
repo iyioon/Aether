@@ -1,204 +1,177 @@
 # User Guide
 
-You can also open this guide from **User guide** in Aether's sidebar.
+Open **User guide** in the sidebar for help inside Aether.
 
-## First Run
+## Get Started
 
-1. Sign in with the password set by the server owner.
-2. Open the sidebar and start a library scan.
-3. Choose a folder, or use search and filters in the toolbar.
+1. Sign in with the server's shared password.
+2. Start a library scan from the sidebar.
+3. Choose a folder or search for media.
 
-Aether reads your photos and videos where they already live. It keeps scores,
-favorites, tags, search data, and generated previews in the Aether data
-directory. It does not edit source media.
+Aether reads existing media folders. Scores, favorites, tags and presentation
+settings stay in Aether; source files and downloads remain unchanged.
 
-## Browse Your Library
+## Browse
 
-The sidebar follows your media folders. Expanding or selecting a folder does
-not change anything on disk.
+- **Gallery** shows a grid. Select an item to open the viewer. Visible videos
+  play muted previews.
+- **Feed** shows one item at a time in a portrait frame. On phones, tap the media
+  to hide or show the top buttons, details and playback controls together.
+- **Compare** opens the leaderboard. Choose **Rank media** to compare pairs.
 
-- **Gallery** shows many items at once. Open **View options** (the sliders button)
-  for **Filters**, **Sort**, and **Layout**. Layout changes tile size, tile shape,
-  and visible card details.
-- **Feed** shows one item at a time. It uses the same search and filters as the
-  gallery.
-- **Compare** first shows the leaderboard. Select **Rank media** to choose
-  between pairs.
+Open **View options** for filters, sorting and layout. On phones it opens as a
+bottom sheet; the view button switches between Gallery, Feed and Compare.
+Search and toolbar buttons share one row in Gallery. Mobile Feed has filters
+and sorting; switch to Gallery or Compare for search and folder navigation.
 
-View options opens beside the toolbar on desktop and in a bottom sheet on phones.
-On narrow screens, search and controls share one row; the current view button
-opens the Gallery / Feed / Compare menu. Changes apply immediately. A count on
-the button shows active media, score, and tag filters; **Clear filters** removes them without changing search, sorting, or
-layout. Multiple tags match items with all selected tags. Feed offers Filters and
-Sort; Compare offers Filters. Gallery layout controls appear only in Gallery.
+Gallery and Ranking remember their card shape and visible details separately.
+Gallery also offers tile size. Feed always uses Portrait and offers card details
+without a shape selector. Feed and Ranking initially hide card details; Ranking
+starts with Original proportions.
 
-In comparison mode, select the item that should rank higher or skip the pair.
-The left and right arrow keys choose the matching side. You can undo the most
-recent choice. Choosing the same pair again replaces the earlier choice.
+Search matches filenames and folder paths, including partial words and Korean
+text. Selected tags match items carrying all those tags. **Clear filters** keeps
+your search, sort and layout choices.
 
-While you compare, Aether prepares up to three upcoming pairs and their display
-images in the background. Your choice is confirmed by the server before the
-next pair appears. Ready images can appear immediately after confirmation;
-video playback and uncached media can still take time to load. Large originals
-load when displayed to limit memory use. Aether reduces
-preloading when the browser reports a slow connection or data-saving mode, and
-stops background preparation while the app is hidden.
+## View Media
 
-**Compared** is the number of items included in at least one current pair.
-**Active pairs** is the number of unique pair choices. These numbers show how
-much comparison evidence you have collected; they are not a completion target.
+Use the viewer's previous/next buttons or left/right arrow keys to move through
+the filtered list. Open **Info** for details and scoring; playback continues
+behind the panel. Click or tap the media to hide or show the overlay controls.
+Controls also hide during playback, staying visible while paused, focused or
+scrubbing.
 
-## Resume And Home Screen Use
+Video controls provide play/pause, seeking, sound and expansion. With the seek
+bar focused, arrow keys move one second, Page keys move ten seconds, and
+Home/End jump to the beginning/end. In Feed, holding a video pauses it until
+release; an existing pause stays paused.
 
-Aether remembers your page, library controls, Settings tab, fullscreen item,
-and browsing position in this browser. Ranking also remembers the ordered pair
-and the most recent choice you can undo when you return from another view or
-reopen the app. A removed item or changed filter may require a new pair. Browser
-storage restrictions or clearing website data can remove this saved state.
+Videos begin muted. An explicit pause survives leaving and returning to the app.
+Muted playback may resume when you return; audible playback waits for Play.
+A thumbnail or poster stays visible until the media is ready. Supported videos
+can play even when a poster is missing.
 
-On iPhone, add Aether to the Home Screen with **Open as Web App** enabled. Use a
-stable HTTPS address trusted by the device. Home Screen launches resume the
-saved location; an explicit view link opens that view. Browser Back and Forward
-follow page and view navigation.
+The viewer's **View options** includes:
 
-On phones, Feed fills the available screen with a Gallery / Feed / Compare
-selector and View options button over the top-right corner of the media. Tap
-the media to hide or show both buttons together with details and playback
-controls. View options gives direct access to filters and sorting, including
-when the feed is empty. Switch to Gallery or Compare for search and folder
-navigation.
-On supported iOS versions, media extends behind the status bar; a dark gradient
-keeps the clock readable. iOS may reserve a strip at the top on some versions,
-which the app cannot cover.
+- **Use saved framing:** show the saved Gallery/Ranking frame or Feed Portrait
+  frame. Initially off, it otherwise follows your remembered on/off choice in
+  this browser, including after navigation, reopening, reload and sign-out.
+  Toggling it preserves playback and does not edit saved frames.
+- **Play highlights only:** loop the saved section. It shares the library's
+  preference and is unavailable for items without a highlight.
 
-After a production build has loaded online, the interface can reopen offline
-and show a recovery screen. Photos, videos, library data and editing still
-require a connection to your signed-in server. The offline cache contains
-only public application files. A new application version activates after its
-previous windows close.
+Browser fullscreen is available where supported. Native iPhone video fullscreen
+uses system controls and original proportions; saved framing applies inside
+Aether.
 
-Signing out clears saved navigation and ranking state. Session expiration
-preserves your destination so you can sign in and continue. Appearance
-preferences remain in this browser.
+## Edit Media
 
-## View Photos And Videos
+Right-click a Gallery card, touch-hold its preview, or focus it and press
+Shift+F10 for **Info**, **Edit media** and **Download**. Scrolling cancels a touch
+hold; score and heart holds keep their usual actions. Edit media is also in the
+viewer toolbar and below the Feed heart.
 
-Select a gallery item to open the fullscreen viewer. Use the previous and next
-buttons to move through the current filtered list.
-Visible gallery videos play muted previews within the selected card shape,
-including portrait videos cropped into landscape cards.
+The editor fills the screen. **Save** applies the draft, **Cancel** discards it,
+and **Reset** restores draft defaults only after Save. Opening the editor does
+not change saved settings. If another window saves first, reload its saved
+settings before trying again.
 
-In the feed, tap the media to hide or show details and playback controls together.
-The compact video control bar keeps play/pause, seeking, sound, and expansion
-on one row, with elapsed and total time above the timeline. Its background blends
-into the title's gradient. Press and hold a video to pause temporarily; releasing
-it preserves an existing pause. Use the
-expansion button to open the viewer.
-With the seek bar focused, arrow keys seek one second, Page keys seek ten
-seconds, and Home/End jump to the beginning/end.
+### Playback
 
-The viewer overlays playback controls on the media so tall videos can fill the
-available height without cropping. It offers browser fullscreen when available,
-with native video fullscreen on supported iPhones. System fullscreen
-uses the device's controls. Controls remain visible while paused, focused, or
-scrubbing. The single-row bar sits above the iPhone Home indicator in portrait and
-landscape, with large touch areas for its buttons and timeline.
+Choose a highlight with the start/end handles or time fields. Set a playback
+speed from 0.5× to 2× and choose **Repeat** or **Bounce**. Bounce runs forward then
+backward; video Bounce is silent and its draft previews forward until Save.
+The preview and timeline stay available in both editor tabs. Switching tabs
+keeps playback running; seeking pauses anywhere in the full source.
 
-Videos begin muted. An explicit pause remains paused after leaving and returning
-to the app. Muted playback may resume when you return; audible playback waits
-for you to press Play again.
+Turn on **Play highlights only** in View options to use saved sections in
+Gallery, Feed, Comparison and the viewer. With it off, an item with a highlight
+plays its full source in Repeat. Bounce without a highlight applies to the full
+item. The playback bar identifies the active loop and shows source times.
 
-Aether uses cached thumbnails and posters while larger files load. If a browser
-cannot play a source video, Aether can use a browser-friendly preview instead.
-A missing poster does not prevent a supported video from playing.
+Repeat highlights use the original video in Feed, Comparison and the viewer.
+If the browser cannot play it, Aether prepares a compatible section. Highlights
+can span up to two minutes. For supported videos, Bounce prepares a silent
+lossless video with the source frames and timing. Some formats, including HDR
+video, need Repeat instead. The editor shows the available limit; larger sources
+allow shorter sections. Browser support varies, and first playback may need
+preparation.
 
-## Presentation Settings
+Animated GIF, WebP, APNG and AVIF support playback editing within processing
+limits. Preparation may take time on first use. Files that are too large or
+cannot be decoded may be unavailable for playback editing; framing remains
+available. See [Architecture](architecture.md#saved-media-presentation) for
+format and processing limits.
 
-Choose **Edit media** beside Download on a Gallery card, below the heart in
-Feed, beside a Comparison card, or in the viewer toolbar. One editor holds
-changes until **Save**; **Cancel** discards the draft. **Reset** restores the
-draft defaults, which take effect only after Save. These edits do not change
-source files or downloads.
+### Framing
 
-- **Playback:** select start and end handles or enter times for a highlight.
-  Preview the section, choose 0.5×–2× speed, and use Repeat or Bounce.
-  Bounce plays forward then backward without repeating the endpoint frames;
-  video bounce is silent. The video draft previews forward; Bounce applies after Save using a
-  generated, continuous forward/reverse rendition.
-- **Framing:** choose Auto, Fit, or Fill. Auto keeps each view's usual fit;
-  Fit shows the whole item. In Fill, drag or use arrow keys to reposition,
-  pinch or use Zoom to enlarge, and preview different card shapes. One saved
-  focal point and zoom apply across views, rather than a separate crop per shape.
-- **View options → Play highlights only** applies saved sections in Gallery,
-  Feed, and the viewer. With this off, an item with a highlight plays its full
-  source in Repeat; speed and framing still apply. Bounce without a highlight
-  applies to the full item. The playback bar identifies a looping highlight or
-  bounce and displays original source times.
+Choose **Fit** to show the whole item or **Fill** to cover the frame. In Fill,
+drag or use arrow keys to reposition, pinch or use Zoom to enlarge. The grid
+stays visible in both modes.
 
-Videos support highlights up to two minutes and bounce up to ten seconds.
-Animated GIF, WebP, APNG, and AVIF support playback editing within sixty seconds,
-600 frames, and the server's decoded-pixel budget. Transparency and individual
-frame timing are retained. Large or undecodable files may be unavailable for
-playback editing. Preparation can take time on the first playback; retry a
-failed request explicitly. Backgrounding pauses playback; preparation may still
-be needed when you return.
+Original, Square, Portrait and Landscape keep independent frames. Switching
+shapes retains every draft; one Save applies them together. Gallery and Ranking
+use their selected frame, and Feed uses Portrait.
 
-Comparison always uses the full source at normal speed with forward repeat,
-while preserving saved framing. Its aspect button offers Original, Square,
-Portrait, and Landscape without changing the pair or Undo.
+Saved edits are shared with other devices using the server. If a source file
+changes, scan the library before editing it. Safe moves retain edits; replacing
+a file's contents clears them.
 
-Settings are shared by devices using the same server. If another window saves
-first, the editor keeps your draft and asks you to reload saved settings. If a
-source file changes, scan the library before editing it. Safe moves retain edits;
-replacing a file's content clears them.
+## Rank, Score And Organize
 
-## Scores, Favorites, And Tags
+Choose the better item in a comparison pair, use the left/right arrow keys, or
+skip. **Undo** restores the most recent choice. Choosing the same pair again
+replaces its earlier result. Aether prepares upcoming items in the background,
+but video and uncached media may still need time to load.
 
-Every item starts with a score of zero. A score above zero appears in the
-**Ranked** filter. Use the score controls on a card or in media details to raise
-or lower it.
+Comparison uses normal-speed forward repeat and the selected saved frame.
+**Play highlights only** changes its range; saved speed and Bounce do not affect
+ranking playback. Layout changes preserve the pair and Undo. Open the viewer
+to edit a comparison item.
 
-Comparison choices produce a relative comparison score. Manual score changes
-are kept separately and added to it. In media details:
+Scores combine comparison results with manual adjustments. Zero is unranked;
+items above zero appear in the **Ranked** filter. In Info:
 
 - **Use comparison score** removes the manual adjustment.
-- **Reset comparisons** removes that item's pair choices, keeps its manual
-  score, and recalculates related items.
+- **Reset comparisons** removes the item's pair choices and keeps its manual
+  score.
 
-Favorites do not affect scores. Use them as a separate quick filter.
+**Compared** counts items in current pair choices; **Active pairs** counts unique
+choices. They show your comparison history, not a completion target. Favorites
+are separate from scores. Use tags to group media; suggestions are saved only
+when you apply them.
 
-Tags help group and find media. Aether can suggest tags from existing tags,
-filenames, folders, and an optional image-analysis service. Suggestions are not
-saved until you apply them.
+Select several Gallery items to change scores, favorites or tags together.
+A failed batch does not partly save. Download the unchanged source from a card's
+context menu or the viewer toolbar while signed in.
 
-## Edit Several Items
+## Resume And iPhone Home Screen
 
-Select multiple gallery items to change their score, favorite state, or tags
-together. A failed batch is not partly saved.
+Aether remembers your page, controls, browsing position, viewer item and ranking
+pair/Undo in this browser. Explicit links take precedence over saved state.
+Sign-out clears navigation and ranking state; session expiry keeps your place
+for sign-in. Appearance choices remain. Clearing site data or restricted browser
+storage can remove saved choices.
 
-## Search
+On iPhone, use a stable, trusted HTTPS address and add Aether to the Home Screen
+with **Open as Web App** enabled. Feed uses the space iOS makes available;
+iOS may still reserve part of the status-bar area. Controls stay within the
+phone's safe areas in portrait and landscape.
 
-Search checks filenames and folder paths. Partial words work, including partial
-Korean text in filenames.
-
-## Download
-
-Downloads require a signed-in Aether session. The browser receives the media,
-not its absolute filesystem path.
+After loading online, the interface can reopen offline with a recovery screen.
+Media, library data and editing require a connection to the signed-in server.
+An update takes effect after existing app windows close.
 
 ## Settings And Reset
 
-Settings contains appearance choices and a safe summary of the server. Secret
-values and absolute server paths are not sent to the browser. Library controls
-such as view, sorting, tile size, and filters stay in the library toolbar and
-survive a reload through the page address.
+Settings contains appearance choices and server status. Library filters and
+layout stay in View options.
 
-The **Database** tab can reset scores, favorites, tags, comparison history,
-highlights and playback, or position and zoom.
-Nothing is selected by default. Review the choices, enter `RESET`, and confirm.
-This does not delete source media, indexed files, folders, or server settings.
-Playback reset removes obsolete section and bounce renditions; other previews
-remain. Position and zoom reset keeps playback preferences.
+In **Settings → Database**, select scores, favorites, tags, comparisons,
+playback/highlights or position/zoom to reset. Review the choices, enter
+`RESET`, and confirm. Nothing is selected initially. Source media, the index,
+folders and server settings remain. Playback and framing can be reset
+separately.
 
-To rebuild the whole index or remove all Aether-managed data, stop the server
+For a complete index rebuild or removal of Aether-managed data, stop the server
 and follow [Data management](data-management.md).

@@ -7,8 +7,9 @@ for a long-running home server.
 
 You need:
 
-- Node.js 24 or newer and npm for local use
-- FFmpeg 5.1 or newer, with matching ffprobe, for media metadata and processing
+- Node.js 24 and npm for local use
+- FFmpeg 5.1 or newer, with matching ffprobe and libx264/libx265 encoders, for
+  media metadata and processing
 - Docker and Docker Compose for the container setup
 
 Keep source media on a readable local or mounted filesystem. Aether never needs
@@ -19,7 +20,7 @@ write access to those folders.
 ```bash
 git clone https://github.com/iyioon/Aether.git
 cd Aether
-npm install
+npm ci
 mkdir -p aether-data
 chmod 700 aether-data
 cp private.env.example aether-data/private.env

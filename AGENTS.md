@@ -55,9 +55,9 @@ directory unless written from the repository root.
 ## Environment And Commands
 
 Use Node.js 24, matching `.nvmrc`, Docker, and CI. The project uses npm
-workspaces, TypeScript, and ES modules. FFmpeg and ffprobe are required for video
-processing and tests. Browser tests require Chrome; Docker checks require
-Docker Compose.
+workspaces, TypeScript, and ES modules. FFmpeg 5.1 or newer and matching ffprobe
+are required for media processing and tests. Browser tests require Chrome;
+Docker checks require Docker Compose.
 
 Use `npm ci` for a clean checkout. Follow the [setup instructions](README.md)
 with disposable media and data; preserve existing local environment files.

@@ -46,8 +46,8 @@ npm run data:status     # inspect the local data directory
 ```
 
 The end-to-end suite starts isolated servers and creates disposable files under
-**.e2e**. It expects a local Chrome installation. FFmpeg and ffprobe must be
-available for video tests.
+**.e2e**. It expects a local Chrome installation. FFmpeg 5.1 or newer and its
+matching ffprobe must be available for media tests.
 
 Run `npm run build` before the browser suite. Phone layout and offline checks
 use the production web build.

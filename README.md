@@ -25,7 +25,7 @@ as a public media service.
 
 - Node.js 24 or newer
 - npm
-- FFmpeg and ffprobe
+- FFmpeg 5.1 or newer, with the matching ffprobe version
 - Docker and Docker Compose, if you prefer a container
 
 ## Quick Start

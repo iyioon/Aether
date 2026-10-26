@@ -591,6 +591,12 @@ async function animatedFixture(format: "gif" | "webp" | "apng" | "avif") {
         "8",
         "-crf",
         "0",
+        // Older AV1 encoders omit packet durations. Fix the final hold in a
+        // shared 10 kHz encoder/muxer time base without changing frame PTS.
+        "-enc_time_base",
+        "1/10000",
+        "-bsf:v",
+        "setts=duration=if(eq(N\\,2)\\,3000\\,DURATION)",
         "-fps_mode",
         "passthrough",
         "-f",
@@ -600,8 +606,59 @@ async function animatedFixture(format: "gif" | "webp" | "apng" | "avif") {
       ],
       20_000
     );
+    await verifyAvifFixtureTiming(destination);
   }
   return assetNamed(`animation.${format}`);
+}
+
+async function verifyAvifFixtureTiming(sourcePath: string): Promise<void> {
+  const payload = JSON.parse(
+    (
+      await runMediaCommand(
+        "ffprobe",
+        [
+          "-v",
+          "error",
+          "-show_packets",
+          "-show_entries",
+          "packet=stream_index,pts_time,duration_time",
+          "-of",
+          "json",
+          sourcePath
+        ],
+        10_000
+      )
+    ).stdout
+  ) as {
+    packets: Array<{
+      stream_index: number;
+      pts_time: string;
+      duration_time: string;
+    }>;
+  };
+  const streams = new Map<
+    number,
+    Array<{ startMs: number; durationMs: number }>
+  >();
+  for (const packet of payload.packets) {
+    const timeline = streams.get(packet.stream_index) ?? [];
+    timeline.push({
+      startMs: Math.round(Number(packet.pts_time) * 1000),
+      durationMs: Math.round(Number(packet.duration_time) * 1000)
+    });
+    streams.set(packet.stream_index, timeline);
+  }
+  const animatedTracks = [...streams.values()].filter(
+    (timeline) => timeline.length === 3
+  );
+  expect(animatedTracks).toHaveLength(2);
+  for (const timeline of animatedTracks) {
+    expect(timeline).toEqual([
+      { startMs: 0, durationMs: 100 },
+      { startMs: 100, durationMs: 200 },
+      { startMs: 300, durationMs: 300 }
+    ]);
+  }
 }
 
 describe("controllable transparent animations", () => {

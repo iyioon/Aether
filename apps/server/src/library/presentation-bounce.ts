@@ -156,6 +156,18 @@ function frameBytes(width: number, height: number, bitDepth: number) {
   return width * height * 1.5 * (bitDepth > 8 ? 2 : 1);
 }
 
+function canonicalPixelFormat(
+  format: string | undefined,
+  range: string | undefined
+): VideoBounceProfile["pixelFormat"] | null {
+  if (range && !["pc", "tv", "unknown", "unspecified"].includes(range))
+    return null;
+  // FFmpeg's JPEG-range alias has the same planar samples as 8-bit 4:2:0.
+  // Require explicit full range rather than inferring or changing sample values.
+  if (format === "yuvj420p") return range === "pc" ? "yuv420p" : null;
+  return format === "yuv420p" || format === "yuv420p10le" ? format : null;
+}
+
 /** Raw input, compressed block, inflated output and one queued encoder frame. */
 export function videoBounceWorkingBytes(
   width: number,
@@ -225,7 +237,7 @@ export async function inspectBounceSource(
   if (!stream) unsupported();
   const width = stream.width!;
   const height = stream.height!;
-  const pixelFormat = stream.pix_fmt;
+  const pixelFormat = canonicalPixelFormat(stream.pix_fmt, stream.color_range);
   const transfer = stream.color_transfer;
   if (
     !Number.isSafeInteger(width) ||
@@ -236,7 +248,7 @@ export async function inspectBounceSource(
     height > 32768 ||
     width % 2 ||
     height % 2 ||
-    (pixelFormat !== "yuv420p" && pixelFormat !== "yuv420p10le") ||
+    !pixelFormat ||
     (stream.field_order &&
       !["unknown", "progressive"].includes(stream.field_order)) ||
     transfer === "smpte2084" ||
@@ -450,7 +462,7 @@ async function validateSourceFrames(
   profile: VideoBounceProfile
 ) {
   for (const fields of [
-    "width,height,pix_fmt,interlaced_frame",
+    "width,height,pix_fmt,interlaced_frame,color_range",
     "color_range,color_space,color_transfer,color_primaries,chroma_location"
   ]) {
     let output: string;
@@ -498,7 +510,9 @@ async function validateSourceFrames(
         if (
           Number(frame.width) !== profile.width ||
           Number(frame.height) !== profile.height ||
-          frame.pix_fmt !== profile.pixelFormat ||
+          canonicalPixelFormat(frame.pix_fmt, frame.color_range) !==
+            profile.pixelFormat ||
+          (profile.colorRange && frame.color_range !== profile.colorRange) ||
           frame.interlaced_frame !== "0"
         )
           unsupported();
@@ -625,7 +639,7 @@ export async function generateLosslessBounce(
         "-filter_threads",
         "1",
         "-vf",
-        `select='gte(t,${firstTime - 0.000001})*lt(t,${endTime - 0.0000005})',trim=end_frame=${count}`,
+        `select='gte(t,${firstTime - 0.000001})*lt(t,${endTime - 0.0000005})',trim=end_frame=${count}${profile.colorRange === "pc" ? `,scale=in_range=pc:out_range=pc,format=${profile.pixelFormat}` : ""}`,
         "-map",
         `0:${profile.streamIndex}`,
         "-an",
@@ -862,7 +876,8 @@ async function validateOutput(
     !stream ||
     stream.width !== profile.width ||
     stream.height !== profile.height ||
-    stream.pix_fmt !== profile.pixelFormat ||
+    canonicalPixelFormat(stream.pix_fmt, stream.color_range) !==
+      profile.pixelFormat ||
     stream.codec_name !== codec ||
     stream.profile !==
       (codec === "h264"

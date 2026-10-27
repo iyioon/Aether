@@ -34,7 +34,10 @@ import { ensurePresentationAnimation } from "../src/library/presentation-animati
 import { ensurePresentationDerivative } from "../src/library/presentation-cache.js";
 import { VIDEO_BOUNCE_MAX_OUTPUT_BYTES } from "../src/library/presentation-bounce.js";
 import { registerPresentationMediaRoutes } from "../src/library/routes-presentation-media.js";
-import { getPresentationRenditionKeys } from "../src/library/presentation.js";
+import {
+  defaultPresentationValues,
+  getPresentationRenditionKeys
+} from "../src/library/presentation.js";
 import {
   removeAssetDerivativeCache,
   sweepDerivativeCache
@@ -84,7 +87,12 @@ async function assetNamed(name: string) {
   if (!asset) throw new Error("Expected indexed fixture.");
   return asset;
 }
-async function video(name = "clip.mp4", duration = 1, size = "48x32") {
+async function video(
+  name = "clip.mp4",
+  duration = 1,
+  size = "48x32",
+  colorRange = "tv"
+) {
   await runMediaCommand(
     "ffmpeg",
     [
@@ -105,6 +113,9 @@ async function video(name = "clip.mp4", duration = 1, size = "48x32") {
       "ultrafast",
       "-pix_fmt",
       "yuv420p",
+      ...(colorRange === "pc"
+        ? ["-vf", "scale=in_range=tv:out_range=pc", "-color_range", "pc"]
+        : []),
       "-c:a",
       "aac",
       "-shortest",
@@ -128,6 +139,81 @@ function setHighlight(
 }
 
 describe("presentation video delivery", () => {
+  it("saves and serves full-range MOV Bounce without changing the source", async () => {
+    const initial = await video("screen-recording.mov", 1, "96x64", "pc");
+    const sourcePath = path.join(cwd, "media", initial.name);
+    const source = await readFile(sourcePath);
+    await app.close();
+    app = await buildApp({ config, db, logger: false });
+    const login = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { password: "presentation-test" }
+    });
+    expect(login.statusCode).toBe(200);
+    const auth = {
+      cookies: {
+        aether_session: login.cookies.find(
+          (cookie) => cookie.name === "aether_session"
+        )!.value
+      },
+      headers: {
+        "x-csrf-token": login.cookies.find(
+          (cookie) => cookie.name === "aether_csrf"
+        )!.value
+      }
+    };
+    const capabilitiesUrl = `/api/assets/${initial.id}/presentation-media`;
+    expect((await app.inject(capabilitiesUrl)).statusCode).toBe(401);
+    const capabilities = (
+      await app.inject({ url: capabilitiesUrl, ...auth })
+    ).json();
+    expect(capabilities).toMatchObject({
+      kind: "video",
+      maxBounceDurationMs: 30_000
+    });
+    expect(capabilities.bounceUnavailable).not.toBe(true);
+    const saved = await app.inject({
+      method: "PUT",
+      url: `/api/assets/${initial.id}/presentation`,
+      ...auth,
+      payload: {
+        ...defaultPresentationValues(),
+        expectedRevision: 0,
+        highlight: { startMs: 320, endMs: 810 },
+        loopMode: "bounce"
+      }
+    });
+    expect(saved.statusCode).toBe(200);
+    const asset = saved.json().asset;
+    for (const codec of ["hevc", "h264"]) {
+      const url = `/api/assets/${initial.id}/playback?variant=bounce&v=${asset.presentation.renditionKeys.bounce}&codec=${codec}`;
+      expect((await app.inject(url)).statusCode).toBe(401);
+      const playback = await app.inject({ url, ...auth });
+      expect(playback.statusCode).toBe(200);
+      expect(playback.headers["content-type"]).toBe("video/mp4");
+      expect(playback.headers["cache-control"]).toBe("private, no-cache");
+      const head = await app.inject({ method: "HEAD", url, ...auth });
+      expect(head.statusCode).toBe(200);
+      expect(head.rawPayload).toHaveLength(0);
+      expect(head.headers["content-length"]).toBe(
+        String(playback.rawPayload.length)
+      );
+      const range = await app.inject({
+        url,
+        ...auth,
+        headers: { ...auth.headers, range: "bytes=0-31" }
+      });
+      expect(range.statusCode).toBe(206);
+      expect(range.rawPayload).toEqual(playback.rawPayload.subarray(0, 32));
+    }
+    expect(
+      (await app.inject({ url: `/api/assets/${initial.id}/download`, ...auth }))
+        .rawPayload
+    ).toEqual(source);
+    expect(await readFile(sourcePath)).toEqual(source);
+  });
+
   it("keeps a shared processing slot available while Bounce jobs wait", async () => {
     const initial = await video();
     const asset = setHighlight(initial.id, 0, 500, "bounce");

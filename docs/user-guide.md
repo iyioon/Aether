@@ -116,6 +116,9 @@ timing. Some formats, including HDR video, need Repeat instead. The editor shows
 the available limit. Browser support varies, and first playback may need
 preparation; prepared sections are reused on later visits.
 
+Supported MOV screen recordings can use Bounce, including full-range SDR video.
+The video format and processing limits still apply.
+
 Animated GIF, WebP, APNG and AVIF support playback editing within processing
 limits. Preparation may take time on first use. Files that are too large or
 cannot be decoded may be unavailable for playback editing; framing remains

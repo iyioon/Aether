@@ -383,6 +383,13 @@ unsupported formats/profiles have Bounce disabled; ordinary source playback and
 Repeat remain available. Timestamp-origin support requires separate browser and
 container timeline validation before that restriction can be relaxed.
 
+Full-range 8-bit YUV 4:2:0 MOV recordings are also supported. The legacy
+`yuvj420p` format is treated as `yuv420p` with an explicit full-range flag;
+decoding keeps the input and output ranges full before storing planar samples.
+Source-frame and output validation check both layout and range. No range
+reduction, rescaling or tone mapping is applied. See FFmpeg's
+[pixel format definitions](https://ffmpeg.org/doxygen/8.0/pixfmt_8h.html).
+
 Lossless HEVC uses an `hvc1` MP4 when the browser reports HEVC support. A lossless
 H.264 QP0/High444 Predictive copy provides an alternative for supporting browsers.
 Decoded-frame equality is distinct from copying the original bitstream or using
@@ -407,7 +414,7 @@ budget fail explicitly without reducing resolution or quality. Capabilities and
 save validation expose the available duration, including the frame-count limit
 at high frame rates. Actual selected frame counts are checked beyond estimates.
 The source/range timeline cache admits eight pending probes and retains at most
-64 entries. Bounce keys include `bounce-lossless-v4`, invalidating earlier
+64 entries. Bounce keys include `bounce-lossless-v5`, invalidating earlier
 prepared output and cached capability limits without changing full-source or
 animation identities.
 Animations retain source dimensions up to 2048px per side in lossless PNG atlases,

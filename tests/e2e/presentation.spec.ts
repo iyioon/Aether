@@ -3106,6 +3106,105 @@ test("falls back between lossless Bounce codecs when a reported decoder fails", 
 });
 
 for (const phone of [false, true]) {
+  test(`edits and plays a full-range MOV Bounce on ${phone ? "phone" : "desktop"}`, async ({
+    browser
+  }) => {
+    const context = await browser.newContext({
+      storageState,
+      viewport: phone
+        ? { width: 393, height: 852 }
+        : { width: 1440, height: 980 },
+      isMobile: phone,
+      hasTouch: phone
+    });
+    const page = await context.newPage();
+    const name = "screen-recording.mov";
+    const source = path.join(directory, name);
+    try {
+      await promisify(execFile)("ffmpeg", [
+        "-v",
+        "error",
+        "-nostdin",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc2=size=240x120:rate=24:duration=2",
+        "-vf",
+        "scale=in_range=tv:out_range=pc",
+        "-color_range",
+        "pc",
+        "-c:v",
+        "libx264",
+        "-threads",
+        "1",
+        "-preset",
+        "ultrafast",
+        "-pix_fmt",
+        "yuv420p",
+        "-y",
+        source
+      ]);
+      await scan(page);
+      const current = (await (
+        await page.request.get(
+          `${origin}/api/folders/${folderId}/assets?sort=filename&limit=10`
+        )
+      ).json()) as AssetListResponse;
+      const asset = current.items.find((item) => item.name === name)!;
+      expect(asset.mimeType).toBe("video/quicktime");
+      await open(page, "gallery", "video", name, true);
+      await openGalleryEditor(page, asset);
+      const editor = page.getByRole("dialog", {
+        name: "Edit media",
+        exact: true
+      });
+      await editor
+        .getByRole("textbox", { name: "Start time", exact: true })
+        .fill("0.25");
+      await editor
+        .getByRole("textbox", { name: "End time", exact: true })
+        .fill("1.5");
+      await editor.getByRole("combobox", { name: "Loop", exact: true }).click();
+      const bounce = page.getByRole("option", { name: "Bounce", exact: true });
+      await expect(bounce).toBeEnabled();
+      await bounce.click();
+      await activate(
+        editor.getByRole("button", { name: "Save", exact: true }),
+        phone
+      );
+      await expect(editor).toHaveCount(0);
+      expect((await getAsset(page, asset.id)).presentation).toMatchObject({
+        loopMode: "bounce",
+        highlight: { startMs: 250, endMs: 1500 }
+      });
+      const assertBounce = async (video: Locator) => {
+        await expect(video).toHaveAttribute("src", /playback\?variant=bounce/);
+        await expect
+          .poll(() =>
+            video.evaluate((node: HTMLVideoElement) => node.currentTime)
+          )
+          .toBeGreaterThan(0);
+        await expect(video).toHaveJSProperty("muted", true);
+      };
+      const viewer = page.getByRole("dialog", { name, exact: true });
+      await assertBounce(viewer.locator("video"));
+      await activate(
+        viewer.getByRole("button", { name: "Close viewer", exact: true }),
+        phone
+      );
+      await assertBounce(page.locator(".media-tile video").first());
+      await open(page, "feed", "video", name, true);
+      await assertBounce(page.locator(".feed-item video").first());
+    } finally {
+      await rm(source, { force: true });
+      try {
+        await scan(page);
+      } finally {
+        await context.close();
+      }
+    }
+  });
+
   test(`saves and plays a thirty-second Bounce section on ${phone ? "phone" : "desktop"}`, async ({
     browser
   }) => {

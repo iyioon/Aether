@@ -22,6 +22,7 @@ import {
 } from "../src/library/presentation-bounce.js";
 import { PresentationMediaError } from "../src/library/presentation-cache.js";
 import { runMediaCommand } from "../src/library/video-processing.js";
+import * as videoProcessing from "../src/library/video-processing.js";
 
 let directory: string;
 beforeEach(async () => {
@@ -66,7 +67,8 @@ async function fixture(
   );
   return file;
 }
-async function hashes(file: string, profile: VideoBounceProfile) {
+// Hash the native decoded samples; forcing a pixel format can hide range loss.
+async function hashes(file: string) {
   const digestFile = `${file}.framemd5`;
   await runMediaCommand(
     "ffmpeg",
@@ -80,8 +82,6 @@ async function hashes(file: string, profile: VideoBounceProfile) {
       file,
       "-map",
       "0:v:0",
-      "-pix_fmt",
-      profile.pixelFormat,
       "-fps_mode",
       "passthrough",
       "-f",
@@ -123,7 +123,7 @@ async function verifyBoth(
         name.startsWith(".bounce-work-")
       )
     ).toEqual([]);
-    expect(await hashes(output, profile)).toEqual(expectedHashes);
+    expect(await hashes(output)).toEqual(expectedHashes);
     await observeOutput?.(output, codec);
   }
   return plan;
@@ -165,7 +165,7 @@ describe("lossless native Bounce", () => {
       0,
       30_000,
       profile,
-      (await hashes(file, profile)).slice(0, 30)
+      (await hashes(file)).slice(0, 30)
     );
     expect(plan.sourceFrameCount).toBe(30);
     expect(plan.outputDurationMs).toBe(58_000);
@@ -204,7 +204,7 @@ describe("lossless native Bounce", () => {
         size
       );
       const profile = await inspectBounceSource(file);
-      const original = await hashes(file, profile);
+      const original = await hashes(file);
       expect(original).toHaveLength(expectedFrames);
       expect(
         expectedFrames * profile.width * profile.height * 1.5
@@ -240,7 +240,7 @@ describe("lossless native Bounce", () => {
       bitDepth: 8,
       frameRate: 60
     });
-    const original = await hashes(file, profile);
+    const original = await hashes(file);
     const plan = await verifyBoth(file, 0, 1000, profile, original);
     expect(plan.sourceFrameCount).toBe(60);
     expect(plan.outputSourceIndices).toHaveLength(118);
@@ -250,39 +250,59 @@ describe("lossless native Bounce", () => {
     );
   });
 
-  it("includes delayed B-frames at a non-EOF range boundary", async () => {
-    const file = await fixture(
-      "bframes.mp4",
-      24,
-      5,
-      [],
-      ["-c:v", "libx264", "-preset", "medium", "-bf", "3"]
-    );
-    const profile = await inspectBounceSource(file);
-    const original = await hashes(file, profile);
-    const plan = await verifyBoth(
-      file,
-      250,
-      750,
-      profile,
-      original.slice(6, 18)
-    );
-    expect(plan.sourceFrameCount).toBe(12);
-    expect(plan.outputSourceIndices).toHaveLength(22);
-    expect(plan.sourceTimesMs[0]).toBe(250);
-    expect(plan.sourceTimesMs.at(-1)).toBeCloseTo(708.333, 3);
-  });
+  for (const fullRange of [false, true]) {
+    it(`includes delayed B-frames at a non-EOF range boundary${fullRange ? " in full-range MOV" : ""}`, async () => {
+      const file = await fixture(
+        fullRange ? "full-range.MOV" : "bframes.mp4",
+        24,
+        5,
+        [],
+        [
+          "-c:v",
+          "libx264",
+          "-preset",
+          "medium",
+          "-bf",
+          "3",
+          ...(fullRange ? ["-color_range", "pc"] : [])
+        ]
+      );
+      const profile = await inspectBounceSource(file);
+      if (fullRange)
+        expect(profile).toMatchObject({
+          pixelFormat: "yuv420p",
+          bitDepth: 8,
+          colorRange: "pc"
+        });
+      const original = await hashes(file);
+      const plan = await verifyBoth(
+        file,
+        250,
+        750,
+        profile,
+        original.slice(6, 18),
+        async (output) => {
+          if (fullRange) {
+            const result = await inspectBounceSource(output);
+            expect(result).toMatchObject({
+              pixelFormat: "yuv420p",
+              bitDepth: 8,
+              colorRange: "pc"
+            });
+          }
+        }
+      );
+      expect(plan.sourceFrameCount).toBe(12);
+      expect(plan.outputSourceIndices).toHaveLength(22);
+      expect(plan.sourceTimesMs[0]).toBe(250);
+      expect(plan.sourceTimesMs.at(-1)).toBeCloseTo(708.333, 3);
+    });
+  }
 
   it("supports the 600 source-frame and 1198 output-frame boundary within command output limits", async () => {
     const file = await fixture("boundary.mkv", 60, 10);
     const profile = await inspectBounceSource(file);
-    const plan = await verifyBoth(
-      file,
-      0,
-      10_000,
-      profile,
-      await hashes(file, profile)
-    );
+    const plan = await verifyBoth(file, 0, 10_000, profile, await hashes(file));
     expect(plan.sourceFrameCount).toBe(600);
     expect(plan.outputSourceIndices).toHaveLength(1198);
   }, 15_000);
@@ -305,7 +325,7 @@ describe("lossless native Bounce", () => {
       0,
       30_000,
       profile,
-      await hashes(file, profile),
+      await hashes(file),
       async (output) => {
         const packets = await packetTimeline(output);
         expect(packets).toHaveLength(7198);
@@ -320,70 +340,171 @@ describe("lossless native Bounce", () => {
     );
   }, 30_000);
 
-  it("preserves variable frame durations and partial boundary holds", async () => {
-    // Explicit MP4 sample durations keep the final 100 ms hold unambiguous.
+  for (const fullRange of [false, true]) {
+    it(`preserves variable frame durations and partial boundary holds${fullRange ? " in full-range MOV" : ""}`, async () => {
+      // Explicit MP4 sample durations keep the final 100 ms hold unambiguous.
+      const file = await fixture(
+        fullRange ? "variable-full-range.mov" : "variable.mp4",
+        10,
+        0.4,
+        [
+          "settb=1/1000000",
+          "setpts='if(lt(N,2),if(lt(N,1),0,100000),if(lt(N,3),300000,700000))'"
+        ],
+        [
+          "-c:v",
+          "libx264",
+          "-bf",
+          "0",
+          "-enc_time_base",
+          "1/1000000",
+          "-bsf:v",
+          "setts=duration=100000",
+          ...(fullRange ? ["-color_range", "pc"] : [])
+        ]
+      );
+      const profile = await inspectBounceSource(file);
+      expect(profile.durationMs).toBe(800);
+      const original = await hashes(file);
+      const full = await verifyBoth(
+        file,
+        0,
+        800,
+        profile,
+        original,
+        async (output) => {
+          expect(await packetTimeline(output)).toEqual([
+            { timeMs: 0, durationMs: 100 },
+            { timeMs: 100, durationMs: 200 },
+            { timeMs: 300, durationMs: 400 },
+            { timeMs: 700, durationMs: 100 },
+            { timeMs: 800, durationMs: 400 },
+            { timeMs: 1200, durationMs: 200 }
+          ]);
+        }
+      );
+      expect(full.sourceTimesMs).toEqual([0, 100, 300, 700]);
+      expect(full.durationsMs).toEqual([100, 200, 400, 100]);
+      expect(full.outputTimesMs).toEqual([0, 100, 300, 700, 800, 1200]);
+      expect(full.outputDurationMs).toBe(1400);
+      const partial = await verifyBoth(
+        file,
+        150,
+        750,
+        profile,
+        original.slice(1),
+        async (output) => {
+          expect(await packetTimeline(output)).toEqual([
+            { timeMs: 0, durationMs: 150 },
+            { timeMs: 150, durationMs: 400 },
+            { timeMs: 550, durationMs: 50 },
+            { timeMs: 600, durationMs: 400 }
+          ]);
+        }
+      );
+      expect(partial.sourceTimesMs).toEqual([150, 300, 700]);
+      expect(partial.durationsMs).toEqual([150, 400, 50]);
+      expect(partial.outputTimesMs).toEqual([0, 150, 550, 600]);
+      expect(partial.outputDurationMs).toBe(1000);
+    });
+  }
+
+  for (const [format, range] of [
+    ["yuvj420p", "tv"],
+    ["yuvj420p", "unknown"],
+    ["yuvj420p", undefined],
+    ["yuvj420p", "invalid"],
+    ["yuv420p", "invalid"]
+  ] as const) {
+    it(`rejects contradictory or invalid source range ${format}/${range ?? "missing"}`, async () => {
+      const file = await fixture(
+        "range.mov",
+        24,
+        0.5,
+        [],
+        ["-c:v", "libx264", "-color_range", "pc"]
+      );
+      const result = await runMediaCommand(
+        "ffprobe",
+        ["-v", "error", "-show_streams", "-show_format", "-of", "json", file],
+        10_000
+      );
+      const metadata = JSON.parse(result.stdout) as {
+        streams: Array<Record<string, unknown>>;
+      };
+      metadata.streams[0] = {
+        ...metadata.streams[0],
+        pix_fmt: format,
+        color_range: range
+      };
+      vi.spyOn(videoProcessing, "runMediaCommand").mockResolvedValueOnce({
+        ...result,
+        stdout: JSON.stringify(metadata)
+      });
+      await expect(inspectBounceSource(file)).rejects.toMatchObject({
+        code: "bounce_source_not_supported",
+        status: 415
+      });
+    });
+  }
+
+  it("rejects a contradictory full-range frame before decoding a section", async () => {
     const file = await fixture(
-      "variable.mp4",
-      10,
-      0.4,
-      [
-        "settb=1/1000000",
-        "setpts='if(lt(N,2),if(lt(N,1),0,100000),if(lt(N,3),300000,700000))'"
-      ],
-      [
-        "-c:v",
-        "libx264",
-        "-bf",
-        "0",
-        "-enc_time_base",
-        "1/1000000",
-        "-bsf:v",
-        "setts=duration=100000"
-      ]
+      "frame-range.mov",
+      24,
+      0.5,
+      [],
+      ["-c:v", "libx264", "-color_range", "pc"]
     );
     const profile = await inspectBounceSource(file);
-    expect(profile.durationMs).toBe(800);
-    const original = await hashes(file, profile);
-    const full = await verifyBoth(
-      file,
-      0,
-      800,
-      profile,
-      original,
-      async (output) => {
-        expect(await packetTimeline(output)).toEqual([
-          { timeMs: 0, durationMs: 100 },
-          { timeMs: 100, durationMs: 200 },
-          { timeMs: 300, durationMs: 400 },
-          { timeMs: 700, durationMs: 100 },
-          { timeMs: 800, durationMs: 400 },
-          { timeMs: 1200, durationMs: 200 }
-        ]);
+    const originalRun = videoProcessing.runMediaCommand;
+    vi.spyOn(videoProcessing, "runMediaCommand").mockImplementation(
+      async (command, args, ...limits) => {
+        const result = await originalRun(command, args, ...limits);
+        return command === "ffprobe" &&
+          args.includes(
+            "frame=width,height,pix_fmt,interlaced_frame,color_range"
+          )
+          ? {
+              ...result,
+              stdout: result.stdout.replace(/color_range=pc/g, "color_range=tv")
+            }
+          : result;
       }
     );
-    expect(full.sourceTimesMs).toEqual([0, 100, 300, 700]);
-    expect(full.durationsMs).toEqual([100, 200, 400, 100]);
-    expect(full.outputTimesMs).toEqual([0, 100, 300, 700, 800, 1200]);
-    expect(full.outputDurationMs).toBe(1400);
-    const partial = await verifyBoth(
-      file,
-      150,
-      750,
-      profile,
-      original.slice(1),
-      async (output) => {
-        expect(await packetTimeline(output)).toEqual([
-          { timeMs: 0, durationMs: 150 },
-          { timeMs: 150, durationMs: 400 },
-          { timeMs: 550, durationMs: 50 },
-          { timeMs: 600, durationMs: 400 }
-        ]);
+    await expect(createBouncePlan(file, 0, 500, profile)).rejects.toMatchObject(
+      { code: "bounce_source_not_supported", status: 415 }
+    );
+  });
+
+  it("rejects a changed output range and removes the incomplete full-range rendition", async () => {
+    const file = await fixture(
+      "output-range.mov",
+      24,
+      0.5,
+      [],
+      ["-c:v", "libx264", "-color_range", "pc"]
+    );
+    const profile = await inspectBounceSource(file);
+    const plan = await createBouncePlan(file, 0, 500, profile);
+    const output = path.join(directory, "wrong-range.mp4");
+    const originalRun = videoProcessing.runMediaCommand;
+    vi.spyOn(videoProcessing, "runMediaCommand").mockImplementation(
+      async (command, args, ...limits) => {
+        const result = await originalRun(command, args, ...limits);
+        if (command !== "ffprobe" || !args.includes("-show_packets"))
+          return result;
+        const metadata = JSON.parse(result.stdout) as {
+          streams: Array<Record<string, unknown>>;
+        };
+        metadata.streams[0] = { ...metadata.streams[0], color_range: "tv" };
+        return { ...result, stdout: JSON.stringify(metadata) };
       }
     );
-    expect(partial.sourceTimesMs).toEqual([150, 300, 700]);
-    expect(partial.durationsMs).toEqual([150, 400, 50]);
-    expect(partial.outputTimesMs).toEqual([0, 150, 550, 600]);
-    expect(partial.outputDurationMs).toBe(1000);
+    await expect(
+      generateLosslessBounce(file, output, plan, profile)
+    ).rejects.toMatchObject({ code: "incomplete_rendition", status: 422 });
+    expect(await readdir(directory)).toEqual(["output-range.mov"]);
   });
 
   it("preserves 10-bit pixels, exact SAR, SDR color and rotation without resampling", async () => {
@@ -438,7 +559,35 @@ describe("lossless native Bounce", () => {
       rotation: -90,
       colorTransfer: "bt709"
     });
-    await verifyBoth(file, 0, 500, profile, await hashes(file, profile));
+    await verifyBoth(file, 0, 500, profile, await hashes(file));
+  });
+
+  it("keeps full-range 10-bit SDR samples and transfer metadata unchanged", async () => {
+    const file = await fixture(
+      "full-range-ten-bit.mov",
+      24,
+      0.5,
+      [
+        "format=yuv420p10le",
+        "setparams=range=pc:color_primaries=bt709:color_trc=iec61966-2-1:colorspace=bt709"
+      ],
+      [
+        "-c:v",
+        "libx265",
+        "-color_range",
+        "pc",
+        "-x265-params",
+        "lossless=1:pools=1:frame-threads=1:log-level=error"
+      ]
+    );
+    const profile = await inspectBounceSource(file);
+    expect(profile).toMatchObject({
+      pixelFormat: "yuv420p10le",
+      bitDepth: 10,
+      colorRange: "pc",
+      colorTransfer: "iec61966-2-1"
+    });
+    await verifyBoth(file, 0, 500, profile, await hashes(file));
   });
 
   it("rejects HDR, odd coded geometry, and reflected or sheared display matrices explicitly", async () => {

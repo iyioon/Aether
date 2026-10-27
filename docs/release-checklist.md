@@ -115,6 +115,9 @@ Never test rebuild or wipe against the only copy of a real library database.
   Validate actual HEVC playback
   and native fullscreen on an iPhone 16 Home Screen installation; record this
   separately from browser codec detection and desktop tests.
+- Check full-range SDR MOV screen recordings in Edit media, Gallery, Feed and
+  the viewer. Both Bounce codecs must preserve native decoded frame hashes,
+  color range and timing; retain the original download and existing limits.
 - Test Fit/Fill, drag, pinch, keyboard movement and zoom across shapes and
   orientations. The grid stays visible in both modes. Legacy Auto displays the
   matching Fit/Fill choice: Original Ranking uses Fit, other card frames use

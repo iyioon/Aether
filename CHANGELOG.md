@@ -42,6 +42,8 @@ Notable changes to Aether are recorded here.
 
 ### Fixed
 
+- Enable Bounce for supported full-range SDR MOV recordings while preserving
+  decoded pixels, color range and timing in both playback codecs.
 - Retain viewer thumbnails through capability checks, original-image loading
   and retries. Show selected highlight posters until playback is ready and
   prevent previous media from appearing during navigation.

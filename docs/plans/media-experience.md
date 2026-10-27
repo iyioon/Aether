@@ -1,7 +1,7 @@
 # Media Playback And Presentation Plan
 
 Status: Presentation, lossless Bounce and HEIC implemented; automated local, browser and container checks verified. Device acceptance is tracked below.\
-Reviewed: 2026-10-26.
+Reviewed: 2026-10-27.
 
 ## Outcome And Scope
 
@@ -195,6 +195,46 @@ H.264 profile guidance; reported HEVC support still requires device testing.
    reversal alternative would need demuxing, bounded keyframe windows/decoded
    memory, cleanup and a separate
    [iPhone native-fullscreen solution](https://bugs.webkit.org/show_bug.cgi?id=206854).
+
+## Deferred Improvements
+
+### Bounce startup performance
+
+Status: Deferred, optional. Revisit if preparation delays interrupt browsing.
+
+Currently, Save validates the selected section and stores presentation settings.
+The first playback request generates the lossless Bounce video and saves it in
+the managed cache. Current files survive server restarts and are reused, but
+source probing and frame-timeline analysis run before the file-cache check.
+After a restart or an in-memory cache eviction, this can delay an existing
+Bounce. HEVC and H.264 have separate files; a new browser codec may require its
+own first preparation. Large lossless files also take time to transfer and decode.
+
+Implement in this order:
+
+1. Reuse current cached playback before expensive frame analysis. Retain source
+   identity, rendition-key, path and file-descriptor validation; cache reuse must
+   never serve replaced media or stale edits. Check the capability path too, so
+   it does not repeat that analysis before playback can begin.
+2. Start bounded server preparation after a successful Bounce save, sharing jobs
+   with playback requests. Saving settings and finishing preparation must remain
+   distinct outcomes: preparation failure must not undo saved edits, and readiness
+   requires atomic publication. Continue after browser closure, reconcile pending
+   work against current settings after server interruption, and discard obsolete
+   work after source, range or reset changes. Let the viewing client select a
+   supported codec and retain lazy fallback without preparing both formats for
+   every save. Reuse existing processing queues rather than adding a general
+   job framework.
+
+Keep the existing lossless quality, processing limits, managed data directory
+and cleanup rules. Reuse the shared loading and error feedback.
+
+Acceptance: verify cache reuse before and after restart without repeated frame
+analysis; first preparation, codec fallback and concurrent requests; source or
+highlight changes during processing; browser closure, server interruption,
+failure, retry and obsolete-file cleanup. Measure preparation, transfer and
+first-frame decoding separately on representative media. Complete the local,
+browser and container checks before release.
 
 Maintain this tracker when a milestone changes, a decision changes, or an
 acceptance check reveals a material gap. Put stable user/operator guidance in

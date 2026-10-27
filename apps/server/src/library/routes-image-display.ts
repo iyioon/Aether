@@ -5,6 +5,7 @@ import type { AetherDatabase } from "../db/database.js";
 import { ensureImageDisplay, ImageDerivativeError } from "./image-display.js";
 import { imageSourceKey, openImageCacheFile } from "./image-cache.js";
 import {
+  assetFileStatMetadata,
   isAssetNotModified,
   mediaErrorStatus,
   requestedByteRange,
@@ -33,15 +34,15 @@ export function registerImageDisplayRoutes(
         if (!source) return reply.code(404).send({ error: "asset_not_found" });
         const display = await ensureImageDisplay({ db, config, file: source });
         const { handle } = await openImageCacheFile(display.path);
-        const info = await handle.stat();
-        await handle.close();
+        const info = await handle
+          .stat({ bigint: true })
+          .finally(() => handle.close());
+        const metadata = assetFileStatMetadata(info);
+        if (!metadata) throw new ImageDerivativeError("unsafe_cache", 500);
         const file: ResolvedAssetFile = {
           ...source,
+          ...metadata,
           sourcePath: await realpath(display.path),
-          sizeBytes: info.size,
-          mtimeMs: Math.trunc(info.mtimeMs),
-          device: info.dev,
-          inode: info.ino,
           asset: {
             ...source.asset,
             id: `${source.asset.id}:${imageSourceKey(source)}`,

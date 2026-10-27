@@ -1,4 +1,4 @@
-import { constants } from "node:fs";
+import { constants, type BigIntStats } from "node:fs";
 import { open, realpath, stat, type FileHandle } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import type { FastifyReply } from "fastify";
@@ -24,8 +24,8 @@ export interface ResolvedAssetFile {
   sourcePath: string;
   sizeBytes: number;
   mtimeMs: number;
-  device?: number;
-  inode?: number;
+  device?: number | bigint;
+  inode?: number | bigint;
 }
 
 export interface ByteRange {
@@ -38,6 +38,27 @@ export interface AssetStreamHeaders {
   ifNoneMatch?: string;
   ifRange?: string;
   range?: string;
+}
+
+export function assetFileStatMetadata(
+  info: Pick<BigIntStats, "size" | "mtimeNs" | "dev" | "ino">
+): {
+  sizeBytes: number;
+  mtimeMs: number;
+  device: bigint;
+  inode: bigint;
+} | null {
+  const sizeBytes = Number(info.size);
+  const mtimeMs = Number(info.mtimeNs / 1_000_000n);
+  if (
+    !Number.isSafeInteger(sizeBytes) ||
+    sizeBytes < 0 ||
+    !Number.isSafeInteger(mtimeMs) ||
+    mtimeMs < 0
+  ) {
+    return null;
+  }
+  return { sizeBytes, mtimeMs, device: info.dev, inode: info.ino };
 }
 
 export async function resolveAssetFile(
@@ -88,11 +109,14 @@ export async function resolveAssetFile(
     row.root_real_path,
     row.relative_path
   );
-  const fileStat = await stat(sourcePath).catch(() => null);
+  const fileStat = await stat(sourcePath, { bigint: true }).catch(() => null);
 
   if (!fileStat?.isFile()) {
     return null;
   }
+
+  const metadata = assetFileStatMetadata(fileStat);
+  if (!metadata) return null;
 
   return {
     asset: {
@@ -108,10 +132,7 @@ export async function resolveAssetFile(
       codec: row.codec
     },
     sourcePath,
-    sizeBytes: fileStat.size,
-    mtimeMs: Math.trunc(fileStat.mtimeMs),
-    device: fileStat.dev,
-    inode: fileStat.ino
+    ...metadata
   };
 }
 
@@ -229,16 +250,16 @@ export async function openAssetFile(
     constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
   );
   try {
-    const info = await handle.stat();
+    const info = await handle.stat({ bigint: true });
     const currentPath = await realpath(file.sourcePath);
-    const current = await stat(file.sourcePath);
+    const current = await stat(file.sourcePath, { bigint: true });
     if (
       currentPath !== file.sourcePath ||
       !info.isFile() ||
-      info.size !== file.sizeBytes ||
-      Math.trunc(info.mtimeMs) !== file.mtimeMs ||
-      (file.device !== undefined && info.dev !== file.device) ||
-      (file.inode !== undefined && info.ino !== file.inode) ||
+      info.size !== BigInt(file.sizeBytes) ||
+      info.mtimeNs / 1_000_000n !== BigInt(file.mtimeMs) ||
+      (file.device !== undefined && info.dev !== BigInt(file.device)) ||
+      (file.inode !== undefined && info.ino !== BigInt(file.inode)) ||
       current.dev !== info.dev ||
       current.ino !== info.ino
     )

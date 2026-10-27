@@ -70,11 +70,11 @@ export async function snapshotImageSource(
       }),
       createWriteStream(destination, { flags: "wx", mode: 0o600 })
     );
-    const source = await handle.stat();
+    const source = await handle.stat({ bigint: true });
     const copy = await lstat(destination);
     if (
-      source.size !== file.sizeBytes ||
-      Math.trunc(source.mtimeMs) !== file.mtimeMs ||
+      source.size !== BigInt(file.sizeBytes) ||
+      source.mtimeNs / 1_000_000n !== BigInt(file.mtimeMs) ||
       copy.size !== file.sizeBytes
     )
       throw new ImageDerivativeError("stale_image_source", 409);

@@ -46,6 +46,11 @@ path. Files also receive a content digest. During a complete scan, Aether uses
 the digest and the known paths to match renamed or moved files to existing asset
 records.
 
+Scanning, media resolution and source-descriptor validation use BigInt file
+metadata. Timestamp identity uses integer milliseconds derived from nanoseconds,
+so floating-point rounding cannot make an unchanged source disagree with its
+indexed record. Device and inode checks retain their exact integer values.
+
 When the match is safe, the asset keeps its ID, scores, favorites, tags, and
 comparison history. Duplicate files are kept as separate assets and use their
 known locations to avoid swapping metadata. A file that no longer has a match

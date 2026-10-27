@@ -830,11 +830,13 @@ describe("HEVC-backed HEIC display", () => {
 
   it("invalidates cached images after an inode replacement preserving source size and mtime", async () => {
     const { heic } = await fixture();
+    const timestampSeconds = 1_700_000_000;
+    await utimes(heic, timestampSeconds, timestampSeconds);
     const file = await indexed();
     const display = await ensureImageDisplay({ db, config, file });
     const replacement = path.join(config.cacheDir, "replacement.heic");
     await writeFile(replacement, await readFile(heic));
-    await utimes(replacement, new Date(file.mtimeMs), new Date(file.mtimeMs));
+    await utimes(replacement, timestampSeconds, timestampSeconds);
     await rename(replacement, heic);
     const current = (await resolveAssetFile(db, file.asset.id))!;
     expect(current).toMatchObject({

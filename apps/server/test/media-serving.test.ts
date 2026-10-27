@@ -7,8 +7,10 @@ import {
   rm,
   symlink,
   utimes,
+  readFile,
   writeFile
 } from "node:fs/promises";
+import * as fsPromises from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
@@ -25,14 +27,25 @@ import {
   listAssets
 } from "../src/library/repository.js";
 import {
+  assetFileStatMetadata,
   parseRangeHeader,
   openAssetFile,
   resolveAssetFile
 } from "../src/library/media-serving.js";
 import { scanLibrary } from "../src/library/scanner.js";
 import { ensureImageThumbnail } from "../src/library/thumbnails.js";
+import {
+  imageCacheDirectory,
+  imageSourceKey,
+  snapshotImageSource
+} from "../src/library/image-cache.js";
 import { ensureVideoPoster } from "../src/library/video-derivatives.js";
 import * as processing from "../src/library/video-processing.js";
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return { ...actual, stat: vi.fn(actual.stat), open: vi.fn(actual.open) };
+});
 
 describe("media serving", () => {
   let cwd: string;
@@ -58,6 +71,8 @@ describe("media serving", () => {
   });
 
   afterEach(async () => {
+    vi.mocked(fsPromises.stat).mockReset();
+    vi.mocked(fsPromises.open).mockReset();
     vi.restoreAllMocks();
     await app.close();
     db.close();
@@ -79,6 +94,8 @@ describe("media serving", () => {
     const privateFile = path.join(config.configDir, "private.txt");
     await writeFile(source, "public");
     await writeFile(privateFile, "secret");
+    const timestampSeconds = 1_700_000_000;
+    await utimes(source, timestampSeconds, timestampSeconds);
     await scanLibrary(db, config.mediaRoots);
     const resolved = (await resolveAssetFile(db, firstAsset("all").id))!;
     await rename(source, `${source}.old`);
@@ -86,8 +103,141 @@ describe("media serving", () => {
     await expect(openAssetFile(resolved)).rejects.toThrow();
     await rm(source);
     await writeFile(source, "public");
-    await utimes(source, resolved.mtimeMs / 1000, resolved.mtimeMs / 1000);
+    await utimes(source, timestampSeconds, timestampSeconds);
+    const replacement = (await resolveAssetFile(db, resolved.asset.id))!;
+    expect(replacement).toMatchObject({
+      mtimeMs: resolved.mtimeMs,
+      sizeBytes: resolved.sizeBytes
+    });
+    expect(replacement.inode).not.toBe(resolved.inode);
     await expect(openAssetFile(resolved)).rejects.toThrow();
+  });
+
+  it("uses the scanner's exact timestamp for source resolution, streaming and snapshots", async () => {
+    const source = path.join(cwd, "media", "photo.jpg");
+    const contents = "source bytes";
+    await writeFile(source, contents);
+    await scanLibrary(db, config.mediaRoots);
+    const precise = await fsPromises.stat(source, { bigint: true });
+    const mtimeMs = Number(precise.mtimeNs / 1_000_000n);
+    const actual =
+      await vi.importActual<typeof import("node:fs/promises")>(
+        "node:fs/promises"
+      );
+    vi.mocked(fsPromises.stat).mockImplementation(async (target, options) => {
+      const info = await actual.stat(target, options);
+      // A nanosecond timestamp can round into the following millisecond in Stats.
+      if (target === source && typeof info.mtimeMs === "number")
+        info.mtimeMs = mtimeMs + 1;
+      return info;
+    });
+
+    const resolved = (await resolveAssetFile(db, firstAsset("all").id))!;
+    expect(resolved.mtimeMs).toBe(mtimeMs);
+    expect(resolved.asset.indexedMtimeMs).toBe(mtimeMs);
+    expect(resolved.sizeBytes).toBe(Number(precise.size));
+    expect(resolved.device).toBe(precise.dev);
+    expect(resolved.inode).toBe(precise.ino);
+    const handle = await openAssetFile(resolved);
+    try {
+      expect(await handle.readFile("utf8")).toBe(contents);
+    } finally {
+      await handle.close();
+    }
+    const copy = path.join(config.configDir, "source-copy.jpg");
+    await snapshotImageSource(db, resolved, copy);
+    expect(await readFile(copy, "utf8")).toBe(contents);
+  });
+
+  it("preserves exact nanosecond metadata and rejects unsafe numeric sizes or timestamps", () => {
+    const info = {
+      size: 123n,
+      mtimeNs: 1_700_000_000_123_999_999n,
+      dev: 1n,
+      ino: 9_007_199_254_740_993n
+    };
+    expect(assetFileStatMetadata(info)).toEqual({
+      sizeBytes: 123,
+      mtimeMs: 1_700_000_000_123,
+      device: 1n,
+      inode: 9_007_199_254_740_993n
+    });
+    for (const unsafe of [
+      { size: -1n },
+      { size: BigInt(Number.MAX_SAFE_INTEGER) + 1n },
+      { mtimeNs: -1_000_000n },
+      { mtimeNs: (BigInt(Number.MAX_SAFE_INTEGER) + 1n) * 1_000_000n }
+    ])
+      expect(assetFileStatMetadata({ ...info, ...unsafe })).toBeNull();
+  });
+
+  it("streams cached display images when floating timestamps round up", async () => {
+    await writeFile(path.join(cwd, "media", "photo.heic"), "source bytes");
+    await scanLibrary(db, config.mediaRoots);
+    const source = (await resolveAssetFile(db, firstAsset("all").id))!;
+    const directory = await imageCacheDirectory(
+      config,
+      "display-images",
+      source.asset.id
+    );
+    const cachedPath = path.join(directory, `${imageSourceKey(source)}.png`);
+    const png = await sharp({
+      create: {
+        width: 16,
+        height: 16,
+        channels: 3,
+        background: "red"
+      }
+    })
+      .png()
+      .toBuffer();
+    await writeFile(cachedPath, png, { mode: 0o600 });
+    const cachedStat = await fsPromises.stat(cachedPath, { bigint: true });
+    const actual =
+      await vi.importActual<typeof import("node:fs/promises")>(
+        "node:fs/promises"
+      );
+    vi.mocked(fsPromises.open).mockImplementation(
+      async (target, flags, mode) => {
+        const handle = await actual.open(target, flags, mode);
+        if (target === cachedPath) {
+          const handleStat = handle.stat.bind(handle);
+          vi.spyOn(handle, "stat").mockImplementation(async (options) => {
+            const info = await handleStat(options);
+            if (typeof info.mtimeMs === "number")
+              info.mtimeMs = Number(cachedStat.mtimeNs / 1_000_000n) + 1;
+            return info;
+          });
+        }
+        return handle;
+      }
+    );
+    const cookies = await loginCookies();
+    const url = `/api/assets/${source.asset.id}/display`;
+    const full = await app.inject({ method: "GET", url, cookies });
+    expect(full.statusCode).toBe(200);
+    expect(full.headers["cache-control"]).toBe("private, no-cache");
+    expect(full.headers["content-type"]).toBe("image/png");
+    expect(full.rawPayload).toEqual(png);
+    const head = await app.inject({ method: "HEAD", url, cookies });
+    expect(head.statusCode).toBe(200);
+    expect(head.headers["content-length"]).toBe(String(png.length));
+    expect(head.rawPayload).toHaveLength(0);
+    const range = await app.inject({
+      method: "GET",
+      url,
+      cookies,
+      headers: { range: "bytes=0-7" }
+    });
+    expect(range.statusCode).toBe(206);
+    expect(range.rawPayload).toEqual(png.subarray(0, 8));
+    const cached = await app.inject({
+      method: "GET",
+      url,
+      cookies,
+      headers: { "if-none-match": String(full.headers.etag) }
+    });
+    expect(cached.statusCode).toBe(304);
   });
 
   it("checks authentication again for previously cached media validators", async () => {

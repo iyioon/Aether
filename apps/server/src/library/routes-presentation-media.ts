@@ -6,6 +6,7 @@ import type { AetherDatabase } from "../db/database.js";
 import { AssetParams } from "./route-schemas.js";
 import {
   assetEntityTag,
+  assetFileStatMetadata,
   assetLastModifiedHeader,
   isAssetNotModified,
   mediaErrorStatus,
@@ -208,15 +209,21 @@ async function sendPresentationFile(
     media.path === source.sourcePath
       ? await openAssetFile(source)
       : await openPrivateCacheFile(media.path, cacheDir);
-  const info = await handle.stat().catch(async (error: unknown) => {
-    await handle.close();
-    throw error;
-  });
+  const metadata = await handle
+    .stat({ bigint: true })
+    .then((info) => {
+      const values = assetFileStatMetadata(info);
+      if (!values) throw new PresentationMediaError("unsafe_cache", 500);
+      return values;
+    })
+    .catch(async (error: unknown) => {
+      await handle.close();
+      throw error;
+    });
   const file: ResolvedAssetFile = {
     ...source,
+    ...metadata,
     sourcePath: media.path,
-    sizeBytes: info.size,
-    mtimeMs: Math.trunc(info.mtimeMs),
     asset: {
       ...source.asset,
       id: `${source.asset.id}:${key}`,
@@ -241,14 +248,20 @@ async function sendPresentationFile(
   const range = requestedByteRange(file, headers);
   if (range === "invalid") {
     await handle.close();
-    return sendRangeNotSatisfiable(reply.type("application/json"), info.size);
+    return sendRangeNotSatisfiable(
+      reply.type("application/json"),
+      file.sizeBytes
+    );
   }
   if (range) {
     reply
       .code(206)
-      .header("content-range", `bytes ${range.start}-${range.end}/${info.size}`)
+      .header(
+        "content-range",
+        `bytes ${range.start}-${range.end}/${file.sizeBytes}`
+      )
       .header("content-length", String(range.end - range.start + 1));
-  } else reply.header("content-length", String(info.size));
+  } else reply.header("content-length", String(file.sizeBytes));
   if (request.method === "HEAD") {
     await handle.close();
     return reply.send();

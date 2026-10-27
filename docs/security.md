@@ -140,6 +140,8 @@ Presentation saves require an authenticated session and the existing CSRF check.
 Strict finite, bounded fields and an expected revision prevent malformed edits
 and stale overwrites. Processing receives resolved source records; it cannot
 write source media. A changed physical source must be rescanned before saving.
+Source identity comparisons use exact filesystem timestamps converted to the
+same integer milliseconds as scanning; they do not allow a timestamp tolerance.
 
 Rendition and atlas routes keep authenticated private, revalidated caching and HEAD/range
 semantics. Their opaque keys contain no private paths. Capability/manifest

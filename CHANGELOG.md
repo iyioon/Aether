@@ -42,6 +42,8 @@ Notable changes to Aether are recorded here.
 
 ### Fixed
 
+- Use the same exact file timestamp for scanning, editing and media access to
+  prevent false source-change warnings on files with nanosecond timestamps.
 - Prepare video Bounce sections up to 30 seconds with bounded processing memory
   and private temporary storage, preserving source frames and timing.
 - Disable automatic GitHub checks; retain the workflow for optional manual use.

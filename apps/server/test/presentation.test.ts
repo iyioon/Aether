@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import * as fileSystem from "node:fs/promises";
 import {
   mkdir,
   mkdtemp,
@@ -43,6 +44,11 @@ import {
   updateAssetScore
 } from "../src/library/repository.js";
 import { scanLibrary } from "../src/library/scanner.js";
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:fs/promises")>();
+  return { ...original, stat: vi.fn(original.stat) };
+});
 
 describe("saved media presentation", () => {
   let cwd: string;
@@ -419,6 +425,76 @@ describe("saved media presentation", () => {
     expect(tooLong.statusCode).toBe(400);
     expect(tooLong.json().error).toBe("bounce_duration_exceeded");
     expect(getAsset(db, asset.id)?.presentation).toEqual(saved.presentation);
+  });
+
+  it("saves unchanged media after scanning when floating timestamps round into the next millisecond", async () => {
+    const asset = await image("one.jpg");
+    const source = path.join(cwd, "media", "one.jpg");
+    const original = await readFile(source);
+    const precise = await stat(source, { bigint: true });
+    const indexedMs = Number(precise.mtimeNs / 1_000_000n);
+    expect(asset.mtimeMs).toBe(indexedMs);
+    const { stat: originalStat } =
+      await vi.importActual<typeof import("node:fs/promises")>(
+        "node:fs/promises"
+      );
+    // Model the ordinary Stats rounding at a nanosecond boundary, while all
+    // exact filesystem observations continue to describe the unchanged file.
+    const rounded = vi
+      .mocked(fileSystem.stat)
+      .mockImplementation(async (filePath, options) => {
+        const info = await originalStat(filePath, options);
+        if (filePath === source && typeof info.mtimeMs === "number")
+          info.mtimeMs = indexedMs + 1;
+        return info;
+      });
+    try {
+      const saved = await put(asset.id, {
+        ...defaultPresentationValues(),
+        expectedRevision: 0,
+        zoom: 2
+      });
+      expect(saved.statusCode).toBe(200);
+      const media = await app.inject({
+        method: "GET",
+        url: `/api/assets/${asset.id}/media`,
+        ...auth
+      });
+      expect(media.statusCode).toBe(200);
+      expect(media.rawPayload).toEqual(original);
+      await scanLibrary(db, config.mediaRoots);
+      expect(getAsset(db, asset.id)?.presentation).toMatchObject({
+        revision: 1,
+        zoom: 2
+      });
+      expect(
+        (
+          await put(asset.id, {
+            ...defaultPresentationValues(),
+            expectedRevision: 1,
+            zoom: 3
+          })
+        ).statusCode
+      ).toBe(200);
+
+      // A real timestamp change still requires a scan, even with identical bytes.
+      const later = (indexedMs + 2000) / 1000;
+      await utimes(source, later, later);
+      const changed = await put(asset.id, {
+        ...defaultPresentationValues(),
+        expectedRevision: 2,
+        zoom: 4
+      });
+      expect(changed.statusCode).toBe(409);
+      expect(changed.json()).toEqual({ error: "source_changed" });
+      expect(getAsset(db, asset.id)?.presentation).toMatchObject({
+        revision: 2,
+        zoom: 3
+      });
+      expect(await readFile(source)).toEqual(original);
+    } finally {
+      rounded.mockImplementation(originalStat);
+    }
   });
 
   it("rejects changed source identity and symlink escapes without leaking paths", async () => {

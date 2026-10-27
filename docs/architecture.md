@@ -312,6 +312,15 @@ retain invalid time drafts and keep one mounted preview/transport; switching tab
 does not pause playback. Seeking pauses at a full-source timestamp. Native play
 failures restore the Play action; decode failures leave framing available.
 
+Editor shortcuts follow the active section and preserve focused text fields,
+sliders, tabs and menus. Framing arrows use the measured pan geometry to adjust
+the crop position by 12px, or 1px with Shift; `-`/`=` adjust zoom
+by 5%, or 1% with Shift. Fit keeps movement and zoom disabled. Preview and highlight timelines
+use 100 ms arrow steps, 1 ms with Shift, one-second Page steps and bounded
+Home/End targets; keyboard adjustments pause and seek. These controls edit
+source time without claiming exact video-frame stepping. Pending saves and
+reloads disable editing shortcuts.
+
 The framing selector exposes Fit and Fill only. Legacy `auto` records remain
 valid and display the invoking view's equivalent explicit choice; Original
 Ranking resolves to Fit, while other card frames resolve to Fill. This display

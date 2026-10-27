@@ -56,6 +56,10 @@ const shortcuts = [
   ["Space in Feed or viewer", "Play or pause"],
   ["M in viewer", "Mute or unmute"],
   ["I in viewer", "Open Info"],
+  ["Arrows in Framing", "Adjust position 12px; Shift adjusts 1px (Fill)"],
+  ["- / = in Framing", "Zoom 5%; Shift adjusts 1% (Fill)"],
+  ["Arrows on editor timelines", "Adjust 100ms; Shift adjusts 1ms"],
+  ["Page / Home / End on editor timelines", "Adjust 1s / jump to limits"],
   ["Shift + F10 on a card", "Open card actions"],
   ["Esc", "Close the current panel or viewer"]
 ] as const;
@@ -188,6 +192,12 @@ export function UserGuidePage() {
                       Start here or End here to mark the current frame.
                     </p>
                     <p>
+                      On the preview timeline or a highlight handle, arrows
+                      adjust by 100 ms; Shift adjusts by 1 ms. Page keys adjust
+                      by one second, and Home/End jump to the control's limits.
+                      Keyboard adjustments pause and seek the preview.
+                    </p>
+                    <p>
                       Choose a speed and loop mode. Repeat plays forward; Bounce
                       plays forward and then backward, without sound. Supported
                       videos use a lossless copy of a section up to 30 seconds,
@@ -215,6 +225,13 @@ export function UserGuidePage() {
                       layout keeps its own position and zoom. Fit shows the
                       whole item. Fill covers the frame; drag to position and
                       pinch or use Zoom to enlarge it.
+                    </p>
+                    <p>
+                      In Framing, arrows adjust the framing position by 12
+                      pixels without focusing the preview; Shift adjusts one
+                      pixel. Use -/= to zoom out/in by 5%, or Shift (_/+) for
+                      1%. Focused text fields, sliders, tabs and menus keep
+                      their own keys. Fit disables movement and zoom.
                     </p>
                     <p>
                       Switch layouts to adjust each one, then Save once to keep
@@ -327,7 +344,7 @@ export function UserGuidePage() {
           <TabsContent className="guide-tab-panel" value="keyboard">
             <GuideSection
               title="Keyboard shortcuts"
-              description="Shortcuts pause while you type or use a menu or panel."
+              description="Focused text fields, controls and menus keep their own keys."
             >
               <dl className="guide-shortcut-list">
                 {shortcuts.map(([keys, action]) => (

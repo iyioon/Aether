@@ -103,6 +103,11 @@ backward; video Bounce is silent and its draft previews forward until Save.
 The preview and timeline stay available in both editor tabs. Switching tabs
 keeps playback running; seeking pauses anywhere in the full source.
 
+On the preview timeline or a highlight handle, arrows adjust by 100 ms; hold
+Shift for 1 ms. Page Up/Down adjust by one second, and Home/End jump to that
+control's limits. Keyboard adjustments pause and seek the preview. Text fields,
+sliders, tabs and menus keep their own keyboard controls.
+
 Turn on **Play highlights only** in View options to use saved sections in
 Gallery, Feed, Comparison and the viewer. With it off, an item with a highlight
 plays its full source in Repeat. Bounce without a highlight applies to the full
@@ -128,8 +133,11 @@ format and processing limits.
 ### Framing
 
 Choose **Fit** to show the whole item or **Fill** to cover the frame. In Fill,
-drag or use arrow keys to reposition, pinch or use Zoom to enlarge. The grid
-stays visible in both modes.
+drag to reposition, pinch or use Zoom to enlarge. With Framing active, arrows
+adjust the framing position by 12 pixels without focusing the preview;
+hold Shift for one pixel. Use `-`/`=` to zoom out/in by 5%, or Shift (`_`/`+`)
+for 1%. Focused text fields, sliders, tabs and menus keep their own keys. Fit
+disables movement and zoom. The grid stays visible in both modes.
 
 Original, Square, Portrait and Landscape keep independent frames. Switching
 shapes retains every draft; one Save applies them together. Gallery and Ranking

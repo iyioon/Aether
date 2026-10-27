@@ -1,11 +1,19 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { PresentationValues } from "../../api/client";
-import { isKeyboardActivationTarget } from "../../lib/keyboard";
+import {
+  isDirectionalKeyboardTarget,
+  isEditableKeyboardTarget,
+  isKeyboardActivationTarget
+} from "../../lib/keyboard";
 import { MAX_PRESENTATION_ZOOM, presentationClamp } from "./presentation-model";
 import {
   panPresentation,
   type PresentationSize
 } from "./presentation-geometry";
+import {
+  framingKeyboardCommand,
+  zoomAfterKeyboardAdjustment
+} from "./presentation-framing-keyboard";
 
 interface PresentationFrameProps {
   values: PresentationValues;
@@ -78,6 +86,45 @@ export function PresentationFrame({
     onChange(next);
   }
 
+  const keyboardRef = useRef({ interactive, source, frame, publish });
+  keyboardRef.current = { interactive, source, frame, publish };
+
+  useEffect(() => {
+    const editor = stageRef.current?.closest('[role="dialog"]');
+    if (!editor) return;
+    const onKeyDown = (event: Event) => {
+      if (!(event instanceof KeyboardEvent) || event.defaultPrevented) return;
+      const current = keyboardRef.current;
+      if (!current.interactive || !(event.target instanceof Element)) return;
+      if (
+        isEditableKeyboardTarget(event.target) ||
+        event.target.closest(
+          '[role="combobox"], [role="listbox"], [role="menu"], [role="radiogroup"]'
+        )
+      )
+        return;
+      const command = framingKeyboardCommand(event);
+      if (
+        !command ||
+        (command.type === "position" &&
+          isDirectionalKeyboardTarget(event.target))
+      )
+        return;
+      event.preventDefault();
+      event.stopPropagation();
+      const values = valuesRef.current;
+      current.publish({
+        ...values,
+        fit: "cover",
+        ...(command.type === "zoom"
+          ? { zoom: zoomAfterKeyboardAdjustment(values.zoom, command.amount) }
+          : panPresentation(values, current.source, current.frame, command))
+      });
+    };
+    editor.addEventListener("keydown", onKeyDown);
+    return () => editor.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   function distance() {
     const [first, second] = [...pointers.current.values()];
     return first && second
@@ -93,34 +140,11 @@ export function PresentationFrame({
         role={interactive ? "application" : "group"}
         aria-label={
           interactive
-            ? "Media position. Drag or use arrow keys to move; pinch to zoom."
+            ? "Media position. Drag or use arrow keys to position; pinch or use minus and plus to zoom. Hold Shift for finer adjustments."
             : "Media preview"
         }
         tabIndex={interactive ? 0 : undefined}
         style={{ width: frame.width, height: frame.height }}
-        onKeyDown={(event) => {
-          if (!interactive || event.target !== event.currentTarget) {
-            return;
-          }
-          const movement = event.shiftKey ? 60 : 12;
-          const directions: Record<string, { x: number; y: number }> = {
-            ArrowLeft: { x: -movement, y: 0 },
-            ArrowRight: { x: movement, y: 0 },
-            ArrowUp: { x: 0, y: -movement },
-            ArrowDown: { x: 0, y: movement }
-          };
-          const delta = directions[event.key];
-          if (delta) {
-            event.preventDefault();
-            event.stopPropagation();
-            const current = valuesRef.current;
-            publish({
-              ...current,
-              fit: "cover",
-              ...panPresentation(current, source, frame, delta)
-            });
-          }
-        }}
         onPointerDown={(event) => {
           if (
             !interactive ||

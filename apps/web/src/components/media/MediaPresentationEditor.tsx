@@ -350,6 +350,10 @@ export function MediaPresentationEditor({
                   playheadMs={playheadMs}
                   resetKey={resetKey}
                   onRangeChange={changeRange}
+                  onPreviewSeek={(time) => {
+                    setIsPlaying(false);
+                    setPlayheadMs(time);
+                  }}
                   onChange={setDraft}
                   onInvalidChange={(field, invalid) =>
                     setInvalidFields((current) => ({

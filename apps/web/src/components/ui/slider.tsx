@@ -14,6 +14,7 @@ function Slider({
   formatValue?: (value: number) => string;
 }) {
   const values = value ?? defaultValue ?? [0];
+  const gap = (props.minStepsBetweenThumbs ?? 0) * (props.step ?? 1);
   return (
     <SliderPrimitive.Root
       data-slot="slider"
@@ -39,7 +40,18 @@ function Slider({
           key={index}
           data-slot="slider-thumb"
           aria-label={thumbLabels?.[index]}
+          aria-valuemin={
+            gap > 0 && index > 0
+              ? Math.max(props.min ?? 0, values[index - 1]! + gap)
+              : (props.min ?? 0)
+          }
+          aria-valuemax={
+            gap > 0 && index < values.length - 1
+              ? Math.min(props.max ?? 100, values[index + 1]! - gap)
+              : (props.max ?? 100)
+          }
           aria-valuetext={formatValue?.(current)}
+          aria-describedby={props["aria-describedby"]}
           className="block size-5 shrink-0 rounded-full border border-primary bg-background shadow-sm transition-[box-shadow] focus-visible:ring-4 focus-visible:ring-ring/50 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 after:absolute after:inset-1/2 after:size-11 after:-translate-x-1/2 after:-translate-y-1/2"
         />
       ))}

@@ -1,7 +1,13 @@
+import { useId } from "react";
 import { Pause, Play } from "lucide-react";
 import { Button } from "../ui/button";
 import { Slider } from "../ui/slider";
 import { formatPresentationTime } from "./presentation-model";
+import {
+  PRESENTATION_TIMING_KEYBOARD_HINT,
+  isModifiedPresentationTimingKey,
+  presentationTimingKeyTarget
+} from "./presentation-timing-keyboard";
 
 export function PresentationTransport({
   durationMs,
@@ -18,6 +24,7 @@ export function PresentationTransport({
   onPlayingChange: (playing: boolean) => void;
   onSeek: (time: number) => void;
 }) {
+  const keyboardHintId = useId();
   return (
     <div
       className="media-editor-transport"
@@ -47,6 +54,39 @@ export function PresentationTransport({
           disabled={disabled || durationMs <= 0}
           thumbLabels={["Preview position"]}
           formatValue={formatPresentationTime}
+          aria-describedby={keyboardHintId}
+          onKeyDownCapture={(event) => {
+            const thumb = event.target;
+            if (
+              isModifiedPresentationTimingKey(event.nativeEvent) &&
+              thumb instanceof HTMLElement &&
+              thumb.getAttribute("role") === "slider" &&
+              thumb.ownerDocument.activeElement === thumb
+            )
+              event.stopPropagation();
+          }}
+          onKeyDown={(event) => {
+            const thumb = event.target;
+            if (
+              disabled ||
+              durationMs <= 0 ||
+              !(thumb instanceof HTMLElement) ||
+              thumb.getAttribute("role") !== "slider" ||
+              thumb.ownerDocument.activeElement !== thumb
+            )
+              return;
+            const target = presentationTimingKeyTarget(
+              event.nativeEvent,
+              playheadMs,
+              0,
+              durationMs
+            );
+            if (target === null) return;
+            event.preventDefault();
+            event.stopPropagation();
+            onPlayingChange(false);
+            onSeek(target);
+          }}
           onValueChange={([time]) => {
             if (time !== undefined) {
               onPlayingChange(false);
@@ -54,6 +94,9 @@ export function PresentationTransport({
             }
           }}
         />
+        <p id={keyboardHintId} className="sr-only">
+          {PRESENTATION_TIMING_KEYBOARD_HINT}
+        </p>
       </div>
     </div>
   );

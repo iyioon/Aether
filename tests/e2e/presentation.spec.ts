@@ -120,6 +120,327 @@ test.afterAll(async ({ browser }) => {
   }
 });
 
+for (const phone of [false, true]) {
+  const layout = phone ? "phone" : "desktop";
+  test(`uses framing shortcuts throughout the ${layout} editor without stealing control keys`, async ({
+    browser
+  }) => {
+    const context = await browser.newContext({
+      storageState,
+      ...(phone
+        ? {
+            viewport: { width: 393, height: 852 },
+            isMobile: true,
+            hasTouch: true
+          }
+        : {})
+    });
+    const saveGate = loadingGate();
+    try {
+      const page = await context.newPage();
+      const photo = fixture("photo.png");
+      await setPresentation(page, photo, defaults);
+      await open(page, "gallery", "image", photo.name);
+      await openGalleryEditor(page, photo);
+      const editor = page.getByRole("dialog", {
+        name: "Edit media",
+        exact: true
+      });
+      const cancel = editor.getByRole("button", {
+        name: "Cancel",
+        exact: true
+      });
+      const zoom = editor.getByRole("slider", {
+        name: "Media zoom",
+        exact: true
+      });
+      const position = () =>
+        editor
+          .locator(".media-editor-frame img")
+          .evaluate((node) =>
+            getComputedStyle(node).objectPosition.split(" ").map(parseFloat)
+          );
+      await expect(zoom).toBeVisible();
+      await cancel.focus();
+      await page.keyboard.press("=");
+      await expect(zoom).toHaveAttribute("aria-valuenow", "1.05");
+      await page.keyboard.press("-");
+      await page.keyboard.press("Shift+Equal");
+      await expect(zoom).toHaveAttribute("aria-valuenow", "1.01");
+      await page.keyboard.press("Shift+Minus");
+      await expect(zoom).toHaveAttribute("aria-valuenow", "1");
+      await cancel.evaluate((button) => {
+        for (let index = 0; index < 20; index++)
+          button.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              key: "=",
+              code: "Equal",
+              repeat: index > 0,
+              bubbles: true,
+              cancelable: true
+            })
+          );
+      });
+      await expect(zoom).toHaveAttribute("aria-valuenow", "2");
+      await page.keyboard.press("ArrowRight");
+      const right = (await position())[0]!;
+      expect(right).toBeGreaterThan(50);
+      await page.keyboard.press("Shift+ArrowLeft");
+      expect((await position())[0]!).toBeCloseTo(
+        50 + ((right - 50) * 11) / 12,
+        3
+      );
+      await page.keyboard.press("ArrowDown");
+      expect((await position())[1]!).toBeGreaterThan(50);
+      const moved = await position();
+      await zoom.press("ArrowRight");
+      await expect(zoom).toHaveAttribute("aria-valuenow", "2.01");
+      expect(await position()).toEqual(moved);
+      await cancel.focus();
+      for (const extra of [
+        { ctrlKey: true },
+        { metaKey: true },
+        { altKey: true },
+        { isComposing: true }
+      ])
+        await cancel.dispatchEvent("keydown", {
+          key: "=",
+          bubbles: true,
+          ...extra
+        });
+      await expect(zoom).toHaveAttribute("aria-valuenow", "2.01");
+      const aspect = editor.getByRole("combobox", {
+        name: "Media layout",
+        exact: true
+      });
+      await aspect.focus();
+      await page.keyboard.press("ArrowDown");
+      await expect(page.getByRole("listbox")).toBeVisible();
+      await page.keyboard.press("Escape");
+      expect(await position()).toEqual(moved);
+      const fit = editor.getByRole("combobox", {
+        name: "Framing",
+        exact: true
+      });
+      await fit.click();
+      await page.getByRole("option", { name: "Fit", exact: true }).click();
+      await cancel.focus();
+      await page.keyboard.press("=");
+      await page.keyboard.press("ArrowRight");
+      await expect(zoom).toHaveAttribute("aria-valuenow", "1");
+      expect(await position()).toEqual([50, 50]);
+      await fit.click();
+      await page.getByRole("option", { name: "Fill", exact: true }).click();
+      await cancel.focus();
+      await page.keyboard.press("=");
+      await page.route(
+        `**/api/assets/${photo.id}/presentation`,
+        async (route) => {
+          await saveGate.promise;
+          await route.continue().catch(() => undefined);
+        }
+      );
+      await editor.getByRole("button", { name: "Save", exact: true }).click();
+      await expect(
+        editor.getByRole("button", { name: "Saving…", exact: true })
+      ).toBeDisabled();
+      await editor.press("=");
+      await editor.press("ArrowRight");
+      await expect(zoom).toHaveAttribute("aria-valuenow", "1.05");
+      saveGate.release();
+      await expect(editor).toHaveCount(0);
+      expect(
+        (await getAsset(page, photo.id)).presentation?.aspectFraming?.Square
+      ).toMatchObject({
+        fit: "cover",
+        zoom: 1.05,
+        focalX: 0.5,
+        focalY: 0.5
+      });
+    } finally {
+      saveGate.release();
+      await context.close();
+    }
+  });
+
+  test(`adjusts only the focused playback or highlight control in the ${layout} editor`, async ({
+    browser
+  }) => {
+    const context = await browser.newContext({
+      storageState,
+      ...(phone
+        ? {
+            viewport: { width: 393, height: 852 },
+            isMobile: true,
+            hasTouch: true
+          }
+        : {})
+    });
+    try {
+      const page = await context.newPage();
+      for (const name of ["clip.mp4", "sequence.webp"]) {
+        const asset = fixture(name);
+        await setPresentation(page, asset, {
+          ...defaults,
+          highlight: { startMs: 500, endMs: 1500 }
+        });
+        await open(page, "feed", asset.mediaType, name);
+        await page
+          .getByRole("button", { name: `Edit ${name}`, exact: true })
+          .click();
+        const editor = page.getByRole("dialog", {
+          name: "Edit media",
+          exact: true
+        });
+        const timeline = editor.getByRole("slider", {
+          name: "Preview position",
+          exact: true
+        });
+        const start = editor.getByRole("slider", {
+          name: "Highlight start",
+          exact: true
+        });
+        const end = editor.getByRole("slider", {
+          name: "Highlight end",
+          exact: true
+        });
+        const startTime = editor.getByRole("textbox", {
+          name: "Start time",
+          exact: true
+        });
+        const endTime = editor.getByRole("textbox", {
+          name: "End time",
+          exact: true
+        });
+        const preview = editor.locator(
+          name.endsWith("mp4") ? "video" : "canvas"
+        );
+        await expect(preview).toBeVisible();
+        await expect(timeline).toHaveAccessibleDescription(/Shift.*1\s?ms/);
+        await timeline.press("Home");
+        await timeline.press("ArrowRight");
+        await expect(timeline).toHaveAttribute("aria-valuenow", "100");
+        await timeline.press("Shift+ArrowRight");
+        await expect(timeline).toHaveAttribute("aria-valuenow", "101");
+        await timeline.press("ArrowUp");
+        await expect(timeline).toHaveAttribute("aria-valuenow", "201");
+        await timeline.press("ArrowDown");
+        await timeline.press("PageUp");
+        await expect(timeline).toHaveAttribute("aria-valuenow", "1101");
+        await timeline.press("PageDown");
+        await timeline.press("Shift+ArrowLeft");
+        await expect(timeline).toHaveAttribute("aria-valuenow", "100");
+        for (const extra of [
+          { ctrlKey: true },
+          { metaKey: true },
+          { altKey: true },
+          { isComposing: true }
+        ])
+          await timeline.dispatchEvent("keydown", {
+            key: "ArrowRight",
+            bubbles: true,
+            ...extra
+          });
+        await expect(timeline).toHaveAttribute("aria-valuenow", "100");
+        await expect(startTime).toHaveValue("0:00.500");
+        await expect(endTime).toHaveValue("0:01.500");
+        await editor
+          .getByRole("button", { name: "Play preview", exact: true })
+          .click();
+        await expect(
+          editor.getByRole("button", { name: "Pause preview", exact: true })
+        ).toBeVisible();
+        await timeline.press("Home");
+        await expect(
+          editor.getByRole("button", { name: "Play preview", exact: true })
+        ).toBeVisible();
+        await timeline.press("Shift+ArrowRight");
+        await expect(timeline).toHaveAttribute("aria-valuenow", "1");
+        if (name.endsWith("mp4")) {
+          await expect
+            .poll(() =>
+              preview.evaluate((node: HTMLVideoElement) => node.currentTime)
+            )
+            .toBeCloseTo(0.001, 5);
+        } else {
+          const pixel = () =>
+            preview.evaluate(
+              (node: HTMLCanvasElement) =>
+                node.getContext("2d")!.getImageData(20, 20, 1, 1).data[0]
+            );
+          await timeline.press("Home");
+          for (let index = 0; index < 3; index++)
+            await timeline.press("ArrowRight");
+          await timeline.press("Shift+ArrowLeft");
+          await expect.poll(pixel).toBeLessThan(40);
+          await timeline.press("Shift+ArrowRight");
+          await expect.poll(pixel).toBeGreaterThan(120);
+        }
+        await start.press("ArrowRight");
+        await expect(startTime).toHaveValue("0:00.600");
+        await start.press("Shift+ArrowRight");
+        await expect(startTime).toHaveValue("0:00.601");
+        await expect(timeline).toHaveAttribute("aria-valuenow", "601");
+        await expect(endTime).toHaveValue("0:01.500");
+        await end.press("Shift+ArrowLeft");
+        await expect(endTime).toHaveValue("0:01.499");
+        await expect(timeline).toHaveAttribute("aria-valuenow", "1498");
+        await start.press("End");
+        await expect(startTime).toHaveValue("0:01.399");
+        await expect(start).toHaveAttribute("aria-valuemax", "1399");
+        await expect(end).toHaveAttribute("aria-valuemin", "1499");
+        await start.press("ArrowRight");
+        await expect(startTime).toHaveValue("0:01.399");
+        await start.press("Home");
+        await expect(startTime).toHaveValue("0:00.000");
+        await end.press("Home");
+        await expect(endTime).toHaveValue("0:00.100");
+        await end.press("Shift+ArrowLeft");
+        await expect(endTime).toHaveValue("0:00.100");
+        await start.focus();
+        await page.keyboard.press("Tab");
+        await expect(end).toBeFocused();
+        await startTime.press("ArrowRight");
+        await expect(startTime).toHaveValue("0:00.000");
+        await startTime.press("Shift+ArrowRight");
+        await expect(startTime).toHaveValue("0:00.000");
+        const speed = editor.getByRole("combobox", {
+          name: "Speed",
+          exact: true
+        });
+        await speed.focus();
+        await page.keyboard.press("ArrowDown");
+        await expect(page.getByRole("listbox")).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect(startTime).toHaveValue("0:00.000");
+        await editor.getByRole("tab", { name: "Framing", exact: true }).click();
+        const zoom = editor.getByRole("slider", {
+          name: "Media zoom",
+          exact: true
+        });
+        await expect(zoom).toHaveAttribute("aria-valuenow", "1");
+        await timeline.press("Home");
+        await timeline.press("ArrowRight");
+        await expect(timeline).toHaveAttribute("aria-valuenow", "100");
+        await expect(zoom).toHaveAttribute("aria-valuenow", "1");
+        await editor.getByRole("tab", { name: "Framing", exact: true }).focus();
+        await page.keyboard.press("ArrowLeft");
+        await expect(
+          editor.getByRole("tab", { name: "Playback", exact: true })
+        ).toHaveAttribute("aria-selected", "true");
+        await editor
+          .getByRole("button", { name: "Cancel", exact: true })
+          .click();
+        expect(
+          (await getAsset(page, asset.id)).presentation?.highlight
+        ).toEqual({ startMs: 500, endMs: 1500 });
+      }
+    } finally {
+      await context.close();
+    }
+  });
+}
+
 test("saves and cancels framing and keeps the comparison pair while changing its shape", async ({
   browser
 }, testInfo) => {
@@ -2744,7 +3065,16 @@ test("retains the selected animation frame through capability checks and atlas l
           ? page
               .getByRole("dialog", { name: asset.name, exact: true })
               .locator(".viewer-media-frame")
-          : page.locator(".media-tile .media-image-shell").first();
+          : page
+              .locator(".media-tile")
+              .filter({
+                has: page.getByRole("button", {
+                  name: `Open ${asset.name}`,
+                  exact: true,
+                  includeHidden: true
+                })
+              })
+              .locator(".media-image-shell");
       const thumbnail = surface.locator(
         surfaceName === "viewer" ? ".viewer-image-thumbnail" : ":scope > img"
       );

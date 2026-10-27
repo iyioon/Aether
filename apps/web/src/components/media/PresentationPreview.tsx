@@ -51,10 +51,7 @@ export function PresentationPreview({
     const video = videoRef.current;
     if (!video) return;
     video.playbackRate = presentation.playbackRate;
-    if (
-      emittedRef.current === null ||
-      Math.abs(playheadMs - emittedRef.current) > 1
-    ) {
+    if (playheadMs !== emittedRef.current) {
       const target = isPlaying
         ? Math.max(start, Math.min(Math.max(start, end - 1), playheadMs))
         : Math.max(0, Math.min(Math.max(0, duration - 1), playheadMs));

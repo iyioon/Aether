@@ -18,6 +18,11 @@ import {
   presentationRange,
   PRESENTATION_SPEEDS
 } from "./presentation-model";
+import {
+  PRESENTATION_TIMING_KEYBOARD_HINT,
+  isModifiedPresentationTimingKey,
+  presentationTimingKeyTarget
+} from "./presentation-timing-keyboard";
 
 function TimeField({
   label,
@@ -97,6 +102,7 @@ interface PresentationPlaybackFieldsProps {
   playheadMs: number;
   resetKey: number;
   onRangeChange: (start: number, end: number) => void;
+  onPreviewSeek: (time: number) => void;
   onChange: (values: PresentationValues) => void;
   onInvalidChange: (field: "start" | "end", invalid: boolean) => void;
 }
@@ -110,11 +116,13 @@ export function PresentationPlaybackFields({
   playheadMs,
   resetKey,
   onRangeChange,
+  onPreviewSeek,
   onChange,
   onInvalidChange
 }: PresentationPlaybackFieldsProps) {
   const speedId = useId();
   const loopId = useId();
+  const keyboardHintId = useId();
   const [startMs, endMs] = presentationRange(draft, durationMs);
   const minimum = Math.min(durationMs, MIN_HIGHLIGHT_DURATION_MS);
   const hasTimeline = durationMs > 0;
@@ -135,11 +143,52 @@ export function PresentationPlaybackFields({
           disabled={disabled || !hasTimeline}
           thumbLabels={["Highlight start", "Highlight end"]}
           formatValue={formatPresentationTime}
+          aria-describedby={keyboardHintId}
+          onKeyDownCapture={(event) => {
+            const thumb = event.target;
+            if (
+              isModifiedPresentationTimingKey(event.nativeEvent) &&
+              thumb instanceof HTMLElement &&
+              thumb.getAttribute("role") === "slider" &&
+              thumb.ownerDocument.activeElement === thumb
+            )
+              event.stopPropagation();
+          }}
+          onKeyDown={(event) => {
+            const thumb = event.target;
+            if (
+              disabled ||
+              !hasTimeline ||
+              !(thumb instanceof HTMLElement) ||
+              thumb.getAttribute("role") !== "slider" ||
+              thumb.ownerDocument.activeElement !== thumb
+            )
+              return;
+            const index = Array.from(
+              event.currentTarget.querySelectorAll('[role="slider"]')
+            ).indexOf(thumb);
+            if (index !== 0 && index !== 1) return;
+            const target = presentationTimingKeyTarget(
+              event.nativeEvent,
+              index === 0 ? startMs : endMs,
+              index === 0 ? 0 : startMs + minimum,
+              index === 0 ? endMs - minimum : durationMs
+            );
+            if (target === null) return;
+            event.preventDefault();
+            event.stopPropagation();
+            if (index === 0) onRangeChange(target, endMs);
+            else onRangeChange(startMs, target);
+            onPreviewSeek(index === 0 ? target : Math.max(startMs, target - 1));
+          }}
           onValueChange={([start, end]) => {
             if (start !== undefined && end !== undefined)
               onRangeChange(start, end);
           }}
         />
+        <p id={keyboardHintId} className="media-editor-hint">
+          {PRESENTATION_TIMING_KEYBOARD_HINT}
+        </p>
         <div className="media-editor-columns">
           <TimeField
             key={`${resetKey}-start`}

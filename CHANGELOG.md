@@ -23,6 +23,9 @@ Notable changes to Aether are recorded here.
 
 ### Changed
 
+- Add editor-wide Framing arrows and zoom shortcuts, with Shift for precise
+  adjustments. Editor timelines use 100 ms arrow steps, 1 ms with Shift and
+  one-second Page steps while preserving focused controls.
 - Switch User guide topics with tabs and simplify the instructions for desktop
   and phone layouts.
 - Group filters, sorting and layout in View options with a phone bottom sheet.

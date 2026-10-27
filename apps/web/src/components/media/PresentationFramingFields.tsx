@@ -108,7 +108,7 @@ export function PresentationFramingFields({
       <p className="media-editor-hint">
         {draft.fit === "contain"
           ? "Fit keeps the complete frame visible."
-          : "Drag to position · pinch or use the slider to zoom"}
+          : "Drag or use arrows to position · pinch or use − / = to zoom · hold Shift for finer adjustments"}
       </p>
     </div>
   );

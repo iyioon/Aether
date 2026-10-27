@@ -1,15 +1,26 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  writeFile
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as bounceFrames from "../src/library/presentation-bounce-frames.js";
 import {
   createBouncePlan,
   generateLosslessBounce,
   inspectBounceSource,
   videoBounceMaxDurationMs,
+  videoBounceWorkingBytes,
   VIDEO_BOUNCE_MAX_DECODED_BYTES,
+  VIDEO_BOUNCE_MAX_FRAMES,
   type VideoBounceProfile
 } from "../src/library/presentation-bounce.js";
+import { PresentationMediaError } from "../src/library/presentation-cache.js";
 import { runMediaCommand } from "../src/library/video-processing.js";
 
 let directory: string;
@@ -17,6 +28,7 @@ beforeEach(async () => {
   directory = await mkdtemp(path.join(tmpdir(), "aether-lossless-bounce-"));
 });
 afterEach(async () => {
+  vi.restoreAllMocks();
   await rm(directory, { recursive: true, force: true });
 });
 
@@ -25,7 +37,8 @@ async function fixture(
   rate = 24,
   duration = 1,
   filters: string[] = [],
-  encoder: string[] = ["-c:v", "ffv1"]
+  encoder: string[] = ["-c:v", "ffv1"],
+  size = "96x64"
 ) {
   const file = path.join(directory, name);
   await runMediaCommand(
@@ -39,7 +52,7 @@ async function fixture(
       "-f",
       "lavfi",
       "-i",
-      `testsrc2=size=96x64:rate=${rate}:duration=${duration}`,
+      `testsrc2=size=${size}:rate=${rate}:duration=${duration}`,
       ...(filters.length ? ["-vf", filters.join(",")] : []),
       "-fps_mode",
       "passthrough",
@@ -88,26 +101,86 @@ async function verifyBoth(
   startMs: number,
   endMs: number,
   profile: VideoBounceProfile,
-  selectedHashes: string[]
+  selectedHashes: string[],
+  observeOutput?: (output: string, codec: "hevc" | "h264") => Promise<void>
 ) {
   const plan = await createBouncePlan(file, startMs, endMs, profile);
+  expect(plan.sourceFrameCount).toBe(selectedHashes.length);
+  const sourceIndices = selectedHashes.map((_hash, index) => index);
+  expect(plan.outputSourceIndices).toEqual([
+    ...sourceIndices,
+    ...sourceIndices.slice(1, -1).reverse()
+  ]);
+  const expectedHashes = [
+    ...selectedHashes,
+    ...selectedHashes.slice(1, -1).reverse()
+  ];
   for (const codec of ["hevc", "h264"] as const) {
     const output = path.join(directory, `${codec}-${startMs}.mp4`);
     await generateLosslessBounce(file, output, plan, profile, codec);
-    expect(await hashes(output, profile)).toEqual(
-      plan.outputSourceIndices.map((index) => selectedHashes[index])
-    );
+    expect(
+      (await readdir(directory)).filter((name) =>
+        name.startsWith(".bounce-work-")
+      )
+    ).toEqual([]);
+    expect(await hashes(output, profile)).toEqual(expectedHashes);
+    await observeOutput?.(output, codec);
   }
   return plan;
 }
 
+async function packetTimeline(file: string) {
+  const result = await runMediaCommand(
+    "ffprobe",
+    [
+      "-v",
+      "error",
+      "-select_streams",
+      "v:0",
+      "-show_packets",
+      "-show_entries",
+      "packet=pts_time,duration_time",
+      "-of",
+      "csv=p=0",
+      file
+    ],
+    15_000,
+    1024 * 1024
+  );
+  return result.stdout
+    .trim()
+    .split("\n")
+    .map((line) => {
+      const [time, duration] = line.split(",").map(Number);
+      return { timeMs: time! * 1000, durationMs: duration! * 1000 };
+    });
+}
+
 describe("lossless native Bounce", () => {
-  it("reserves bounded reverse memory at the actual frame rate and bit depth", () => {
-    expect(videoBounceMaxDurationMs(96, 64)).toBe(10_000);
-    expect(videoBounceMaxDurationMs(96, 64, 120)).toBe(5000);
-    expect(videoBounceMaxDurationMs(1920, 1080, 60, 10)).toBeLessThan(
-      videoBounceMaxDurationMs(1920, 1080, 60, 8)
+  it("accepts a thirty-second section and rejects a longer requested range", async () => {
+    const file = await fixture("thirty-seconds.mkv", 1, 31);
+    const profile = await inspectBounceSource(file);
+    const plan = await verifyBoth(
+      file,
+      0,
+      30_000,
+      profile,
+      (await hashes(file, profile)).slice(0, 30)
     );
+    expect(plan.sourceFrameCount).toBe(30);
+    expect(plan.outputDurationMs).toBe(58_000);
+    await expect(
+      createBouncePlan(file, 0, 30_001, profile)
+    ).rejects.toMatchObject({ code: "bounce_duration_exceeded", status: 422 });
+  });
+  it("bounds peak frame memory independently of section duration", () => {
+    expect(videoBounceMaxDurationMs(96, 64)).toBe(30_000);
+    expect(videoBounceMaxDurationMs(96, 64, 120)).toBe(30_000);
+    expect(videoBounceMaxDurationMs(96, 64, 240)).toBe(15_000);
+    expect(videoBounceMaxDurationMs(3840, 2160, 60, 8)).toBe(30_000);
+    expect(videoBounceMaxDurationMs(3840, 2160, 60, 10)).toBe(30_000);
+    expect(videoBounceWorkingBytes(3840, 2160, 10)).toBe(3840 * 2160 * 3 * 4);
+    expect(videoBounceMaxDurationMs(7680, 4320, 24, 10)).toBe(0);
     for (const dimensions of [
       [0, 32],
       [95, 64],
@@ -116,6 +189,47 @@ describe("lossless native Bounce", () => {
     ])
       expect(videoBounceMaxDurationMs(dimensions[0]!, dimensions[1]!)).toBe(0);
   });
+
+  for (const [size, duration, expectedFrames] of [
+    ["1920x1080", 4, 96],
+    ["3840x2160", 1, 24]
+  ] as const) {
+    it(`preserves ${size} pixels across disk-backed boundaries beyond the old complete-section memory budget`, async () => {
+      const file = await fixture(
+        `large-${size}.mkv`,
+        24,
+        duration,
+        [],
+        ["-c:v", "ffv1"],
+        size
+      );
+      const profile = await inspectBounceSource(file);
+      const original = await hashes(file, profile);
+      expect(original).toHaveLength(expectedFrames);
+      expect(
+        expectedFrames * profile.width * profile.height * 1.5
+      ).toBeGreaterThan(256 * 1024 * 1024);
+      const plan = await verifyBoth(
+        file,
+        0,
+        duration * 1000,
+        profile,
+        original
+      );
+      expect(plan.sourceFrameCount).toBe(expectedFrames);
+      expect(plan.outputSourceIndices).toHaveLength(expectedFrames * 2 - 2);
+      expect(plan.decodedBytes).toBe(
+        videoBounceWorkingBytes(profile.width, profile.height, profile.bitDepth)
+      );
+      expect(plan.decodedBytes).toBeLessThanOrEqual(
+        VIDEO_BOUNCE_MAX_DECODED_BYTES
+      );
+      expect(profile).toMatchObject({
+        width: Number(size.split("x")[0]),
+        height: Number(size.split("x")[1])
+      });
+    }, 60_000);
+  }
 
   it("retains 60fps source frames and timing in both lossless codecs", async () => {
     const file = await fixture("sixty.mkv", 60);
@@ -173,6 +287,39 @@ describe("lossless native Bounce", () => {
     expect(plan.outputSourceIndices).toHaveLength(1198);
   }, 15_000);
 
+  it("preserves all 3600 source frames and 7198 output packet times without oversized arguments", async () => {
+    const file = await fixture(
+      "maximum-frames.mkv",
+      120,
+      30,
+      [],
+      ["-c:v", "ffv1"],
+      "48x32"
+    );
+    const profile = await inspectBounceSource(file);
+    const plan = await createBouncePlan(file, 0, 30_000, profile);
+    expect(plan.sourceFrameCount).toBe(VIDEO_BOUNCE_MAX_FRAMES);
+    expect(plan.outputSourceIndices).toHaveLength(7198);
+    await verifyBoth(
+      file,
+      0,
+      30_000,
+      profile,
+      await hashes(file, profile),
+      async (output) => {
+        const packets = await packetTimeline(output);
+        expect(packets).toHaveLength(7198);
+        packets.forEach((packet, index) => {
+          expect(packet.timeMs).toBeCloseTo(plan.outputTimesMs[index]!, 3);
+          expect(packet.durationMs).toBeCloseTo(
+            plan.durationsMs[plan.outputSourceIndices[index]!]!,
+            3
+          );
+        });
+      }
+    );
+  }, 30_000);
+
   it("preserves variable frame durations and partial boundary holds", async () => {
     // Explicit MP4 sample durations keep the final 100 ms hold unambiguous.
     const file = await fixture(
@@ -197,7 +344,23 @@ describe("lossless native Bounce", () => {
     const profile = await inspectBounceSource(file);
     expect(profile.durationMs).toBe(800);
     const original = await hashes(file, profile);
-    const full = await verifyBoth(file, 0, 800, profile, original);
+    const full = await verifyBoth(
+      file,
+      0,
+      800,
+      profile,
+      original,
+      async (output) => {
+        expect(await packetTimeline(output)).toEqual([
+          { timeMs: 0, durationMs: 100 },
+          { timeMs: 100, durationMs: 200 },
+          { timeMs: 300, durationMs: 400 },
+          { timeMs: 700, durationMs: 100 },
+          { timeMs: 800, durationMs: 400 },
+          { timeMs: 1200, durationMs: 200 }
+        ]);
+      }
+    );
     expect(full.sourceTimesMs).toEqual([0, 100, 300, 700]);
     expect(full.durationsMs).toEqual([100, 200, 400, 100]);
     expect(full.outputTimesMs).toEqual([0, 100, 300, 700, 800, 1200]);
@@ -207,7 +370,15 @@ describe("lossless native Bounce", () => {
       150,
       750,
       profile,
-      original.slice(1)
+      original.slice(1),
+      async (output) => {
+        expect(await packetTimeline(output)).toEqual([
+          { timeMs: 0, durationMs: 150 },
+          { timeMs: 150, durationMs: 400 },
+          { timeMs: 550, durationMs: 50 },
+          { timeMs: 600, durationMs: 400 }
+        ]);
+      }
     );
     expect(partial.sourceTimesMs).toEqual([150, 300, 700]);
     expect(partial.durationsMs).toEqual([150, 400, 50]);
@@ -339,12 +510,168 @@ describe("lossless native Bounce", () => {
         return createBouncePlan(interlaced, 0, 500, profile);
       })()
     ).rejects.toMatchObject({ code: "bounce_source_not_supported" });
-    const file = await fixture("fast.mkv", 120, 6);
+    const file = await fixture(
+      "fast.mp4",
+      121,
+      30,
+      [],
+      [
+        "-c:v",
+        "libx264",
+        "-bf",
+        "0",
+        "-enc_time_base",
+        "1:1000000",
+        "-video_track_timescale",
+        "1000000"
+      ],
+      "48x32"
+    );
     const profile = await inspectBounceSource(file);
+    // A nominal rate can understate the actual selected frame count.
     await expect(
-      createBouncePlan(file, 0, 6000, profile)
+      createBouncePlan(file, 0, 29_900, { ...profile, frameRate: 120 })
     ).rejects.toMatchObject({ code: "bounce_duration_exceeded" });
   });
+
+  for (const [name, options] of [
+    ["compressed spool budget", { maxWorkBytes: 1 }],
+    ["encoded output budget", { maxOutputBytes: 1 }],
+    ["processing deadline", { timeoutMs: 1 }]
+  ] as const) {
+    it(`removes its private work and incomplete output after exceeding the ${name}`, async () => {
+      const file = await fixture("bounded.mkv", 24, 0.5);
+      const profile = await inspectBounceSource(file);
+      const original = await readFile(file);
+      const plan = await createBouncePlan(file, 0, 500, profile);
+      const output = path.join(directory, "bounded.mp4");
+      await expect(
+        generateLosslessBounce(file, output, plan, profile, "hevc", options)
+      ).rejects.toMatchObject({
+        code: "presentation_limit_exceeded",
+        status: 422
+      });
+      expect(await readdir(directory)).toEqual(["bounded.mkv"]);
+      expect(await readFile(file)).toEqual(original);
+    });
+  }
+
+  it("keeps its processing deadline when the system clock moves backward", async () => {
+    const file = await fixture("clock.mkv", 24, 0.5);
+    const profile = await inspectBounceSource(file);
+    const plan = await createBouncePlan(file, 0, 500, profile);
+    const wallClock = Date.now();
+    const clock = vi
+      .spyOn(Date, "now")
+      .mockReturnValueOnce(wallClock)
+      .mockReturnValue(wallClock - 3_600_000);
+    try {
+      await expect(
+        generateLosslessBounce(
+          file,
+          path.join(directory, "clock.mp4"),
+          plan,
+          profile,
+          "hevc",
+          { timeoutMs: 1 }
+        )
+      ).rejects.toMatchObject({ code: "presentation_limit_exceeded" });
+      expect(await readdir(directory)).toEqual(["clock.mkv"]);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("cleans up when the source decoder fails after planning", async () => {
+    const file = await fixture("broken.mkv", 24, 0.5);
+    const profile = await inspectBounceSource(file);
+    const plan = await createBouncePlan(file, 0, 500, profile);
+    await writeFile(file, "invalid disposable source");
+    await expect(
+      generateLosslessBounce(
+        file,
+        path.join(directory, "broken.mp4"),
+        plan,
+        profile
+      )
+    ).rejects.toMatchObject({
+      code: "presentation_processing_failed",
+      status: 422
+    });
+    expect(await readdir(directory)).toEqual(["broken.mkv"]);
+  });
+
+  it("removes a completed frame spool and partial output when the encoder fails", async () => {
+    const file = await fixture("encoder-failure.mkv", 24, 0.5);
+    const profile = await inspectBounceSource(file);
+    const original = await readFile(file);
+    const plan = await createBouncePlan(file, 0, 500, profile);
+    const output = path.join(directory, "encoder-failure.mp4");
+    const encode = vi
+      .spyOn(bounceFrames, "encodeBounceFrames")
+      .mockImplementationOnce(async () => {
+        const work = (await readdir(directory)).filter((name) =>
+          name.startsWith(".bounce-work-")
+        );
+        expect(work).toHaveLength(1);
+        expect(
+          (await stat(path.join(directory, work[0]!, "frames.deflate"))).size
+        ).toBeGreaterThan(0);
+        await writeFile(output, "incomplete encoded output");
+        throw new PresentationMediaError("presentation_processing_failed", 422);
+      });
+    await expect(
+      generateLosslessBounce(file, output, plan, profile)
+    ).rejects.toMatchObject({
+      code: "presentation_processing_failed",
+      status: 422
+    });
+    expect(encode).toHaveBeenCalledOnce();
+    expect(await readdir(directory)).toEqual(["encoder-failure.mkv"]);
+    expect(await readFile(file)).toEqual(original);
+  });
+
+  it("cancels an active encoder and removes output and compressed frame work", async () => {
+    const file = await fixture(
+      "cancel.mkv",
+      24,
+      2,
+      [],
+      ["-c:v", "ffv1"],
+      "960x540"
+    );
+    const profile = await inspectBounceSource(file);
+    const original = await readFile(file);
+    const plan = await createBouncePlan(file, 0, 2000, profile);
+    const output = path.join(directory, "cancel.mp4");
+    const controller = new AbortController();
+    let encoderStarted = false;
+    const monitor = setInterval(() => {
+      void stat(output).then(
+        () => {
+          encoderStarted = true;
+          controller.abort();
+        },
+        () => undefined
+      );
+    }, 5);
+    try {
+      await expect(
+        generateLosslessBounce(file, output, plan, profile, "hevc", {
+          signal: controller.signal
+        })
+      ).rejects.toMatchObject({
+        code: "presentation_processing_cancelled",
+        status: 499
+      });
+      expect(encoderStarted).toBe(true);
+      expect(await readdir(directory)).toEqual(["cancel.mkv"]);
+      expect(await readFile(file)).toEqual(original);
+    } finally {
+      clearInterval(monitor);
+      controller.abort();
+    }
+  }, 15_000);
 
   it("rejects nonzero timestamp origins rather than shifting browser source times", async () => {
     const file = await fixture(

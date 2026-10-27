@@ -14,12 +14,13 @@ import {
   getPresentationVideoBouncePlan
 } from "./presentation-media.js";
 import { LOCAL_MEDIA_INPUT_ARGS, runMediaCommand } from "./video-processing.js";
-import { generateLosslessBounce } from "./presentation-bounce.js";
+import {
+  generateLosslessBounce,
+  VIDEO_BOUNCE_MAX_OUTPUT_BYTES
+} from "./presentation-bounce.js";
 
 export const VIDEO_HIGHLIGHT_MAX_DURATION_MS = 120_000;
 export type { PresentationFile } from "./presentation-cache.js";
-let reversing = false;
-const reverseQueue: Array<() => void> = [];
 
 export async function ensurePresentationVideo({
   db,
@@ -72,14 +73,12 @@ export async function ensurePresentationVideo({
     async (temporaryPath) => {
       const seconds = durationMs / 1000;
       if (bouncePlan && capabilities.videoBounce) {
-        await withReverseSlot(() =>
-          generateLosslessBounce(
-            file.sourcePath,
-            temporaryPath,
-            bouncePlan,
-            capabilities.videoBounce!,
-            codec
-          )
+        await generateLosslessBounce(
+          file.sourcePath,
+          temporaryPath,
+          bouncePlan,
+          capabilities.videoBounce,
+          codec
         );
         return "video/mp4";
       }
@@ -162,7 +161,8 @@ export async function ensurePresentationVideo({
       )
         throw new PresentationMediaError("incomplete_rendition", 422);
       return "video/mp4";
-    }
+    },
+    variant === "bounce" ? VIDEO_BOUNCE_MAX_OUTPUT_BYTES : undefined
   );
 }
 
@@ -229,17 +229,4 @@ export async function ensurePresentationPoster({
       return "image/jpeg";
     }
   );
-}
-
-async function withReverseSlot<T>(task: () => Promise<T>): Promise<T> {
-  if (reversing)
-    await new Promise<void>((resolve) => reverseQueue.push(resolve));
-  reversing = true;
-  try {
-    return await task();
-  } finally {
-    const next = reverseQueue.shift();
-    if (next) next();
-    else reversing = false;
-  }
 }

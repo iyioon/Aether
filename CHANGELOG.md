@@ -40,6 +40,9 @@ Notable changes to Aether are recorded here.
 
 ### Fixed
 
+- Prepare video Bounce sections up to 30 seconds with bounded processing memory
+  and private temporary storage, preserving source frames and timing.
+- Disable automatic GitHub checks; retain the workflow for optional manual use.
 - Keep native temporary work under the data directory, prune obsolete previews
   and scan/authentication history, and guard interrupted restore recovery.
 - Verify source, cached and public static file descriptors before streaming;

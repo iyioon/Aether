@@ -1,22 +1,37 @@
-import { rm, stat } from "node:fs/promises";
+import { mkdtemp, rm, stat, statfs, writeFile } from "node:fs/promises";
+import path from "node:path";
+import {
+  decodeBounceFrames,
+  encodeBounceFrames,
+  type BounceFrameSpool
+} from "./presentation-bounce-frames.js";
 import { PresentationMediaError } from "./presentation-cache.js";
 import { LOCAL_MEDIA_INPUT_ARGS, runMediaCommand } from "./video-processing.js";
 
-export const VIDEO_BOUNCE_MAX_DURATION_MS = 10_000;
-export const VIDEO_BOUNCE_MAX_FRAMES = 600;
+export const VIDEO_BOUNCE_MAX_DURATION_MS = 30_000;
+export const VIDEO_BOUNCE_MAX_FRAMES = 3600;
 export const VIDEO_BOUNCE_MAX_DECODED_BYTES = 256 * 1024 * 1024;
-export const VIDEO_BOUNCE_MAX_OUTPUT_BYTES = 128 * 1024 * 1024;
+export const VIDEO_BOUNCE_MAX_OUTPUT_BYTES = 1024 * 1024 * 1024;
+export const VIDEO_BOUNCE_MAX_WORK_BYTES = 2 * 1024 * 1024 * 1024;
+export const VIDEO_BOUNCE_MAX_PROCESSING_MS = 300_000;
 const MICROSECONDS = 1_000_000;
 let displayRotationSupport: Promise<boolean> | null = null;
 
 function supportsDisplayRotation(): Promise<boolean> {
+  // Newer releases omit advanced input flags from short help. Parsing a
+  // harmless version request tests the option without opening any media.
   displayRotationSupport ??= runMediaCommand(
     "ffmpeg",
-    ["-hide_banner", "-h"],
+    ["-hide_banner", "-display_rotation", "0", "-version"],
     5000
   )
-    .then((result) => /^\s*-display_rotation\b/m.test(result.stdout))
+    .then(() => true)
     .catch((error: unknown) => {
+      if (
+        error instanceof Error &&
+        /Unrecognized option ['"]display_rotation/.test(error.message)
+      )
+        return false;
       displayRotationSupport = null;
       throw error;
     });
@@ -141,6 +156,15 @@ function frameBytes(width: number, height: number, bitDepth: number) {
   return width * height * 1.5 * (bitDepth > 8 ? 2 : 1);
 }
 
+/** Raw input, compressed block, inflated output and one queued encoder frame. */
+export function videoBounceWorkingBytes(
+  width: number,
+  height: number,
+  bitDepth: number
+): number {
+  return frameBytes(width, height, bitDepth) * 4;
+}
+
 export function videoBounceMaxDurationMs(
   width: number,
   height: number,
@@ -159,12 +183,14 @@ export function videoBounceMaxDurationMs(
     (bitDepth !== 8 && bitDepth !== 10)
   )
     return 0;
-  const bytes = frameBytes(width, height, bitDepth) * 2;
-  if (!Number.isSafeInteger(bytes) || bytes <= 0) return 0;
-  const frames = Math.min(
-    VIDEO_BOUNCE_MAX_FRAMES,
-    Math.floor(VIDEO_BOUNCE_MAX_DECODED_BYTES / bytes)
-  );
+  const bytes = videoBounceWorkingBytes(width, height, bitDepth);
+  if (
+    !Number.isSafeInteger(bytes) ||
+    bytes <= 0 ||
+    bytes > VIDEO_BOUNCE_MAX_DECODED_BYTES
+  )
+    return 0;
+  const frames = VIDEO_BOUNCE_MAX_FRAMES;
   return Math.min(
     VIDEO_BOUNCE_MAX_DURATION_MS,
     Math.floor((frames / frameRate) * 1000)
@@ -281,7 +307,12 @@ export async function createBouncePlan(
     endMs > profile.durationMs + 1
   )
     badTiming();
-  if (endMs - startMs > VIDEO_BOUNCE_MAX_DURATION_MS) overBudget();
+  if (
+    endMs - startMs > VIDEO_BOUNCE_MAX_DURATION_MS ||
+    videoBounceWorkingBytes(profile.width, profile.height, profile.bitDepth) >
+      VIDEO_BOUNCE_MAX_DECODED_BYTES
+  )
+    overBudget();
   const originUs = Math.round(profile.startTimeSeconds * MICROSECONDS);
   const startUs = Math.round(startMs * 1000);
   const endUs = Math.min(
@@ -308,7 +339,8 @@ export async function createBouncePlan(
         ...LOCAL_MEDIA_INPUT_ARGS,
         sourcePath
       ],
-      20_000
+      20_000,
+      1024 * 1024
     );
     payload = JSON.parse(result.stdout) as { frames?: ProbeFrame[] };
   } catch {
@@ -368,10 +400,11 @@ export async function createBouncePlan(
     selected.at(-1)!.startUs + selected.at(-1)!.durationUs !== endUs
   )
     badTiming();
-  const decodedBytes =
-    selected.length *
-    frameBytes(profile.width, profile.height, profile.bitDepth) *
-    2;
+  const decodedBytes = videoBounceWorkingBytes(
+    profile.width,
+    profile.height,
+    profile.bitDepth
+  );
   if (
     selected.length > VIDEO_BOUNCE_MAX_FRAMES ||
     decodedBytes > VIDEO_BOUNCE_MAX_DECODED_BYTES
@@ -440,7 +473,8 @@ async function validateSourceFrames(
             ...LOCAL_MEDIA_INPUT_ARGS,
             sourcePath
           ],
-          20_000
+          20_000,
+          1024 * 1024
         )
       ).stdout;
     } catch {
@@ -489,46 +523,90 @@ async function validateSourceFrames(
   }
 }
 
+export interface VideoBounceGenerationOptions {
+  signal?: AbortSignal;
+  maxWorkBytes?: number;
+  maxOutputBytes?: number;
+  timeoutMs?: number;
+}
+
+function lowerLimit(value: number | undefined, maximum: number): number {
+  const limit = value ?? maximum;
+  if (!Number.isSafeInteger(limit) || limit <= 0 || limit > maximum)
+    throw new PresentationMediaError("presentation_limit_exceeded", 422);
+  return limit;
+}
+
 export async function generateLosslessBounce(
   sourcePath: string,
   outputPath: string,
   plan: VideoBouncePlan,
   profile: VideoBounceProfile,
-  codec: "hevc" | "h264" = "hevc"
+  codec: "hevc" | "h264" = "hevc",
+  options: VideoBounceGenerationOptions = {}
 ): Promise<void> {
   const count = plan.sourceFrameCount;
+  const bytes = frameBytes(profile.width, profile.height, profile.bitDepth);
   if (
-    !count ||
+    !Number.isSafeInteger(count) ||
+    count <= 0 ||
+    !Number.isSafeInteger(bytes) ||
+    bytes <= 0 ||
     count > VIDEO_BOUNCE_MAX_FRAMES ||
-    plan.decodedBytes > VIDEO_BOUNCE_MAX_DECODED_BYTES
+    plan.endMs - plan.startMs > VIDEO_BOUNCE_MAX_DURATION_MS ||
+    videoBounceWorkingBytes(profile.width, profile.height, profile.bitDepth) >
+      VIDEO_BOUNCE_MAX_DECODED_BYTES
   )
     overBudget();
-  const firstTime = profile.startTimeSeconds + plan.firstSourceTimeMs / 1000;
-  const endTime = profile.startTimeSeconds + plan.endMs / 1000;
-  const forward = `[0:${profile.streamIndex}]select='gte(t,${firstTime - 0.000001})*lt(t,${endTime - 0.0000005})',trim=end_frame=${count},setpts=PTS-STARTPTS`;
-  const sequence =
-    count < 3
-      ? forward
-      : `${forward},split=2[f][r];[r]reverse,trim=start_frame=1:end_frame=${count - 1},setpts=PTS-STARTPTS[b];[f][b]concat=n=2:v=1:a=0`;
-  const filter = `${sequence},setsar=${profile.sampleAspectRatio.replace(":", "/")}:max=65535,settb=1/1000000,setpts='${lookupExpression(plan.outputTimesMs.map((time) => Math.round(time * 1000)))}'[out]`;
-  const durations = plan.outputSourceIndices.map((index) =>
-    Math.round(plan.durationsMs[index]! * 1000)
+  const maxWorkBytes = lowerLimit(
+    options.maxWorkBytes,
+    VIDEO_BOUNCE_MAX_WORK_BYTES
   );
-  const encodedPath = profile.rotation
-    ? `${outputPath}.encoded.mp4`
-    : outputPath;
-  const colorArgs = [
-    ["-color_range", profile.colorRange],
-    ["-colorspace", profile.colorSpace],
-    ["-color_trc", profile.colorTransfer],
-    ["-color_primaries", profile.colorPrimaries],
-    ["-chroma_sample_location", profile.chromaLocation]
-  ].flatMap(([option, value]) => (value ? [option!, value] : []));
-  const useDisplayRotation =
-    profile.rotation !== 0 && (await supportsDisplayRotation());
+  const maxOutputBytes = lowerLimit(
+    options.maxOutputBytes,
+    VIDEO_BOUNCE_MAX_OUTPUT_BYTES
+  );
+  const timeoutMs = lowerLimit(
+    options.timeoutMs,
+    VIDEO_BOUNCE_MAX_PROCESSING_MS
+  );
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  options.signal?.addEventListener("abort", abort, { once: true });
+  if (options.signal?.aborted) abort();
+  const deadline = performance.now() + timeoutMs;
+  const remainingMs = () => Math.max(0, deadline - performance.now());
+  const scope = { signal: controller.signal, remainingMs };
+  const check = () => {
+    if (controller.signal.aborted)
+      throw new PresentationMediaError(
+        "presentation_processing_cancelled",
+        499
+      );
+    if (!remainingMs())
+      throw new PresentationMediaError("presentation_limit_exceeded", 422);
+  };
+  let workDirectory: string | undefined;
+  let spool: BounceFrameSpool | undefined;
+  let succeeded = false;
   try {
-    await runMediaCommand(
-      "ffmpeg",
+    check();
+    const disk = await statfs(path.dirname(outputPath));
+    const reservedBytes =
+      Math.min(maxWorkBytes, count * bytes + count * 1024) +
+      Math.min(maxOutputBytes, plan.outputSourceIndices.length * bytes);
+    if (disk.bavail * disk.bsize < reservedBytes + 1024 * 1024)
+      throw new PresentationMediaError("presentation_limit_exceeded", 422);
+    workDirectory = await mkdtemp(
+      path.join(path.dirname(outputPath), ".bounce-work-")
+    );
+    const filterPath = path.join(workDirectory, "timeline.filter");
+    const firstTime = profile.startTimeSeconds + plan.firstSourceTimeMs / 1000;
+    const endTime = profile.startTimeSeconds + plan.endMs / 1000;
+    // Only the source decoder sees source timestamps. The spool keeps exact
+    // planar samples; the independently verified timeline supplies output PTS.
+    spool = await decodeBounceFrames(
+      path.join(workDirectory, "frames.deflate"),
       [
         "-hide_banner",
         "-loglevel",
@@ -544,52 +622,148 @@ export async function generateLosslessBounce(
         String((plan.endMs - plan.firstSourceTimeMs) / 1000 + 0.2),
         "-i",
         sourcePath,
-        "-filter_complex_threads",
+        "-filter_threads",
         "1",
-        "-filter_complex",
-        filter,
+        "-vf",
+        `select='gte(t,${firstTime - 0.000001})*lt(t,${endTime - 0.0000005})',trim=end_frame=${count}`,
         "-map",
-        "[out]",
+        `0:${profile.streamIndex}`,
         "-an",
-        "-c:v",
-        codec === "hevc" ? "libx265" : "libx264",
-        ...(codec === "hevc"
-          ? [
-              "-x265-params",
-              "lossless=1:pools=1:frame-threads=1:log-level=error:bframes=0",
-              "-tag:v",
-              "hvc1"
-            ]
-          : ["-qp", "0", "-x264-params", "bframes=0"]),
-        "-preset",
-        "veryfast",
-        "-threads",
-        "1",
-        "-bf",
-        "0",
-        "-pix_fmt",
-        profile.pixelFormat,
-        ...colorArgs,
+        "-frames:v",
+        String(count),
         "-fps_mode",
         "passthrough",
-        "-enc_time_base",
-        "1:1000000",
-        "-bsf:v",
-        `setts=duration='${lookupExpression(durations)}':time_base=1/1000000${codec === "h264" && profile.colorRange ? `,h264_metadata=video_full_range_flag=${profile.colorRange === "pc" ? 1 : 0}` : ""}`,
-        "-video_track_timescale",
-        "1000000",
-        "-movflags",
-        "+faststart",
-        "-fs",
-        String(VIDEO_BOUNCE_MAX_OUTPUT_BYTES),
+        "-pix_fmt",
+        profile.pixelFormat,
+        "-threads",
+        "1",
         "-f",
-        "mp4",
-        "-y",
-        encodedPath
+        "rawvideo",
+        "pipe:1"
       ],
-      90_000
+      bytes,
+      count,
+      maxWorkBytes,
+      scope
     );
-    if (profile.rotation)
+    check();
+    const frameColor = [
+      ["range", profile.colorRange],
+      ["color_primaries", profile.colorPrimaries],
+      ["color_trc", profile.colorTransfer],
+      ["colorspace", profile.colorSpace]
+    ]
+      .flatMap(([option, value]) => (value ? [`${option}=${value}`] : []))
+      .join(":");
+    const filter = `[0:v]${frameColor ? `setparams=${frameColor},` : ""}setsar=${profile.sampleAspectRatio.replace(":", "/")}:max=65535,settb=1/1000000,setpts='${lookupExpression(plan.outputTimesMs.map((time) => Math.round(time * 1000)))}'[out]`;
+    await writeFile(filterPath, filter, { flag: "wx", mode: 0o600 });
+    const encodedPath = profile.rotation
+      ? path.join(workDirectory, "encoded.mp4")
+      : outputPath;
+    const colorArgs = [
+      ["-color_range", profile.colorRange],
+      ["-colorspace", profile.colorSpace],
+      ["-color_trc", profile.colorTransfer],
+      ["-color_primaries", profile.colorPrimaries],
+      ["-chroma_sample_location", profile.chromaLocation]
+    ].flatMap(([option, value]) => (value ? [option!, value] : []));
+    // MP4 obtains every interior sample duration from adjacent PTS. The final
+    // duration alone needs an explicit packet value, keeping BSF argv bounded.
+    const lastDuration = Math.round(
+      plan.durationsMs[plan.outputSourceIndices.at(-1)!]! * 1000
+    );
+    try {
+      await encodeBounceFrames(
+        spool,
+        [
+          "-hide_banner",
+          "-loglevel",
+          "error",
+          "-threads",
+          "1",
+          "-f",
+          "rawvideo",
+          "-pixel_format",
+          profile.pixelFormat,
+          "-video_size",
+          `${profile.width}x${profile.height}`,
+          "-framerate",
+          String(profile.frameRate),
+          "-i",
+          "pipe:0",
+          "-filter_complex_threads",
+          "1",
+          "-filter_complex_script",
+          filterPath,
+          "-map",
+          "[out]",
+          "-an",
+          "-c:v",
+          codec === "hevc" ? "libx265" : "libx264",
+          ...(codec === "hevc"
+            ? [
+                "-x265-params",
+                "lossless=1:pools=1:frame-threads=1:log-level=error:bframes=0:rc-lookahead=0:ref=1",
+                "-tag:v",
+                "hvc1"
+              ]
+            : [
+                "-qp",
+                "0",
+                "-x264-params",
+                "bframes=0:rc-lookahead=0:sync-lookahead=0:ref=1"
+              ]),
+          "-preset",
+          codec === "hevc" ? "ultrafast" : "veryfast",
+          "-tune",
+          "zerolatency",
+          "-threads",
+          "1",
+          "-bf",
+          "0",
+          "-pix_fmt",
+          profile.pixelFormat,
+          ...colorArgs,
+          "-fps_mode",
+          "passthrough",
+          "-enc_time_base",
+          "1:1000000",
+          "-bsf:v",
+          `setts=duration=${lastDuration}:time_base=1/1000000${codec === "h264" && profile.colorRange ? `,h264_metadata=video_full_range_flag=${profile.colorRange === "pc" ? 1 : 0}` : ""}`,
+          "-video_track_timescale",
+          "1000000",
+          "-movflags",
+          "+faststart",
+          "-fs",
+          String(maxOutputBytes),
+          "-f",
+          "mp4",
+          "-y",
+          encodedPath
+        ],
+        plan.outputSourceIndices,
+        bytes,
+        scope
+      );
+    } catch (error) {
+      const written = await stat(encodedPath).catch(() => null);
+      if (
+        !controller.signal.aborted &&
+        written &&
+        written.size >= maxOutputBytes
+      )
+        throw new PresentationMediaError("presentation_limit_exceeded", 422);
+      throw error;
+    }
+    // Reverse playback no longer needs the spool. Release it before the
+    // optional rotation remux so total transient storage stays within 3 GiB.
+    await spool.handle.close();
+    spool = undefined;
+    await rm(path.join(workDirectory, "frames.deflate"), { force: true });
+    check();
+    if (profile.rotation) {
+      const useDisplayRotation = await supportsDisplayRotation();
+      check();
       await runMediaCommand(
         "ffmpeg",
         [
@@ -616,20 +790,40 @@ export async function generateLosslessBounce(
           "-movflags",
           "+faststart",
           "-fs",
-          String(VIDEO_BOUNCE_MAX_OUTPUT_BYTES),
+          String(maxOutputBytes),
           "-f",
           "mp4",
           "-y",
           outputPath
         ],
-        20_000
+        Math.min(20_000, remainingMs())
       );
+    }
+    check();
     const size = (await stat(outputPath)).size;
-    if (size <= 0 || size > VIDEO_BOUNCE_MAX_OUTPUT_BYTES)
+    if (size <= 0 || size > maxOutputBytes)
       throw new PresentationMediaError("presentation_limit_exceeded", 422);
-    await validateOutput(outputPath, plan, profile, codec);
+    await validateOutput(
+      outputPath,
+      plan,
+      profile,
+      codec,
+      Math.min(15_000, remainingMs())
+    );
+    check();
+    succeeded = true;
   } finally {
-    if (profile.rotation) await rm(encodedPath, { force: true });
+    options.signal?.removeEventListener("abort", abort);
+    try {
+      await spool?.handle.close();
+    } finally {
+      try {
+        if (workDirectory)
+          await rm(workDirectory, { recursive: true, force: true });
+      } finally {
+        if (!succeeded) await rm(outputPath, { force: true });
+      }
+    }
   }
 }
 
@@ -637,7 +831,8 @@ async function validateOutput(
   outputPath: string,
   plan: VideoBouncePlan,
   profile: VideoBounceProfile,
-  codec: "hevc" | "h264"
+  codec: "hevc" | "h264",
+  timeoutMs: number
 ) {
   const result = await runMediaCommand(
     "ffprobe",
@@ -654,7 +849,8 @@ async function validateOutput(
       ...LOCAL_MEDIA_INPUT_ARGS,
       outputPath
     ],
-    15_000
+    timeoutMs,
+    1024 * 1024
   );
   const output = JSON.parse(result.stdout) as {
     streams?: ProbeStream[];

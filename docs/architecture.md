@@ -364,14 +364,27 @@ Decoded-frame equality is distinct from copying the original bitstream or using
 a visually lossless quality setting. Browser codec claims do not establish
 native iPhone compatibility; real-device acceptance is tracked separately.
 
-One reverse job runs at a time. Limits are ten seconds, 600 frames, a 256 MiB
-decoded-frame work budget reserving two 4:2:0 buffers, and 128 MiB output. The
-pixel estimate uses 1.5 bytes per pixel for 8-bit or 3 for 10-bit; codec overhead
-is additional. Actual selected frame counts are checked beyond rate estimates.
-Capabilities and save validation expose the source-dependent duration limit.
+One Bounce job runs at a time. Queued Bounce work waits outside the shared
+processing slots so posters and other media can continue. A section can contain
+up to thirty seconds and 3,600 source frames.
+`presentation-bounce-frames.ts` decodes the section once
+into independently lossless-compressed frames in a private temporary directory,
+then feeds them forward and backward to one encoder with pipe backpressure.
+The whole section is never buffered as raw frames in memory. Timestamp scripts
+preserve variable frame holds without growing the subprocess argument list.
+
+Limits are a 256 MiB estimated decoded-frame working budget, 2 GiB of temporary
+frame storage, 1 GiB of final output and a five-minute preparation deadline.
+Codec/runtime overhead is additional to the decoded-frame estimate. The
+temporary frame store and any partial output are removed on success or failure;
+startup clears abandoned work after a crash. Files that exceed a processing
+budget fail explicitly without reducing resolution or quality. Capabilities and
+save validation expose the available duration, including the frame-count limit
+at high frame rates. Actual selected frame counts are checked beyond estimates.
 The source/range timeline cache admits eight pending probes and retains at most
-64 entries. Bounce keys include `bounce-lossless-v3`, invalidating earlier lossy
-output without changing full-source or animation identities.
+64 entries. Bounce keys include `bounce-lossless-v4`, invalidating earlier
+prepared output and cached capability limits without changing full-source or
+animation identities.
 Animations retain source dimensions up to 2048px per side in lossless PNG atlases,
 with an adaptive tile grid. Limits remain sixty seconds, 600 frames, 64 million
 total source pixels, 2048px atlases and 64 MiB encoded output. Larger sources are

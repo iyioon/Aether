@@ -148,8 +148,11 @@ FFmpeg permits local media protocols/containers only and uses fixed argument
 arrays, bounded work queues, deadlines, metadata/output limits, and serialized
 reverse work. Lossless Bounce retains supported source pixels and timing without
 writing the source. It rejects unsupported profiles/metadata and bounds section
-duration, frame count, decoded-frame work and output bytes; codec overhead is
-additional to the decoded-frame budget. Larger sources receive a shorter limit.
+duration, frame count, decoded-frame work, temporary disk use, output bytes and
+preparation time. Bounce uses a private lossless frame store under the cache and
+streams frames through bounded buffers; codec overhead is additional to the
+decoded-frame budget. Temporary stores and partial output are removed after
+completion or failure, and startup removes abandoned work after a crash.
 Animation decoding has
 frame, duration, source-size, pixel and byte limits, and rejects excess dimensions
 instead of downscaling. Native repeat highlights use the same authenticated

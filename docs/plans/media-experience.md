@@ -123,11 +123,13 @@ web presentation model, geometry, record ordering and URL-state tests.
   with source frame timing, coded dimensions/SAR, color metadata and rotation.
   Eligible inputs are 8/10-bit 4:2:0 SDR; unsupported HDR/Dolby Vision,
   interlaced, odd-sized, nonzero timestamp-origin or unusual formats/profiles
-  use Repeat. Endpoints are
-  not duplicated and video Bounce stays silent. One reverse job uses a ten-second,
-  600-frame, 256 MiB decoded-work budget and a 128 MiB output cap. Actual frame
+  use Repeat. Endpoints are not duplicated and video Bounce stays silent.
+  One job prepares up to thirty seconds and 3,600 source frames using a private
+  lossless-compressed frame store and streaming encoder. Budgets are 256 MiB of
+  estimated decoded work, 2 GiB of temporary frames, 1 GiB of output and five
+  minutes. Temporary work is removed on completion or failure. Actual frame
   counts are rechecked; timeline probes are bounded and source/range keyed.
-  A new Bounce-only identity invalidates prior lossy cached output.
+  A Bounce-only identity invalidates earlier prepared output and capability limits.
 - Authenticated private GET/HEAD/range delivery; `no-store` metadata/manifests.
   Local protocol/container allowlists, deadlines, byte limits, safe cache paths,
   shared jobs, atomic publication and stale-source checks protect processing.
@@ -176,7 +178,7 @@ H.264 profile guidance; reported HEVC support still requires device testing.
    On iPhone 16, verify actual lossless HEVC playback and native fullscreen;
    codec detection and desktop pixel tests do not establish device support.
 3. Validate packaging/runtime decoder behavior in the production container and
-   representative server load. CI runs the decoder fixtures with the runtime's
+   representative server load. Run decoder fixtures with the runtime's
    Debian FFmpeg package through the `media-verification` Docker target. Require
    that result alongside the production image health check; local decoder
    fixtures do not establish production-container support.

@@ -26,6 +26,8 @@ docker build --target media-verification .
 ```
 
 Review any skipped test instead of treating a partial run as a release pass.
+GitHub checks are disabled; run these checks locally. The retained workflow has
+manual dispatch only and can be used after re-enabling it in Actions.
 
 ## Fresh-Install Test
 
@@ -105,8 +107,10 @@ Never test rebuild or wipe against the only copy of a real library database.
 - Verify native lossless Bounce with eligible 8/10-bit SDR sources and variable
   frame timing: decoded-frame hashes, timestamps, coded dimensions, SAR, color
   metadata and rotation must match the selected source frames. Confirm no
-  repeated endpoints, no audio, cache reuse, and explicit time/frame/memory/output
-  rejection. HDR, Dolby Vision, interlaced, odd-sized, nonzero timestamp-origin
+  repeated endpoints, no audio, cache reuse, and a 30-second selected-section
+  limit. Check frame order, bounded working memory, temporary-disk/output
+  rejection and cleanup after success, timeout and failure. HDR, Dolby Vision,
+  interlaced, odd-sized, nonzero timestamp-origin
   and unsupported inputs must offer Repeat without blocking source playback.
   Validate actual HEVC playback
   and native fullscreen on an iPhone 16 Home Screen installation; record this

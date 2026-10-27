@@ -386,8 +386,8 @@ describe("saved media presentation", () => {
     });
   });
 
-  it("bounds bounce duration and permits a short section of a longer video", async () => {
-    const asset = await video("long.mp4", 12);
+  it("bounds bounce duration and accepts a thirty-second section of a longer video", async () => {
+    const asset = await video("long.mp4", 31);
     const full = await put(asset.id, {
       ...defaultPresentationValues(),
       expectedRevision: 0,
@@ -401,10 +401,24 @@ describe("saved media presentation", () => {
           ...defaultPresentationValues(),
           expectedRevision: 0,
           loopMode: "bounce",
-          highlight: { startMs: 1000, endMs: 2000 }
+          highlight: { startMs: 1000, endMs: 31_000 }
         })
       ).statusCode
     ).toBe(200);
+    const saved = getAsset(db, asset.id)!;
+    expect(saved.presentation.highlight).toEqual({
+      startMs: 1000,
+      endMs: 31_000
+    });
+    const tooLong = await put(asset.id, {
+      ...defaultPresentationValues(),
+      expectedRevision: saved.presentation.revision,
+      loopMode: "bounce",
+      highlight: { startMs: 0, endMs: 30_001 }
+    });
+    expect(tooLong.statusCode).toBe(400);
+    expect(tooLong.json().error).toBe("bounce_duration_exceeded");
+    expect(getAsset(db, asset.id)?.presentation).toEqual(saved.presentation);
   });
 
   it("rejects changed source identity and symlink escapes without leaking paths", async () => {
@@ -823,6 +837,10 @@ describe("saved media presentation", () => {
     const asset = { id: "opaque-asset", mtimeMs: 123, sizeBytes: 456 };
     const values = defaultPresentationValues();
     const base = getPresentationRenditionKeys(asset, values);
+    // Preserve existing non-Bounce copies while retiring the v3 encoder cache.
+    expect(base.full).toBe("c7103d785ad3cee8909187b7cad694d5");
+    expect(base.highlight).toBe("73a875aa6c002e79c1edacea3997b1a9");
+    expect(base.bounce).not.toBe("6e737dbf8a007aa7f287c2a0d42e30e9");
     expect(Object.values(base).every((key) => /^[a-f0-9]{32}$/.test(key))).toBe(
       true
     );

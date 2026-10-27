@@ -108,10 +108,10 @@ item. The playback bar identifies the active loop and shows source times.
 Repeat highlights use the original video in Feed, Comparison and the viewer.
 If the browser cannot play it, Aether prepares a compatible section. Highlights
 can span up to two minutes. For supported videos, Bounce prepares a silent
-lossless video with the source frames and timing. Some formats, including HDR
-video, need Repeat instead. The editor shows the available limit; larger sources
-allow shorter sections. Browser support varies, and first playback may need
-preparation.
+lossless video from a section of up to 30 seconds, keeping the source frames and
+timing. Some formats, including HDR video, need Repeat instead. The editor shows
+the available limit. Browser support varies, and first playback may need
+preparation; prepared sections are reused on later visits.
 
 Animated GIF, WebP, APNG and AVIF support playback editing within processing
 limits. Preparation may take time on first use. Files that are too large or

@@ -1,6 +1,7 @@
 import {
   mkdtemp,
   mkdir,
+  open,
   readFile,
   readdir,
   rm,
@@ -30,6 +31,8 @@ import {
   PresentationMediaError
 } from "../src/library/presentation-media.js";
 import { ensurePresentationAnimation } from "../src/library/presentation-animation.js";
+import { ensurePresentationDerivative } from "../src/library/presentation-cache.js";
+import { VIDEO_BOUNCE_MAX_OUTPUT_BYTES } from "../src/library/presentation-bounce.js";
 import { registerPresentationMediaRoutes } from "../src/library/routes-presentation-media.js";
 import { getPresentationRenditionKeys } from "../src/library/presentation.js";
 import {
@@ -125,6 +128,132 @@ function setHighlight(
 }
 
 describe("presentation video delivery", () => {
+  it("keeps a shared processing slot available while Bounce jobs wait", async () => {
+    const initial = await video();
+    const asset = setHighlight(initial.id, 0, 500, "bounce");
+    const file = (await resolveAssetFile(db, asset.id))!;
+    let release!: () => void;
+    let entered!: () => void;
+    let secondStarted = false;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const first = ensurePresentationDerivative(
+      db,
+      config,
+      file,
+      "bounce",
+      asset.presentation.renditionKeys.bounce,
+      "mp4",
+      async (temporaryPath) => {
+        entered();
+        await held;
+        await writeFile(temporaryPath, "first");
+        return "video/mp4";
+      }
+    );
+    await started;
+    const second = ensurePresentationDerivative(
+      db,
+      config,
+      file,
+      "bounce",
+      asset.presentation.renditionKeys.bounce,
+      "h264.mp4",
+      async (temporaryPath) => {
+        secondStarted = true;
+        await held;
+        await writeFile(temporaryPath, "second");
+        return "video/mp4";
+      }
+    );
+    const poster = ensurePresentationDerivative(
+      db,
+      config,
+      file,
+      "full",
+      asset.presentation.renditionKeys.full,
+      "160.jpg",
+      async (temporaryPath) => {
+        await writeFile(temporaryPath, "poster");
+        return "image/jpeg";
+      }
+    );
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const ready = await Promise.race([
+        poster,
+        new Promise<null>((resolve) => {
+          timeout = setTimeout(() => resolve(null), 1000);
+        })
+      ]);
+      expect(ready?.contentType).toBe("image/jpeg");
+      expect(secondStarted).toBe(false);
+    } finally {
+      clearTimeout(timeout);
+      release();
+      await Promise.allSettled([first, second, poster]);
+    }
+    expect(secondStarted).toBe(true);
+  });
+
+  it("publishes bounded larger Bounce files without widening other derivative limits", async () => {
+    const initial = await video();
+    const asset = setHighlight(initial.id, 0, 500, "bounce");
+    const file = (await resolveAssetFile(db, asset.id))!;
+    const generate = (bytes: number) => async (temporaryPath: string) => {
+      const handle = await open(temporaryPath, "wx", 0o600);
+      try {
+        await handle.truncate(bytes);
+      } finally {
+        await handle.close();
+      }
+      return "video/mp4";
+    };
+    const larger = 128 * 1024 * 1024 + 1;
+    await expect(
+      ensurePresentationDerivative(
+        db,
+        config,
+        file,
+        "highlight",
+        asset.presentation.renditionKeys.highlight,
+        "mp4",
+        generate(larger)
+      )
+    ).rejects.toMatchObject({ code: "presentation_limit_exceeded" });
+    await expect(
+      ensurePresentationDerivative(
+        db,
+        config,
+        file,
+        "bounce",
+        asset.presentation.renditionKeys.bounce,
+        "mp4",
+        generate(VIDEO_BOUNCE_MAX_OUTPUT_BYTES + 1),
+        VIDEO_BOUNCE_MAX_OUTPUT_BYTES
+      )
+    ).rejects.toMatchObject({ code: "presentation_limit_exceeded" });
+    const prepared = await ensurePresentationDerivative(
+      db,
+      config,
+      file,
+      "bounce",
+      asset.presentation.renditionKeys.bounce,
+      "mp4",
+      generate(larger),
+      VIDEO_BOUNCE_MAX_OUTPUT_BYTES
+    );
+    expect((await stat(prepared.path)).size).toBe(larger);
+    expect(await readdir(path.dirname(prepared.path))).toEqual([
+      path.basename(prepared.path)
+    ]);
+    expect((await stat(prepared.path)).mode & 0o777).toBe(0o600);
+  });
+
   it("keeps original HDR playback available when lossless Bounce is unsupported", async () => {
     await video();
     const source = path.join(cwd, "media", "hdr.mp4");
@@ -231,7 +360,7 @@ describe("presentation video delivery", () => {
       expect(await stat(old.path).catch(() => null)).toBeNull();
   });
 
-  it("preserves bounce resolution and reports a source-dependent reverse memory budget", async () => {
+  it("preserves bounce resolution beyond the former whole-section memory budget", async () => {
     const initial = await video("large.mp4", 5, "1280x720");
     const sourcePath = path.join(cwd, "media", "large.mp4");
     const source = await readFile(sourcePath);
@@ -241,7 +370,7 @@ describe("presentation video delivery", () => {
     expect(capabilities.json()).toMatchObject({
       width: 1280,
       height: 720,
-      maxBounceDurationMs: 4041
+      maxBounceDurationMs: 30_000
     });
     const asset = setHighlight(initial.id, 250, 750, "bounce");
     const response = await app.inject(
@@ -274,12 +403,17 @@ describe("presentation video delivery", () => {
       height: 720,
       nb_frames: "22"
     });
-    const tooLong = setHighlight(asset.id, 0, 4200, "bounce");
-    const rejected = await app.inject(
-      `/api/assets/${asset.id}/playback?variant=bounce&v=${tooLong.presentation.renditionKeys.bounce}`
+    const longer = setHighlight(asset.id, 0, 4200, "bounce");
+    const prepared = await app.inject(
+      `/api/assets/${asset.id}/playback?variant=bounce&v=${longer.presentation.renditionKeys.bounce}`
     );
-    expect(rejected.statusCode).toBe(422);
-    expect(rejected.json()).toEqual({ error: "bounce_duration_exceeded" });
+    expect(prepared.statusCode).toBe(200);
+    const directory = path.join(config.cacheDir, "presentations", asset.id);
+    expect(
+      (await readdir(directory, { withFileTypes: true })).every(
+        (entry) => entry.isFile() && !entry.name.endsWith(".tmp")
+      )
+    ).toBe(true);
     expect(await readFile(sourcePath)).toEqual(source);
   }, 20_000);
 
@@ -294,7 +428,7 @@ describe("presentation video delivery", () => {
       height: 32,
       durationMs: 1000,
       hasAudio: true,
-      maxBounceDurationMs: 10_000
+      maxBounceDurationMs: 30_000
     });
     const url = `/api/assets/${asset.id}/playback?variant=full&v=${caps.json().renditionKeys.full}`;
     const response = await app.inject(url);
@@ -577,8 +711,8 @@ describe("presentation video delivery", () => {
   });
 
   it("rejects excessive bounce sections and malformed queries", async () => {
-    const asset = await video("long.mp4", 11);
-    const current = setHighlight(asset.id, 0, 10_500, "bounce");
+    const asset = await video("long.mp4", 31);
+    const current = setHighlight(asset.id, 0, 30_500, "bounce");
     const bounce = await app.inject(
       `/api/assets/${asset.id}/playback?variant=bounce&v=${current.presentation.renditionKeys.bounce}`
     );

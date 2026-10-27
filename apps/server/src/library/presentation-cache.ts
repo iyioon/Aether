@@ -22,6 +22,8 @@ const jobsByDatabase = new WeakMap<
   Map<string, Promise<PresentationFile>>
 >();
 let pendingJobs = 0;
+let reversing = false;
+const reverseQueue: Array<() => void> = [];
 
 export type PresentationVariant = "full" | "highlight" | "bounce";
 
@@ -172,7 +174,8 @@ export async function ensurePresentationDerivative(
   variant: PresentationVariant,
   key: string,
   suffix: string,
-  generate: (temporaryPath: string) => Promise<string>
+  generate: (temporaryPath: string) => Promise<string>,
+  maxOutputBytes = 128 * 1024 * 1024
 ): Promise<PresentationFile> {
   const directory = await presentationCacheDirectory(config, file.asset.id);
   const destination = path.join(directory, `${key}-${suffix}`);
@@ -194,11 +197,12 @@ export async function ensurePresentationDerivative(
     throw new PresentationMediaError("processing_busy", 503);
   pendingJobs += 1;
   const temporaryPath = `${destination}.${randomUUID()}.tmp`;
-  const job = withVideoProcessingSlot(async () => {
+  const job = withPresentationProcessingSlot(variant, async () => {
     let published = false;
     try {
+      await verifyPresentationSource(db, file, variant, key);
       const generatedType = await generate(temporaryPath);
-      await requireBoundedFile(temporaryPath, 128 * 1024 * 1024);
+      await requireBoundedFile(temporaryPath, maxOutputBytes);
       await verifyPresentationSource(db, file, variant, key);
       await rename(temporaryPath, destination);
       published = true;
@@ -226,4 +230,22 @@ export async function ensurePresentationDerivative(
   });
   jobs.set(destination, job);
   return job;
+}
+
+async function withPresentationProcessingSlot(
+  variant: PresentationVariant,
+  task: () => Promise<PresentationFile>
+): Promise<PresentationFile> {
+  if (variant !== "bounce") return withVideoProcessingSlot(task);
+  // Waiting Bounce jobs must leave the shared slots available to other media.
+  if (reversing)
+    await new Promise<void>((resolve) => reverseQueue.push(resolve));
+  reversing = true;
+  try {
+    return await withVideoProcessingSlot(task);
+  } finally {
+    const next = reverseQueue.shift();
+    if (next) next();
+    else reversing = false;
+  }
 }

@@ -183,9 +183,9 @@ export function UserGuidePage() {
                     <p>
                       Choose a speed and loop mode. Repeat plays forward; Bounce
                       plays forward and then backward, without sound. Supported
-                      videos use a lossless copy, prepared after Save. Some
-                      formats, including HDR video, need Repeat; long sections
-                      may be too large to prepare.
+                      videos use a lossless copy of a section up to 30 seconds,
+                      prepared after Save. Some formats, including HDR video,
+                      need Repeat. Large files may exceed processing limits.
                     </p>
                     <p>
                       Turn on Play highlights only in View options to loop the

@@ -2312,3 +2312,132 @@ test("falls back between lossless Bounce codecs when a reported decoder fails", 
     await context.close();
   }
 });
+
+for (const phone of [false, true]) {
+  test(`saves and plays a thirty-second Bounce section on ${phone ? "phone" : "desktop"}`, async ({
+    browser
+  }) => {
+    const context = await browser.newContext({
+      storageState,
+      viewport: phone
+        ? { width: 393, height: 852 }
+        : { width: 1440, height: 980 },
+      isMobile: phone,
+      hasTouch: phone,
+      reducedMotion: "reduce"
+    });
+    const page = await context.newPage();
+    const name = "long-bounce.mp4";
+    const source = path.join(directory, name);
+    try {
+      await promisify(execFile)("ffmpeg", [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-nostdin",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc2=size=96x64:rate=24:duration=32",
+        "-c:v",
+        "libx264",
+        "-threads",
+        "1",
+        "-preset",
+        "ultrafast",
+        "-pix_fmt",
+        "yuv420p",
+        "-y",
+        source
+      ]);
+      await scan(page);
+      const result = await page.request.get(
+        `${origin}/api/folders/${folderId}/assets?sort=filename&limit=10`
+      );
+      const asset = ((await result.json()) as AssetListResponse).items.find(
+        (item) => item.name === name
+      )!;
+      expect(asset).toBeTruthy();
+      const capabilities = await page.request.get(
+        `${origin}/api/assets/${asset.id}/presentation-media`
+      );
+      expect((await capabilities.json()).maxBounceDurationMs).toBe(30_000);
+      await open(page, "feed", "video", name, true);
+      await activate(
+        page.getByRole("button", { name: `Edit ${name}`, exact: true }),
+        phone
+      );
+      const editor = page.getByRole("dialog", {
+        name: "Edit media",
+        exact: true
+      });
+      await editor.getByRole("combobox", { name: "Loop", exact: true }).click();
+      await page.getByRole("option", { name: "Bounce", exact: true }).click();
+      const warning = editor.getByText(
+        "Bounce needs a section of 30 seconds or less.",
+        { exact: true }
+      );
+      const save = editor.getByRole("button", { name: "Save", exact: true });
+      await expect(warning).toBeVisible();
+      await expect(save).toBeDisabled();
+      await editor
+        .getByRole("textbox", { name: "Start time", exact: true })
+        .fill("1");
+      const end = editor.getByRole("textbox", {
+        name: "End time",
+        exact: true
+      });
+      await end.fill("31.001");
+      await expect(save).toBeDisabled();
+      await end.fill("31");
+      await expect(warning).toHaveCount(0);
+      await expect(save).toBeEnabled();
+      await activate(save, phone);
+      await expect(editor).toHaveCount(0);
+      expect((await getAsset(page, asset.id)).presentation).toMatchObject({
+        highlight: { startMs: 1000, endMs: 31_000 },
+        loopMode: "bounce"
+      });
+      await page.reload();
+      const feedVideo = page.locator(".feed-item video").first();
+      await expect(feedVideo).toHaveAttribute(
+        "src",
+        /playback\?variant=bounce/
+      );
+      await expect
+        .poll(() =>
+          feedVideo.evaluate((video: HTMLVideoElement) => video.readyState)
+        )
+        .toBeGreaterThanOrEqual(2);
+      expect(
+        await feedVideo.evaluate((video: HTMLVideoElement) => video.duration)
+      ).toBeGreaterThan(59);
+      expect(
+        await feedVideo.evaluate((video: HTMLVideoElement) => video.duration)
+      ).toBeLessThan(60.1);
+      await open(page, "gallery", "video", name, true);
+      await activate(page.locator(".media-preview-button").first(), phone);
+      const viewer = page.getByRole("dialog", { name, exact: true });
+      const viewerVideo = viewer.locator("video");
+      await expect(viewerVideo).toHaveAttribute(
+        "src",
+        /playback\?variant=bounce/
+      );
+      await expect
+        .poll(() =>
+          viewerVideo.evaluate((video: HTMLVideoElement) => video.readyState)
+        )
+        .toBeGreaterThanOrEqual(2);
+      expect(
+        await viewerVideo.evaluate((video: HTMLVideoElement) => video.duration)
+      ).toBeGreaterThan(59);
+    } finally {
+      await rm(source, { force: true });
+      try {
+        await scan(page);
+      } finally {
+        await context.close();
+      }
+    }
+  });
+}

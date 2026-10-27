@@ -59,7 +59,7 @@ export function getPresentationRenditionKeys(
   return {
     full: key("full"),
     highlight: key("highlight", range),
-    bounce: key("bounce-lossless-v3", range, values.loopMode)
+    bounce: key("bounce-lossless-v4", range, values.loopMode)
   };
 }
 

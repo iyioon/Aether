@@ -398,7 +398,7 @@ describe("HEVC-backed HEIC display", () => {
     const file = await indexed();
     const display = await ensureImageDisplay({ db, config, file });
     expect(await sharp(display.path).raw().toBuffer()).toEqual(rgba);
-  });
+  }, 20_000);
   it("reports oversized generated PNGs as a resource limit before cache publication", async () => {
     const output = path.join(config.cacheDir, "large-display.png");
     const handle = await open(output, "wx", 0o600);

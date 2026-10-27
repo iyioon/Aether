@@ -79,6 +79,8 @@ Development normally uses API port 3030 and web port 5173.
 Run commands from the repository root. `npm run verify` includes a build;
 otherwise run `npm run build` before browser tests. Phone and PWA scenarios use
 the built application, so Vite development behavior alone is insufficient.
+GitHub checks are disabled and the retained workflow is manual-only. Required
+local checks still apply before pushing; see [Development](docs/development.md).
 
 The browser suite owns and recreates `.e2e`, uses one worker, and starts its own
 servers on ports 3130 and 4173 by default. Do not run competing browser suites

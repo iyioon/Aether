@@ -42,6 +42,9 @@ Notable changes to Aether are recorded here.
 
 ### Fixed
 
+- Retain viewer thumbnails through capability checks, original-image loading
+  and retries. Show selected highlight posters until playback is ready and
+  prevent previous media from appearing during navigation.
 - Use the same exact file timestamp for scanning, editing and media access to
   prevent false source-change warnings on files with nanosecond timestamps.
 - Prepare video Bounce sections up to 30 seconds with bounded processing memory

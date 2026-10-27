@@ -206,7 +206,7 @@ test("saves and cancels framing and keeps the comparison pair while changing its
     expect(saved.aspectFraming?.Landscape?.zoom).toBe(1.03);
     const viewerPhoto = page
       .getByRole("dialog", { name: photo.name, exact: true })
-      .locator(".viewer-media-frame > img");
+      .locator(".viewer-image-original");
     await expect(viewerPhoto).toHaveCSS("object-fit", "contain");
     await expect(viewerPhoto).toHaveCSS(
       "transform",
@@ -1355,7 +1355,7 @@ test("retains a sharp, identically framed thumbnail until the original image dec
   }
 });
 
-test("keeps viewer loading until a still-image original replaces its decoded thumbnail", async ({
+test("retains the viewer thumbnail through capability checks and original image decoding", async ({
   browser
 }) => {
   const context = await browser.newContext({ storageState });
@@ -1364,7 +1364,12 @@ test("keeps viewer loading until a still-image original replaces its decoded thu
   try {
     const page = await context.newPage();
     const asset = fixture("photo.png");
-    await setPresentation(page, asset, defaults);
+    await setPresentation(page, asset, {
+      ...defaults,
+      aspectFraming: {
+        Square: { fit: "cover", focalX: 0.2, focalY: 0.8, zoom: 1.4 }
+      }
+    });
     await page.route(
       `**/api/assets/${asset.id}/presentation-media`,
       async (route) => {
@@ -1379,32 +1384,231 @@ test("keeps viewer loading until a still-image original replaces its decoded thu
     await page.goto(
       `${origin}/?folder=${encodeURIComponent(folderId)}&view=gallery&asset=${asset.id}`
     );
-    const frame = page
-      .getByRole("dialog", { name: asset.name, exact: true })
-      .locator(".viewer-media-frame");
-    const image = frame.locator(":scope > img");
-    await expect(image).toHaveAttribute("src", /\/thumbnail\?/);
+    const viewer = page.getByRole("dialog", { name: asset.name, exact: true });
+    const frame = viewer.locator(".viewer-media-frame");
+    const thumbnail = frame.locator(".viewer-image-thumbnail");
+    const original = frame.locator(".viewer-image-original");
+    await expect(thumbnail).toHaveAttribute("src", /\/thumbnail\?/);
     await expect
       .poll(() =>
-        image.evaluate(
+        thumbnail.evaluate(
           (node: HTMLImageElement) => node.complete && node.naturalWidth > 0
         )
       )
       .toBe(true);
     await expect(frame).toHaveClass(/is-ready/);
+    await expect(frame).not.toHaveClass(/is-image-ready/);
+    await expect(thumbnail).toHaveCSS("opacity", "1");
+    await expect(original).toHaveCount(0);
+    await thumbnail.evaluate((node) => {
+      node.setAttribute("data-continuity", "retained-thumbnail");
+    });
+    const menu = await openViewerOptions(viewer);
+    await menu
+      .getByRole("menuitemcheckbox", { name: "Use saved framing", exact: true })
+      .click();
+    await page.keyboard.press("Escape");
+    await expect(thumbnail).toHaveCSS("object-position", "20% 80%");
     const loadingBounds = await expectSlimMediaLoading(frame);
     capabilitiesGate.release();
-    await expect(image).toHaveAttribute("src", /\/media\?/);
-    await expect(frame).not.toHaveClass(/is-ready/);
+    await expect(original).toHaveAttribute("src", /\/media\?/);
+    await expect(frame).toHaveClass(/is-ready/);
+    await expect(frame).not.toHaveClass(/is-image-ready/);
+    await expect(thumbnail).toHaveAttribute(
+      "data-continuity",
+      "retained-thumbnail"
+    );
+    await expect(thumbnail).toHaveAttribute("src", /\/thumbnail\?/);
+    await expect(thumbnail).toHaveCSS("opacity", "1");
+    await expect(original).toHaveCSS("opacity", "0");
+    for (const property of ["object-fit", "object-position", "transform"])
+      expect(
+        await thumbnail.evaluate(
+          (node, property) => getComputedStyle(node).getPropertyValue(property),
+          property
+        )
+      ).toBe(
+        await original.evaluate(
+          (node, property) => getComputedStyle(node).getPropertyValue(property),
+          property
+        )
+      );
     await expectSlimMediaLoading(frame);
     originalGate.release();
-    await expect(frame).toHaveClass(/is-ready/);
+    await expect(frame).toHaveClass(/is-image-ready/);
+    await expect(original).toHaveCSS("opacity", "1");
+    await expect(thumbnail).toHaveCSS("opacity", "0");
     await expect(frame.getByRole("progressbar")).toHaveCount(0);
     const readyBounds = (await frame.boundingBox())!;
     for (const property of ["x", "y", "width", "height"] as const)
       expect(readyBounds[property]).toBeCloseTo(loadingBounds[property], 0);
   } finally {
     capabilitiesGate.release();
+    originalGate.release();
+    await context.close();
+  }
+});
+
+for (const format of ["jpg", "heic"] as const) {
+  test(`retains a ${format.toUpperCase()} viewer thumbnail through failure, retry and interrupted navigation`, async ({
+    browser
+  }) => {
+    const context = await browser.newContext({ storageState });
+    const page = await context.newPage();
+    const name = `loading-photo.${format}`;
+    const sourcePath = path.join(directory, name);
+    let originalGate = loadingGate();
+    let failOriginal = true;
+    try {
+      if (format === "heic")
+        await copyFile(
+          path.resolve(".e2e/aether-data/cache/e2e-fixtures/heic/source.heic"),
+          sourcePath
+        );
+      else
+        await sharp(path.join(directory, "photo.png"))
+          .jpeg()
+          .toFile(sourcePath);
+      await scan(page);
+      const current = (await (
+        await page.request.get(
+          `${origin}/api/folders/${folderId}/assets?sort=filename&limit=10`
+        )
+      ).json()) as AssetListResponse;
+      const asset = current.items.find((entry) => entry.name === name)!;
+      expect(asset).toBeTruthy();
+      const endpoint = format === "heic" ? "display" : "media";
+      await page.route(
+        `**/api/assets/${asset.id}/${endpoint}?*`,
+        async (route) => {
+          await originalGate.promise;
+          if (failOriginal)
+            await route.fulfill({ status: 503, body: "Image unavailable" });
+          else await route.continue().catch(() => undefined);
+        }
+      );
+      const url = `${origin}/?folder=${encodeURIComponent(folderId)}&view=gallery&type=image&sort=filename&asset=${asset.id}`;
+      await page.goto(url);
+      const viewer = page.getByRole("dialog", { name, exact: true });
+      const frame = viewer.locator(".viewer-media-frame");
+      const thumbnail = frame.locator(".viewer-image-thumbnail");
+      const original = frame.locator(".viewer-image-original");
+      await expect(thumbnail).toHaveAttribute(
+        "src",
+        new RegExp(`/api/assets/${asset.id}/thumbnail\\?`)
+      );
+      await expect
+        .poll(() =>
+          thumbnail.evaluate(
+            (node: HTMLImageElement) => node.complete && node.naturalWidth > 0
+          )
+        )
+        .toBe(true);
+      await expect(thumbnail).toHaveCSS("opacity", "1");
+      await expect(original).toHaveCSS("opacity", "0");
+      await expectSlimMediaLoading(frame);
+      originalGate.release();
+      const retry = viewer.getByRole("button", { name: "Retry", exact: true });
+      await expect(retry).toBeVisible();
+      await expect(
+        viewer.getByText("Image could not be loaded.", { exact: true })
+      ).toBeVisible();
+      await expect(frame).not.toHaveClass(/is-image-ready/);
+      await expect(thumbnail).toHaveCSS("opacity", "1");
+      await expect(original).toHaveCount(0);
+      await expect(frame.getByRole("progressbar")).toHaveCount(0);
+
+      failOriginal = false;
+      originalGate = loadingGate();
+      await retry.click();
+      await expectSlimMediaLoading(frame);
+      await expect(thumbnail).toHaveCSS("opacity", "1");
+      await expect(original).toHaveCSS("opacity", "0");
+      originalGate.release();
+      await expect(frame).toHaveClass(/is-image-ready/);
+      await expect(original).toHaveCSS("opacity", "1");
+      await expect(thumbnail).toHaveCSS("opacity", "0");
+      await expect(retry).toHaveCount(0);
+
+      originalGate = loadingGate();
+      await page.reload();
+      await expect(thumbnail).toHaveCSS("opacity", "1");
+      await expectSlimMediaLoading(frame);
+      await viewer
+        .getByRole("button", { name: "Next media", exact: true })
+        .click();
+      const nextViewer = page.getByRole("dialog", {
+        name: "photo.png",
+        exact: true
+      });
+      const nextFrame = nextViewer.locator(".viewer-media-frame");
+      await expect(nextFrame).toHaveClass(/is-image-ready/);
+      const nextOriginal = nextFrame.locator(".viewer-image-original");
+      const nextSource = await nextOriginal.getAttribute("src");
+      expect(nextSource).toContain(
+        `/api/assets/${fixture("photo.png").id}/media?`
+      );
+      originalGate.release();
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+          )
+      );
+      await expect(nextOriginal).toHaveAttribute("src", nextSource!);
+      await expect(nextFrame).toHaveClass(/is-image-ready/);
+      await nextViewer
+        .getByRole("button", { name: "Previous media", exact: true })
+        .click();
+      await expect(frame).toHaveClass(/is-image-ready/);
+      await expect(original).toHaveAttribute(
+        "src",
+        new RegExp(`/api/assets/${asset.id}/${endpoint}\\?`)
+      );
+    } finally {
+      originalGate.release();
+      try {
+        await rm(sourcePath, { force: true });
+        await scan(page);
+      } finally {
+        await context.close();
+      }
+    }
+  });
+}
+
+test("loads the viewer original when its thumbnail is unavailable", async ({
+  browser
+}) => {
+  const context = await browser.newContext({ storageState });
+  const originalGate = loadingGate();
+  try {
+    const page = await context.newPage();
+    const asset = fixture("photo.png");
+    await page.route(`**/api/assets/${asset.id}/thumbnail?*`, (route) =>
+      route.fulfill({ status: 404, body: "Thumbnail unavailable" })
+    );
+    await page.route(`**/api/assets/${asset.id}/media?*`, async (route) => {
+      await originalGate.promise;
+      await route.continue().catch(() => undefined);
+    });
+    await page.goto(
+      `${origin}/?folder=${encodeURIComponent(folderId)}&view=gallery&type=image&asset=${asset.id}`
+    );
+    const viewer = page.getByRole("dialog", { name: asset.name, exact: true });
+    const frame = viewer.locator(".viewer-media-frame");
+    await expect(frame).toBeVisible();
+    await expect(frame.locator(".viewer-image-thumbnail")).toHaveCount(0);
+    await expect(frame).not.toHaveClass(/is-image-ready/);
+    await expectSlimMediaLoading(frame);
+    originalGate.release();
+    await expect(frame).toHaveClass(/is-image-ready/);
+    await expect(frame.locator(".viewer-image-original")).toHaveCSS(
+      "opacity",
+      "1"
+    );
+    await expect(frame.getByRole("progressbar")).toHaveCount(0);
+  } finally {
     originalGate.release();
     await context.close();
   }
@@ -1443,7 +1647,7 @@ test("remembers viewer framing across items and reloads while using independent 
       .locator(".media-preview-button")
       .click();
     let viewer = page.getByRole("dialog", { name: photo.name, exact: true });
-    const image = viewer.locator(".viewer-media-frame > img");
+    const image = viewer.locator(".viewer-image-original");
     await expect(image).toHaveCSS("object-fit", "contain");
     await expect(image).toHaveCSS("transform", "matrix(1, 0, 0, 1, 0, 0)");
     let menu = await openViewerOptions(viewer);
@@ -1563,7 +1767,7 @@ test("remembers viewer framing across items and reloads while using independent 
       `${origin}/?folder=${encodeURIComponent(folderId)}&view=gallery&type=image&sort=filename&aspect=original&asset=${photo.id}`
     );
     viewer = page.getByRole("dialog", { name: photo.name, exact: true });
-    await expect(viewer.locator(".viewer-media-frame > img")).toHaveJSProperty(
+    await expect(viewer.locator(".viewer-image-original")).toHaveJSProperty(
       "naturalWidth",
       240
     );
@@ -1575,7 +1779,7 @@ test("remembers viewer framing across items and reloads while using independent 
       })
     ).toHaveAttribute("aria-checked", "true");
     await expectFrameAspect(viewer, 2);
-    await expect(viewer.locator(".viewer-media-frame > img")).toHaveCSS(
+    await expect(viewer.locator(".viewer-image-original")).toHaveCSS(
       "transform",
       "matrix(1.5, 0, 0, 1.5, 0, 0)"
     );
@@ -2362,6 +2566,268 @@ async function expectSlimMediaLoading(surface: Locator) {
   return frame;
 }
 
+for (const hasPoster of [true, false]) {
+  test(`prepares an in-place animation highlight ${hasPoster ? "above its retained poster" : "without a thumbnail"}`, async ({
+    browser
+  }) => {
+    const context = await browser.newContext({ storageState });
+    const selectedAtlasGate = loadingGate();
+    try {
+      const page = await context.newPage();
+      const asset = fixture("sequence.webp");
+      if (!hasPoster)
+        await page.route(/\/(?:thumbnail|presentation-poster)\?/, (route) =>
+          route.fulfill({ status: 404, body: "Thumbnail unavailable" })
+        );
+      await setPresentation(page, asset, {
+        ...defaults,
+        highlight: { startMs: 600, endMs: 1200 }
+      });
+      const frames = await Promise.all(
+        [32, 240].map((value) =>
+          sharp({
+            create: {
+              width: 96,
+              height: 64,
+              channels: 4,
+              background: { r: value, g: value, b: value, alpha: 0.5 }
+            }
+          })
+            .png()
+            .toBuffer()
+        )
+      );
+      await page.route(
+        `**/api/assets/${asset.id}/animation?*`,
+        async (route) => {
+          const key = new URL(route.request().url()).searchParams.get("v")!;
+          await route.fulfill({
+            json: {
+              kind: "animation",
+              width: 96,
+              height: 64,
+              durationMs: 1200,
+              atlases: [0, 1].map((index) => ({
+                url: `/api/assets/${asset.id}/animation/atlases/${index}?v=${encodeURIComponent(key)}`,
+                width: 96,
+                height: 64
+              })),
+              frames: [0, 1].map((index) => ({
+                startMs: index * 600,
+                durationMs: 600,
+                atlas: index,
+                x: 0,
+                y: 0,
+                width: 96,
+                height: 64
+              }))
+            }
+          });
+        }
+      );
+      await page.route(
+        `**/api/assets/${asset.id}/animation/atlases/*`,
+        async (route) => {
+          const selected = new URL(route.request().url()).pathname.endsWith(
+            "/1"
+          );
+          if (selected) await selectedAtlasGate.promise;
+          await route
+            .fulfill({
+              contentType: "image/png",
+              body: frames[selected ? 1 : 0]!
+            })
+            .catch(() => undefined);
+        }
+      );
+      await page.goto(
+        `${origin}/?folder=${encodeURIComponent(folderId)}&view=gallery&type=image&highlight=0&asset=${asset.id}`
+      );
+      const viewer = page.getByRole("dialog", {
+        name: asset.name,
+        exact: true
+      });
+      const canvas = viewer.locator("canvas");
+      await expect(canvas).toHaveCSS("opacity", "1");
+      await expect(
+        page
+          .locator(".media-tile")
+          .filter({
+            has: page.getByRole("button", {
+              name: `Open ${asset.name}`,
+              exact: true,
+              includeHidden: true
+            })
+          })
+          .locator(".media-image-loading")
+      ).toHaveCSS("opacity", "0");
+      await viewer
+        .getByRole("button", { name: "Pause video", exact: true })
+        .click();
+      const menu = await openViewerOptions(viewer);
+      await menu
+        .getByRole("menuitemcheckbox", {
+          name: "Play highlights only",
+          exact: true
+        })
+        .click();
+      await page.keyboard.press("Escape");
+      const thumbnail = viewer.locator(".viewer-image-thumbnail");
+      if (hasPoster) {
+        await expect(thumbnail).toHaveAttribute(
+          "src",
+          /presentation-poster\?variant=highlight/
+        );
+        await expect(thumbnail).toHaveCSS("opacity", "1");
+      } else await expect(thumbnail).toHaveCount(0);
+      await expect(canvas).toHaveCSS("opacity", "0");
+      await expect(viewer.locator(".controlled-animation__poster")).toHaveCount(
+        0
+      );
+      await expectSlimMediaLoading(viewer.locator(".viewer-media-frame"));
+      selectedAtlasGate.release();
+      await expect(canvas).toHaveCSS("opacity", "1");
+      if (hasPoster) await expect(thumbnail).toHaveCSS("opacity", "0");
+      await expect
+        .poll(() =>
+          canvas.evaluate((node: HTMLCanvasElement) => {
+            const pixel = node.getContext("2d")!.getImageData(0, 0, 1, 1).data;
+            return { selectedFrame: pixel[0]! > 230, alpha: pixel[3] };
+          })
+        )
+        .toEqual({ selectedFrame: true, alpha: 128 });
+      await expect(viewer.getByRole("progressbar")).toHaveCount(0);
+    } finally {
+      selectedAtlasGate.release();
+      await context.close();
+    }
+  });
+}
+
+test("retains the selected animation frame through capability checks and atlas loading", async ({
+  browser
+}) => {
+  const context = await browser.newContext({ storageState });
+  let capabilitiesGate = loadingGate();
+  let atlasGate = loadingGate();
+  try {
+    const page = await context.newPage();
+    const asset = fixture("sequence.webp");
+    await setPresentation(page, asset, {
+      ...defaults,
+      highlight: { startMs: 300, endMs: 1200 }
+    });
+    await page.route(
+      `**/api/assets/${asset.id}/presentation-media`,
+      async (route) => {
+        await capabilitiesGate.promise;
+        await route.continue().catch(() => undefined);
+      }
+    );
+    await page.route(
+      `**/api/assets/${asset.id}/animation/atlases/*`,
+      async (route) => {
+        await atlasGate.promise;
+        await route.continue().catch(() => undefined);
+      }
+    );
+    for (const surfaceName of ["gallery", "viewer"] as const) {
+      capabilitiesGate = loadingGate();
+      atlasGate = loadingGate();
+      if (surfaceName === "viewer")
+        await page.goto(
+          `${origin}/?folder=${encodeURIComponent(folderId)}&view=gallery&type=image&highlight=1&asset=${asset.id}`
+        );
+      else await open(page, "gallery", "image", asset.name, true);
+      const surface =
+        surfaceName === "viewer"
+          ? page
+              .getByRole("dialog", { name: asset.name, exact: true })
+              .locator(".viewer-media-frame")
+          : page.locator(".media-tile .media-image-shell").first();
+      const thumbnail = surface.locator(
+        surfaceName === "viewer" ? ".viewer-image-thumbnail" : ":scope > img"
+      );
+      await expect(thumbnail).toHaveAttribute(
+        "src",
+        /\/presentation-poster\?variant=highlight/
+      );
+      await expect
+        .poll(() =>
+          thumbnail.evaluate(
+            (node: HTMLImageElement) => node.complete && node.naturalWidth > 0
+          )
+        )
+        .toBe(true);
+      const posterSource = await thumbnail.getAttribute("src");
+      const selectedPixel = await thumbnail.evaluate(
+        (node: HTMLImageElement) => {
+          const canvas = document.createElement("canvas");
+          canvas.width = canvas.height = 1;
+          const drawing = canvas.getContext("2d")!;
+          drawing.drawImage(node, 0, 0, 1, 1);
+          return drawing.getImageData(0, 0, 1, 1).data[0];
+        }
+      );
+      expect(selectedPixel).toBeGreaterThan(100);
+      expect(selectedPixel).toBeLessThan(170);
+      await expect(thumbnail).toHaveCSS("opacity", "1");
+      await thumbnail.evaluate((node) => {
+        node.setAttribute("data-continuity", "retained-animation-poster");
+      });
+      await expect(thumbnail).toHaveCSS("transition-duration", "0s");
+      await expectSlimMediaLoading(surface);
+      capabilitiesGate.release();
+      const animation = surface.locator(".controlled-animation");
+      await expect(animation).toBeVisible();
+      const poster = animation.locator(".controlled-animation__poster");
+      await expect(poster).toHaveCount(0);
+      await expect(animation.locator("canvas")).toHaveCSS("opacity", "0");
+      await expect(thumbnail).toHaveAttribute("src", posterSource!);
+      await expect(thumbnail).toHaveAttribute(
+        "data-continuity",
+        "retained-animation-poster"
+      );
+      await expect(thumbnail).toHaveCSS("opacity", "1");
+      atlasGate.release();
+      await expect(animation.locator("canvas")).toHaveCSS("opacity", "1");
+      await expect(thumbnail).toHaveCSS("opacity", "0");
+      await expect(surface.getByRole("progressbar")).toHaveCount(0);
+      await page.evaluate(() => {
+        Object.defineProperty(document, "hidden", {
+          configurable: true,
+          value: true
+        });
+        Object.defineProperty(document, "visibilityState", {
+          configurable: true,
+          value: "hidden"
+        });
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await expect(animation.locator("canvas")).toHaveJSProperty("width", 0);
+      await expect(thumbnail).toHaveCSS("opacity", "1");
+      await expect(surface.getByRole("progressbar")).toHaveCount(0);
+      await page.evaluate(() => {
+        Object.defineProperty(document, "hidden", {
+          configurable: true,
+          value: false
+        });
+        Object.defineProperty(document, "visibilityState", {
+          configurable: true,
+          value: "visible"
+        });
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await expect(animation.locator("canvas")).toHaveCSS("opacity", "1");
+      await expect(thumbnail).toHaveCSS("opacity", "0");
+    }
+  } finally {
+    capabilitiesGate.release();
+    atlasGate.release();
+    await context.close();
+  }
+});
+
 for (const surfaceName of ["gallery", "feed", "viewer"] as const) {
   test(`shows a slim loading bar above the retained Bounce poster in ${surfaceName}`, async ({
     browser
@@ -2438,6 +2904,11 @@ for (const surfaceName of ["gallery", "feed", "viewer"] as const) {
           ? ".viewer-video-poster"
           : ".media-video-poster"
       );
+      await expect(poster).toHaveAttribute(
+        "src",
+        /\/presentation-poster\?variant=highlight/
+      );
+      const initialPosterSource = await poster.getAttribute("src");
       await expect
         .poll(() =>
           poster.evaluate(
@@ -2478,6 +2949,7 @@ for (const surfaceName of ["gallery", "feed", "viewer"] as const) {
         "src",
         /playback\?variant=bounce/
       );
+      await expect(poster).toHaveAttribute("src", initialPosterSource!);
       await expectSlimMediaLoading(surface);
       await expect(poster).toHaveCSS("opacity", "1");
       if (surfaceName !== "viewer")

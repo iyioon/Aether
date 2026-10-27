@@ -90,11 +90,18 @@
 
 .viewer-media-frame > img {
   opacity: 0;
-  transition: opacity var(--aether-motion-fast) ease;
+  transition: none;
 }
 
-.viewer-media-frame.is-ready > img {
+.viewer-media-frame.is-ready > .viewer-image-thumbnail,
+.viewer-media-frame.is-ready > .viewer-video-poster,
+.viewer-media-frame.is-image-ready > .viewer-image-original {
   opacity: 1;
+}
+
+.viewer-media-frame.is-image-ready > .viewer-image-thumbnail,
+.viewer-media-frame.is-animation-ready > .viewer-image-thumbnail {
+  opacity: 0;
 }
 
 .viewer-media-frame .viewer-video {

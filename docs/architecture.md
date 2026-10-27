@@ -212,9 +212,22 @@ controls leave the pointer, keyboard, and accessibility navigation paths.
 
 Poster failures are independent of video playback. Failed decorative images
 are removed, and valid posters remain until the first video frame is presented.
-The viewer also removes inherited posters if they fail during navigation.
+The viewer never inherits a previous item's poster during navigation.
 The preview grid constrains its layers to the card's dimensions so intrinsic
 poster sizes cannot enlarge the video or interfere with visibility tracking.
+
+The viewer keeps a separate thumbnail layer mounted while capabilities and the
+full image load. A successful original decode or first painted animation frame
+hides it; capability results and image errors do not. Both image layers share
+the active framing geometry. Image errors retain the preview and offer Retry;
+missing thumbnails cannot block the original. Readiness belongs to the current
+asset and source so late loads cannot reveal a previous item. Highlight previews
+use the selected-start poster from the first render, including before animation
+capabilities resolve and while prepared video or animation frames load.
+Cards and the viewer retain one poster through animation preparation, hiding it
+and the loading background together at first paint to preserve transparency.
+Animation readiness follows the selected range and clears when backing canvas
+storage is released during inactivity or backgrounding.
 
 A shared slim loading bar stays above retained thumbnails and posters while
 the displayed source is loading or being prepared. It follows decoded image,

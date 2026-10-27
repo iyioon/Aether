@@ -64,9 +64,11 @@ release; an existing pause stays paused.
 
 Videos begin muted. An explicit pause survives leaving and returning to the app.
 Muted playback may resume when you return; audible playback waits for Play.
-A thumbnail or poster stays visible until the media is ready. Supported videos
-can play even when a poster is missing. A slim bar along the top of the media
-shows loading or preparation, including when Bounce is being prepared.
+A thumbnail or poster stays visible until the full photo or first playback
+frame is ready. With highlights enabled, the preview shows the selected start.
+If loading fails in the viewer, the preview stays visible while you retry.
+Missing previews do not prevent the media from loading. A slim bar along the
+top shows loading or preparation, including while Bounce is being prepared.
 
 The viewer's **View options** includes:
 

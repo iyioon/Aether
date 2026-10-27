@@ -155,8 +155,10 @@ export function UserGuidePage() {
                 </p>
                 <p>
                   A slim bar at the top of the media shows loading or
-                  preparation. The thumbnail stays visible until playback is
-                  ready, including while Bounce is being prepared.
+                  preparation. The preview stays visible until the full photo or
+                  first playback frame is ready. Highlights show their selected
+                  start while loading. If loading fails in the viewer, the
+                  preview stays visible while you retry.
                 </p>
                 <p>
                   On iPhone, Safari's Share menu → Add to Home Screen opens

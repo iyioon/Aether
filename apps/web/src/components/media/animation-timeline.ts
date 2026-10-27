@@ -119,3 +119,12 @@ export function animationTimelineTime(
     ? Math.max(frame.startMs, frame.endMs - 1 - offset)
     : Math.min(frame.endMs - 1, frame.startMs + offset);
 }
+
+export function animationPresentationKey(
+  sourceKey: string,
+  highlight: { startMs: number; endMs: number } | null,
+  highlightsOnly: boolean
+): string {
+  const range = highlightsOnly ? highlight : null;
+  return `${sourceKey}:${range?.startMs ?? ""}:${range?.endMs ?? ""}`;
+}

@@ -1,5 +1,11 @@
 import { createPortal } from "react-dom";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties
+} from "react";
 import {
   getAnimationManifest,
   type AnimationManifest,
@@ -10,6 +16,7 @@ import { animationAtlasCache } from "./animation-atlas-cache";
 import { validateAnimationManifest } from "./animation-manifest";
 import {
   animationSourceFrame,
+  animationPresentationKey,
   animationTimelineFrame,
   animationTimelinePosition,
   animationTimelineTime,
@@ -33,6 +40,7 @@ export interface ControlledAnimationProps {
   paused?: boolean;
   controls?: boolean;
   showRetry?: boolean;
+  showPoster?: boolean;
   defaultFit?: "contain" | "cover";
   className?: string;
   controlsClassName?: string;
@@ -46,6 +54,7 @@ export interface ControlledAnimationProps {
   onError?: () => void;
   onRetry?: () => void;
   onReady?: () => void;
+  onReadyChange?: (ready: boolean) => void;
   onExpand?: () => void;
   onInteractionChange?: (active: boolean) => void;
   onPlaybackReady?: (playback: VideoPlayback | null) => void;
@@ -60,6 +69,7 @@ export function ControlledAnimation({
   paused = false,
   controls = false,
   showRetry = controls,
+  showPoster = true,
   defaultFit = "cover",
   className = "",
   controlsClassName,
@@ -73,11 +83,19 @@ export function ControlledAnimation({
   onError,
   onRetry,
   onReady,
+  onReadyChange,
   onExpand,
   onInteractionChange,
   onPlaybackReady
 }: ControlledAnimationProps) {
   const sourceKey = `${asset.id}:${renditionKey}`;
+  const displayKey = animationPresentationKey(
+    sourceKey,
+    presentation.highlight,
+    highlightsOnly
+  );
+  const displayKeyRef = useRef(displayKey);
+  displayKeyRef.current = displayKey;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const loadedRef = useRef<{ key: string; manifest: AnimationManifest } | null>(
     null
@@ -90,7 +108,9 @@ export function ControlledAnimation({
   const [errorKey, setErrorKey] = useState("");
   const [attempt, setAttempt] = useState(0);
   const [paintedKey, setPaintedKey] = useState("");
-  const [posterFailed, setPosterFailed] = useState(false);
+  const [failedPosterSource, setFailedPosterSource] = useState<string | null>(
+    null
+  );
   const [userPaused, setUserPaused] = useState(false);
   const [hidden, setHidden] = useState(
     () => typeof document !== "undefined" && document.hidden
@@ -102,6 +122,7 @@ export function ControlledAnimation({
     onDurationChange,
     onError,
     onReady,
+    onReadyChange,
     onPlaybackReady
   });
   callbacksRef.current = {
@@ -109,6 +130,7 @@ export function ControlledAnimation({
     onDurationChange,
     onError,
     onReady,
+    onReadyChange,
     onPlaybackReady
   };
   const paintedSourceRef = useRef("");
@@ -126,13 +148,18 @@ export function ControlledAnimation({
   const runningRef = useRef(running);
   runningRef.current = running;
   const failed = errorKey === sourceKey;
-  const painted = paintedKey === sourceKey;
+  const painted = paintedKey === displayKey;
   const poster =
     presentationPosterUrl(asset, highlightsOnly) ?? thumbnailUrl(asset);
   const mediaStyle = {
     ...presentationMediaStyle(presentation, defaultFit),
     ...style
   };
+
+  useLayoutEffect(() => {
+    callbacksRef.current.onReadyChange?.(painted && active && !hidden);
+    return () => callbacksRef.current.onReadyChange?.(false);
+  }, [painted, active, hidden]);
 
   useEffect(() => {
     if (active && !hidden) return;
@@ -180,7 +207,7 @@ export function ControlledAnimation({
     sourceTimeRef.current = 0;
     publishedTimeRef.current = null;
     setUserPaused(false);
-    setPosterFailed(false);
+    setFailedPosterSource(null);
     setState(EMPTY_VIDEO_PLAYBACK_STATE);
     void getAnimationManifest(asset.id, renditionKey, controller.signal)
       .then((value) => {
@@ -265,13 +292,14 @@ export function ControlledAnimation({
     const rate = playbackRate;
 
     function publish(timeMs: number, force = false) {
+      if (displayKeyRef.current !== displayKey) return;
       sourceTimeRef.current = timeMs;
       const now = performance.now();
       if (!force && now - lastPublished < 125) return;
       lastPublished = now;
       if (controls)
         setState({
-          available: paintedSourceRef.current === sourceKey,
+          available: paintedSourceRef.current === displayKey,
           paused: !runningRef.current,
           muted: true,
           currentTime: timeMs / 1000,
@@ -289,6 +317,7 @@ export function ControlledAnimation({
     function drawCurrent() {
       if (
         controller.signal.aborted ||
+        displayKeyRef.current !== displayKey ||
         broken ||
         drawing ||
         latestFrame === lastDrawn
@@ -304,6 +333,7 @@ export function ControlledAnimation({
           const current = manifest!.frames[latestFrame];
           if (
             controller.signal.aborted ||
+            displayKeyRef.current !== displayKey ||
             !current ||
             current.atlas !== frame.atlas
           )
@@ -324,14 +354,17 @@ export function ControlledAnimation({
           waiting = false;
           if (!firstPaint) {
             firstPaint = true;
-            paintedSourceRef.current = sourceKey;
-            setPaintedKey(sourceKey);
+            paintedSourceRef.current = displayKey;
+            setPaintedKey(displayKey);
             callbacksRef.current.onReady?.();
             publish(sourceTimeRef.current, true);
           }
         })
         .catch(() => {
-          if (!controller.signal.aborted) {
+          if (
+            !controller.signal.aborted &&
+            displayKeyRef.current === displayKey
+          ) {
             broken = true;
             setErrorKey(sourceKey);
             callbacksRef.current.onError?.();
@@ -341,6 +374,7 @@ export function ControlledAnimation({
           drawing = false;
           if (
             !controller.signal.aborted &&
+            displayKeyRef.current === displayKey &&
             !broken &&
             latestFrame !== lastDrawn
           )
@@ -393,7 +427,8 @@ export function ControlledAnimation({
     } else seek(initial);
 
     function tick(timestamp: number) {
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted || displayKeyRef.current !== displayKey)
+        return;
       if (!waiting && runningRef.current)
         elapsed += Math.max(0, timestamp - previousTimestamp) * rate;
       previousTimestamp = timestamp;
@@ -438,6 +473,7 @@ export function ControlledAnimation({
     playbackRate,
     running,
     sourceKey,
+    displayKey,
     maxCanvasDimension,
     controls
   ]);
@@ -450,7 +486,7 @@ export function ControlledAnimation({
   const playback: VideoPlayback = {
     state: {
       ...state,
-      available: state.available && !failed,
+      available: state.available && painted && !failed,
       paused: !running,
       error: failed
     },
@@ -504,14 +540,14 @@ export function ControlledAnimation({
       data-has-controls={controls || undefined}
     >
       {active && !hidden && !painted && !failed ? <MediaLoadingBar /> : null}
-      {!painted && !posterFailed ? (
+      {showPoster && !painted && failedPosterSource !== poster ? (
         <img
           className="controlled-animation__poster"
           src={poster}
           alt=""
           aria-hidden="true"
           style={mediaStyle}
-          onError={() => setPosterFailed(true)}
+          onError={() => setFailedPosterSource(poster)}
         />
       ) : null}
       <canvas

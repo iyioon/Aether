@@ -14,6 +14,7 @@ import { requestPresentedVideoFrame } from "./video-frame-presentation";
 import { useVideoPlayback } from "./useVideoPlayback";
 import { VideoControls } from "./VideoControls";
 import { ControlledAnimation } from "./ControlledAnimation";
+import { animationPresentationKey } from "./animation-timeline";
 import { usePresentationPreferences } from "./presentation-context";
 import {
   getPresentationValues,
@@ -131,6 +132,12 @@ export const MediaPreview = memo(function MediaPreview({
   const [loadedThumbnailSource, setLoadedThumbnailSource] = useState<
     string | null
   >(null);
+  const [failedThumbnailSource, setFailedThumbnailSource] = useState<
+    string | null
+  >(null);
+  const [readyAnimationKey, setReadyAnimationKey] = useState<string | null>(
+    null
+  );
   const animationCandidate =
     asset.mediaType === "image" &&
     /\.(gif|webp|apng|png|avif)$/i.test(asset.name);
@@ -170,6 +177,11 @@ export const MediaPreview = memo(function MediaPreview({
   const controlledAnimation =
     capabilities?.kind === "animation" && !staticPreview;
   const values = getPresentationValues(asset.presentation);
+  const animationDisplayKey = animationPresentationKey(
+    `${asset.id}:${capabilities?.renditionKeys.full ?? ""}`,
+    values.highlight,
+    highlightsOnly
+  );
   const framedValues = {
     ...values,
     ...presentationFramingForAspect(values, framingAspect)
@@ -386,6 +398,8 @@ export const MediaPreview = memo(function MediaPreview({
     setFailedVideoPosterSource(null);
     setLoadedImageSource(null);
     setLoadedThumbnailSource(null);
+    setFailedThumbnailSource(null);
+    setReadyAnimationKey(null);
     cancelPendingVideoReveal();
     videoFrameRequestSequenceRef.current += 1;
   }, [asset.id, asset.mtimeMs, asset.sizeBytes, cancelPendingVideoReveal]);
@@ -704,16 +718,34 @@ export const MediaPreview = memo(function MediaPreview({
       ((useOriginalImage && !originalImageFailed) ||
         (isAnimatedImage && isVisible && !animatedImageFailed));
     const isProgressiveImage = shouldUseOriginalImage;
+    const hasImagePoster =
+      useOriginalImage ||
+      isProgressiveImage ||
+      (animationCandidate && !staticPreview);
     const previewSource = shouldUseOriginalImage
       ? originalSource
-      : thumbnailUrl(asset, thumbnailSize);
+      : posterSource;
     const isImageReady =
       loadedImageSource === previewSource ||
       (!shouldUseOriginalImage && isMediaImageReady(previewSource));
     const isThumbnailReady =
-      isProgressiveImage &&
+      hasImagePoster &&
+      failedThumbnailSource !== posterSource &&
       (loadedThumbnailSource === posterSource ||
         isMediaImageReady(posterSource));
+
+    if (
+      hasImagePoster &&
+      failedThumbnailSource === posterSource &&
+      !shouldUseOriginalImage &&
+      !controlledAnimation &&
+      (staticPreview || capabilities?.kind === "still")
+    )
+      return (
+        <div className={tall ? "media-placeholder tall" : "media-placeholder"}>
+          <Image size={30} />
+        </div>
+      );
 
     return (
       <span
@@ -723,6 +755,9 @@ export const MediaPreview = memo(function MediaPreview({
           tall ? "tall" : "",
           isProgressiveImage ? "progressive" : "",
           isThumbnailReady ? "thumbnail-ready" : "",
+          controlledAnimation && readyAnimationKey === animationDisplayKey
+            ? "animation-ready"
+            : "",
           isImageReady ? "ready" : ""
         ]
           .filter(Boolean)
@@ -759,6 +794,57 @@ export const MediaPreview = memo(function MediaPreview({
             </span>
           )
         ) : null}
+        <span className="media-image-loading" aria-hidden="true" />
+        {hasImagePoster && failedThumbnailSource !== posterSource ? (
+          <img
+            key={posterSource}
+            aria-hidden={
+              shouldUseOriginalImage || controlledAnimation || undefined
+            }
+            style={mediaStyle}
+            className={
+              tall
+                ? "media-image media-image-thumbnail tall"
+                : "media-image media-image-thumbnail"
+            }
+            src={posterSource}
+            alt={
+              shouldUseOriginalImage || controlledAnimation ? "" : asset.name
+            }
+            data-preview-source={
+              !shouldUseOriginalImage && !controlledAnimation
+                ? "thumbnail"
+                : undefined
+            }
+            decoding="async"
+            fetchPriority={isActive ? "high" : "auto"}
+            loading={isActive ? "eager" : "lazy"}
+            onLoad={(event) => {
+              const image = event.currentTarget;
+              const ready = () => {
+                if (
+                  !image.isConnected ||
+                  image.getAttribute("src") !== posterSource ||
+                  image.naturalWidth === 0
+                )
+                  return;
+                markMediaImageReady(posterSource);
+                setLoadedThumbnailSource(posterSource);
+                if (!shouldUseOriginalImage && !controlledAnimation)
+                  onDimensionsKnown?.(
+                    asset.id,
+                    image.naturalWidth,
+                    image.naturalHeight
+                  );
+              };
+              void image.decode().then(ready, ready);
+            }}
+            onError={(event) => {
+              if (event.currentTarget.isConnected)
+                setFailedThumbnailSource(posterSource);
+            }}
+          />
+        ) : null}
         {controlledAnimation ? (
           <ControlledAnimation
             asset={playbackAsset}
@@ -766,6 +852,10 @@ export const MediaPreview = memo(function MediaPreview({
               useOriginalImage || useOriginalVideo ? undefined : thumbnailSize
             }
             onRetry={retryCapabilities}
+            showPoster={false}
+            onReadyChange={(ready) =>
+              setReadyAnimationKey(ready ? animationDisplayKey : null)
+            }
             renditionKey={capabilities.renditionKeys.full}
             presentation={
               applyPlaybackPreferences
@@ -798,98 +888,66 @@ export const MediaPreview = memo(function MediaPreview({
             defaultFit={defaultFit}
             onExpand={onExpand}
           />
-        ) : (
-          <>
-            <span className="media-image-loading" aria-hidden="true" />
-            {isProgressiveImage ? (
-              <img
-                aria-hidden="true"
-                style={mediaStyle}
-                className={
-                  tall
-                    ? "media-image media-image-thumbnail tall"
-                    : "media-image media-image-thumbnail"
-                }
-                src={posterSource}
-                alt=""
-                decoding="async"
-                fetchPriority={isActive ? "high" : "auto"}
-                loading={isActive ? "eager" : "lazy"}
-                onLoad={(event) => {
-                  const image = event.currentTarget;
-                  const ready = () => {
-                    if (
-                      !image.isConnected ||
-                      image.getAttribute("src") !== posterSource ||
-                      image.naturalWidth === 0
-                    )
-                      return;
-                    markMediaImageReady(posterSource);
-                    setLoadedThumbnailSource(posterSource);
-                  };
-                  void image.decode().then(ready, ready);
-                }}
-              />
-            ) : null}
-            <img
-              ref={imageRef}
-              style={mediaStyle}
-              className={[
-                "media-image",
-                isProgressiveImage ? "media-image-original" : "",
-                tall ? "tall" : ""
-              ]
-                .filter(Boolean)
-                .join(" ")}
-              src={previewSource}
-              alt={asset.name}
-              data-preview-source={
-                shouldUseOriginalImage ? "original" : "thumbnail"
-              }
-              loading={
-                (useOriginalImage && isActive) || (isAnimatedImage && isVisible)
-                  ? "eager"
-                  : "lazy"
-              }
-              decoding="async"
-              fetchPriority={useOriginalImage && isActive ? "high" : "auto"}
-              onLoad={(event) => {
-                const image = event.currentTarget;
-                const ready = () => {
-                  if (
-                    imageRef.current !== image ||
-                    !image.isConnected ||
-                    image.getAttribute("src") !== previewSource ||
-                    image.naturalWidth === 0
-                  )
-                    return;
-                  markMediaImageReady(previewSource);
-                  setLoadedImageSource(previewSource);
-                  onDimensionsKnown?.(
-                    asset.id,
-                    image.naturalWidth,
-                    image.naturalHeight
-                  );
-                };
-                void image.decode().then(ready, ready);
-              }}
-              onError={() => {
-                if (useOriginalImage && !originalImageFailed) {
-                  setOriginalImageFailed(true);
-                  setAnimatedImageFailed(true);
+        ) : !hasImagePoster || shouldUseOriginalImage ? (
+          <img
+            key={previewSource}
+            ref={imageRef}
+            style={mediaStyle}
+            className={[
+              "media-image",
+              isProgressiveImage ? "media-image-original" : "",
+              tall ? "tall" : ""
+            ]
+              .filter(Boolean)
+              .join(" ")}
+            src={previewSource}
+            alt={asset.name}
+            data-preview-source={
+              shouldUseOriginalImage ? "original" : "thumbnail"
+            }
+            loading={
+              (useOriginalImage && isActive) || (isAnimatedImage && isVisible)
+                ? "eager"
+                : "lazy"
+            }
+            decoding="async"
+            fetchPriority={useOriginalImage && isActive ? "high" : "auto"}
+            onLoad={(event) => {
+              const image = event.currentTarget;
+              const ready = () => {
+                if (
+                  imageRef.current !== image ||
+                  !image.isConnected ||
+                  image.getAttribute("src") !== previewSource ||
+                  image.naturalWidth === 0
+                )
                   return;
-                }
+                markMediaImageReady(previewSource);
+                setLoadedImageSource(previewSource);
+                onDimensionsKnown?.(
+                  asset.id,
+                  image.naturalWidth,
+                  image.naturalHeight
+                );
+              };
+              void image.decode().then(ready, ready);
+            }}
+            onError={() => {
+              if (useOriginalImage && !originalImageFailed) {
+                setOriginalImageFailed(true);
+                setAnimatedImageFailed(true);
+                return;
+              }
 
-                if (isAnimatedImage && isVisible && !animatedImageFailed) {
-                  setAnimatedImageFailed(true);
-                  return;
-                }
+              if (isAnimatedImage && isVisible && !animatedImageFailed) {
+                setAnimatedImageFailed(true);
+                return;
+              }
 
-                setHasError(true);
-              }}
-            />
-          </>
-        )}
+              setHasError(true);
+            }}
+          />
+        ) : null}
       </span>
     );
   }

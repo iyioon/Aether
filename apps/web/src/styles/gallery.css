@@ -299,7 +299,8 @@
   opacity: 1;
 }
 
-.media-image-shell.progressive.ready .media-image-thumbnail {
+.media-image-shell.progressive.ready .media-image-thumbnail,
+.media-image-shell.animation-ready .media-image-thumbnail {
   opacity: 0;
 }
 
@@ -308,12 +309,17 @@
   transition: none;
 }
 
+.media-image-thumbnail {
+  transition: none;
+}
+
 .media-image-original {
   z-index: 1;
 }
 
 .media-image-shell.thumbnail-ready .media-image-loading,
-.media-image-shell.ready .media-image-loading {
+.media-image-shell.ready .media-image-loading,
+.media-image-shell.animation-ready .media-image-loading {
   opacity: 0;
   animation: none;
 }

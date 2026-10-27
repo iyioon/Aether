@@ -111,7 +111,7 @@ for (const phone of [false, true]) {
       await decoded(card.getByAltText(name, { exact: true }), 320, 160);
       await activate(card, phone);
       const viewer = page.getByRole("dialog", { name, exact: true });
-      const image = viewer.locator(".viewer-media-frame > img");
+      const image = viewer.locator(".viewer-image-original");
       await decoded(image, 320, 160);
       await expect(image).toHaveAttribute("src", /\/display\?v=/);
       const initialSource = await image.getAttribute("src");

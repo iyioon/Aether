@@ -621,7 +621,7 @@ test("removes failed video posters while the original media remains playable", a
   }
 });
 
-test("keeps healthy posters until a video frame arrives and discards a failed inherited poster", async ({
+test("keeps the current video's poster until a frame arrives without showing the previous item", async ({
   browser
 }) => {
   const context = await browser.newContext({ storageState });
@@ -673,14 +673,17 @@ test("keeps healthy posters until a video frame arrives and discards a failed in
     await expect(
       viewer.getByRole("heading", { name: "transport-1.mp4", exact: true })
     ).toBeAttached();
-    const fallback = viewer.locator(".viewer-video-poster-fallback");
-    await expectDecodedPoster(fallback);
     await expect(viewerVideo).toHaveJSProperty("readyState", 0);
-    await expect(viewer.locator(".viewer-media-frame")).toHaveClass(/is-ready/);
-    await fallback.evaluate((node: HTMLImageElement) => {
-      node.src = "data:image/jpeg;base64,AA==";
-    });
-    await expect(fallback).toHaveCount(0);
+    await expect(viewer.locator(".viewer-video-poster-fallback")).toHaveCount(
+      0
+    );
+    await expect(viewer.locator(".viewer-media-frame")).not.toHaveClass(
+      /is-ready/
+    );
+    await expect(viewer.locator(".viewer-video-poster")).toHaveAttribute(
+      "src",
+      new RegExp(`/assets/${videoAssetIds[1]}/thumbnail`)
+    );
     await expect(
       viewer.getByRole("progressbar", { name: "Loading media", exact: true })
     ).toBeVisible();

@@ -30,7 +30,7 @@ import {
 import { panelExitDurationMs } from "../../lib/motion";
 import { Button } from "../ui/button";
 import { Dialog, DialogClose, DialogContent, DialogTitle } from "../ui/dialog";
-import { markMediaImageReady } from "./media-image-cache";
+import { isMediaImageReady, markMediaImageReady } from "./media-image-cache";
 import {
   imageDisplayUrl,
   downloadUrl,
@@ -58,6 +58,7 @@ import {
 import { useVideoPresentation } from "./useVideoPresentation";
 import { useBounceCodec } from "./useBounceCodec";
 import { ControlledAnimation } from "./ControlledAnimation";
+import { animationPresentationKey } from "./animation-timeline";
 import { MediaLoadingBar } from "./MediaLoadingBar";
 import {
   canPresentVideoFullscreen,
@@ -148,7 +149,7 @@ export function MediaViewer({
   );
   const viewerImageSource =
     isAnimationCandidate && capabilityState.capabilities?.kind !== "still"
-      ? thumbnailUrl(asset)
+      ? null
       : imageDisplayUrl(asset);
   const values = getPresentationValues(asset.presentation);
   const presentation = {
@@ -206,6 +207,11 @@ export function MediaViewer({
     null
   );
   const animationKey = `${asset.id}:${effectiveAsset.presentation?.renditionKeys.full ?? ""}:${retryAttempt}`;
+  const animationDisplayKey = animationPresentationKey(
+    animationKey,
+    presentation.highlight,
+    highlightsOnly
+  );
   const viewerStageRef = useRef<HTMLDivElement | null>(null);
   const [viewerStageElement, setViewerStageElement] =
     useState<HTMLDivElement | null>(null);
@@ -238,10 +244,8 @@ export function MediaViewer({
   const touchStartRef = useRef<ViewerTouchStart | null>(null);
   const suppressMediaClickRef = useRef(false);
   const videoFrameRequestSequenceRef = useRef(0);
-  const lastReadyVideoPosterSourceRef = useRef<string | null>(null);
   const previousViewedAssetRef = useRef({
     id: asset.id,
-    mediaType: asset.mediaType,
     videoSource: "",
     posterSource: "",
     retryAttempt: -1
@@ -252,6 +256,14 @@ export function MediaViewer({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [useNativeControls, setUseNativeControls] = useState(false);
   const [readyImageSource, setReadyImageSource] = useState<string | null>(null);
+  const [failedImageSource, setFailedImageSource] = useState<string | null>(
+    null
+  );
+  const [imagePosterState, setImagePosterState] =
+    useState<ViewerPosterState | null>(null);
+  const [readyAnimationKey, setReadyAnimationKey] = useState<string | null>(
+    null
+  );
   const [readyVideoAssetId, setReadyVideoAssetId] = useState<string | null>(
     null
   );
@@ -260,9 +272,6 @@ export function MediaViewer({
   );
   const [viewerPosterState, setViewerPosterState] =
     useState<ViewerPosterState | null>(null);
-  const [fallbackVideoPosterSource, setFallbackVideoPosterSource] = useState<
-    string | null
-  >(null);
   const [viewerStageSize, setViewerStageSize] =
     useState<ViewerStageSize | null>(null);
   const [decodedMediaSize, setDecodedMediaSize] =
@@ -318,10 +327,21 @@ export function MediaViewer({
     capabilityState.capabilities?.bounceTimeline
   );
   const viewerPosterSource =
-    asset.mediaType === "video"
-      ? (presentationPosterUrl(effectiveAsset, highlightsOnly) ??
-        thumbnailUrl(asset))
-      : "";
+    presentationPosterUrl(effectiveAsset, highlightsOnly) ??
+    thumbnailUrl(asset);
+  const isViewerImageReady =
+    viewerImageSource !== null && readyImageSource === viewerImageSource;
+  const isViewerImageFailed =
+    viewerImageSource !== null && failedImageSource === viewerImageSource;
+  const isViewerImagePosterFailed =
+    imagePosterState?.source === viewerPosterSource &&
+    imagePosterState.status === "error";
+  const isViewerImagePosterReady =
+    !isViewerImagePosterFailed &&
+    ((imagePosterState?.source === viewerPosterSource &&
+      imagePosterState.status === "ready") ||
+      isMediaImageReady(viewerPosterSource));
+  const isViewerAnimationReady = readyAnimationKey === animationDisplayKey;
   const isViewerPosterSettled =
     viewerPosterState?.assetId === asset.id &&
     viewerPosterState.source === viewerPosterSource;
@@ -332,18 +352,10 @@ export function MediaViewer({
   const isViewerVideoReady =
     readyVideoAssetId === asset.id && presentedPlayback.isReady;
   const isViewerVideoFailed = failedVideoAssetId === asset.id;
-  const hasFallbackVideoPoster =
-    asset.mediaType === "video" &&
-    fallbackVideoPosterSource !== null &&
-    fallbackVideoPosterSource !== viewerPosterSource &&
-    !isViewerPosterReady &&
-    !isViewerVideoReady &&
-    !(isViewerPosterFailed && isViewerVideoFailed);
   const isMediaReady =
     asset.mediaType === "image"
-      ? isControlledAnimation || readyImageSource === viewerImageSource
-      : hasFallbackVideoPoster ||
-        isViewerPosterReady ||
+      ? isViewerImagePosterReady || isViewerImageReady || isViewerAnimationReady
+      : isViewerPosterReady ||
         isViewerVideoReady ||
         (isViewerPosterSettled && isViewerVideoFailed);
   const isViewerVideoVisible = isViewerVideoReady;
@@ -354,8 +366,7 @@ export function MediaViewer({
     !bounceOverBudget &&
     (asset.mediaType === "video"
       ? !isViewerVideoReady && !isViewerVideoFailed
-      : readyImageSource !== viewerImageSource ||
-        (isAnimationCandidate && !capabilityState.capabilities));
+      : !isViewerImageReady && !isViewerImageFailed);
   const {
     togglePlayback: togglePlaybackCommand,
     toggleMuted: toggleMutedCommand
@@ -785,20 +796,20 @@ export function MediaViewer({
   }, [viewerStageElement]);
 
   useLayoutEffect(() => {
-    const previousAsset = previousViewedAssetRef.current;
-    const canReusePreviousPoster =
-      previousAsset.mediaType === "video" &&
-      asset.mediaType === "video" &&
-      lastReadyVideoPosterSourceRef.current !== viewerPosterSource;
+    setReadyImageSource(null);
+    setFailedImageSource(null);
+  }, [viewerImageSource, retryAttempt]);
 
-    setFallbackVideoPosterSource(
-      canReusePreviousPoster ? lastReadyVideoPosterSourceRef.current : null
-    );
+  useLayoutEffect(() => {
+    setReadyAnimationKey(null);
+  }, [animationDisplayKey]);
+
+  useLayoutEffect(() => {
+    const previousAsset = previousViewedAssetRef.current;
     if (previousAsset.posterSource !== viewerPosterSource)
       setViewerPosterState(null);
     previousViewedAssetRef.current = {
       id: asset.id,
-      mediaType: asset.mediaType,
       videoSource,
       posterSource: viewerPosterSource,
       retryAttempt
@@ -1210,6 +1221,8 @@ export function MediaViewer({
               className={[
                 "viewer-media-frame",
                 isMediaReady ? "is-ready" : "",
+                isViewerImageReady ? "is-image-ready" : "",
+                isViewerAnimationReady ? "is-animation-ready" : "",
                 isViewerVideoVisible ? "is-video-ready" : ""
               ]
                 .filter(Boolean)
@@ -1217,6 +1230,53 @@ export function MediaViewer({
               style={viewerMediaFrameStyle}
             >
               {isMediaLoading && isOpen ? <MediaLoadingBar /> : null}
+              {asset.mediaType === "image" && !isViewerImagePosterFailed ? (
+                <img
+                  key={viewerPosterSource}
+                  className="viewer-image-thumbnail"
+                  src={viewerPosterSource}
+                  style={mediaStyle}
+                  alt=""
+                  aria-hidden="true"
+                  width={asset.width ?? undefined}
+                  height={asset.height ?? undefined}
+                  loading="eager"
+                  fetchPriority="high"
+                  decoding="async"
+                  onLoad={(event) => {
+                    const image = event.currentTarget;
+                    const ready = () => {
+                      if (
+                        activeAssetIdRef.current !== asset.id ||
+                        !image.isConnected ||
+                        image.getAttribute("src") !== viewerPosterSource ||
+                        image.naturalWidth === 0
+                      )
+                        return;
+                      markMediaImageReady(viewerPosterSource);
+                      setImagePosterState({
+                        assetId: asset.id,
+                        source: viewerPosterSource,
+                        status: "ready"
+                      });
+                    };
+                    void image.decode().then(ready, ready);
+                  }}
+                  onError={(event) => {
+                    if (
+                      activeAssetIdRef.current === asset.id &&
+                      event.currentTarget.isConnected &&
+                      event.currentTarget.getAttribute("src") ===
+                        viewerPosterSource
+                    )
+                      setImagePosterState({
+                        assetId: asset.id,
+                        source: viewerPosterSource,
+                        status: "error"
+                      });
+                  }}
+                />
+              ) : null}
               {isControlledAnimation ? (
                 <ControlledAnimation
                   key={animationKey}
@@ -1237,6 +1297,7 @@ export function MediaViewer({
                   paused={playbackBlocked || !isOpen}
                   controls
                   showRetry={false}
+                  showPoster={false}
                   controlsClassName="viewer-video-controls video-controls--viewer viewer-chrome"
                   controlsContainer={viewerDialogRef.current}
                   onPlaybackReady={(value) => {
@@ -1253,10 +1314,16 @@ export function MediaViewer({
                   }
                   onInteractionChange={handleControlsInteraction}
                   onError={() => setFailedAnimationKey(animationKey)}
+                  onReadyChange={(ready) =>
+                    setReadyAnimationKey(ready ? animationDisplayKey : null)
+                  }
                 />
-              ) : asset.mediaType === "image" ? (
+              ) : asset.mediaType === "image" &&
+                viewerImageSource !== null &&
+                !isViewerImageFailed ? (
                 <img
-                  key={viewerImageSource}
+                  key={`${viewerImageSource}:${retryAttempt}`}
+                  className="viewer-image-original"
                   src={viewerImageSource}
                   style={mediaStyle}
                   alt={asset.name}
@@ -1268,7 +1335,8 @@ export function MediaViewer({
                       if (
                         activeAssetIdRef.current !== asset.id ||
                         !image.isConnected ||
-                        image.getAttribute("src") !== viewerImageSource
+                        image.getAttribute("src") !== viewerImageSource ||
+                        image.naturalWidth === 0
                       )
                         return;
                       if (image.naturalWidth > 0 && image.naturalHeight > 0)
@@ -1276,6 +1344,7 @@ export function MediaViewer({
                           width: image.naturalWidth,
                           height: image.naturalHeight
                         });
+                      markMediaImageReady(viewerImageSource);
                       setReadyImageSource(viewerImageSource);
                     };
                     void image.decode().then(markReady, markReady);
@@ -1287,39 +1356,11 @@ export function MediaViewer({
                       event.currentTarget.getAttribute("src") ===
                         viewerImageSource
                     )
-                      setReadyImageSource(viewerImageSource);
+                      setFailedImageSource(viewerImageSource);
                   }}
                 />
-              ) : (
+              ) : asset.mediaType === "video" ? (
                 <>
-                  {hasFallbackVideoPoster ? (
-                    <img
-                      key={fallbackVideoPosterSource}
-                      className="viewer-video-poster viewer-video-poster-fallback"
-                      style={mediaStyle}
-                      src={fallbackVideoPosterSource}
-                      alt=""
-                      aria-hidden="true"
-                      onError={(event) => {
-                        if (
-                          activeAssetIdRef.current !== asset.id ||
-                          !event.currentTarget.isConnected
-                        ) {
-                          return;
-                        }
-
-                        if (
-                          lastReadyVideoPosterSourceRef.current ===
-                          fallbackVideoPosterSource
-                        ) {
-                          lastReadyVideoPosterSourceRef.current = null;
-                        }
-                        setFallbackVideoPosterSource((current) =>
-                          current === fallbackVideoPosterSource ? null : current
-                        );
-                      }}
-                    />
-                  ) : null}
                   {!isViewerPosterFailed && !isViewerVideoReady ? (
                     <img
                       key={viewerPosterSource}
@@ -1347,7 +1388,6 @@ export function MediaViewer({
                           }
 
                           markMediaImageReady(posterSource);
-                          lastReadyVideoPosterSourceRef.current = posterSource;
                           setViewerPosterState({
                             assetId,
                             source: posterSource,
@@ -1364,12 +1404,6 @@ export function MediaViewer({
                           activeAssetIdRef.current === asset.id &&
                           event.currentTarget.isConnected
                         ) {
-                          if (
-                            lastReadyVideoPosterSourceRef.current ===
-                            viewerPosterSource
-                          ) {
-                            lastReadyVideoPosterSourceRef.current = null;
-                          }
                           setViewerPosterState({
                             assetId: asset.id,
                             source: viewerPosterSource,
@@ -1470,7 +1504,7 @@ export function MediaViewer({
                     }}
                   />
                 </>
-              )}
+              ) : null}
             </div>
           </div>
         </figure>
@@ -1507,12 +1541,14 @@ export function MediaViewer({
         {bounceUnavailable ||
         bounceOverBudget ||
         isViewerVideoFailed ||
+        isViewerImageFailed ||
         failedAnimationKey === animationKey ||
         capabilityState.error ? (
           <div className="viewer-playback-error" role="status">
             {bounceUnavailable ||
             bounceOverBudget ||
             isViewerVideoFailed ||
+            isViewerImageFailed ||
             capabilityState.error ? (
               <span>
                 {bounceUnavailable
@@ -1521,9 +1557,11 @@ export function MediaViewer({
                     ? "Shorten this Bounce section in Edit media."
                     : capabilityState.limitExceeded
                       ? "This file exceeds the playback processing limit."
-                      : variant === "bounce"
-                        ? "Bounce could not be prepared or played. Try a shorter highlight or choose Repeat in Edit media."
-                        : "Playback could not be prepared."}
+                      : isViewerImageFailed
+                        ? "Image could not be loaded."
+                        : variant === "bounce"
+                          ? "Bounce could not be prepared or played. Try a shorter highlight or choose Repeat in Edit media."
+                          : "Playback could not be prepared."}
               </span>
             ) : null}
             {!bounceUnavailable &&

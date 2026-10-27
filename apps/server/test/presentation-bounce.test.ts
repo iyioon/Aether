@@ -1,4 +1,6 @@
 import {
+  access,
+  mkdir,
   mkdtemp,
   readFile,
   readdir,
@@ -6,6 +8,7 @@ import {
   stat,
   writeFile
 } from "node:fs/promises";
+import { constants } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -30,8 +33,23 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   await rm(directory, { recursive: true, force: true });
 });
+
+async function installedFfmpeg() {
+  for (const entry of (process.env.PATH ?? "").split(path.delimiter)) {
+    const candidate = path.join(entry, "ffmpeg");
+    if (
+      await access(candidate, constants.X_OK).then(
+        () => true,
+        () => false
+      )
+    )
+      return candidate;
+  }
+  throw new Error("The media fixture requires an installed FFmpeg.");
+}
 
 async function fixture(
   name: string,
@@ -157,6 +175,77 @@ async function packetTimeline(file: string) {
 }
 
 describe("lossless native Bounce", () => {
+  it.each([
+    ["hevc", "libx265", "bounce_hevc_encoder_unavailable"],
+    ["h264", "libx264", "bounce_h264_encoder_unavailable"]
+  ] as const)(
+    "sanitizes a missing %s encoder and cleans its decoded work",
+    async (codec, encoder, code) => {
+      const file = await fixture("dependency.mkv");
+      const source = await readFile(file);
+      const profile = await inspectBounceSource(file);
+      const plan = await createBouncePlan(file, 0, 500, profile);
+      const realFfmpeg = await installedFfmpeg();
+      const tools = path.join(directory, "tools");
+      await mkdir(tools);
+      await writeFile(
+        path.join(tools, "ffmpeg"),
+        `#!/bin/sh
+for argument do
+  if [ "$argument" = "${encoder}" ]; then
+    printf '%s\\n' "Unknown encoder '${encoder}'" '/private/source.mov' >&2
+    exit 1
+  fi
+done
+exec "$AETHER_TEST_FFMPEG" "$@"
+`,
+        { mode: 0o700 }
+      );
+      vi.stubEnv("AETHER_TEST_FFMPEG", realFfmpeg);
+      vi.stubEnv("PATH", `${tools}${path.delimiter}${process.env.PATH ?? ""}`);
+      const output = path.join(directory, "dependency.mp4");
+      await expect(
+        generateLosslessBounce(file, output, plan, profile, codec)
+      ).rejects.toMatchObject({
+        code,
+        status: 503,
+        message: code
+      });
+      expect(
+        (await readdir(directory)).filter((name) =>
+          name.startsWith(".bounce-work-")
+        )
+      ).toEqual([]);
+      await expect(stat(output)).rejects.toMatchObject({ code: "ENOENT" });
+      expect(await readFile(file)).toEqual(source);
+    }
+  );
+
+  it("reports an unavailable FFmpeg without retaining private work or changing the source", async () => {
+    const file = await fixture("missing-tool.mkv");
+    const source = await readFile(file);
+    const profile = await inspectBounceSource(file);
+    const plan = await createBouncePlan(file, 0, 500, profile);
+    const tools = path.join(directory, "empty-tools");
+    await mkdir(tools);
+    vi.stubEnv("PATH", tools);
+    const output = path.join(directory, "missing-tool.mp4");
+    await expect(
+      generateLosslessBounce(file, output, plan, profile)
+    ).rejects.toMatchObject({
+      code: "media_tool_unavailable",
+      status: 503,
+      message: "media_tool_unavailable"
+    });
+    expect(
+      (await readdir(directory)).filter((name) =>
+        name.startsWith(".bounce-work-")
+      )
+    ).toEqual([]);
+    await expect(stat(output)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await readFile(file)).toEqual(source);
+  });
+
   it("accepts a thirty-second section and rejects a longer requested range", async () => {
     const file = await fixture("thirty-seconds.mkv", 1, 31);
     const profile = await inspectBounceSource(file);

@@ -31,6 +31,9 @@ import { useVideoPresentation } from "./useVideoPresentation";
 import { usePresentationCapabilities } from "./usePresentationCapabilities";
 import { useBounceCodec } from "./useBounceCodec";
 import { MediaLoadingBar } from "./MediaLoadingBar";
+import { MediaErrorNotice } from "./MediaErrorNotice";
+import { mediaFailureNotice } from "./media-failure-notice";
+import { useVideoPlaybackFailure } from "./useVideoPlaybackFailure";
 
 const VIDEO_HOLD_DELAY_MS = 320;
 
@@ -215,6 +218,23 @@ export const MediaPreview = memo(function MediaPreview({
               ? mediaUrl(asset)
               : videoPreviewUrl(asset, tall ? 720 : 480)
       : "";
+  const playbackFailure = useVideoPlaybackFailure({
+    source: videoSource,
+    enabled:
+      asset.mediaType === "video" && variant === "bounce" && !staticPreview
+  });
+  const failureNotice = mediaFailureNotice({
+    kind:
+      asset.mediaType === "image"
+        ? "animation"
+        : variant === "bounce"
+          ? "bounce"
+          : "video",
+    error: capabilitiesError ?? playbackFailure.failure,
+    bounceUnavailable,
+    bounceOverBudget,
+    limitExceeded
+  });
 
   const isVideoPlaybackVisible = isVisible || (showVideoTimeline && isActive);
   const shouldLoadVideo =
@@ -773,26 +793,15 @@ export const MediaPreview = memo(function MediaPreview({
           <MediaLoadingBar />
         ) : null}
         {capabilitiesError && !controlledAnimation ? (
-          limitExceeded ? (
-            <span className="controlled-animation__error" role="status">
-              This file exceeds the playback processing limit.
-            </span>
-          ) : showVideoTimeline ? (
-            <button
-              type="button"
-              className="media-presentation-retry"
-              onClick={(event) => {
-                event.stopPropagation();
-                retryCapabilities();
-              }}
-            >
-              Playback unavailable. Retry
-            </button>
-          ) : (
-            <span className="controlled-animation__error" role="status">
-              Playback unavailable
-            </span>
-          )
+          <MediaErrorNotice
+            message={failureNotice.message}
+            compact={!showVideoTimeline}
+            onRetry={
+              showVideoTimeline && failureNotice.canRetry
+                ? retryCapabilities
+                : undefined
+            }
+          />
         ) : null}
         <span className="media-image-loading" aria-hidden="true" />
         {hasImagePoster && failedThumbnailSource !== posterSource ? (
@@ -1077,7 +1086,7 @@ export const MediaPreview = memo(function MediaPreview({
               revealVideoAfterPresentedFrame(event.currentTarget);
             }
           }}
-          onError={() => {
+          onError={(event) => {
             cancelPendingVideoReveal();
             videoFrameRequestSequenceRef.current += 1;
             setReadyVideoSource(null);
@@ -1093,6 +1102,8 @@ export const MediaPreview = memo(function MediaPreview({
             }
             if (variant !== "full") {
               setVideoPlaybackFailed(true);
+              if (variant === "bounce")
+                playbackFailure.diagnose(event.currentTarget);
               return;
             }
             if (useOriginalVideo && !originalVideoFailed) {
@@ -1109,35 +1120,25 @@ export const MediaPreview = memo(function MediaPreview({
           }}
         />
       ) : null}
-      {bounceUnavailable || bounceOverBudget || limitExceeded ? (
-        <span className="media-presentation-retry" role="status">
-          {bounceUnavailable
-            ? "Bounce is unavailable for this file. Choose Repeat in Edit media."
-            : bounceOverBudget
-              ? "Shorten this Bounce section in Edit media."
-              : "This file exceeds the playback processing limit."}
-        </span>
-      ) : capabilitiesError || videoPlaybackFailed ? (
-        showVideoTimeline ? (
-          <button
-            type="button"
-            className="media-presentation-retry"
-            onClick={(event) => {
-              event.stopPropagation();
-              setVideoPlaybackFailed(false);
-              retryCapabilities();
-              videoRef.current?.load();
-            }}
-          >
-            {variant === "bounce"
-              ? "Bounce unavailable. Retry"
-              : "Playback unavailable. Retry"}
-          </button>
-        ) : (
-          <span className="media-presentation-retry" role="status">
-            Playback unavailable. Open media to retry.
-          </span>
-        )
+      {bounceUnavailable ||
+      bounceOverBudget ||
+      limitExceeded ||
+      capabilitiesError ||
+      videoPlaybackFailed ? (
+        <MediaErrorNotice
+          message={failureNotice.message}
+          compact={!showVideoTimeline}
+          onRetry={
+            showVideoTimeline && failureNotice.canRetry
+              ? () => {
+                  playbackFailure.clear();
+                  setVideoPlaybackFailed(false);
+                  retryCapabilities();
+                  videoRef.current?.load();
+                }
+              : undefined
+          }
+        />
       ) : null}
       {showVideoTimeline && !staticPreview ? (
         <>

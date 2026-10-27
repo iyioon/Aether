@@ -198,6 +198,11 @@ export function UserGuidePage() {
                       Keyboard adjustments pause and seek the preview.
                     </p>
                     <p>
+                      Video previews play sound when you press Play. Use the
+                      speaker button to mute or unmute in either tab. Bounce
+                      previews and saved Bounce videos are silent.
+                    </p>
+                    <p>
                       Choose a speed and loop mode. Repeat plays forward; Bounce
                       plays forward and then backward, without sound. Supported
                       videos use a lossless copy of a section up to 30 seconds,

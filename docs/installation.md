@@ -16,6 +16,23 @@ You need:
 Keep source media on a readable local or mounted filesystem. Aether never needs
 write access to those folders.
 
+## Video Tools
+
+On macOS, install the standard FFmpeg package:
+
+```bash
+brew install ffmpeg
+```
+
+The [Homebrew package](https://formulae.brew.sh/formula/ffmpeg) includes the
+libx264 and libx265 encoders used by Bounce. Restart Aether after installation
+or upgrades so it uses the updated tools. FFmpeg and ffprobe must both be on
+the server process's `PATH`.
+
+Playback notices identify missing server tools or encoders separately from
+unsupported browser playback. Aether supports the current FFmpeg filter-file
+syntax and retains compatibility with FFmpeg 5.1.
+
 ## HEIC Tools
 
 The Docker image includes libheif and its HEVC decoder. For native Ubuntu/Debian

@@ -60,6 +60,9 @@ import { useBounceCodec } from "./useBounceCodec";
 import { ControlledAnimation } from "./ControlledAnimation";
 import { animationPresentationKey } from "./animation-timeline";
 import { MediaLoadingBar } from "./MediaLoadingBar";
+import { MediaErrorNotice } from "./MediaErrorNotice";
+import { mediaFailureNotice } from "./media-failure-notice";
+import { useVideoPlaybackFailure } from "./useVideoPlaybackFailure";
 import {
   canPresentVideoFullscreen,
   toggleVideoFullscreen
@@ -199,6 +202,10 @@ export function MediaViewer({
         ? mediaUrl(asset)
         : presentationPlaybackUrl(effectiveAsset, variant, bounceCodec.codec) ||
           mediaUrl(asset);
+  const playbackFailure = useVideoPlaybackFailure({
+    source: videoSource,
+    enabled: asset.mediaType === "video" && variant === "bounce"
+  });
   const isControlledAnimation =
     capabilityState.capabilities?.kind === "animation";
   const mediaStyle = presentationMediaStyle(presentation, defaultFit);
@@ -206,6 +213,7 @@ export function MediaViewer({
   const [failedAnimationKey, setFailedAnimationKey] = useState<string | null>(
     null
   );
+  const [animationFailure, setAnimationFailure] = useState<unknown>(null);
   const animationKey = `${asset.id}:${effectiveAsset.presentation?.renditionKeys.full ?? ""}:${retryAttempt}`;
   const animationDisplayKey = animationPresentationKey(
     animationKey,
@@ -352,6 +360,23 @@ export function MediaViewer({
   const isViewerVideoReady =
     readyVideoAssetId === asset.id && presentedPlayback.isReady;
   const isViewerVideoFailed = failedVideoAssetId === asset.id;
+  const failureNotice = mediaFailureNotice({
+    kind:
+      asset.mediaType === "image"
+        ? isControlledAnimation
+          ? "animation"
+          : "image"
+        : variant === "bounce"
+          ? "bounce"
+          : "video",
+    error:
+      capabilityState.error ??
+      playbackFailure.failure ??
+      (failedAnimationKey === animationKey ? animationFailure : null),
+    bounceUnavailable,
+    bounceOverBudget,
+    limitExceeded: capabilityState.limitExceeded
+  });
   const isMediaReady =
     asset.mediaType === "image"
       ? isViewerImagePosterReady || isViewerImageReady || isViewerAnimationReady
@@ -1297,6 +1322,7 @@ export function MediaViewer({
                   paused={playbackBlocked || !isOpen}
                   controls
                   showRetry={false}
+                  showError={false}
                   showPoster={false}
                   controlsClassName="viewer-video-controls video-controls--viewer viewer-chrome"
                   controlsContainer={viewerDialogRef.current}
@@ -1313,10 +1339,17 @@ export function MediaViewer({
                       : undefined
                   }
                   onInteractionChange={handleControlsInteraction}
-                  onError={() => setFailedAnimationKey(animationKey)}
-                  onReadyChange={(ready) =>
-                    setReadyAnimationKey(ready ? animationDisplayKey : null)
-                  }
+                  onError={(error) => {
+                    setAnimationFailure(error);
+                    setFailedAnimationKey(animationKey);
+                  }}
+                  onReadyChange={(ready) => {
+                    setReadyAnimationKey(ready ? animationDisplayKey : null);
+                    if (ready) {
+                      setFailedAnimationKey(null);
+                      setAnimationFailure(null);
+                    }
+                  }}
                 />
               ) : asset.mediaType === "image" &&
                 viewerImageSource !== null &&
@@ -1492,7 +1525,7 @@ export function MediaViewer({
                         asset.id
                       );
                     }}
-                    onError={() => {
+                    onError={(event) => {
                       cancelPendingVideoReveal();
                       videoFrameRequestSequenceRef.current += 1;
                       setReadyVideoAssetId(null);
@@ -1500,7 +1533,11 @@ export function MediaViewer({
                         return;
                       if (variant === "highlight" && !originalVideoFailed) {
                         setOriginalVideoFailed(true);
-                      } else setFailedVideoAssetId(asset.id);
+                      } else {
+                        setFailedVideoAssetId(asset.id);
+                        if (variant === "bounce")
+                          playbackFailure.diagnose(event.currentTarget);
+                      }
                     }}
                   />
                 </>
@@ -1544,41 +1581,20 @@ export function MediaViewer({
         isViewerImageFailed ||
         failedAnimationKey === animationKey ||
         capabilityState.error ? (
-          <div className="viewer-playback-error" role="status">
-            {bounceUnavailable ||
-            bounceOverBudget ||
-            isViewerVideoFailed ||
-            isViewerImageFailed ||
-            capabilityState.error ? (
-              <span>
-                {bounceUnavailable
-                  ? "Bounce is unavailable for this file. Choose Repeat in Edit media."
-                  : bounceOverBudget
-                    ? "Shorten this Bounce section in Edit media."
-                    : capabilityState.limitExceeded
-                      ? "This file exceeds the playback processing limit."
-                      : isViewerImageFailed
-                        ? "Image could not be loaded."
-                        : variant === "bounce"
-                          ? "Bounce could not be prepared or played. Try a shorter highlight or choose Repeat in Edit media."
-                          : "Playback could not be prepared."}
-              </span>
-            ) : null}
-            {!bounceUnavailable &&
-            !bounceOverBudget &&
-            !capabilityState.limitExceeded ? (
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => {
-                  capabilityState.retry();
-                  setRetryAttempt((current) => current + 1);
-                }}
-              >
-                Retry
-              </Button>
-            ) : null}
-          </div>
+          <MediaErrorNotice
+            message={failureNotice.message}
+            placement="above-controls"
+            onRetry={
+              failureNotice.canRetry
+                ? () => {
+                    playbackFailure.clear();
+                    setAnimationFailure(null);
+                    capabilityState.retry();
+                    setRetryAttempt((current) => current + 1);
+                  }
+                : undefined
+            }
+          />
         ) : null}
 
         {hasNext ? (

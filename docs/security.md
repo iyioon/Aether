@@ -146,6 +146,10 @@ same integer milliseconds as scanning; they do not allow a timestamp tolerance.
 Rendition and atlas routes keep authenticated private, revalidated caching and HEAD/range
 semantics. Their opaque keys contain no private paths. Capability/manifest
 responses use `no-store`; the PWA never caches private media or metadata.
+Failed playback responses expose only fixed public error codes in
+`x-aether-media-error`. The browser can read them with an authenticated,
+deadline-limited HEAD request after native playback fails; it does not download
+the media body or expose subprocess output, source paths or private settings.
 FFmpeg permits local media protocols/containers only and uses fixed argument
 arrays, bounded work queues, deadlines, metadata/output limits, and serialized
 reverse work. Lossless Bounce retains supported source pixels and timing without

@@ -23,6 +23,8 @@ Notable changes to Aether are recorded here.
 
 ### Changed
 
+- Use compact, themed media notices with specific preparation and playback
+  errors, and add sound controls to editor previews.
 - Add editor-wide Framing arrows and zoom shortcuts, with Shift for precise
   adjustments. Editor timelines use 100 ms arrow steps, 1 ms with Shift and
   one-second Page steps while preserving focused controls.
@@ -45,6 +47,8 @@ Notable changes to Aether are recorded here.
 
 ### Fixed
 
+- Prepare Bounce with FFmpeg 9 using the current filter-file option while
+  retaining older FFmpeg compatibility.
 - Enable Bounce for supported full-range SDR MOV recordings while preserving
   decoded pixels, color range and timing in both playback codecs.
 - Retain viewer thumbnails through capability checks, original-image loading

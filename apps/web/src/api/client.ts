@@ -326,6 +326,19 @@ export class ApiTimeoutError extends Error {
   }
 }
 
+export interface VideoPlaybackFailure {
+  code: string;
+  kind:
+    | "preparation"
+    | "browser"
+    | "network"
+    | "source"
+    | "busy"
+    | "limit"
+    | "session";
+  status?: number;
+}
+
 export const API_REQUEST_TIMEOUT_MS = 30_000;
 export const AI_REQUEST_TIMEOUT_MS = 330_000;
 const MAINTENANCE_REQUEST_TIMEOUT_MS = 120_000;
@@ -543,6 +556,80 @@ export async function getPresentationMediaCapabilities(
     { signal },
     { timeoutMs: MEDIA_PREPARATION_TIMEOUT_MS }
   );
+}
+
+// A media element does not expose an unsuccessful response's status or body.
+// HEAD retrieves a bounded diagnostic without downloading a prepared video.
+export async function inspectVideoPlaybackFailure(
+  source: string,
+  signal?: AbortSignal
+): Promise<VideoPlaybackFailure> {
+  if (
+    !/^\/api\/assets\/[A-Za-z0-9_%.-]+\/(?:playback|media|preview)(?:\?[^#]*)?$/.test(
+      source
+    )
+  )
+    return { kind: "preparation", code: "media_preparation_failed" };
+  const deadline = createRequestDeadline(signal, API_REQUEST_TIMEOUT_MS);
+  try {
+    deadline.signal?.throwIfAborted();
+    const response = await fetch(source, {
+      method: "HEAD",
+      credentials: "include",
+      cache: "no-store",
+      signal: deadline.signal
+    });
+    deadline.signal?.throwIfAborted();
+    if (response.ok)
+      return {
+        kind: "browser",
+        code: "browser_playback_unsupported",
+        status: response.status
+      };
+    if (response.status === 401) {
+      notifyUnauthorized();
+      return { kind: "session", code: "unauthorized", status: 401 };
+    }
+    const header = response.headers.get("x-aether-media-error");
+    const kinds: Record<string, VideoPlaybackFailure["kind"]> = {
+      asset_not_found: "source",
+      asset_not_indexed: "source",
+      asset_forbidden: "source",
+      source_changed: "source",
+      stale_rendition: "source",
+      processing_busy: "busy",
+      presentation_limit_exceeded: "limit",
+      bounce_duration_exceeded: "limit",
+      highlight_duration_exceeded: "limit",
+      bounce_source_not_supported: "preparation",
+      bounce_timing_not_supported: "preparation",
+      bounce_hevc_encoder_unavailable: "preparation",
+      bounce_h264_encoder_unavailable: "preparation",
+      media_tool_unavailable: "preparation",
+      incomplete_rendition: "preparation",
+      media_decode_failed: "preparation",
+      presentation_processing_failed: "preparation",
+      presentation_processing_cancelled: "preparation",
+      processing_timeout: "preparation"
+    };
+    const code = header && Object.hasOwn(kinds, header) ? header : null;
+    return {
+      kind: code
+        ? kinds[code]!
+        : [403, 404, 409].includes(response.status)
+          ? "source"
+          : response.status === 429
+            ? "busy"
+            : "preparation",
+      code: code ?? "media_preparation_failed",
+      status: response.status
+    };
+  } catch (error) {
+    if (deadline.didTimeout()) throw new ApiTimeoutError(deadline.timeoutMs);
+    throw error;
+  } finally {
+    deadline.cleanup();
+  }
 }
 
 const MEDIA_PREPARATION_TIMEOUT_MS = 180_000;

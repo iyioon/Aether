@@ -441,6 +441,173 @@ for (const phone of [false, true]) {
   });
 }
 
+for (const phone of [false, true]) {
+  test(`shows compact actionable Bounce failures on ${phone ? "phone" : "desktop"}`, async ({
+    browser
+  }, testInfo) => {
+    const context = await browser.newContext({
+      storageState,
+      viewport: phone
+        ? { width: 393, height: 852 }
+        : { width: 1440, height: 980 },
+      hasTouch: phone,
+      isMobile: phone,
+      reducedMotion: "reduce"
+    });
+    let release = loadingGate();
+    try {
+      const page = await context.newPage();
+      const asset = fixture("clip.mp4");
+      await setPresentation(page, asset, {
+        ...defaults,
+        highlight: { startMs: 300, endMs: 2300 },
+        loopMode: "bounce"
+      });
+      let mode: "tools" | "busy" | "browser" | "ready" = "tools";
+      let headRequests = 0;
+      await page.route(
+        `**/api/assets/${asset.id}/playback?*`,
+        async (route) => {
+          await release.promise;
+          if (mode === "ready") {
+            await route.continue().catch(() => undefined);
+            return;
+          }
+          if (route.request().method() === "HEAD") headRequests++;
+          const code =
+            mode === "tools" ? "media_tool_unavailable" : "processing_busy";
+          await route
+            .fulfill({
+              status: mode === "browser" ? 200 : 503,
+              headers:
+                mode === "browser"
+                  ? { "content-type": "video/mp4" }
+                  : {
+                      "content-type": "application/json",
+                      "x-aether-media-error": code
+                    },
+              body:
+                mode === "browser"
+                  ? "invalid media"
+                  : JSON.stringify({ error: code })
+            })
+            .catch(() => undefined);
+        }
+      );
+      for (const surfaceName of ["gallery", "feed", "viewer"] as const) {
+        mode = "tools";
+        release = loadingGate();
+        if (surfaceName === "viewer")
+          await page.goto(
+            `${origin}/?folder=${encodeURIComponent(folderId)}&view=gallery&type=video&highlight=1&asset=${asset.id}`
+          );
+        else await open(page, surfaceName, "video", asset.name, true);
+        const viewer = page.getByRole("dialog", {
+          name: asset.name,
+          exact: true
+        });
+        const frame =
+          surfaceName === "viewer"
+            ? viewer.locator(".viewer-media-frame")
+            : page
+                .locator(
+                  surfaceName === "feed"
+                    ? ".feed-item .media-video-shell"
+                    : ".media-tile .media-video-shell"
+                )
+                .first();
+        await expect(frame).toBeVisible();
+        await frame.evaluate(async (node) => {
+          const finished: Promise<unknown>[] = [];
+          for (
+            let element: Element | null = node;
+            element;
+            element = element.parentElement
+          )
+            finished.push(
+              ...element
+                .getAnimations()
+                .filter((animation) =>
+                  Number.isFinite(animation.effect?.getComputedTiming().endTime)
+                )
+                .map((animation) => animation.finished.catch(() => undefined))
+            );
+          await Promise.all(finished);
+        });
+        const initialBounds = (await frame.boundingBox())!;
+        release.release();
+        const host = surfaceName === "viewer" ? viewer : frame;
+        const notice = host.locator(".media-error-notice");
+        await expect(notice).toHaveCount(1);
+        await expect(notice).toContainText(
+          "Server media tools are unavailable."
+        );
+        await expect(notice).not.toContainText(/shorter|too long/i);
+        await expect(notice).toHaveCSS(
+          "font-size",
+          surfaceName === "gallery" ? "12px" : "13px"
+        );
+        const frameBounds = (await frame.boundingBox())!;
+        expect(frameBounds.height).toBeCloseTo(initialBounds.height, 0);
+        const noticeBounds = (await notice.boundingBox())!;
+        const hostBounds = (await host.boundingBox())!;
+        expect(noticeBounds.x).toBeGreaterThanOrEqual(hostBounds.x);
+        expect(noticeBounds.x + noticeBounds.width).toBeLessThanOrEqual(
+          hostBounds.x + hostBounds.width
+        );
+        expect(noticeBounds.width).toBeLessThanOrEqual(416);
+        expect(noticeBounds.y).toBeGreaterThanOrEqual(hostBounds.y);
+        expect(noticeBounds.y + noticeBounds.height).toBeLessThanOrEqual(
+          hostBounds.y + hostBounds.height
+        );
+        await page.screenshot({
+          path: testInfo.outputPath(
+            `bounce-error-${surfaceName}-${phone ? "phone" : "desktop"}.png`
+          )
+        });
+        if (surfaceName === "gallery") {
+          await expect(notice.getByRole("button")).toHaveCount(0);
+        } else {
+          const retry = notice.getByRole("button", {
+            name: "Retry",
+            exact: true
+          });
+          await expect(retry).toBeVisible();
+          const retryBounds = (await retry.boundingBox())!;
+          expect(retryBounds.width).toBeGreaterThanOrEqual(44);
+          expect(retryBounds.height).toBeGreaterThanOrEqual(44);
+          mode = surfaceName === "viewer" ? "browser" : "busy";
+          await retry.click();
+          await expect(notice).toContainText(
+            surfaceName === "viewer"
+              ? "This browser cannot play Bounce."
+              : "Media preparation is busy."
+          );
+          mode = "ready";
+          await retry.click();
+          await expect(notice).toHaveCount(0);
+          const video = frame.locator("video");
+          await expect
+            .poll(() =>
+              video.evaluate((node: HTMLVideoElement) => node.readyState)
+            )
+            .toBeGreaterThanOrEqual(2);
+          await expect
+            .poll(() =>
+              video.evaluate((node: HTMLVideoElement) => node.currentTime)
+            )
+            .toBeGreaterThan(0);
+        }
+        expect(await page.locator("button button").count()).toBe(0);
+      }
+      expect(headRequests).toBeGreaterThanOrEqual(5);
+    } finally {
+      release.release();
+      await context.close();
+    }
+  });
+}
+
 test("saves and cancels framing and keeps the comparison pair while changing its shape", async ({
   browser
 }, testInfo) => {
@@ -1345,7 +1512,7 @@ test("keeps video and animation playback and seeking available across editor tab
           .getByRole("button", { name: "Play preview", exact: true })
           .click();
         await expect(
-          editor.getByText("Could not play this preview. Try Play again.", {
+          editor.getByText("Preview couldn’t play. Press Play to retry.", {
             exact: true
           })
         ).toBeVisible();
@@ -1832,7 +1999,7 @@ for (const format of ["jpg", "heic"] as const) {
       const retry = viewer.getByRole("button", { name: "Retry", exact: true });
       await expect(retry).toBeVisible();
       await expect(
-        viewer.getByText("Image could not be loaded.", { exact: true })
+        viewer.getByText("Image unavailable.", { exact: true })
       ).toBeVisible();
       await expect(frame).not.toHaveClass(/is-image-ready/);
       await expect(thumbnail).toHaveCSS("opacity", "1");
@@ -3261,7 +3428,7 @@ for (const surfaceName of ["gallery", "feed", "viewer"] as const) {
       capabilitiesGate.release();
       if (phone) {
         const retry = surface.getByRole("button", {
-          name: "Bounce unavailable. Retry",
+          name: "Retry",
           exact: true
         });
         await expect(retry).toBeVisible();
@@ -3315,7 +3482,7 @@ for (const surfaceName of ["gallery", "feed", "viewer"] as const) {
         }
         playbackGate.release();
         const retry = surface.getByRole("button", {
-          name: "Bounce unavailable. Retry",
+          name: "Retry",
           exact: true
         });
         await expect(retry).toBeVisible();
@@ -3427,9 +3594,7 @@ test("falls back between lossless Bounce codecs when a reported decoder fails", 
       .toBe(false);
     expect(failedDecoderRequests).toBeGreaterThan(0);
     await expect(page.getByText("Bounce", { exact: true })).toBeVisible();
-    await expect(
-      page.getByText(/Playback unavailable|supported video decoder/)
-    ).toHaveCount(0);
+    await expect(page.locator(".media-error-notice")).toHaveCount(0);
   } finally {
     await context.close();
   }

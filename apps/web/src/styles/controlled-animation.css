@@ -15,32 +15,6 @@
   height: 100%;
 }
 
-.controlled-animation__error {
-  position: absolute;
-  z-index: 4;
-  inset: auto 12px 12px;
-  display: flex;
-  width: fit-content;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 8px;
-  border-radius: 4px;
-  background: rgb(0 0 0 / 70%);
-  color: #fff;
-  font-size: 12px;
-}
-
-.controlled-animation__error [data-slot="button"] {
-  min-width: 44px;
-  min-height: 44px;
-}
-
-.controlled-animation[data-has-controls="true"] .controlled-animation__error {
-  bottom: calc(
-    var(--video-controls-height) + var(--media-safe-area-bottom) + 12px
-  );
-}
-
 .controlled-animation > .video-controls {
   z-index: 3;
 }

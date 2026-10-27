@@ -43,6 +43,7 @@ import {
   sweepDerivativeCache
 } from "../src/library/derivative-cache.js";
 import { buildApp } from "../src/http/app.js";
+import * as presentationVideo from "../src/library/presentation-video.js";
 import * as processing from "../src/library/video-processing.js";
 import { runMediaCommand } from "../src/library/video-processing.js";
 
@@ -139,6 +140,62 @@ function setHighlight(
 }
 
 describe("presentation video delivery", () => {
+  it.each([
+    "bounce_hevc_encoder_unavailable",
+    "bounce_h264_encoder_unavailable",
+    "media_tool_unavailable"
+  ])(
+    "returns safe %s diagnostics for failed playback HEAD and GET",
+    async (code) => {
+      const source = await video();
+      const asset = setHighlight(source.id, 100, 700, "bounce");
+      vi.spyOn(presentationVideo, "ensurePresentationVideo").mockRejectedValue(
+        new PresentationMediaError(code, 503)
+      );
+      const url = `/api/assets/${asset.id}/playback?variant=bounce&v=${asset.presentation.renditionKeys.bounce}`;
+      const head = await app.inject({ method: "HEAD", url });
+      expect(head.statusCode).toBe(503);
+      expect(head.headers["x-aether-media-error"]).toBe(code);
+      expect(head.headers["cache-control"]).toBe("no-store");
+      expect(head.payload).toBe("");
+      const response = await app.inject(url);
+      expect(response.statusCode).toBe(503);
+      expect(response.headers["x-aether-media-error"]).toBe(code);
+      expect(response.json()).toEqual({ error: code });
+    }
+  );
+
+  it("keeps unexpected processing details out of media response headers and bodies", async () => {
+    const source = await video();
+    const asset = setHighlight(source.id, 100, 700, "bounce");
+    const failure = vi.spyOn(presentationVideo, "ensurePresentationVideo");
+    const url = `/api/assets/${asset.id}/playback?variant=bounce&v=${asset.presentation.renditionKeys.bounce}`;
+    failure.mockRejectedValue(new Error("Failed to read /private/source.mov"));
+    const unknown = await app.inject(url);
+    expect(unknown.statusCode).toBe(415);
+    expect(unknown.headers["x-aether-media-error"]).toBe("media_decode_failed");
+    expect(unknown.json()).toEqual({ error: "media_decode_failed" });
+    failure.mockRejectedValue(
+      new PresentationMediaError(
+        "/private/source.mov\r\nInvalid-Header: value",
+        422
+      )
+    );
+    const unsafe = await app.inject(url);
+    expect(unsafe.statusCode).toBe(422);
+    expect(unsafe.headers["x-aether-media-error"]).toBe("media_decode_failed");
+    expect(unsafe.json()).toEqual({ error: "media_decode_failed" });
+  });
+
+  it("does not label successfully streamed original media as a processing failure", async () => {
+    const asset = await video();
+    const response = await app.inject({
+      method: "HEAD",
+      url: `/api/assets/${asset.id}/playback?variant=full&v=${asset.presentation!.renditionKeys.full}`
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["x-aether-media-error"]).toBeUndefined();
+  });
   it("saves and serves full-range MOV Bounce without changing the source", async () => {
     const initial = await video("screen-recording.mov", 1, "96x64", "pc");
     const sourcePath = path.join(cwd, "media", initial.name);

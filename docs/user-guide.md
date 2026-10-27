@@ -102,6 +102,8 @@ speed from 0.5× to 2× and choose **Repeat** or **Bounce**. Bounce runs forward
 backward; video Bounce is silent and its draft previews forward until Save.
 The preview and timeline stay available in both editor tabs. Switching tabs
 keeps playback running; seeking pauses anywhere in the full source.
+Video previews play sound when you press Play. Use the speaker button to mute
+or unmute in either tab. Bounce previews and saved Bounce videos are silent.
 
 On the preview timeline or a highlight handle, arrows adjust by 100 ms; hold
 Shift for 1 ms. Page Up/Down adjust by one second, and Home/End jump to that
@@ -120,6 +122,9 @@ lossless video from a section of up to 30 seconds, keeping the source frames and
 timing. Some formats, including HDR video, need Repeat instead. The editor shows
 the available limit. Browser support varies, and first playback may need
 preparation; prepared sections are reused on later visits.
+If playback fails, the notice distinguishes server preparation problems from
+browser playback support. Retry after a temporary failure; a shorter highlight
+is needed only when the section exceeds its limit.
 
 Supported MOV screen recordings can use Bounce, including full-range SDR video.
 The video format and processing limits still apply.

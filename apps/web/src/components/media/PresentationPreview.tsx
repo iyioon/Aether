@@ -5,6 +5,7 @@ import type {
 } from "../../api/client";
 import type { MediaPresentationPreviewProps } from "./MediaPresentationEditor";
 import { ControlledAnimation } from "./ControlledAnimation";
+import { MediaErrorNotice } from "./MediaErrorNotice";
 import { imageDisplayUrl, mediaUrl, thumbnailUrl } from "./media-urls";
 import { presentationMediaStyle } from "./presentation-geometry";
 import { presentationRange } from "./presentation-model";
@@ -20,12 +21,14 @@ export function PresentationPreview({
   presentation,
   playheadMs,
   isPlaying,
+  muted,
+  videoRef,
   onTimeChange,
   onDurationChange,
   onPlayingChange,
+  onMutedChange,
   onPlaybackAvailableChange
 }: PresentationPreviewProps) {
-  const videoRef = useRef<HTMLVideoElement>(null);
   const emittedRef = useRef<number | null>(null);
   const [imageError, setImageError] = useState(false);
   const [playbackFailed, setPlaybackFailed] = useState(false);
@@ -57,7 +60,15 @@ export function PresentationPreview({
         : Math.max(0, Math.min(Math.max(0, duration - 1), playheadMs));
       video.currentTime = target / 1000;
     }
-  }, [playheadMs, start, end, duration, isPlaying, presentation.playbackRate]);
+  }, [
+    playheadMs,
+    start,
+    end,
+    duration,
+    isPlaying,
+    presentation.playbackRate,
+    videoRef
+  ]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -115,15 +126,10 @@ export function PresentationPreview({
       document.removeEventListener("visibilitychange", visibility);
       window.removeEventListener("pagehide", stop);
     };
-  }, [isPlaying, start, end, presentation.playbackRate, videoError]);
+  }, [isPlaying, start, end, presentation.playbackRate, videoError, videoRef]);
 
   const style = presentationMediaStyle(presentation, "cover");
-  if (imageError)
-    return (
-      <p className="media-editor-preview-error" role="status">
-        Preview unavailable for this file.
-      </p>
-    );
+  if (imageError) return <MediaErrorNotice message="Preview unavailable." />;
   if (capabilities.kind === "animation")
     return (
       <ControlledAnimation
@@ -165,9 +171,7 @@ export function PresentationPreview({
           style={style}
           onError={() => setImageError(true)}
         />
-        <span className="media-editor-preview-notice" role="status">
-          Video preview unavailable
-        </span>
+        <MediaErrorNotice message="Video preview unavailable." />
       </>
     );
   return (
@@ -176,14 +180,22 @@ export function PresentationPreview({
         ref={videoRef}
         src={mediaUrl(asset)}
         style={style}
-        muted
+        muted={muted}
         playsInline
         preload="auto"
         aria-label={`Preview ${asset.name}`}
+        onVolumeChange={(event) => {
+          const video = event.currentTarget;
+          onMutedChange(video.muted || video.volume === 0);
+        }}
         onPause={(event) => {
-          const time = event.currentTarget.currentTime * 1000;
+          const video = event.currentTarget;
+          const time = video.currentTime * 1000;
           emittedRef.current = time;
           callbacks.current.onTimeChange(time);
+          // A queued cleanup pause may arrive after playback has restarted.
+          if (video.isConnected && video.paused && !video.ended)
+            callbacks.current.onPlayingChange(false);
         }}
         onError={() => {
           setVideoError(true);
@@ -209,9 +221,7 @@ export function PresentationPreview({
         }}
       />
       {playbackFailed ? (
-        <span className="media-editor-preview-notice" role="status">
-          Could not play this preview. Try Play again.
-        </span>
+        <MediaErrorNotice message="Preview couldn’t play. Press Play to retry." />
       ) : null}
     </>
   );

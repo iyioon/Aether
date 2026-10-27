@@ -106,6 +106,7 @@ export default tseslint.config(
     files: [
       "apps/web/src/components/feed/FeedPreview.tsx",
       "apps/web/src/components/media/MediaPreview.tsx",
+      "apps/web/src/components/media/PresentationPreview.tsx",
       "apps/web/src/components/media/MediaViewer.tsx"
     ],
     rules: {

@@ -311,6 +311,9 @@ Framing tabs follow the [WAI tabs pattern](https://www.w3.org/WAI/ARIA/apg/patte
 retain invalid time drafts and keep one mounted preview/transport; switching tabs
 does not pause playback. Seeking pauses at a full-source timestamp. Native play
 failures restore the Play action; decode failures leave framing available.
+Video previews start with sound after an explicit Play gesture, with a shared
+speaker control in both tabs. Muting is local to the open editor and never
+changes the source or saved presentation. Bounce previews stay silent.
 
 Editor shortcuts follow the active section and preserve focused text fields,
 sliders, tabs and menus. Framing arrows use the measured pan geometry to adjust
@@ -392,6 +395,13 @@ unsupported formats/profiles have Bounce disabled; ordinary source playback and
 Repeat remain available. Timestamp-origin support requires separate browser and
 container timeline validation before that restriction can be relaxed.
 
+Bounce probes FFmpeg's file-valued filter option and installed encoders once per
+process search path. Current releases use `-/filter_complex`; older releases
+use `-filter_complex_script`. This avoids FFmpeg 9's removed script option
+without inlining a potentially large timeline into a command argument. Both
+paths read the same private, bounded filter file. Missing tools or encoders
+produce fixed public error codes; bounded subprocess diagnostics stay private.
+
 Full-range 8-bit YUV 4:2:0 MOV recordings are also supported. The legacy
 `yuvj420p` format is treated as `yuv420p` with an explicit full-range flag;
 decoding keeps the input and output ranges full before storing planar samples.
@@ -436,6 +446,17 @@ atlases; ordinary successful publication removes superseded registered files. At
 have a two-minute budget, including a sixty-second source-decoding deadline.
 These are editing/playback budgets,
 not restrictions on indexing ordinary source media.
+
+Media failures use one compact themed notice on each surface. Gallery and
+Comparison cards remain noninteractive inside their preview buttons; Feed and
+the viewer provide Retry for recoverable failures. After the final Bounce
+codec attempt fails, one authenticated HEAD request reads a whitelisted
+`x-aether-media-error` code without downloading the video. A healthy HEAD
+response distinguishes native decoding from server preparation failures;
+native network errors retain their network classification. Diagnostics are
+bounded, cancelled on hide, exit, retry or source replacement, and cannot
+publish results for a stale source. A viewer-owned animation error suppresses
+the canvas component's duplicate notice.
 
 The highlight-only preference follows validated URL/resume state and is also
 available in the viewer View options menu, alongside the independent framing

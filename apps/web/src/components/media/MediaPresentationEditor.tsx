@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import {
   ApiError,
   type AssetRecord,
@@ -31,9 +31,12 @@ export interface MediaPresentationPreviewProps {
   presentation: PresentationValues;
   playheadMs: number;
   isPlaying: boolean;
+  muted: boolean;
+  videoRef: RefObject<HTMLVideoElement | null>;
   onTimeChange: (ms: number) => void;
   onDurationChange: (ms: number) => void;
   onPlayingChange: (playing: boolean) => void;
+  onMutedChange: (muted: boolean) => void;
   onPlaybackAvailableChange: (available: boolean) => void;
 }
 
@@ -130,6 +133,11 @@ export function MediaPresentationEditor({
       : galleryAspectRatio(aspect);
   const [playheadMs, setPlayheadMs] = useState(draft.highlight?.startMs ?? 0);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [previewMuted, setPreviewMuted] = useState(false);
+  const previewVideoRef = useRef<HTMLVideoElement>(null);
+  const hasAudio = capabilities.kind === "video" && capabilities.hasAudio;
+  const silentPreview = draft.loopMode === "bounce" || !hasAudio;
+  const effectiveMuted = silentPreview || previewMuted;
   const [playbackAvailable, setPlaybackAvailable] = useState(true);
   const [observedDuration, setObservedDuration] = useState(0);
   const [invalidFields, setInvalidFields] = useState({
@@ -207,6 +215,23 @@ export function MediaPresentationEditor({
     );
     setPlayheadMs((current) => presentationClamp(current, start, end));
     setError((current) => (current?.conflict ? current : null));
+  }
+
+  function changePlaying(playing: boolean) {
+    if (pendingRef.current) return;
+    const video = previewVideoRef.current;
+    if (playing) {
+      if (playheadMs < startMs || playheadMs >= endMs) {
+        setPlayheadMs(startMs);
+        if (video) video.currentTime = startMs / 1000;
+      }
+      if (video) {
+        video.muted = effectiveMuted;
+        // Start in the button's user gesture; the preview reports any failure.
+        void video.play().catch(() => undefined);
+      }
+    } else video?.pause();
+    setIsPlaying(playing);
   }
 
   async function save() {
@@ -304,9 +329,14 @@ export function MediaPresentationEditor({
               presentation={framedDraft}
               playheadMs={playheadMs}
               isPlaying={isPlaying}
+              muted={effectiveMuted}
+              videoRef={previewVideoRef}
               onTimeChange={setPlayheadMs}
               onDurationChange={setObservedDuration}
               onPlayingChange={setIsPlaying}
+              onMutedChange={(muted) => {
+                if (!silentPreview) setPreviewMuted(muted);
+              }}
               onPlaybackAvailableChange={setPlaybackAvailable}
             />
           </PresentationFrame>
@@ -316,11 +346,20 @@ export function MediaPresentationEditor({
               playheadMs={playheadMs}
               isPlaying={isPlaying}
               disabled={disabled || !playbackAvailable}
-              onPlayingChange={(playing) => {
-                if (playing && (playheadMs < startMs || playheadMs >= endMs))
-                  setPlayheadMs(startMs);
-                setIsPlaying(playing);
+              hasAudio={hasAudio}
+              muted={effectiveMuted}
+              soundLocked={silentPreview}
+              onToggleMuted={() => {
+                if (silentPreview || pendingRef.current) return;
+                const muted = !previewMuted;
+                const video = previewVideoRef.current;
+                if (video) {
+                  if (!muted && video.volume === 0) video.volume = 1;
+                  video.muted = muted;
+                }
+                setPreviewMuted(muted);
               }}
+              onPlayingChange={changePlaying}
               onSeek={setPlayheadMs}
             />
           ) : null}

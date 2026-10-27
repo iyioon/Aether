@@ -211,6 +211,9 @@
   min-width: 0;
   position: relative;
 }
+.media-editor-transport[data-has-audio] {
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+}
 .media-editor-times {
   position: absolute;
   top: 0;
@@ -409,14 +412,4 @@
   .media-editor-header {
     padding-block: max(8px, env(safe-area-inset-top, 0px)) 8px;
   }
-}
-
-.media-editor-preview-error {
-  display: grid;
-  height: 100%;
-  margin: 0;
-  padding: 16px;
-  color: #fff;
-  font-size: 13px;
-  place-items: center;
 }

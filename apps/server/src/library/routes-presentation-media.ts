@@ -70,10 +70,17 @@ export function registerPresentationMediaRoutes(
       const params = AssetParams.safeParse(request.params);
       const query = PlaybackQuery.safeParse(request.query);
       if (!params.success || !query.success)
-        return reply.code(400).send({ error: "invalid_request" });
+        return mediaFailure(
+          reply,
+          new PresentationMediaError("invalid_request", 400)
+        );
       try {
         const file = await resolveAssetFile(db, params.data.assetId);
-        if (!file) return reply.code(404).send({ error: "asset_not_found" });
+        if (!file)
+          return mediaFailure(
+            reply,
+            new PresentationMediaError("asset_not_found", 404)
+          );
         const media = await ensurePresentationVideo({
           db,
           config,
@@ -272,18 +279,53 @@ async function sendPresentationFile(
     )
   );
 }
+const SAFE_MEDIA_ERROR_CODES = new Set([
+  "animation_frame_mismatch",
+  "animation_not_supported",
+  "asset_not_found",
+  "asset_forbidden",
+  "bounce_duration_exceeded",
+  "bounce_source_not_supported",
+  "bounce_timing_not_supported",
+  "bounce_hevc_encoder_unavailable",
+  "bounce_h264_encoder_unavailable",
+  "media_tool_unavailable",
+  "highlight_duration_exceeded",
+  "incomplete_rendition",
+  "invalid_asset",
+  "invalid_highlight",
+  "invalid_request",
+  "media_decode_failed",
+  "media_duration_unavailable",
+  "playback_not_supported",
+  "poster_not_supported",
+  "presentation_limit_exceeded",
+  "presentation_processing_cancelled",
+  "presentation_processing_failed",
+  "processing_busy",
+  "processing_timeout",
+  "stale_rendition",
+  "unsafe_cache"
+]);
+
 function mediaFailure(reply: FastifyReply, error: unknown): FastifyReply {
   reply.header("cache-control", "no-store").type("application/json");
-  if (error instanceof StalePresentationRenditionError)
-    return reply
-      .code(409)
-      .send({ error: "stale_rendition", metadataRefresh: true });
-  if (error instanceof PresentationMediaError)
-    return reply.code(error.status).send({ error: error.code });
-  const status = mediaErrorStatus(error);
-  return reply.code(status === 403 ? 403 : 415).send({
-    error: status === 403 ? "asset_forbidden" : "media_decode_failed"
-  });
+  let status = mediaErrorStatus(error) === 403 ? 403 : 415;
+  let code = status === 403 ? "asset_forbidden" : "media_decode_failed";
+  if (error instanceof PresentationMediaError) {
+    status = error.status;
+    code = SAFE_MEDIA_ERROR_CODES.has(error.code)
+      ? error.code
+      : "media_decode_failed";
+  }
+  const body =
+    error instanceof StalePresentationRenditionError
+      ? { error: code, metadataRefresh: true }
+      : { error: code };
+  return reply
+    .header("x-aether-media-error", code)
+    .code(status)
+    .send(reply.request.method === "HEAD" ? undefined : body);
 }
 function header(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;

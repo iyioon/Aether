@@ -28,8 +28,9 @@ import { presentationPosterUrl } from "./presentation-playback";
 import { EMPTY_VIDEO_PLAYBACK_STATE } from "./video-playback";
 import { VideoControls } from "./VideoControls";
 import type { VideoPlayback } from "./useVideoPlayback";
-import { Button } from "../ui/button";
 import { MediaLoadingBar } from "./MediaLoadingBar";
+import { MediaErrorNotice } from "./MediaErrorNotice";
+import { mediaFailureNotice } from "./media-failure-notice";
 
 export interface ControlledAnimationProps {
   asset: AssetRecord;
@@ -40,6 +41,7 @@ export interface ControlledAnimationProps {
   paused?: boolean;
   controls?: boolean;
   showRetry?: boolean;
+  showError?: boolean;
   showPoster?: boolean;
   defaultFit?: "contain" | "cover";
   className?: string;
@@ -51,7 +53,7 @@ export interface ControlledAnimationProps {
   isPlaying?: boolean;
   onTimeChange?: (timeMs: number) => void;
   onDurationChange?: (durationMs: number) => void;
-  onError?: () => void;
+  onError?: (error?: unknown) => void;
   onRetry?: () => void;
   onReady?: () => void;
   onReadyChange?: (ready: boolean) => void;
@@ -69,6 +71,7 @@ export function ControlledAnimation({
   paused = false,
   controls = false,
   showRetry = controls,
+  showError = true,
   showPoster = true,
   defaultFit = "cover",
   className = "",
@@ -106,6 +109,7 @@ export function ControlledAnimation({
   } | null>(null);
   const manifest = loaded?.key === sourceKey ? loaded.manifest : null;
   const [errorKey, setErrorKey] = useState("");
+  const [failure, setFailure] = useState<unknown>(null);
   const [attempt, setAttempt] = useState(0);
   const [paintedKey, setPaintedKey] = useState("");
   const [failedPosterSource, setFailedPosterSource] = useState<string | null>(
@@ -195,6 +199,7 @@ export function ControlledAnimation({
 
   useEffect(() => {
     if (!active || hidden) return;
+    setFailure(null);
     const existing = loadedRef.current;
     if (existing?.key === sourceKey) {
       setLoaded(existing);
@@ -224,10 +229,11 @@ export function ControlledAnimation({
         setErrorKey("");
         callbacksRef.current.onDurationChange?.(validated.durationMs);
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (!controller.signal.aborted) {
+          setFailure(error);
           setErrorKey(sourceKey);
-          callbacksRef.current.onError?.();
+          callbacksRef.current.onError?.(error);
         }
       });
     return () => {
@@ -241,6 +247,7 @@ export function ControlledAnimation({
     const canvas = canvasRef.current;
     const context = canvas?.getContext("2d", { alpha: true });
     if (!canvas || !context) {
+      setFailure(null);
       setErrorKey(sourceKey);
       callbacksRef.current.onError?.();
       return;
@@ -360,14 +367,15 @@ export function ControlledAnimation({
             publish(sourceTimeRef.current, true);
           }
         })
-        .catch(() => {
+        .catch((error: unknown) => {
           if (
             !controller.signal.aborted &&
             displayKeyRef.current === displayKey
           ) {
             broken = true;
+            setFailure(error);
             setErrorKey(sourceKey);
-            callbacksRef.current.onError?.();
+            callbacksRef.current.onError?.(error);
           }
         })
         .finally(() => {
@@ -534,6 +542,7 @@ export function ControlledAnimation({
       onInteractionChange={onInteractionChange}
     />
   );
+  const notice = mediaFailureNotice({ kind: "animation", error: failure });
   return (
     <span
       className={`controlled-animation ${className}`.trim()}
@@ -557,25 +566,21 @@ export function ControlledAnimation({
         className="controlled-animation__canvas"
         style={{ ...mediaStyle, opacity: painted ? 1 : 0 }}
       />
-      {failed ? (
-        <span className="controlled-animation__error" role="status">
-          Playback unavailable
-          {showRetry ? (
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={(event) => {
-                event.stopPropagation();
-                setErrorKey("");
-                setAttempt((current) => current + 1);
-                onRetry?.();
-              }}
-            >
-              Retry
-            </Button>
-          ) : null}
-        </span>
+      {failed && showError ? (
+        <MediaErrorNotice
+          message={notice.message}
+          compact={!controls}
+          onRetry={
+            showRetry && notice.canRetry
+              ? () => {
+                  setFailure(null);
+                  setErrorKey("");
+                  setAttempt((current) => current + 1);
+                  onRetry?.();
+                }
+              : undefined
+          }
+        />
       ) : null}
       {controls
         ? controlsContainer

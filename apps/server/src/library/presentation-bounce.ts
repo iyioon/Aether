@@ -7,6 +7,7 @@ import {
 } from "./presentation-bounce-frames.js";
 import { PresentationMediaError } from "./presentation-cache.js";
 import { LOCAL_MEDIA_INPUT_ARGS, runMediaCommand } from "./video-processing.js";
+import { bounceFilterFileArguments } from "./presentation-bounce-tools.js";
 
 export const VIDEO_BOUNCE_MAX_DURATION_MS = 30_000;
 export const VIDEO_BOUNCE_MAX_FRAMES = 3600;
@@ -615,6 +616,22 @@ export async function generateLosslessBounce(
       path.join(path.dirname(outputPath), ".bounce-work-")
     );
     const filterPath = path.join(workDirectory, "timeline.filter");
+    const frameColor = [
+      ["range", profile.colorRange],
+      ["color_primaries", profile.colorPrimaries],
+      ["color_trc", profile.colorTransfer],
+      ["colorspace", profile.colorSpace]
+    ]
+      .flatMap(([option, value]) => (value ? [`${option}=${value}`] : []))
+      .join(":");
+    const filter = `[0:v]${frameColor ? `setparams=${frameColor},` : ""}setsar=${profile.sampleAspectRatio.replace(":", "/")}:max=65535,settb=1/1000000,setpts='${lookupExpression(plan.outputTimesMs.map((time) => Math.round(time * 1000)))}'[out]`;
+    await writeFile(filterPath, filter, { flag: "wx", mode: 0o600 });
+    const filterFileArgs = await bounceFilterFileArguments(
+      filterPath,
+      codec,
+      Math.min(5000, remainingMs())
+    );
+    check();
     const firstTime = profile.startTimeSeconds + plan.firstSourceTimeMs / 1000;
     const endTime = profile.startTimeSeconds + plan.endMs / 1000;
     // Only the source decoder sees source timestamps. The spool keeps exact
@@ -661,16 +678,6 @@ export async function generateLosslessBounce(
       scope
     );
     check();
-    const frameColor = [
-      ["range", profile.colorRange],
-      ["color_primaries", profile.colorPrimaries],
-      ["color_trc", profile.colorTransfer],
-      ["colorspace", profile.colorSpace]
-    ]
-      .flatMap(([option, value]) => (value ? [`${option}=${value}`] : []))
-      .join(":");
-    const filter = `[0:v]${frameColor ? `setparams=${frameColor},` : ""}setsar=${profile.sampleAspectRatio.replace(":", "/")}:max=65535,settb=1/1000000,setpts='${lookupExpression(plan.outputTimesMs.map((time) => Math.round(time * 1000)))}'[out]`;
-    await writeFile(filterPath, filter, { flag: "wx", mode: 0o600 });
     const encodedPath = profile.rotation
       ? path.join(workDirectory, "encoded.mp4")
       : outputPath;
@@ -707,8 +714,7 @@ export async function generateLosslessBounce(
           "pipe:0",
           "-filter_complex_threads",
           "1",
-          "-filter_complex_script",
-          filterPath,
+          ...filterFileArgs,
           "-map",
           "[out]",
           "-an",

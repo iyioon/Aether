@@ -116,6 +116,141 @@ test.afterAll(async ({ browser }) => {
 
 for (const viewport of [
   { width: 1440, height: 980 },
+  { width: 393, height: 852 },
+  { width: 320, height: 568 }
+]) {
+  test(`previews editor audio with reachable sound controls at ${viewport.width}×${viewport.height}`, async ({
+    browser
+  }, testInfo) => {
+    const phone = viewport.width < 600;
+    const context = await browser.newContext({
+      storageState,
+      viewport,
+      hasTouch: phone,
+      isMobile: phone,
+      reducedMotion: "reduce"
+    });
+    try {
+      const page = await context.newPage();
+      await page.goto(
+        `${origin}/?folder=${encodeURIComponent(folderId)}&view=feed&type=video&sort=filename&q=transport-0.mp4`
+      );
+      await page
+        .getByRole("button", { name: "Edit transport-0.mp4", exact: true })
+        .click();
+      const editor = page.getByRole("dialog", {
+        name: "Edit media",
+        exact: true
+      });
+      const video = editor.locator("video");
+      const mute = editor.getByRole("button", {
+        name: "Mute preview",
+        exact: true
+      });
+      const unmute = editor.getByRole("button", {
+        name: "Unmute preview",
+        exact: true
+      });
+      const play = editor.getByRole("button", {
+        name: "Play preview",
+        exact: true
+      });
+      await expect(mute).toBeVisible();
+      await expect(video).toHaveJSProperty("muted", false);
+      await expect(video).toHaveJSProperty("paused", true);
+      await play.click();
+      await expectPlaying(video);
+      await expect(video).toHaveJSProperty("muted", false);
+      await mute.click();
+      await expect(video).toHaveJSProperty("muted", true);
+      await expect(unmute).toBeVisible();
+      await editor.getByRole("tab", { name: "Framing", exact: true }).click();
+      await expect(video).toHaveJSProperty("paused", false);
+      await expect(unmute).toBeVisible();
+      await unmute.click();
+      await expect(video).toHaveJSProperty("muted", false);
+      await expect(video).toHaveJSProperty("paused", false);
+      await video.evaluate((node: HTMLVideoElement) => node.pause());
+      await expect(play).toBeVisible();
+      await play.click();
+      await expectPlaying(video);
+      await video.evaluate((node: HTMLVideoElement) => {
+        node.volume = 0;
+      });
+      await expect(unmute).toBeVisible();
+      await unmute.click();
+      await expect(video).toHaveJSProperty("volume", 1);
+      await expect(video).toHaveJSProperty("muted", false);
+      await expect(
+        editor.getByRole("button", { name: "Save", exact: true })
+      ).toBeDisabled();
+      const controls = editor.getByRole("group", {
+        name: "Preview playback",
+        exact: true
+      });
+      const bounds = (await controls.boundingBox())!;
+      const soundBounds = (await mute.boundingBox())!;
+      expect(soundBounds.width).toBeGreaterThanOrEqual(44);
+      expect(soundBounds.height).toBeGreaterThanOrEqual(44);
+      expect(soundBounds.x).toBeGreaterThanOrEqual(bounds.x);
+      expect(soundBounds.x + soundBounds.width).toBeLessThanOrEqual(
+        bounds.x + bounds.width
+      );
+      expect(bounds.height).toBeLessThanOrEqual(64);
+      await page.screenshot({
+        path: testInfo.outputPath(`editor-audio-${viewport.width}.png`)
+      });
+      await editor.getByRole("tab", { name: "Playback", exact: true }).click();
+      await editor
+        .getByRole("combobox", { name: "Speed", exact: true })
+        .click();
+      await page.getByRole("option", { name: "1.25×", exact: true }).click();
+      await expect(
+        editor.getByRole("button", { name: "Pause preview", exact: true })
+      ).toBeVisible();
+      await expect(video).toHaveJSProperty("paused", false);
+      const loop = editor.getByRole("combobox", { name: "Loop", exact: true });
+      await loop.click();
+      await page.getByRole("option", { name: "Bounce", exact: true }).click();
+      await expect(
+        editor.getByRole("button", { name: "Bounce is silent", exact: true })
+      ).toBeDisabled();
+      await expect(video).toHaveJSProperty("muted", true);
+      await loop.click();
+      await page.getByRole("option", { name: "Repeat", exact: true }).click();
+      await expect(mute).toBeVisible();
+      await expect(video).toHaveJSProperty("muted", false);
+      await page.evaluate(() => {
+        Object.defineProperty(document, "hidden", {
+          configurable: true,
+          value: true
+        });
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await expect(video).toHaveJSProperty("paused", true);
+      await page.evaluate(() => {
+        Object.defineProperty(document, "hidden", {
+          configurable: true,
+          value: false
+        });
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await expect(play).toBeVisible();
+      await editor.getByRole("button", { name: "Cancel", exact: true }).click();
+      await expect(editor).toHaveCount(0);
+      await expect(page.locator(".feed-item video").first()).toHaveJSProperty(
+        "muted",
+        true
+      );
+      expect(await page.locator("button button").count()).toBe(0);
+    } finally {
+      await context.close();
+    }
+  });
+}
+
+for (const viewport of [
+  { width: 1440, height: 980 },
   { width: 393, height: 852 }
 ]) {
   test(`plays portrait and landscape videos inside landscape gallery cards at ${viewport.width}×${viewport.height}`, async ({

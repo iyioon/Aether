@@ -1,5 +1,5 @@
 import { useId } from "react";
-import { Pause, Play } from "lucide-react";
+import { Pause, Play, Volume2, VolumeX } from "lucide-react";
 import { Button } from "../ui/button";
 import { Slider } from "../ui/slider";
 import { formatPresentationTime } from "./presentation-model";
@@ -14,6 +14,10 @@ export function PresentationTransport({
   playheadMs,
   isPlaying,
   disabled,
+  hasAudio,
+  muted,
+  soundLocked,
+  onToggleMuted,
   onPlayingChange,
   onSeek
 }: {
@@ -21,6 +25,10 @@ export function PresentationTransport({
   playheadMs: number;
   isPlaying: boolean;
   disabled: boolean;
+  hasAudio: boolean;
+  muted: boolean;
+  soundLocked: boolean;
+  onToggleMuted: () => void;
   onPlayingChange: (playing: boolean) => void;
   onSeek: (time: number) => void;
 }) {
@@ -30,6 +38,7 @@ export function PresentationTransport({
       className="media-editor-transport"
       role="group"
       aria-label="Preview playback"
+      data-has-audio={hasAudio || undefined}
     >
       <Button
         type="button"
@@ -98,6 +107,35 @@ export function PresentationTransport({
           {PRESENTATION_TIMING_KEYBOARD_HINT}
         </p>
       </div>
+      {hasAudio ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          disabled={disabled || soundLocked}
+          aria-label={
+            soundLocked
+              ? "Bounce is silent"
+              : muted
+                ? "Unmute preview"
+                : "Mute preview"
+          }
+          title={
+            soundLocked
+              ? "Bounce is silent"
+              : muted
+                ? "Unmute preview"
+                : "Mute preview"
+          }
+          onClick={onToggleMuted}
+        >
+          {muted ? (
+            <VolumeX aria-hidden="true" />
+          ) : (
+            <Volume2 aria-hidden="true" />
+          )}
+        </Button>
+      ) : null}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { open, type FileHandle } from "node:fs/promises";
 import { deflateRaw, inflateRaw } from "node:zlib";
 import { promisify } from "node:util";
 import { PresentationMediaError } from "./presentation-cache.js";
+import { bounceDependencyFailure } from "./presentation-bounce-tools.js";
 
 const compress = promisify(deflateRaw);
 const decompress = promisify(inflateRaw);
@@ -49,6 +50,7 @@ async function streamCommand(
     stdio: [input ? "pipe" : "ignore", input ? "ignore" : "pipe", "pipe"]
   });
   let diagnosticBytes = 0;
+  const diagnostics: Buffer[] = [];
   let timedOut = false;
   let aborted = false;
   let processError: Error | undefined;
@@ -61,6 +63,7 @@ async function streamCommand(
   child.stderr?.on("data", (chunk: Buffer) => {
     diagnosticBytes += chunk.length;
     if (diagnosticBytes > MAX_DIAGNOSTIC_BYTES) child.kill("SIGKILL");
+    else diagnostics.push(chunk);
   });
   const exit = new Promise<number | null>((resolve) => {
     child.once("close", resolve);
@@ -80,12 +83,25 @@ async function streamCommand(
     const code = await exit;
     if (aborted) cancelled();
     if (timedOut || diagnosticBytes > MAX_DIAGNOSTIC_BYTES) limited();
-    if (code !== 0 || processError) failed();
+    if (code !== 0 || processError)
+      throw (
+        bounceDependencyFailure(
+          processError,
+          Buffer.concat(diagnostics).toString("utf8"),
+          args
+        ) ?? new PresentationMediaError("presentation_processing_failed", 422)
+      );
   } catch (error) {
     child.kill("SIGKILL");
     await exit;
     if (aborted || scope.signal.aborted) cancelled();
-    if (timedOut) limited();
+    if (timedOut || diagnosticBytes > MAX_DIAGNOSTIC_BYTES) limited();
+    const dependency = bounceDependencyFailure(
+      processError,
+      Buffer.concat(diagnostics).toString("utf8"),
+      args
+    );
+    if (dependency) throw dependency;
     if (error instanceof PresentationMediaError) throw error;
     failed();
   } finally {

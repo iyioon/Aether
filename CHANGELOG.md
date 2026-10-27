@@ -15,6 +15,8 @@ Notable changes to Aether are recorded here.
   playback/framing resets.
 - Shared Feed and viewer controls for playback, seeking, sound and fullscreen,
   with reachable touch targets and iPhone safe-area spacing.
+- Slim loading bars above media in Gallery, Feed, Compare and the viewer,
+  including while saved Bounce playback is being prepared.
 - Gallery context actions for Info, Edit media and Download with right-click,
   keyboard or touch hold. Edit and Download also remain in the viewer toolbar.
 - Offline interface recovery, while private media and metadata remain online.

@@ -253,6 +253,38 @@ test("keeps decoded thumbnails visible while displayed originals are delayed, th
     )
   ).toHaveCount(2);
   await expect.poll(() => originals.length).toBeGreaterThanOrEqual(2);
+  await expect(
+    shells.getByRole("progressbar", { name: "Loading media", exact: true })
+  ).toHaveCount(2);
+  const loadingBounds = await shells.evaluateAll((nodes) =>
+    nodes.map((node) => {
+      const { x, y, width, height } = node.getBoundingClientRect();
+      return { x, y, width, height };
+    })
+  );
+  for (const shell of await shells.all()) {
+    const bar = shell.getByRole("progressbar", {
+      name: "Loading media",
+      exact: true
+    });
+    await expect(bar).toBeVisible();
+    expect(await bar.getAttribute("aria-valuenow")).toBeNull();
+    const frame = (await shell.boundingBox())!;
+    const bounds = (await bar.boundingBox())!;
+    expect(Math.abs(bounds.y - frame.y)).toBeLessThanOrEqual(1);
+    expect(bounds.height).toBeGreaterThan(0);
+    expect(bounds.height).toBeLessThanOrEqual(3);
+    expect(
+      await shell.evaluate((node) => {
+        const card = node.closest(".comparison-card")!;
+        const style = getComputedStyle(card);
+        return (
+          style.overflow === "hidden" &&
+          Number.parseFloat(style.borderTopLeftRadius) > 0
+        );
+      })
+    ).toBe(true);
+  }
   const thumbnailState = await shells.evaluateAll((elements) =>
     elements.map((shell) => {
       const thumbnail = shell.querySelector<HTMLImageElement>(
@@ -288,6 +320,17 @@ test("keeps decoded thumbnails visible while displayed originals are delayed, th
   await expect(page.locator(".comparison-card .media-placeholder")).toHaveCount(
     0
   );
+  await expect(
+    page.locator(".comparison-card").getByRole("progressbar")
+  ).toHaveCount(0);
+  expect(
+    await shells.evaluateAll((nodes) =>
+      nodes.map((node) => {
+        const { x, y, width, height } = node.getBoundingClientRect();
+        return { x, y, width, height };
+      })
+    )
+  ).toEqual(loadingBounds);
 });
 
 test("retries a lost vote response with the same prepared pair and restores Undo", async ({

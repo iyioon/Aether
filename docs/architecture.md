@@ -211,6 +211,13 @@ The viewer also removes inherited posters if they fail during navigation.
 The preview grid constrains its layers to the card's dimensions so intrinsic
 poster sizes cannot enlarge the video or interfere with visibility tracking.
 
+A shared slim loading bar stays above retained thumbnails and posters while
+the displayed source is loading or being prepared. It follows decoded image,
+presented video-frame and painted animation readiness, independently of poster
+readiness or speculative comparison preloading. The bar is indeterminate;
+server preparation does not report a percentage. Hidden or inactive media and
+terminal errors stop the indicator, and reduced-motion mode uses a static bar.
+
 Explicit pause intent is separate from temporary hold, background, and panel
 pauses. Lifecycle events pause media synchronously; foreground autoplay is
 limited to muted media and preserves explicit pause. The viewer uses container fullscreen where

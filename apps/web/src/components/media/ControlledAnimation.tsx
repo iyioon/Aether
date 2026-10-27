@@ -22,6 +22,7 @@ import { EMPTY_VIDEO_PLAYBACK_STATE } from "./video-playback";
 import { VideoControls } from "./VideoControls";
 import type { VideoPlayback } from "./useVideoPlayback";
 import { Button } from "../ui/button";
+import { MediaLoadingBar } from "./MediaLoadingBar";
 
 export interface ControlledAnimationProps {
   asset: AssetRecord;
@@ -502,6 +503,7 @@ export function ControlledAnimation({
       className={`controlled-animation ${className}`.trim()}
       data-has-controls={controls || undefined}
     >
+      {active && !hidden && !painted && !failed ? <MediaLoadingBar /> : null}
       {!painted && !posterFailed ? (
         <img
           className="controlled-animation__poster"

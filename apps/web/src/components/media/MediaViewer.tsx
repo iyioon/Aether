@@ -15,7 +15,6 @@ import {
   ChevronRight,
   Download,
   Info,
-  LoaderCircle,
   Pencil,
   X
 } from "lucide-react";
@@ -59,6 +58,7 @@ import {
 import { useVideoPresentation } from "./useVideoPresentation";
 import { useBounceCodec } from "./useBounceCodec";
 import { ControlledAnimation } from "./ControlledAnimation";
+import { MediaLoadingBar } from "./MediaLoadingBar";
 import {
   canPresentVideoFullscreen,
   toggleVideoFullscreen
@@ -146,6 +146,10 @@ export function MediaViewer({
         originalVideoFailed)) ||
       isAnimationCandidate
   );
+  const viewerImageSource =
+    isAnimationCandidate && capabilityState.capabilities?.kind !== "still"
+      ? thumbnailUrl(asset)
+      : imageDisplayUrl(asset);
   const values = getPresentationValues(asset.presentation);
   const presentation = {
     ...values,
@@ -247,7 +251,7 @@ export function MediaViewer({
   const [isViewerVideoMuted, setIsViewerVideoMuted] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [useNativeControls, setUseNativeControls] = useState(false);
-  const [readyAssetId, setReadyAssetId] = useState<string | null>(null);
+  const [readyImageSource, setReadyImageSource] = useState<string | null>(null);
   const [readyVideoAssetId, setReadyVideoAssetId] = useState<string | null>(
     null
   );
@@ -337,12 +341,21 @@ export function MediaViewer({
     !(isViewerPosterFailed && isViewerVideoFailed);
   const isMediaReady =
     asset.mediaType === "image"
-      ? isControlledAnimation || readyAssetId === asset.id
+      ? isControlledAnimation || readyImageSource === viewerImageSource
       : hasFallbackVideoPoster ||
         isViewerPosterReady ||
         isViewerVideoReady ||
         (isViewerPosterSettled && isViewerVideoFailed);
   const isViewerVideoVisible = isViewerVideoReady;
+  const isMediaLoading =
+    !isControlledAnimation &&
+    !capabilityState.error &&
+    !bounceUnavailable &&
+    !bounceOverBudget &&
+    (asset.mediaType === "video"
+      ? !isViewerVideoReady && !isViewerVideoFailed
+      : readyImageSource !== viewerImageSource ||
+        (isAnimationCandidate && !capabilityState.capabilities));
   const {
     togglePlayback: togglePlaybackCommand,
     toggleMuted: toggleMutedCommand
@@ -862,7 +875,11 @@ export function MediaViewer({
       video?.pause();
     };
     const restore = () => {
-      if (document.hidden || playbackBlockedRef.current) return;
+      if (document.hidden) return;
+      const video = viewerVideoRef.current;
+      if (video && video.readyState >= 2 && presentedPlayback.isReady)
+        revealVideoAfterPresentedFrame(video, asset.id);
+      if (playbackBlockedRef.current) return;
       if (resumeMutedPlaybackRef.current && viewerVideoRef.current?.muted) {
         resumeMutedPlaybackRef.current = false;
         playViewerVideo();
@@ -877,7 +894,15 @@ export function MediaViewer({
       window.removeEventListener("pagehide", suspend);
       window.removeEventListener("pageshow", restore);
     };
-  }, [asset.id, asset.mediaType, playViewerVideo, videoSource, retryAttempt]);
+  }, [
+    asset.id,
+    asset.mediaType,
+    playViewerVideo,
+    videoSource,
+    retryAttempt,
+    presentedPlayback.isReady,
+    revealVideoAfterPresentedFrame
+  ]);
 
   useEffect(() => {
     const video = viewerVideoRef.current;
@@ -1181,15 +1206,6 @@ export function MediaViewer({
             ref={attachViewerStage}
             tabIndex={-1}
           >
-            {!isMediaReady ? (
-              <div
-                className="viewer-loading"
-                role="status"
-                aria-label="Loading media"
-              >
-                <LoaderCircle />
-              </div>
-            ) : null}
             <div
               className={[
                 "viewer-media-frame",
@@ -1200,6 +1216,7 @@ export function MediaViewer({
                 .join(" ")}
               style={viewerMediaFrameStyle}
             >
+              {isMediaLoading && isOpen ? <MediaLoadingBar /> : null}
               {isControlledAnimation ? (
                 <ControlledAnimation
                   key={animationKey}
@@ -1239,32 +1256,39 @@ export function MediaViewer({
                 />
               ) : asset.mediaType === "image" ? (
                 <img
-                  key={asset.id}
-                  src={
-                    isAnimationCandidate &&
-                    capabilityState.capabilities?.kind !== "still"
-                      ? thumbnailUrl(asset)
-                      : imageDisplayUrl(asset)
-                  }
+                  key={viewerImageSource}
+                  src={viewerImageSource}
                   style={mediaStyle}
                   alt={asset.name}
                   width={asset.width ?? undefined}
                   height={asset.height ?? undefined}
                   onLoad={(event) => {
                     const image = event.currentTarget;
-                    if (
-                      activeAssetIdRef.current !== asset.id ||
-                      !image.isConnected
-                    )
-                      return;
-                    if (image.naturalWidth > 0 && image.naturalHeight > 0)
-                      setDecodedMediaSize({
-                        width: image.naturalWidth,
-                        height: image.naturalHeight
-                      });
-                    setReadyAssetId(asset.id);
+                    const markReady = () => {
+                      if (
+                        activeAssetIdRef.current !== asset.id ||
+                        !image.isConnected ||
+                        image.getAttribute("src") !== viewerImageSource
+                      )
+                        return;
+                      if (image.naturalWidth > 0 && image.naturalHeight > 0)
+                        setDecodedMediaSize({
+                          width: image.naturalWidth,
+                          height: image.naturalHeight
+                        });
+                      setReadyImageSource(viewerImageSource);
+                    };
+                    void image.decode().then(markReady, markReady);
                   }}
-                  onError={() => setReadyAssetId(asset.id)}
+                  onError={(event) => {
+                    if (
+                      activeAssetIdRef.current === asset.id &&
+                      event.currentTarget.isConnected &&
+                      event.currentTarget.getAttribute("src") ===
+                        viewerImageSource
+                    )
+                      setReadyImageSource(viewerImageSource);
+                  }}
                 />
               ) : (
                 <>
@@ -1400,6 +1424,13 @@ export function MediaViewer({
                           height: videoHeight
                         });
                       }
+                    }}
+                    onLoadedData={(event) => {
+                      if (presentedPlayback.isReady)
+                        revealVideoAfterPresentedFrame(
+                          event.currentTarget,
+                          asset.id
+                        );
                     }}
                     onPlaying={(event) => {
                       const systemControls =

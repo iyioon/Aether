@@ -612,7 +612,7 @@ test("removes failed video posters while the original media remains playable", a
     const viewerVideo = viewer.locator("video");
     await expectPlaying(viewerVideo);
     await expect(viewer.locator(".viewer-video-poster")).toHaveCount(0);
-    await expect(viewer.locator(".viewer-loading")).toHaveCount(0);
+    await expect(viewer.getByRole("progressbar")).toHaveCount(0);
     await expect(viewer.getByRole("slider")).toBeEnabled();
   } finally {
     mediaGate.release();
@@ -657,6 +657,9 @@ test("keeps healthy posters until a video frame arrives and discards a failed in
     await expectDecodedPoster(viewer.locator(".viewer-video-poster"));
     await expect(viewerVideo).toHaveJSProperty("readyState", 0);
     await expect(viewer.locator(".viewer-media-frame")).toHaveClass(/is-ready/);
+    await expect(
+      viewer.getByRole("progressbar", { name: "Loading media", exact: true })
+    ).toBeVisible();
     firstMedia.release();
     await expectPlaying(viewerVideo);
     await expect(viewer.locator(".viewer-media-frame")).toHaveClass(
@@ -678,7 +681,9 @@ test("keeps healthy posters until a video frame arrives and discards a failed in
       node.src = "data:image/jpeg;base64,AA==";
     });
     await expect(fallback).toHaveCount(0);
-    await expect(viewer.locator(".viewer-loading")).toBeVisible();
+    await expect(
+      viewer.getByRole("progressbar", { name: "Loading media", exact: true })
+    ).toBeVisible();
 
     secondPoster.release();
     const currentPoster = viewer.locator(".viewer-video-poster");
@@ -687,7 +692,9 @@ test("keeps healthy posters until a video frame arrives and discards a failed in
       "src",
       new RegExp(`/assets/${videoAssetIds[1]}/thumbnail`)
     );
-    await expect(viewer.locator(".viewer-loading")).toHaveCount(0);
+    await expect(
+      viewer.getByRole("progressbar", { name: "Loading media", exact: true })
+    ).toBeVisible();
     await expect(viewerVideo).toHaveJSProperty("readyState", 0);
     secondMedia.release();
     await expectPlaying(viewerVideo);
@@ -695,6 +702,7 @@ test("keeps healthy posters until a video frame arrives and discards a failed in
       /is-video-ready/
     );
     await expect(viewer.locator(".viewer-video-poster")).toHaveCount(0);
+    await expect(viewer.getByRole("progressbar")).toHaveCount(0);
   } finally {
     firstMedia.release();
     secondMedia.release();

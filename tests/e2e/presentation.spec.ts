@@ -856,6 +856,7 @@ test("retries animation preparation in Feed and preserves an editor draft throug
   browser
 }) => {
   const context = await browser.newContext({ storageState });
+  let atlasGate = loadingGate();
   try {
     const page = await context.newPage();
     const animation = fixture("sequence.webp");
@@ -865,6 +866,7 @@ test("retries animation preparation in Feed and preserves an editor draft throug
       `**/api/assets/${animation.id}/animation/atlases/*`,
       async (route) => {
         atlasReads += 1;
+        await atlasGate.promise;
         if (atlasReads === 1) {
           await route.fulfill({
             status: 503,
@@ -882,11 +884,18 @@ test("retries animation preparation in Feed and preserves an editor draft throug
       name: "Retry",
       exact: true
     });
+    await expectSlimMediaLoading(feedAnimation);
+    atlasGate.release();
     await expect(retry).toBeVisible();
+    await expect(feedAnimation.getByRole("progressbar")).toHaveCount(0);
     expect(atlasReads).toBe(1);
+    atlasGate = loadingGate();
     await retry.click();
+    await expectSlimMediaLoading(feedAnimation);
+    atlasGate.release();
     await expect(feedAnimation.locator("canvas")).toHaveCSS("opacity", "1");
     await expect(retry).toHaveCount(0);
+    await expect(feedAnimation.getByRole("progressbar")).toHaveCount(0);
     expect(atlasReads).toBe(2);
 
     let manifestReads = 0;
@@ -935,6 +944,7 @@ test("retries animation preparation in Feed and preserves an editor draft throug
     );
     expect(await page.locator("button button").count()).toBe(0);
   } finally {
+    atlasGate.release();
     await context.close();
   }
 });
@@ -1316,6 +1326,7 @@ test("retains a sharp, identically framed thumbnail until the original image dec
     const thumbnail = shell.locator(".media-image-thumbnail");
     const original = shell.locator(".media-image-original");
     await expect(shell).toHaveClass(/thumbnail-ready/);
+    await expectSlimMediaLoading(shell);
     await expect(thumbnail).toHaveCSS("filter", "none");
     await expect(thumbnail).toHaveCSS("opacity", "1");
     await expect(original).toHaveCSS("opacity", "0");
@@ -1337,8 +1348,64 @@ test("retains a sharp, identically framed thumbnail until the original image dec
     await expect(thumbnail).toHaveCSS("opacity", "0");
     await expect(original).toHaveCSS("transition-duration", "0s");
     await expect(original).toHaveAttribute("data-preview-source", "original");
+    await expect(shell.getByRole("progressbar")).toHaveCount(0);
   } finally {
     release();
+    await context.close();
+  }
+});
+
+test("keeps viewer loading until a still-image original replaces its decoded thumbnail", async ({
+  browser
+}) => {
+  const context = await browser.newContext({ storageState });
+  const capabilitiesGate = loadingGate();
+  const originalGate = loadingGate();
+  try {
+    const page = await context.newPage();
+    const asset = fixture("photo.png");
+    await setPresentation(page, asset, defaults);
+    await page.route(
+      `**/api/assets/${asset.id}/presentation-media`,
+      async (route) => {
+        await capabilitiesGate.promise;
+        await route.continue().catch(() => undefined);
+      }
+    );
+    await page.route(`**/api/assets/${asset.id}/media?*`, async (route) => {
+      await originalGate.promise;
+      await route.continue().catch(() => undefined);
+    });
+    await page.goto(
+      `${origin}/?folder=${encodeURIComponent(folderId)}&view=gallery&asset=${asset.id}`
+    );
+    const frame = page
+      .getByRole("dialog", { name: asset.name, exact: true })
+      .locator(".viewer-media-frame");
+    const image = frame.locator(":scope > img");
+    await expect(image).toHaveAttribute("src", /\/thumbnail\?/);
+    await expect
+      .poll(() =>
+        image.evaluate(
+          (node: HTMLImageElement) => node.complete && node.naturalWidth > 0
+        )
+      )
+      .toBe(true);
+    await expect(frame).toHaveClass(/is-ready/);
+    const loadingBounds = await expectSlimMediaLoading(frame);
+    capabilitiesGate.release();
+    await expect(image).toHaveAttribute("src", /\/media\?/);
+    await expect(frame).not.toHaveClass(/is-ready/);
+    await expectSlimMediaLoading(frame);
+    originalGate.release();
+    await expect(frame).toHaveClass(/is-ready/);
+    await expect(frame.getByRole("progressbar")).toHaveCount(0);
+    const readyBounds = (await frame.boundingBox())!;
+    for (const property of ["x", "y", "width", "height"] as const)
+      expect(readyBounds[property]).toBeCloseTo(loadingBounds[property], 0);
+  } finally {
+    capabilitiesGate.release();
+    originalGate.release();
     await context.close();
   }
 });
@@ -2263,6 +2330,259 @@ async function expectFrameAspect(viewer: Locator, ratio: number) {
       return bounds ? bounds.width / bounds.height : 0;
     })
     .toBeCloseTo(ratio, 2);
+}
+
+function loadingGate() {
+  let release!: () => void;
+  const promise = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { promise, release };
+}
+
+async function expectSlimMediaLoading(surface: Locator) {
+  const bar = surface.getByRole("progressbar", {
+    name: "Loading media",
+    exact: true
+  });
+  await expect(bar).toBeVisible();
+  await expect(bar).toHaveCSS("opacity", "1");
+  expect(await bar.getAttribute("aria-valuenow")).toBeNull();
+  const bounds = (await bar.boundingBox())!;
+  const frame = (await surface.boundingBox())!;
+  expect(bounds.height).toBeGreaterThan(0);
+  expect(bounds.height).toBeLessThanOrEqual(3);
+  expect(Math.abs(bounds.y - frame.y)).toBeLessThanOrEqual(1);
+  expect(bounds.x).toBeGreaterThanOrEqual(frame.x - 1);
+  expect(bounds.x + bounds.width).toBeLessThanOrEqual(
+    frame.x + frame.width + 1
+  );
+  await expect(bar).toHaveCSS("pointer-events", "none");
+  await expect(bar).toHaveCSS("position", "absolute");
+  return frame;
+}
+
+for (const surfaceName of ["gallery", "feed", "viewer"] as const) {
+  test(`shows a slim loading bar above the retained Bounce poster in ${surfaceName}`, async ({
+    browser
+  }, testInfo) => {
+    const phone = surfaceName === "feed";
+    const context = await browser.newContext({
+      storageState,
+      viewport: phone
+        ? { width: 393, height: 852 }
+        : { width: 1440, height: 980 },
+      hasTouch: phone,
+      isMobile: phone,
+      reducedMotion: phone ? "reduce" : "no-preference"
+    });
+    let capabilitiesGate = loadingGate();
+    let playbackGate = loadingGate();
+    let failCapabilities = phone;
+    let failPlayback = phone;
+    try {
+      const page = await context.newPage();
+      const asset = fixture("clip.mp4");
+      await setPresentation(page, asset, {
+        ...defaults,
+        highlight: { startMs: 300, endMs: 1300 },
+        loopMode: "bounce"
+      });
+      await page.route(
+        `**/api/assets/${asset.id}/presentation-media`,
+        async (route) => {
+          await capabilitiesGate.promise;
+          if (failCapabilities) {
+            await route.fulfill({
+              status: 503,
+              contentType: "application/json",
+              body: '{"error":"processing_busy"}'
+            });
+          } else await route.continue().catch(() => undefined);
+        }
+      );
+      await page.route(
+        `**/api/assets/${asset.id}/playback?*`,
+        async (route) => {
+          await playbackGate.promise;
+          if (failPlayback) {
+            await route.fulfill({
+              status: 503,
+              contentType: "application/json",
+              body: '{"error":"processing_busy"}'
+            });
+          } else await route.continue().catch(() => undefined);
+        }
+      );
+      if (surfaceName === "viewer") {
+        await page.goto(
+          `${origin}/?folder=${encodeURIComponent(folderId)}&view=gallery&sort=filename&highlight=1&asset=${asset.id}`
+        );
+      } else await open(page, surfaceName, "video", asset.name, true);
+      const viewer = page.getByRole("dialog", {
+        name: asset.name,
+        exact: true
+      });
+      const surface =
+        surfaceName === "viewer"
+          ? viewer.locator(".viewer-media-frame")
+          : page
+              .locator(
+                surfaceName === "feed"
+                  ? ".feed-item .media-video-shell"
+                  : ".media-tile .media-video-shell"
+              )
+              .first();
+      const poster = surface.locator(
+        surfaceName === "viewer"
+          ? ".viewer-video-poster"
+          : ".media-video-poster"
+      );
+      await expect
+        .poll(() =>
+          poster.evaluate(
+            (node: HTMLImageElement) => node.complete && node.naturalWidth > 0
+          )
+        )
+        .toBe(true);
+      await expect(poster).toHaveCSS("opacity", "1");
+      const loadingBounds = await expectSlimMediaLoading(surface);
+      if (surfaceName === "gallery") {
+        const card = page.locator(".media-tile").first();
+        await expect(card).toHaveCSS("overflow", "hidden");
+        expect(
+          await card.evaluate((node) =>
+            Number.parseFloat(getComputedStyle(node).borderTopLeftRadius)
+          )
+        ).toBeGreaterThan(0);
+      }
+      await expect(surface.locator("video")).not.toHaveAttribute("src");
+      capabilitiesGate.release();
+      if (phone) {
+        const retry = surface.getByRole("button", {
+          name: "Bounce unavailable. Retry",
+          exact: true
+        });
+        await expect(retry).toBeVisible();
+        await expect(surface.getByRole("progressbar")).toHaveCount(0);
+        await expect(surface.locator("video")).not.toHaveAttribute("src");
+        await expect(poster).toHaveCSS("opacity", "1");
+        failCapabilities = false;
+        capabilitiesGate = loadingGate();
+        await retry.tap();
+        await expectSlimMediaLoading(surface);
+        await expect(surface.locator("video")).not.toHaveAttribute("src");
+        capabilitiesGate.release();
+      }
+      await expect(surface.locator("video")).toHaveAttribute(
+        "src",
+        /playback\?variant=bounce/
+      );
+      await expectSlimMediaLoading(surface);
+      await expect(poster).toHaveCSS("opacity", "1");
+      if (surfaceName !== "viewer")
+        await page.screenshot({
+          path: testInfo.outputPath(`media-loading-${surfaceName}.png`)
+        });
+      if (phone) {
+        const bar = surface.getByRole("progressbar");
+        expect(
+          await bar.evaluate((element) =>
+            [element, ...element.querySelectorAll("*")].every((node) =>
+              [null, "::before", "::after"].every(
+                (pseudo) =>
+                  getComputedStyle(node, pseudo).animationName === "none"
+              )
+            )
+          )
+        ).toBe(true);
+        for (const hidden of [true, false]) {
+          await page.evaluate((hidden) => {
+            Object.defineProperty(document, "visibilityState", {
+              configurable: true,
+              value: hidden ? "hidden" : "visible"
+            });
+            Object.defineProperty(document, "hidden", {
+              configurable: true,
+              value: hidden
+            });
+            document.dispatchEvent(new Event("visibilitychange"));
+          }, hidden);
+          if (hidden) await expect(bar).toHaveCount(0);
+          else await expectSlimMediaLoading(surface);
+        }
+        playbackGate.release();
+        const retry = surface.getByRole("button", {
+          name: "Bounce unavailable. Retry",
+          exact: true
+        });
+        await expect(retry).toBeVisible();
+        await expect(bar).toHaveCount(0);
+        await expect(poster).toHaveCSS("opacity", "1");
+        failPlayback = false;
+        playbackGate = loadingGate();
+        await retry.tap();
+        await expectSlimMediaLoading(surface);
+      }
+      playbackGate.release();
+      await expect
+        .poll(() =>
+          surface
+            .locator("video")
+            .evaluate((video: HTMLVideoElement) => video.currentTime)
+        )
+        .toBeGreaterThan(0);
+      await expect(surface).toHaveClass(
+        surfaceName === "viewer" ? /is-video-ready/ : /(?:^| )ready(?: |$)/
+      );
+      await expect(surface.getByRole("progressbar")).toHaveCount(0);
+      const readyBounds = (await surface.boundingBox())!;
+      for (const property of ["x", "y", "width", "height"] as const)
+        expect(readyBounds[property]).toBeCloseTo(loadingBounds[property], 0);
+      if (surfaceName === "viewer") {
+        capabilitiesGate = loadingGate();
+        playbackGate = loadingGate();
+        await page.reload();
+        await expectSlimMediaLoading(surface);
+        await viewer.getByRole("button", { name: "Next media" }).click();
+        await expect(viewer).toHaveCount(0);
+        const nextViewer = page.locator(".viewer-dialog");
+        const nextName = await nextViewer.getByRole("heading").textContent();
+        expect(nextName).not.toBe(asset.name);
+        const nextFrame = nextViewer.locator(".viewer-media-frame");
+        await expect(nextFrame).toHaveClass(
+          (await nextFrame.locator("video").count())
+            ? /is-video-ready/
+            : /is-ready/
+        );
+        await expect(nextViewer.getByRole("progressbar")).toHaveCount(0);
+        const mediaSources = () =>
+          nextFrame
+            .locator("video, :scope > img")
+            .evaluateAll((nodes) =>
+              nodes.map((node) => node.getAttribute("src"))
+            );
+        const nextSources = await mediaSources();
+        capabilitiesGate.release();
+        playbackGate.release();
+        await page.evaluate(
+          () =>
+            new Promise<void>((resolve) =>
+              requestAnimationFrame(() =>
+                requestAnimationFrame(() => resolve())
+              )
+            )
+        );
+        await expect(nextViewer.getByRole("heading")).toHaveText(nextName!);
+        await expect(nextViewer.getByRole("progressbar")).toHaveCount(0);
+        expect(await mediaSources()).toEqual(nextSources);
+      }
+    } finally {
+      capabilitiesGate.release();
+      playbackGate.release();
+      await context.close();
+    }
+  });
 }
 
 test("falls back between lossless Bounce codecs when a reported decoder fails", async ({

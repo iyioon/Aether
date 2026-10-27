@@ -70,3 +70,47 @@
   border-radius: var(--radius);
   background: var(--popover);
 }
+.media-loading-bar[data-slot="progress"] {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 5;
+  height: 2px;
+  border-radius: 0;
+  background: rgb(0 0 0 / 40%);
+  pointer-events: none;
+  opacity: 0;
+  animation: media-loading-reveal 0s linear 160ms forwards;
+}
+
+.media-loading-bar [data-slot="progress-indicator"] {
+  width: 35%;
+  background: white;
+  transition: none;
+  animation: media-loading-travel 1.4s ease-in-out infinite;
+}
+
+@keyframes media-loading-reveal {
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes media-loading-travel {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(286%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .media-loading-bar[data-slot="progress"] {
+    opacity: 1;
+    animation: none;
+  }
+  .media-loading-bar [data-slot="progress-indicator"] {
+    width: 100%;
+    animation: none;
+  }
+}

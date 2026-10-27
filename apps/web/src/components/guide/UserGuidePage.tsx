@@ -154,6 +154,11 @@ export function UserGuidePage() {
                   this browser when you change it.
                 </p>
                 <p>
+                  A slim bar at the top of the media shows loading or
+                  preparation. The thumbnail stays visible until playback is
+                  ready, including while Bounce is being prepared.
+                </p>
+                <p>
                   On iPhone, Safari's Share menu → Add to Home Screen opens
                   Aether as a web app. It resumes your place when you return.
                   Native video fullscreen uses the iPhone's playback controls.

@@ -278,6 +278,7 @@
 }
 
 .media-image-shell {
+  position: relative;
   display: grid;
   overflow: hidden;
 }
@@ -318,6 +319,7 @@
 }
 
 .media-video-shell {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);

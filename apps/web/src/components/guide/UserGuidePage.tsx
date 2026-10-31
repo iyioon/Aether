@@ -262,9 +262,16 @@ export function UserGuidePage() {
                   playback or framing.
                 </p>
                 <p>
-                  First playback may take a moment to prepare. If another window
-                  saved changes first, reload its saved settings before saving
-                  again.
+                  Save closes the editor after confirmation. If saving fails,
+                  the message appears beside Save and your draft stays open.
+                  Retry checks for a completed save first. If another window
+                  saved first, reload its settings before saving again.
+                </p>
+                <p>
+                  Saving a new Bounce section or changing its range turns on
+                  Play highlights only to show the result. Framing and speed
+                  edits keep your view preference. First playback may need time
+                  to prepare.
                 </p>
               </div>
             </GuideSection>

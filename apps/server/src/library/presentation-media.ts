@@ -136,14 +136,20 @@ export async function getPresentationVideoBouncePlan(
 export async function getPresentationMediaCapabilities({
   db,
   config,
-  file
+  file,
+  includeSavedTimeline = true
 }: {
   db: AetherDatabase;
   config: AppConfig;
   file: ResolvedAssetFile;
+  includeSavedTimeline?: boolean;
 }): Promise<PresentationMediaCapabilities> {
   const presentation = presentationForFile(db, file);
-  if (file.asset.mediaType === "video" && presentation.loopMode === "bounce") {
+  if (
+    includeSavedTimeline &&
+    file.asset.mediaType === "video" &&
+    presentation.loopMode === "bounce"
+  ) {
     for (const codec of ["hevc", "h264"] as const) {
       const cached = await readBounceCache(
         db,
@@ -189,6 +195,7 @@ export async function getPresentationMediaCapabilities({
   if (
     media.kind === "video" &&
     media.videoBounce &&
+    includeSavedTimeline &&
     presentation.loopMode === "bounce"
   ) {
     const range = presentation.highlight ?? {

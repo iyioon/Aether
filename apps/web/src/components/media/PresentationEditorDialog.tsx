@@ -18,7 +18,11 @@ import {
 } from "../../api/client";
 import { Button } from "../ui/button";
 import { Dialog, DialogContent, DialogTitle } from "../ui/dialog";
-import { presentationSaveOutcome } from "./presentation-model";
+import {
+  getPresentationValues,
+  presentationSaveOutcome,
+  shouldEnableHighlightPlayback
+} from "./presentation-model";
 import type { AspectMode } from "../library-state";
 import { PresentationEditorFooter } from "./PresentationEditorFooter";
 import type { MediaPresentationEditorProps } from "./MediaPresentationEditor";
@@ -28,7 +32,7 @@ interface PresentationEditorDialogProps {
   initialAspect?: AspectMode;
   originalFit?: "contain" | "cover";
   onClose: () => void;
-  onSaved: (asset: AssetRecord) => void;
+  onSaved: (asset: AssetRecord, useSavedPlayback: boolean) => void;
 }
 
 function unavailableCapabilities(
@@ -124,12 +128,13 @@ export function PresentationEditorDialog({
 
   async function reconcile(values: PresentationValues, revision: number) {
     const current = await getAsset(asset.id);
-    uncertain.current = false;
     const outcome = presentationSaveOutcome(
       current.presentation,
       values,
       revision
     );
+    // An unchanged read can precede completion of the original server request.
+    if (outcome !== "unchanged") uncertain.current = false;
     if (outcome === "saved") return current;
     if (outcome === "conflict")
       throw new ApiError(409, "presentation_conflict");
@@ -146,7 +151,12 @@ export function PresentationEditorDialog({
         if (
           failure instanceof ApiError &&
           failure.status >= 400 &&
-          failure.status < 500
+          failure.status < 500 &&
+          !(
+            uncertain.current &&
+            failure.status === 409 &&
+            failure.code !== "source_changed"
+          )
         )
           throw failure;
         uncertain.current = true;
@@ -159,7 +169,22 @@ export function PresentationEditorDialog({
         if (!saved) throw failure;
       }
     }
-    if (active.current) onSaved(saved);
+    if (
+      saved.id !== asset.id ||
+      presentationSaveOutcome(saved.presentation, values, revision) !== "saved"
+    )
+      throw new ApiError(409, "presentation_conflict");
+    uncertain.current = false;
+    if (active.current) {
+      onSaved(
+        saved,
+        shouldEnableHighlightPlayback(
+          getPresentationValues(loaded?.asset.presentation),
+          getPresentationValues(saved.presentation)
+        )
+      );
+      onClose();
+    }
     return saved;
   }
 

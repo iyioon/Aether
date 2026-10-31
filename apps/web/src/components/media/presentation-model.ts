@@ -245,3 +245,17 @@ export function presentationSaveOutcome(
     ? "saved"
     : "conflict";
 }
+
+/** Explicit Bounce edits should reveal the section the user just saved. */
+export function shouldEnableHighlightPlayback(
+  previous: PresentationValues,
+  saved: PresentationValues
+): boolean {
+  return (
+    saved.loopMode === "bounce" &&
+    saved.highlight !== null &&
+    (previous.loopMode !== "bounce" ||
+      previous.highlight?.startMs !== saved.highlight.startMs ||
+      previous.highlight?.endMs !== saved.highlight.endMs)
+  );
+}

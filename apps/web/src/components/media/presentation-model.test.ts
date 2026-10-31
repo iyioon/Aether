@@ -8,6 +8,7 @@ import {
   presentationFramingForAspect,
   setPresentationFraming,
   presentationSaveOutcome,
+  shouldEnableHighlightPlayback,
   presentationValidationMessage,
   presentationValuesEqual,
   updatePresentationRange
@@ -96,6 +97,65 @@ describe("saved presentation drafts", () => {
     expect(
       presentationSaveOutcome({ ...current, revision: 0 }, desired, 1)
     ).toBe("conflict");
+  });
+
+  it("reveals the saved section when Bounce or its highlight changes explicitly", () => {
+    const before = {
+      ...defaultPresentationValues(),
+      highlight: { startMs: 500, endMs: 2000 }
+    };
+    const bounce = { ...before, loopMode: "bounce" as const };
+    expect(shouldEnableHighlightPlayback(before, bounce)).toBe(true);
+    expect(
+      shouldEnableHighlightPlayback(bounce, {
+        ...bounce,
+        highlight: { startMs: 600, endMs: 2000 }
+      })
+    ).toBe(true);
+    expect(
+      shouldEnableHighlightPlayback(bounce, {
+        ...bounce,
+        highlight: { startMs: 500, endMs: 2100 }
+      })
+    ).toBe(true);
+    expect(
+      shouldEnableHighlightPlayback({ ...bounce, highlight: null }, bounce)
+    ).toBe(true);
+  });
+
+  it("preserves viewing preferences after framing, speed, Repeat or full-source edits", () => {
+    const before = {
+      ...defaultPresentationValues(),
+      highlight: { startMs: 500, endMs: 2000 },
+      loopMode: "bounce" as const
+    };
+    for (const saved of [
+      before,
+      { ...before, zoom: 2 },
+      { ...before, focalX: 0.3 },
+      { ...before, playbackRate: 0.5 },
+      {
+        ...before,
+        aspectFraming: {
+          Square: { fit: "cover" as const, focalX: 0.3, focalY: 0.5, zoom: 2 }
+        }
+      },
+      { ...before, loopMode: "repeat" as const },
+      { ...before, highlight: null }
+    ])
+      expect(shouldEnableHighlightPlayback(before, saved)).toBe(false);
+    expect(
+      shouldEnableHighlightPlayback(defaultPresentationValues(), {
+        ...defaultPresentationValues(),
+        loopMode: "bounce"
+      })
+    ).toBe(false);
+    expect(
+      shouldEnableHighlightPlayback(defaultPresentationValues(), {
+        ...defaultPresentationValues(),
+        highlight: { startMs: 500, endMs: 2000 }
+      })
+    ).toBe(false);
   });
 
   it("preserves neutral Feed overrides as distinct from automatic framing in uncertain writes", () => {

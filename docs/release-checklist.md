@@ -149,8 +149,13 @@ Never test rebuild or wipe against the only copy of a real library database.
   without clearing it. Keep controls visible while the menu is open; check
   Escape, outside dismissal and focus return without closing the viewer.
 - Save from two tabs to check conflict/reload; interrupt a Save response and
-  verify retry cannot overwrite newer settings. Reset only playback or framing
-  and confirm other edits, scores, tags, favorites, navigation and Undo survive.
+  verify retry cannot overwrite newer settings. Also retry after the response
+  fails before the first write completes: a matching commit must close the editor
+  without another write. Save errors must stay visible beside Save on phones.
+  With highlights off, save a Bounce section and check immediate Bounce playback;
+  framing-only edits must preserve a deliberately disabled highlight preference.
+- Reset only playback or framing and confirm other edits, scores, tags,
+  favorites, navigation and Undo survive.
 - On an actual installed iPhone PWA, check editor header/footer and input keyboard
   in portrait/short landscape, slider handles with VoiceOver, pinch without page
   navigation, hidden Feed chrome, safe-area touch targets, pause through Home/

@@ -113,7 +113,8 @@ export function registerPresentationRoutes(
         const capabilities = await getPresentationMediaCapabilities({
           db,
           config,
-          file
+          file,
+          includeSavedTimeline: false
         });
         const duration = capabilities.durationMs;
         if (values.loopMode === "bounce" && capabilities.bounceUnavailable)
@@ -155,7 +156,9 @@ export function registerPresentationRoutes(
       if (
         !fresh ||
         fresh.mtimeMs !== file.mtimeMs ||
-        fresh.sizeBytes !== file.sizeBytes
+        fresh.sizeBytes !== file.sizeBytes ||
+        fresh.device !== file.device ||
+        fresh.inode !== file.inode
       ) {
         return reply.code(409).send({ error: "source_changed" });
       }
@@ -181,7 +184,6 @@ export function registerPresentationRoutes(
         updatedAt: new Date().toISOString()
       });
       if (!saved) return reply.code(404).send({ error: "asset_not_indexed" });
-      const asset = getAsset(db, assetId);
       if (obsoleteFiles.length > 0) {
         try {
           await removePresentationDerivativeFiles(
@@ -192,6 +194,8 @@ export function registerPresentationRoutes(
           request.log.warn("Presentation cache cleanup could not finish");
         }
       }
+      const asset = getAsset(db, assetId);
+      if (!asset) return reply.code(404).send({ error: "asset_not_indexed" });
       return { asset };
     } catch (error) {
       if (error instanceof PresentationConflictError) {

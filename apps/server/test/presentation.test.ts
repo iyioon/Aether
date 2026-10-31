@@ -5,6 +5,7 @@ import {
   mkdtemp,
   readFile,
   rm,
+  rename,
   symlink,
   stat,
   utimes,
@@ -44,6 +45,9 @@ import {
   updateAssetScore
 } from "../src/library/repository.js";
 import { scanLibrary } from "../src/library/scanner.js";
+import * as presentationMedia from "../src/library/presentation-media.js";
+import * as derivativeCache from "../src/library/derivative-cache.js";
+import * as processing from "../src/library/video-processing.js";
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:fs/promises")>();
@@ -93,6 +97,7 @@ describe("saved media presentation", () => {
   });
   afterEach(async () => {
     await app.close();
+    vi.restoreAllMocks();
     db.close();
     await rm(cwd, { recursive: true, force: true });
   });
@@ -391,6 +396,153 @@ describe("saved media presentation", () => {
       loopMode: "bounce"
     });
   });
+
+  it("validates the submitted Bounce range independently of an invalid previous range", async () => {
+    const asset = await video("ranges.mp4");
+    const first = await put(asset.id, {
+      ...defaultPresentationValues(),
+      expectedRevision: 0,
+      highlight: { startMs: 0, endMs: 1000 },
+      loopMode: "bounce"
+    });
+    expect(first.statusCode).toBe(200);
+    await app.close();
+    db.close();
+    db = openDatabase(config.configDir);
+    app = await buildApp({ config, db, logger: false });
+    const original = processing.runMediaCommand;
+    const command = vi
+      .spyOn(processing, "runMediaCommand")
+      .mockImplementation(async (name, args, ...limits) => {
+        if (
+          name === "ffprobe" &&
+          args.includes("-show_frames") &&
+          args.includes("0%3")
+        )
+          throw new Error("The previous section cannot be decoded.");
+        return original(name, args, ...limits);
+      });
+    const response = await put(asset.id, {
+      ...defaultPresentationValues(),
+      expectedRevision: 1,
+      highlight: { startMs: 1000, endMs: 2000 },
+      loopMode: "bounce"
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().asset.presentation).toMatchObject({
+      revision: 2,
+      loopMode: "bounce",
+      highlight: { startMs: 1000, endMs: 2000 }
+    });
+    expect(
+      command.mock.calls.some(
+        ([name, args]) => name === "ffprobe" && args.includes("0%3")
+      )
+    ).toBe(false);
+    expect(
+      command.mock.calls.some(
+        ([name, args]) =>
+          name === "ffprobe" &&
+          args.includes("-show_frames") &&
+          args.includes("0%4")
+      )
+    ).toBe(true);
+  });
+
+  it("rejects an atomic source replacement during timing validation even when size and timestamp match", async () => {
+    const asset = await video("replace.mp4");
+    const source = path.join(cwd, "media", "replace.mp4");
+    const before = await stat(source);
+    const seconds = Math.floor(before.mtimeMs) / 1000;
+    await utimes(source, seconds, seconds);
+    await scanLibrary(db, config.mediaRoots);
+    const indexed = await stat(source, { bigint: true });
+    const original = presentationMedia.getPresentationMediaCapabilities;
+    vi.spyOn(
+      presentationMedia,
+      "getPresentationMediaCapabilities"
+    ).mockImplementationOnce(async (input) => {
+      const capabilities = await original(input);
+      const bytes = Buffer.from(await readFile(source));
+      bytes[bytes.length - 1] = bytes[bytes.length - 1]! ^ 1;
+      const replacement = path.join(cwd, "replacement.mp4");
+      await writeFile(replacement, bytes);
+      await utimes(replacement, seconds, seconds);
+      await rename(replacement, source);
+      const replaced = await stat(source, { bigint: true });
+      expect(replaced.size).toBe(indexed.size);
+      expect(replaced.mtimeNs / 1_000_000n).toBe(indexed.mtimeNs / 1_000_000n);
+      expect(replaced.ino).not.toBe(indexed.ino);
+      return capabilities;
+    });
+    const response = await put(asset.id, {
+      ...defaultPresentationValues(),
+      expectedRevision: 0,
+      highlight: { startMs: 100, endMs: 500 }
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toEqual({ error: "source_changed" });
+    expect(getAsset(db, asset.id)?.presentation.revision).toBe(0);
+  });
+
+  it.each(["failed", "superseded"] as const)(
+    "returns the authoritative committed record after %s cache cleanup",
+    async (outcome) => {
+      const asset = await image("one.jpg");
+      const source = path.join(cwd, "media", "one.jpg");
+      const originalBytes = await readFile(source);
+      const directory = path.join(config.cacheDir, "presentations", asset.id);
+      await mkdir(directory, { recursive: true });
+      const cachedPath = path.join(directory, "old.mp4");
+      await writeFile(cachedPath, "obsolete");
+      upsertDerivative(db, {
+        id: "obsolete-presentation",
+        assetId: asset.id,
+        kind: `presentation:bounce-mp4:${"0".repeat(32)}:0`,
+        width: 0,
+        height: 0,
+        path: cachedPath,
+        sourceMtimeMs: asset.mtimeMs,
+        status: "ready",
+        error: null,
+        createdAt: now()
+      });
+      const original = derivativeCache.removePresentationDerivativeFiles;
+      vi.spyOn(
+        derivativeCache,
+        "removePresentationDerivativeFiles"
+      ).mockImplementationOnce(async (...args) => {
+        await Promise.resolve();
+        if (outcome === "failed")
+          throw new Error("Cache removal failed for a private path.");
+        expect(
+          saveAssetPresentation(db, {
+            assetId: asset.id,
+            expectedRevision: 1,
+            values: { ...defaultPresentationValues(), zoom: 3 },
+            sourceMtimeMs: asset.mtimeMs,
+            sourceSizeBytes: asset.sizeBytes,
+            updatedAt: now()
+          })
+        ).toBe(true);
+        return original(...args);
+      });
+      const response = await put(asset.id, {
+        ...defaultPresentationValues(),
+        expectedRevision: 0,
+        zoom: 2
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().asset).toEqual(getAsset(db, asset.id));
+      expect(response.json().asset.presentation).toMatchObject(
+        outcome === "failed"
+          ? { revision: 1, zoom: 2 }
+          : { revision: 2, zoom: 3 }
+      );
+      expect(response.body).not.toContain("private path");
+      expect(await readFile(source)).toEqual(originalBytes);
+    }
+  );
 
   it("bounds bounce duration and accepts a thirty-second section of a longer video", async () => {
     const asset = await video("long.mp4", 31);

@@ -285,7 +285,10 @@ through safe moves or timestamp changes; a content replacement clears them.
 ### Processing And Delivery
 
 `routes-presentation.ts` validates edits and verifies the resolved source before
-and after capability probing. `presentation-media.ts` verifies still/video/
+and after capability probing, including device/inode identity. Save validation
+checks the submitted range independently of any previously saved Bounce range.
+The returned record is hydrated after obsolete cache cleanup so a delayed
+response includes intervening changes. `presentation-media.ts` verifies still/video/
 animation capabilities, rather than treating an extension as proof of animation.
 `presentation-video.ts` generates complete highlight or silent bounce MP4s and
 selected-start posters. `presentation-animation.ts` produces composed, alpha-
@@ -375,8 +378,14 @@ direct framing and reversible edits follow [Apple Photos](https://support.apple.
 `presentation-geometry.ts` defines the common Fit/Fill, focal point and zoom
 mapping. Indexed photo and editor dimensions include EXIF orientation to match
 the browser's display. Delayed curation responses preserve newer presentation revisions.
-Unknown save outcomes are reconciled by reading the current record before retry;
-conflicts require an explicit reload rather than silently replacing a draft.
+Unknown save outcomes are reconciled by reading the current record before retry.
+An unchanged read retains uncertainty because the original request may still be
+processing. A retry conflict also checks for the matching committed settings;
+different newer settings require an explicit reload. Successful responses must
+match the requested asset, values and a newer revision before publication and
+closing. Save errors remain in the fixed editor footer with the draft intact.
+An explicit highlighted Bounce or Bounce range edit enables highlight playback
+after confirmation; framing-only and speed-only saves preserve the view choice.
 
 ### Playback And Limits
 

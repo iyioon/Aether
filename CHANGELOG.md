@@ -50,6 +50,9 @@ Notable changes to Aether are recorded here.
 
 ### Fixed
 
+- Show newly saved Bounce sections immediately, preserve the view preference
+  for framing-only edits, and keep save errors visible beside Save. Reconcile
+  delayed saves before retrying and close the editor only after confirmation.
 - Prepare Bounce with FFmpeg 9 using the current filter-file option while
   retaining older FFmpeg compatibility.
 - Enable Bounce for supported full-range SDR MOV recordings while preserving

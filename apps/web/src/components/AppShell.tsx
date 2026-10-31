@@ -995,9 +995,10 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
             initialAspect={aspect}
             originalFit={view === "compare" ? "contain" : "cover"}
             onClose={() => setEditingAsset(null)}
-            onSaved={(updated) => {
+            onSaved={(updated, useSavedPlayback) => {
               handleAssetUpdated(updated);
               setComparisonAssetUpdate(updated);
+              if (useSavedPlayback) setHighlightsOnly(true);
             }}
           />
         ) : null}

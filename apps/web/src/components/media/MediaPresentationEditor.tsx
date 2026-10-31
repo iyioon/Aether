@@ -5,7 +5,6 @@ import {
   type PresentationMediaCapabilities,
   type PresentationValues
 } from "../../api/client";
-import { Button } from "../ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { galleryAspectRatio } from "../gallery/gallery-layout";
 import { PresentationFrame } from "./PresentationFrame";
@@ -245,9 +244,6 @@ export function MediaPresentationEditor({
     setError(null);
     try {
       await onSave(draft, revision);
-      if (activeRef.current) {
-        onClose();
-      }
     } catch (failure) {
       if (activeRef.current) {
         setError(saveError(failure));
@@ -418,37 +414,23 @@ export function MediaPresentationEditor({
               Playback editing is unavailable for this file.
             </p>
           ) : null}
-          {invalidFields.start || invalidFields.end ? (
-            <p className="media-editor-error" role="alert">
-              Enter a valid time within the selected range.
-            </p>
-          ) : null}
-          {validation ? (
-            <p className="media-editor-error" role="alert">
-              {validation}
-            </p>
-          ) : null}
-          {error ? (
-            <div className="media-editor-error" role="alert">
-              <p>{error.message}</p>
-              {error.conflict && !error.sourceChanged && onReload ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={pending !== null}
-                  onClick={reload}
-                >
-                  Reload saved settings
-                </Button>
-              ) : null}
-            </div>
-          ) : null}
         </div>
       </div>
       <PresentationEditorFooter
         pending={pending}
         canReset={!disabled && canReset}
         canSave={canSave}
+        message={
+          error?.message ??
+          (invalidFields.start || invalidFields.end
+            ? "Enter a valid time within the selected range."
+            : validation)
+        }
+        onReload={
+          error?.conflict && !error.sourceChanged && onReload
+            ? () => void reload()
+            : undefined
+        }
         onClose={onClose}
         onSave={() => void save()}
         onReset={() => {

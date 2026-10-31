@@ -94,8 +94,10 @@ viewer toolbar and below the Feed heart.
 
 The editor fills the screen. **Save** applies the draft, **Cancel** discards it,
 and **Reset** restores draft defaults only after Save. Opening the editor does
-not change saved settings. If another window saves first, reload its saved
-settings before trying again.
+not change saved settings. The editor closes after the server confirms the save.
+If saving fails, the message stays beside Save and your draft remains available.
+Retry checks whether an interrupted save completed before sending it again.
+If another window saves first, reload its saved settings before trying again.
 
 ### Playback
 
@@ -116,6 +118,9 @@ Turn on **Play highlights only** in View options to use saved sections in
 Gallery, Feed, Comparison and the viewer. With it off, an item with a highlight
 plays its full source in Repeat. Bounce without a highlight applies to the full
 item. The playback bar identifies the active loop and shows source times.
+Saving a new Bounce section turns on **Play highlights only** so you can see
+the result immediately. Changing that section's range does the same. Framing
+and speed changes keep your current view preference.
 
 Repeat highlights use the original video in Feed, Comparison and the viewer.
 If the browser cannot play it, Aether prepares a compatible section. Highlights

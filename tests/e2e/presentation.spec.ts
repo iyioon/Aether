@@ -839,6 +839,187 @@ test("saves and cancels framing and keeps the comparison pair while changing its
   }
 });
 
+for (const phone of [false, true]) {
+  const view = phone ? "feed" : "gallery";
+  test(`shows a saved Bounce immediately in ${view} and preserves full-source playback for framing edits`, async ({
+    browser
+  }) => {
+    const context = await browser.newContext({
+      storageState,
+      reducedMotion: "reduce",
+      ...(phone
+        ? {
+            viewport: { width: 393, height: 852 },
+            hasTouch: true,
+            isMobile: true
+          }
+        : {})
+    });
+    try {
+      const page = await context.newPage();
+      const asset = fixture("clip.mp4");
+      await setPresentation(page, asset, defaults);
+      await open(page, view, "video", asset.name);
+      const viewer = page.getByRole("dialog", {
+        name: asset.name,
+        exact: true
+      });
+      const edit = async () => {
+        if (phone)
+          await page
+            .getByRole("button", { name: `Edit ${asset.name}`, exact: true })
+            .tap();
+        else await openGalleryEditor(page, asset);
+      };
+      await edit();
+      const editor = page.getByRole("dialog", {
+        name: "Edit media",
+        exact: true
+      });
+      await editor
+        .getByRole("textbox", { name: "Start time", exact: true })
+        .fill("0.5");
+      await editor
+        .getByRole("textbox", { name: "End time", exact: true })
+        .fill("2");
+      await editor.getByRole("combobox", { name: "Loop", exact: true }).click();
+      await page.getByRole("option", { name: "Bounce", exact: true }).click();
+      await editor.getByRole("button", { name: "Save", exact: true }).click();
+      await expect(editor).toHaveCount(0);
+      const media = phone
+        ? page.locator(".feed-item video").first()
+        : viewer.locator("video");
+      await expect(media).toHaveAttribute("src", /playback\?variant=bounce/);
+      await expect
+        .poll(() => new URL(page.url()).searchParams.get("highlight"))
+        .toBe("1");
+      await edit();
+      await expect(
+        editor.getByRole("combobox", { name: "Loop", exact: true })
+      ).toHaveText("Bounce");
+      await editor.getByRole("button", { name: "Cancel", exact: true }).click();
+      if (phone) {
+        await page.getByRole("button", { name: /^View options/ }).tap();
+        const options = page.getByRole("dialog", {
+          name: "View options",
+          exact: true
+        });
+        await options
+          .getByRole("checkbox", { name: "Play highlights only", exact: true })
+          .uncheck();
+        await options
+          .getByRole("button", { name: "Close view options", exact: true })
+          .tap();
+      } else await setViewerHighlights(page, viewer, false);
+      await expect(media).toHaveAttribute("src", /\/media(?:\?|$)/);
+      await edit();
+      await editor.getByRole("tab", { name: "Framing", exact: true }).click();
+      await editor
+        .getByRole("slider", { name: "Media zoom", exact: true })
+        .press("ArrowRight");
+      await editor.getByRole("button", { name: "Save", exact: true }).click();
+      await expect(editor).toHaveCount(0);
+      await expect(media).toHaveAttribute("src", /\/media(?:\?|$)/);
+      expect(new URL(page.url()).searchParams.get("highlight")).not.toBe("1");
+      expect((await getAsset(page, asset.id)).presentation).toMatchObject({
+        loopMode: "bounce",
+        highlight: { startMs: 500, endMs: 2000 }
+      });
+    } finally {
+      await context.close();
+    }
+  });
+}
+
+for (const viewport of [
+  { width: 1440, height: 980 },
+  { width: 320, height: 568 }
+]) {
+  test(`keeps save failures and retry beside Save at ${viewport.width}px`, async ({
+    browser
+  }, testInfo) => {
+    const context = await browser.newContext({
+      storageState,
+      viewport,
+      ...(viewport.width < 768 ? { isMobile: true, hasTouch: true } : {})
+    });
+    const gate = loadingGate();
+    try {
+      const page = await context.newPage();
+      const asset = fixture("photo.png");
+      await setPresentation(page, asset, defaults);
+      await open(page, "gallery", "image", asset.name);
+      await openGalleryEditor(page, asset);
+      const editor = page.getByRole("dialog", {
+        name: "Edit media",
+        exact: true
+      });
+      const zoom = editor.getByRole("slider", {
+        name: "Media zoom",
+        exact: true
+      });
+      await zoom.press("ArrowRight");
+      let fail = true;
+      await page.route(
+        `**/api/assets/${asset.id}/presentation`,
+        async (route) => {
+          if (route.request().method() !== "PUT" || !fail) {
+            await route.continue();
+            return;
+          }
+          await gate.promise;
+          await route.fulfill({
+            status: 503,
+            contentType: "application/json",
+            body: JSON.stringify({ error: "presentation_save_failed" })
+          });
+        }
+      );
+      await editor.getByRole("button", { name: "Save", exact: true }).click();
+      await expect(
+        editor.getByRole("button", { name: "Saving…", exact: true })
+      ).toBeDisabled();
+      await expect(
+        editor.getByRole("button", { name: "Cancel", exact: true })
+      ).toBeDisabled();
+      await page.keyboard.press("Escape");
+      await expect(editor).toBeVisible();
+      gate.release();
+      const alert = editor.getByRole("alert");
+      await expect(alert).toHaveText("Could not save these edits. Try again.");
+      await expect(alert).toBeInViewport({ ratio: 1 });
+      await expect(editor.locator(".media-editor-footer")).toBeInViewport({
+        ratio: 1
+      });
+      expect(
+        await editor.locator(".media-editor-footer").getByRole("alert").count()
+      ).toBe(1);
+      await expect(zoom).toHaveAttribute("aria-valuenow", "1.01");
+      await expect(
+        editor.getByRole("button", { name: "Save", exact: true })
+      ).toBeEnabled();
+      if (viewport.width < 768) {
+        await page.setViewportSize({ width: 568, height: 320 });
+        await expect(alert).toBeInViewport({ ratio: 1 });
+        await expect(editor.locator(".media-editor-footer")).toBeInViewport({
+          ratio: 1
+        });
+      }
+      await page.screenshot({ path: testInfo.outputPath("save-error.png") });
+      fail = false;
+      await editor.getByRole("button", { name: "Save", exact: true }).click();
+      await expect(editor).toHaveCount(0);
+      expect(
+        (await getAsset(page, asset.id)).presentation?.aspectFraming.Square
+          ?.zoom
+      ).toBe(1.01);
+    } finally {
+      gate.release();
+      await context.close();
+    }
+  });
+}
+
 test("preserves the draft after a concurrent edit and reloads explicitly before saving", async ({
   browser
 }) => {
@@ -1088,6 +1269,237 @@ test("reconciles a committed save after its response is lost without issuing ano
     await context.close();
   }
 });
+
+test("reconciles a delayed commit on retry after a response is lost before saving", async ({
+  browser
+}) => {
+  const context = await browser.newContext({ storageState });
+  try {
+    const page = await context.newPage();
+    const photo = fixture("photo.png");
+    await setPresentation(page, photo, defaults);
+    const before = await getAsset(page, photo.id);
+    await open(page, "gallery", "image", photo.name);
+    await openGalleryEditor(page, photo);
+    const editor = page.getByRole("dialog", {
+      name: "Edit media",
+      exact: true
+    });
+    const zoom = editor.getByRole("slider", {
+      name: "Media zoom",
+      exact: true
+    });
+    await zoom.press("ArrowRight");
+    let writes = 0;
+    let delayedWrite:
+      (PresentationValues & { expectedRevision: number }) | undefined;
+    await page.route(
+      `**/api/assets/${photo.id}/presentation`,
+      async (route) => {
+        if (route.request().method() !== "PUT") {
+          await route.continue();
+          return;
+        }
+        writes += 1;
+        if (writes === 1) {
+          delayedWrite = route.request().postDataJSON();
+          await route.abort("connectionreset");
+        } else await route.continue();
+      }
+    );
+    const save = editor.getByRole("button", { name: "Save", exact: true });
+    await save.click();
+    await expect(editor.getByRole("alert")).toContainText(
+      "Could not save these edits. Check your connection and try again."
+    );
+    await expect(save).toBeEnabled();
+    await expect(zoom).toHaveAttribute("aria-valuenow", "1.01");
+    expect((await getAsset(page, photo.id)).presentation?.revision).toBe(
+      before.presentation!.revision
+    );
+    expect(delayedWrite).toBeDefined();
+    const committed = await page.request.put(
+      `${origin}/api/assets/${photo.id}/presentation`,
+      { headers: await csrf(page), data: delayedWrite }
+    );
+    expect(committed.ok()).toBe(true);
+    let readbacks = 0;
+    await page.route(`**/api/assets/${photo.id}`, async (route) => {
+      readbacks += 1;
+      await route.continue();
+    });
+    await save.click();
+    await expect(editor).toHaveCount(0);
+    expect(readbacks).toBeGreaterThan(0);
+    expect(writes).toBe(1);
+    expect((await getAsset(page, photo.id)).presentation).toMatchObject({
+      aspectFraming: { Square: { zoom: 1.01 } },
+      revision: before.presentation!.revision + 1
+    });
+  } finally {
+    await context.close();
+  }
+});
+
+test("recognizes its earlier commit when an uncertain retry receives a conflict", async ({
+  browser
+}) => {
+  const context = await browser.newContext({ storageState });
+  try {
+    const page = await context.newPage();
+    const photo = fixture("photo.png");
+    await setPresentation(page, photo, defaults);
+    const before = await getAsset(page, photo.id);
+    await open(page, "gallery", "image", photo.name);
+    await openGalleryEditor(page, photo);
+    const editor = page.getByRole("dialog", {
+      name: "Edit media",
+      exact: true
+    });
+    await editor
+      .getByRole("slider", { name: "Media zoom", exact: true })
+      .press("ArrowRight");
+    let writes = 0;
+    let delayedWrite:
+      (PresentationValues & { expectedRevision: number }) | undefined;
+    await page.route(
+      `**/api/assets/${photo.id}/presentation`,
+      async (route) => {
+        if (route.request().method() !== "PUT") {
+          await route.continue();
+          return;
+        }
+        writes += 1;
+        if (writes === 1) {
+          delayedWrite = route.request().postDataJSON();
+          await route.abort("connectionreset");
+        } else await route.continue();
+      }
+    );
+    const save = editor.getByRole("button", { name: "Save", exact: true });
+    await save.click();
+    await expect(editor.getByRole("alert")).toContainText(
+      "Could not save these edits. Check your connection and try again."
+    );
+    await expect(save).toBeEnabled();
+    expect(delayedWrite).toBeDefined();
+    let readbacks = 0;
+    await page.route(`**/api/assets/${photo.id}`, async (route) => {
+      readbacks += 1;
+      if (readbacks !== 1) {
+        await route.continue();
+        return;
+      }
+      const unchanged = await route.fetch();
+      expect(unchanged.ok()).toBe(true);
+      const committed = await page.request.put(
+        `${origin}/api/assets/${photo.id}/presentation`,
+        { headers: await csrf(page), data: delayedWrite }
+      );
+      expect(committed.ok()).toBe(true);
+      // The original write completes after this retry's read was taken.
+      await route.fulfill({ response: unchanged });
+    });
+    const conflict = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PUT" &&
+        response.url().endsWith(`/api/assets/${photo.id}/presentation`) &&
+        response.status() === 409
+    );
+    await save.click();
+    expect((await conflict).status()).toBe(409);
+    await expect(editor).toHaveCount(0);
+    expect(readbacks).toBeGreaterThanOrEqual(2);
+    expect(writes).toBe(2);
+    expect((await getAsset(page, photo.id)).presentation).toMatchObject({
+      aspectFraming: { Square: { zoom: 1.01 } },
+      revision: before.presentation!.revision + 1
+    });
+  } finally {
+    await context.close();
+  }
+});
+
+for (const outcome of ["stale", "conflicting"] as const) {
+  test(`retains the draft after a ${outcome} successful save response`, async ({
+    browser
+  }) => {
+    const context = await browser.newContext({ storageState });
+    try {
+      const page = await context.newPage();
+      const photo = fixture("photo.png");
+      await setPresentation(page, photo, defaults);
+      const before = await getAsset(page, photo.id);
+      await open(page, "gallery", "image", photo.name);
+      await openGalleryEditor(page, photo);
+      const editor = page.getByRole("dialog", {
+        name: "Edit media",
+        exact: true
+      });
+      const zoom = editor.getByRole("slider", {
+        name: "Media zoom",
+        exact: true
+      });
+      await zoom.press("ArrowRight");
+      await page.route(
+        `**/api/assets/${photo.id}/presentation`,
+        async (route) => {
+          await route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify({
+              asset:
+                outcome === "stale"
+                  ? before
+                  : {
+                      ...before,
+                      presentation: {
+                        ...before.presentation,
+                        revision: before.presentation!.revision + 1,
+                        aspectFraming: {
+                          Square: {
+                            zoom: 1.8,
+                            fit: "cover",
+                            focalX: 0.5,
+                            focalY: 0.5
+                          }
+                        }
+                      }
+                    }
+            })
+          });
+        }
+      );
+      await editor.getByRole("button", { name: "Save", exact: true }).click();
+      await expect(editor.getByRole("alert")).toContainText(
+        "These settings changed in another window. Reload them before saving."
+      );
+      await expect(editor).toBeVisible();
+      await expect(zoom).toHaveAttribute("aria-valuenow", "1.01");
+      await expect(
+        editor.getByRole("button", { name: "Save", exact: true })
+      ).toBeDisabled();
+      await expect(
+        editor.getByRole("button", {
+          name: "Reload saved settings",
+          exact: true
+        })
+      ).toBeVisible();
+      const cancel = editor.getByRole("button", {
+        name: "Cancel",
+        exact: true
+      });
+      await expect(cancel).toBeEnabled();
+      expect((await getAsset(page, photo.id)).presentation).toEqual(
+        before.presentation
+      );
+      await cancel.click();
+      await expect(editor).toHaveCount(0);
+    } finally {
+      await context.close();
+    }
+  });
+}
 
 test("edits playback from mobile Feed and keeps safe controls together through highlight and bounce playback", async ({
   browser,

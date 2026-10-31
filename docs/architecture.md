@@ -210,6 +210,14 @@ controls share one visibility state. Tapping
 the media hides or reveals them together without changing playback; hidden
 controls leave the pointer, keyboard, and accessibility navigation paths.
 
+Only the active Feed video attaches a native source and requests automatic
+buffering. Once it has decoded future data and about two seconds buffered,
+Feed may prepare the next item's capabilities and a low-priority 512 KiB byte
+range. The request shares the bounded range reader with Comparison. Waiting,
+seeking, pause, hidden pages, offline state and constrained connections stop
+speculation; a new active item cancels obsolete work. No private prewarm state
+is persisted outside the existing authenticated browser cache.
+
 Poster failures are independent of video playback. Failed decorative images
 are removed, and valid posters remain until the first video frame is presented.
 The viewer never inherits a previous item's poster during navigation.
@@ -235,6 +243,9 @@ presented video-frame and painted animation readiness, independently of poster
 readiness or speculative comparison preloading. The bar is indeterminate;
 server preparation does not report a percentage. Hidden or inactive media and
 terminal errors stop the indicator, and reduced-motion mode uses a static bar.
+An event-driven buffering observer also shows the bar when native playback runs
+out of future data. It retains the painted frame, clears on recovery or pause,
+and never reloads, seeks or restarts the video to handle a wait.
 
 Explicit pause intent is separate from temporary hold, background, and panel
 pauses. Lifecycle events pause media synchronously; foreground autoplay is
@@ -294,6 +305,14 @@ are also bounded and share two processing slots. Completed replacements remove
 only their superseded registered files. No private response enters the service
 worker shell cache. Source downloads remain unchanged. Reset/delete/scan cache
 cleanup includes presentation files while preserving unrelated current jobs.
+
+Bounce playback checks for an existing rendition before probing source frames.
+Newly prepared Bounce files include a small registered timing/capability sidecar
+under the same private cache directory. Source and rendition filesystem
+fingerprints, current presentation keys, bounded metadata and safe file access
+must agree before it can replace probing after a restart. Missing or invalid
+metadata falls back to normal analysis; no source paths enter the response.
+The sidecar follows the rendition's reset, replacement and removal lifecycle.
 
 ### Editor And Framing
 

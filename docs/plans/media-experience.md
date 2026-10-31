@@ -1,7 +1,7 @@
 # Media Playback And Presentation Plan
 
 Status: Presentation, lossless Bounce and HEIC implemented; automated local, browser and container checks verified. Device acceptance is tracked below.\
-Reviewed: 2026-10-27.
+Reviewed: 2026-10-31.
 
 ## Outcome And Scope
 
@@ -200,34 +200,36 @@ H.264 profile guidance; reported HEVC support still requires device testing.
 
 ### Bounce startup performance
 
-Status: Deferred, optional. Revisit if preparation delays interrupt browsing.
+Status: Cache reuse and bounded Feed preparation implemented. Preparation after
+Save remains deferred.
 
 Currently, Save validates the selected section and stores presentation settings.
 The first playback request generates the lossless Bounce video and saves it in
-the managed cache. Current files survive server restarts and are reused, but
-source probing and frame-timeline analysis run before the file-cache check.
-After a restart or an in-memory cache eviction, this can delay an existing
-Bounce. HEVC and H.264 have separate files; a new browser codec may require its
-own first preparation. Large lossless files also take time to transfer and decode.
+the managed cache. Current files survive server restarts. Playback now checks
+the cache before source-frame analysis; newly prepared files also retain bounded
+timing/capability metadata for safe reuse after restart. Source identity, edit
+keys and verified file access still apply. Missing metadata uses normal analysis.
 
-Implement in this order:
+Feed gives the current video priority and prepares at most 512 KiB of the next
+video after the current one has buffered ahead. Preparation stops for buffering,
+pause, hidden pages or constrained connections. Inactive Feed videos do not
+download complete sources. The shared loading bar also indicates native
+buffering while keeping the current frame visible.
 
-1. Reuse current cached playback before expensive frame analysis. Retain source
-   identity, rendition-key, path and file-descriptor validation; cache reuse must
-   never serve replaced media or stale edits. Check the capability path too, so
-   it does not repeat that analysis before playback can begin.
-2. Start bounded server preparation after a successful Bounce save, sharing jobs
-   with playback requests. Saving settings and finishing preparation must remain
-   distinct outcomes: preparation failure must not undo saved edits, and readiness
-   requires atomic publication. Continue after browser closure, reconcile pending
-   work against current settings after server interruption, and discard obsolete
-   work after source, range or reset changes. Let the viewing client select a
-   supported codec and retain lazy fallback without preparing both formats for
-   every save. Reuse existing processing queues rather than adding a general
-   job framework.
+Remaining optional work: start bounded server preparation after a successful
+Bounce save, sharing jobs with playback requests. Saving settings and finishing
+preparation must remain distinct outcomes: preparation failure must not undo
+saved edits, and readiness requires atomic publication. Continue after browser
+closure, reconcile pending work against current settings after server
+interruption, and discard obsolete work after source, range or reset changes.
+Let the viewing client select a supported codec and retain lazy fallback without
+preparing both formats for every save. Reuse existing processing queues rather
+than adding a general job framework.
 
 Keep the existing lossless quality, processing limits, managed data directory
-and cleanup rules. Reuse the shared loading and error feedback.
+and cleanup rules. HEVC and H.264 have separate files; a new browser codec may
+require its own preparation. Large lossless files still take time to transfer
+and decode. Reuse the shared loading and error feedback.
 
 Acceptance: verify cache reuse before and after restart without repeated frame
 analysis; first preparation, codec fallback and concurrent requests; source or

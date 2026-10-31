@@ -16,8 +16,15 @@ import {
 import { LOCAL_MEDIA_INPUT_ARGS, runMediaCommand } from "./video-processing.js";
 import {
   generateLosslessBounce,
-  VIDEO_BOUNCE_MAX_OUTPUT_BYTES
+  videoBounceMaxDurationMs,
+  VIDEO_BOUNCE_MAX_OUTPUT_BYTES,
+  type VideoBouncePlan
 } from "./presentation-bounce.js";
+import {
+  bounceCacheSuffix,
+  publishBounceCache,
+  readBounceCache
+} from "./presentation-bounce-cache.js";
 
 export const VIDEO_HIGHLIGHT_MAX_DURATION_MS = 120_000;
 export type { PresentationFile } from "./presentation-cache.js";
@@ -37,40 +44,56 @@ export async function ensurePresentationVideo({
   key: string;
   codec?: "hevc" | "h264";
 }): Promise<PresentationFile> {
-  const capabilities = await probePresentationMedia(db, file);
-  if (capabilities.kind !== "video")
+  if (file.asset.mediaType !== "video")
     throw new PresentationMediaError("playback_not_supported");
   await verifyPresentationSource(db, file, variant, key);
   const presentation = presentationForFile(db, file);
   if (
     variant === "full" ||
     (variant === "highlight" && !presentation.highlight)
-  )
+  ) {
+    const capabilities = await probePresentationMedia(db, file);
+    if (capabilities.kind !== "video")
+      throw new PresentationMediaError("playback_not_supported");
     return {
       path: file.sourcePath,
       contentType: file.asset.mimeType ?? "video/mp4"
     };
-  const range = presentation.highlight ?? {
-    startMs: 0,
-    endMs: capabilities.durationMs!
+  }
+  let prepared: {
+    capabilities: Awaited<ReturnType<typeof probePresentationMedia>>;
+    range: { startMs: number; endMs: number };
+    durationMs: number;
+    bouncePlan: VideoBouncePlan | null;
   };
-  const durationMs = range.endMs - range.startMs;
-  if (range.endMs > capabilities.durationMs! + 100 || durationMs <= 0)
-    throw new PresentationMediaError("invalid_highlight", 422);
-  const bouncePlan =
-    variant === "bounce"
-      ? await getPresentationVideoBouncePlan(db, file, range)
-      : null;
-  if (durationMs > VIDEO_HIGHLIGHT_MAX_DURATION_MS)
-    throw new PresentationMediaError("highlight_duration_exceeded", 422);
+  const prepare = async () => {
+    const capabilities = await probePresentationMedia(db, file);
+    if (capabilities.kind !== "video")
+      throw new PresentationMediaError("playback_not_supported");
+    const range = presentation.highlight ?? {
+      startMs: 0,
+      endMs: capabilities.durationMs!
+    };
+    const durationMs = range.endMs - range.startMs;
+    if (range.endMs > capabilities.durationMs! + 100 || durationMs <= 0)
+      throw new PresentationMediaError("invalid_highlight", 422);
+    const bouncePlan =
+      variant === "bounce"
+        ? await getPresentationVideoBouncePlan(db, file, range)
+        : null;
+    if (durationMs > VIDEO_HIGHLIGHT_MAX_DURATION_MS)
+      throw new PresentationMediaError("highlight_duration_exceeded", 422);
+    prepared = { capabilities, range, durationMs, bouncePlan };
+  };
   return ensurePresentationDerivative(
     db,
     config,
     file,
     variant,
     key,
-    variant === "bounce" && codec === "h264" ? "h264.mp4" : "mp4",
+    variant === "bounce" ? bounceCacheSuffix(codec) : "mp4",
     async (temporaryPath) => {
+      const { capabilities, range, durationMs, bouncePlan } = prepared;
       const seconds = durationMs / 1000;
       if (bouncePlan && capabilities.videoBounce) {
         await generateLosslessBounce(
@@ -162,7 +185,42 @@ export async function ensurePresentationVideo({
         throw new PresentationMediaError("incomplete_rendition", 422);
       return "video/mp4";
     },
-    variant === "bounce" ? VIDEO_BOUNCE_MAX_OUTPUT_BYTES : undefined
+    variant === "bounce" ? VIDEO_BOUNCE_MAX_OUTPUT_BYTES : undefined,
+    {
+      prepare,
+      ...(variant === "bounce"
+        ? {
+            validateCached: async () =>
+              (await readBounceCache(db, config, file, key, codec)).validFile,
+            publishCompanions: async (destination: string) => {
+              const { capabilities, range, bouncePlan } = prepared;
+              return bouncePlan && capabilities.videoBounce
+                ? publishBounceCache(
+                    config,
+                    file,
+                    destination,
+                    key,
+                    codec,
+                    {
+                      width: capabilities.width,
+                      height: capabilities.height,
+                      durationMs: capabilities.durationMs!,
+                      hasAudio: capabilities.hasAudio,
+                      maxBounceDurationMs: videoBounceMaxDurationMs(
+                        capabilities.videoBounce.width,
+                        capabilities.videoBounce.height,
+                        capabilities.videoBounce.frameRate,
+                        capabilities.videoBounce.bitDepth
+                      )
+                    },
+                    range,
+                    bouncePlan
+                  )
+                : [];
+            }
+          }
+        : {})
+    }
   );
 }
 

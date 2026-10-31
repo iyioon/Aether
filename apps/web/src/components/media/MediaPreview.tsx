@@ -12,6 +12,7 @@ import {
 } from "./media-urls";
 import { requestPresentedVideoFrame } from "./video-frame-presentation";
 import { useVideoPlayback } from "./useVideoPlayback";
+import { useVideoBuffering } from "./useVideoBuffering";
 import { VideoControls } from "./VideoControls";
 import { ControlledAnimation } from "./ControlledAnimation";
 import { animationPresentationKey } from "./animation-timeline";
@@ -34,6 +35,7 @@ import { MediaLoadingBar } from "./MediaLoadingBar";
 import { MediaErrorNotice } from "./MediaErrorNotice";
 import { mediaFailureNotice } from "./media-failure-notice";
 import { useVideoPlaybackFailure } from "./useVideoPlaybackFailure";
+import { useVideoRangePreload } from "./useVideoRangePreload";
 
 const VIDEO_HOLD_DELAY_MS = 320;
 
@@ -107,6 +109,9 @@ export const MediaPreview = memo(function MediaPreview({
   const cancelVideoRevealRef = useRef<(() => void) | null>(null);
   const shouldAutoplayVideoRef = useRef(false);
   const videoSourceRef = useRef("");
+  const feedResumePositionRef = useRef<{ source: string; time: number } | null>(
+    null
+  );
   const userPausedRef = useRef(false);
   const isAnimatedImage = !staticPreview && isAnimatedImagePreview(asset);
   const [hasError, setHasError] = useState(false);
@@ -158,7 +163,7 @@ export const MediaPreview = memo(function MediaPreview({
     asset,
     !staticPreview &&
       !isPageHidden &&
-      (isVisible || (showVideoTimeline && isActive)) &&
+      (showVideoTimeline ? isActive || preloadPreview : isVisible) &&
       (animationCandidate ||
         variant === "bounce" ||
         (variant === "highlight" && (!useOriginalVideo || originalVideoFailed)))
@@ -223,6 +228,20 @@ export const MediaPreview = memo(function MediaPreview({
     enabled:
       asset.mediaType === "video" && variant === "bounce" && !staticPreview
   });
+  useVideoRangePreload(
+    videoSource,
+    showVideoTimeline &&
+      preloadPreview &&
+      !isActive &&
+      !staticPreview &&
+      !isPageHidden &&
+      !playbackPaused &&
+      asset.mediaType === "video" &&
+      !bounceOverBudget &&
+      !bounceUnavailable &&
+      !capabilitiesError &&
+      (variant !== "bounce" || capabilities !== null)
+  );
   const failureNotice = mediaFailureNotice({
     kind:
       asset.mediaType === "image"
@@ -243,7 +262,7 @@ export const MediaPreview = memo(function MediaPreview({
     !bounceOverBudget &&
     !bounceUnavailable &&
     (variant !== "bounce" || capabilities !== null) &&
-    (isVideoPlaybackVisible || preloadPreview);
+    (showVideoTimeline ? isActive : isVideoPlaybackVisible || preloadPreview);
   const isVideoPlaybackAllowed =
     asset.mediaType === "video" &&
     !staticPreview &&
@@ -262,6 +281,11 @@ export const MediaPreview = memo(function MediaPreview({
     videoRef,
     sourceKey: shouldLoadVideo ? videoSource : "",
     enabled: asset.mediaType === "video" && showVideoTimeline && !staticPreview
+  });
+  const isVideoBuffering = useVideoBuffering({
+    videoRef,
+    sourceKey: shouldLoadVideo ? videoSource : "",
+    enabled: isVideoPlaybackAllowed
   });
   const presentationVideo = useVideoPresentation(
     videoRef,
@@ -657,20 +681,63 @@ export const MediaPreview = memo(function MediaPreview({
   }, [resumeVideoAfterHold]);
 
   useEffect(() => {
-    if (asset.mediaType !== "video" || !preloadPreview || isVisible) {
-      return;
-    }
-
-    videoRef.current?.load();
-  }, [asset.id, asset.mediaType, isVisible, preloadPreview, videoSource]);
+    if (!showVideoTimeline || asset.mediaType !== "video") return;
+    const video = videoRef.current;
+    if (!video) return;
+    const remember = () => {
+      if (
+        video.getAttribute("src") === videoSource &&
+        video.readyState >= 1 &&
+        Number.isFinite(video.currentTime)
+      )
+        feedResumePositionRef.current = {
+          source: videoSource,
+          time: video.currentTime
+        };
+    };
+    const restore = () => {
+      const saved = feedResumePositionRef.current;
+      // Highlight entry continues to use its selected-start section observer.
+      if (
+        variant === "highlight" ||
+        !saved ||
+        saved.source !== videoSource ||
+        video.getAttribute("src") !== videoSource ||
+        !Number.isFinite(video.duration)
+      )
+        return;
+      try {
+        video.currentTime = Math.max(
+          0,
+          Math.min(saved.time, video.duration - 0.001)
+        );
+      } catch {
+        // Native metadata can become obsolete while a source is unloading.
+      }
+    };
+    for (const event of ["timeupdate", "seeked", "pause"])
+      video.addEventListener(event, remember);
+    video.addEventListener("loadedmetadata", restore);
+    return () => {
+      for (const event of ["timeupdate", "seeked", "pause"])
+        video.removeEventListener(event, remember);
+      video.removeEventListener("loadedmetadata", restore);
+    };
+  }, [asset.mediaType, showVideoTimeline, videoSource, variant]);
 
   useEffect(() => {
     if (asset.mediaType === "video" && !shouldLoadVideo) {
       cancelPendingVideoReveal();
       videoFrameRequestSequenceRef.current += 1;
       setReadyVideoSource(null);
+      if (showVideoTimeline) videoRef.current?.load();
     }
-  }, [asset.mediaType, cancelPendingVideoReveal, shouldLoadVideo]);
+  }, [
+    asset.mediaType,
+    cancelPendingVideoReveal,
+    shouldLoadVideo,
+    showVideoTimeline
+  ]);
 
   const videoToggle = (
     <button
@@ -977,7 +1044,7 @@ export const MediaPreview = memo(function MediaPreview({
       {isVideoPlaybackVisible &&
       isActive &&
       !isPageHidden &&
-      !isVideoReady &&
+      (!isVideoReady || isVideoBuffering) &&
       !videoPlaybackFailed &&
       !capabilitiesError &&
       !bounceUnavailable &&
@@ -1051,7 +1118,11 @@ export const MediaPreview = memo(function MediaPreview({
           loop={variant !== "highlight"}
           playsInline
           preload={
-            shouldLoadVideo ? (preloadPreview ? "auto" : "metadata") : "none"
+            shouldLoadVideo
+              ? showVideoTimeline || preloadPreview
+                ? "auto"
+                : "metadata"
+              : "none"
           }
           onLoadStart={() => {
             cancelPendingVideoReveal();

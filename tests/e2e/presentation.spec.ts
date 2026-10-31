@@ -3508,6 +3508,51 @@ for (const surfaceName of ["gallery", "feed", "viewer"] as const) {
       const readyBounds = (await surface.boundingBox())!;
       for (const property of ["x", "y", "width", "height"] as const)
         expect(readyBounds[property]).toBeCloseTo(loadingBounds[property], 0);
+
+      const playingVideo = surface.locator("video");
+      const playingSource = await playingVideo.getAttribute("src");
+      await playingVideo.evaluate((video: HTMLVideoElement) => {
+        video.dataset.bufferingProbe = "same-element";
+        Object.defineProperty(video, "readyState", {
+          configurable: true,
+          value: 2
+        });
+        video.dispatchEvent(new Event("waiting"));
+      });
+      await expectSlimMediaLoading(surface);
+      await expect(surface).toHaveClass(
+        surfaceName === "viewer" ? /is-video-ready/ : /(?:^| )ready(?: |$)/
+      );
+      if (surfaceName === "viewer") await expect(poster).toHaveCount(0);
+      else await expect(poster).toHaveCSS("opacity", "0");
+      await expect(playingVideo).toHaveCSS("opacity", "1");
+      await expect(playingVideo).toHaveAttribute("src", playingSource!);
+      await playingVideo.evaluate((video: HTMLVideoElement) => {
+        Object.defineProperty(video, "readyState", {
+          configurable: true,
+          value: 4
+        });
+        video.dispatchEvent(new Event("playing"));
+      });
+      await expect(surface.getByRole("progressbar")).toHaveCount(0);
+      await expect(playingVideo).toHaveAttribute(
+        "data-buffering-probe",
+        "same-element"
+      );
+      await playingVideo.evaluate((video: HTMLVideoElement) => {
+        video.pause();
+        Object.defineProperty(video, "readyState", {
+          configurable: true,
+          value: 2
+        });
+        video.dispatchEvent(new Event("waiting"));
+      });
+      await expect(surface.getByRole("progressbar")).toHaveCount(0);
+      await expect(playingVideo).toHaveJSProperty("paused", true);
+      await playingVideo.evaluate((video: HTMLVideoElement) => {
+        Reflect.deleteProperty(video, "readyState");
+      });
+
       if (surfaceName === "viewer") {
         capabilitiesGate = loadingGate();
         playbackGate = loadingGate();
@@ -3550,6 +3595,125 @@ for (const surfaceName of ["gallery", "feed", "viewer"] as const) {
       capabilitiesGate.release();
       playbackGate.release();
       await context.close();
+    }
+  });
+}
+
+for (const phone of [false, true]) {
+  test(`prepares only bounded next-item Bounce bytes in the ${phone ? "phone" : "desktop"} Feed`, async ({
+    browser
+  }) => {
+    const context = await browser.newContext({
+      storageState,
+      viewport: phone
+        ? { width: 393, height: 852 }
+        : { width: 1440, height: 980 },
+      hasTouch: phone,
+      isMobile: phone
+    });
+    const name = `feed-preload-${phone ? "phone" : "desktop"}`;
+    const targetDirectory = path.join(directory, name);
+    try {
+      await context.addInitScript(() => {
+        const original = HTMLMediaElement.prototype.canPlayType;
+        HTMLMediaElement.prototype.canPlayType = function (type) {
+          return type.includes("hvc1") ? "" : original.call(this, type);
+        };
+      });
+      const page = await context.newPage();
+      await mkdir(targetDirectory, { recursive: true });
+      for (const filename of ["a.mp4", "b.mp4", "c.mp4"])
+        await copyFile(
+          path.join(directory, "clip.mp4"),
+          path.join(targetDirectory, filename)
+        );
+      await scan(page);
+      const tree = (await (
+        await page.request.get(`${origin}/api/tree`)
+      ).json()) as TreeResponse;
+      const targetFolder = tree.folders.find(
+        (folder) => folder.relativePath === `${fixtureFolder}/${name}`
+      )!;
+      const response = await page.request.get(
+        `${origin}/api/folders/${targetFolder.id}/assets?sort=filename&limit=10`
+      );
+      const items = ((await response.json()) as AssetListResponse).items;
+      expect(items.map((item) => item.name)).toEqual([
+        "a.mp4",
+        "b.mp4",
+        "c.mp4"
+      ]);
+      const nextAsset = items[1]!;
+      await setPresentation(page, nextAsset, {
+        ...defaults,
+        highlight: { startMs: 500, endMs: 1500 },
+        loopMode: "bounce"
+      });
+      const nextPreparation = page.waitForResponse(
+        (prepared) =>
+          prepared.url().includes(`/api/assets/${nextAsset.id}/playback?`) &&
+          prepared.request().headers().range === "bytes=0-524287"
+      );
+      await page.goto(
+        `${origin}/?folder=${targetFolder.id}&view=feed&type=video&sort=filename&highlight=1`
+      );
+      const videos = page.locator(".feed-item video");
+      await expect
+        .poll(() =>
+          videos
+            .first()
+            .evaluate((video: HTMLVideoElement) => video.currentTime)
+        )
+        .toBeGreaterThan(0);
+      const prepared = await nextPreparation;
+      expect(prepared.status()).toBe(206);
+      expect((await prepared.body()).byteLength).toBeLessThanOrEqual(524288);
+      await expect(videos.nth(1)).not.toHaveAttribute("src");
+      await expect(videos.nth(1)).toHaveJSProperty("paused", true);
+      await expect(videos.nth(2)).not.toHaveAttribute("src");
+      await videos.first().evaluate((video: HTMLVideoElement) => {
+        video.currentTime = 2.5;
+      });
+      await expect
+        .poll(() =>
+          videos.first().evaluate((video: HTMLVideoElement) => video.seeking)
+        )
+        .toBe(false);
+      if (phone)
+        await page
+          .getByRole("region", { name: "Feed view" })
+          .press("ArrowDown");
+      else await page.getByRole("button", { name: "Next feed item" }).click();
+      await expect(videos.nth(1)).toHaveAttribute(
+        "src",
+        /playback\?variant=bounce.*codec=h264/
+      );
+      await expect
+        .poll(() =>
+          videos.nth(1).evaluate((video: HTMLVideoElement) => video.currentTime)
+        )
+        .toBeGreaterThan(0);
+      await expect(videos.first()).not.toHaveAttribute("src");
+      if (phone)
+        await page.getByRole("region", { name: "Feed view" }).press("ArrowUp");
+      else
+        await page.getByRole("button", { name: "Previous feed item" }).click();
+      await expect
+        .poll(() =>
+          videos
+            .first()
+            .evaluate((video: HTMLVideoElement) => video.currentTime)
+        )
+        .toBeGreaterThanOrEqual(2.4);
+    } finally {
+      await context.close();
+      await rm(targetDirectory, { recursive: true, force: true });
+      const cleanupContext = await browser.newContext({ storageState });
+      try {
+        await scan(await cleanupContext.newPage());
+      } finally {
+        await cleanupContext.close();
+      }
     }
   });
 }

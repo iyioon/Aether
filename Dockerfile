@@ -20,7 +20,7 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends ffmpeg libheif-examples libheif-plugin-libde265 libheif-plugin-x265 \
   && rm -rf /var/lib/apt/lists/*
 COPY . .
-RUN npm run test -w @aether/server -- test/presentation-media.test.ts test/presentation-bounce.test.ts test/heif-decoder.test.ts
+RUN npm run test -w @aether/server -- test/presentation-media.test.ts test/presentation-bounce.test.ts test/presentation-bounce-cache.test.ts test/heif-decoder.test.ts
 
 FROM node:24-trixie-slim AS production-deps
 WORKDIR /app

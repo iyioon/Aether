@@ -17,6 +17,11 @@ export interface PresentationFile {
   path: string;
   contentType: string;
 }
+interface PresentationCacheHooks {
+  prepare?(): Promise<void>;
+  validateCached?(destination: string): Promise<boolean>;
+  publishCompanions?(destination: string): Promise<string[]>;
+}
 const jobsByDatabase = new WeakMap<
   AetherDatabase,
   Map<string, Promise<PresentationFile>>
@@ -99,9 +104,18 @@ export async function presentationCacheDirectory(
   return directory;
 }
 
-export async function safeCachedFile(filePath: string): Promise<boolean> {
+export async function safeCachedFile(
+  filePath: string,
+  maxBytes = Number.MAX_SAFE_INTEGER
+): Promise<boolean> {
   const info = await lstat(filePath).catch(() => null);
-  return Boolean(info?.isFile() && !info.isSymbolicLink() && info.nlink === 1);
+  return Boolean(
+    info?.isFile() &&
+    !info.isSymbolicLink() &&
+    info.nlink === 1 &&
+    info.size > 0 &&
+    info.size <= maxBytes
+  );
 }
 
 export function recordPresentationFiles(
@@ -175,17 +189,25 @@ export async function ensurePresentationDerivative(
   key: string,
   suffix: string,
   generate: (temporaryPath: string) => Promise<string>,
-  maxOutputBytes = 128 * 1024 * 1024
+  maxOutputBytes = 128 * 1024 * 1024,
+  hooks: PresentationCacheHooks = {}
 ): Promise<PresentationFile> {
   const directory = await presentationCacheDirectory(config, file.asset.id);
   const destination = path.join(directory, `${key}-${suffix}`);
+  const pending = jobsByDatabase.get(db)?.get(destination);
+  if (pending) return pending;
   const contentType = suffix.endsWith("jpg")
     ? "image/jpeg"
     : suffix.endsWith("png")
       ? "image/png"
       : "video/mp4";
-  if (await safeCachedFile(destination))
+  if (
+    (await safeCachedFile(destination, maxOutputBytes)) &&
+    (!hooks.validateCached || (await hooks.validateCached(destination)))
+  ) {
+    await verifyPresentationSource(db, file, variant, key);
     return { path: destination, contentType };
+  }
   let jobs = jobsByDatabase.get(db);
   if (!jobs) {
     jobs = new Map();
@@ -197,37 +219,59 @@ export async function ensurePresentationDerivative(
     throw new PresentationMediaError("processing_busy", 503);
   pendingJobs += 1;
   const temporaryPath = `${destination}.${randomUUID()}.tmp`;
-  const job = withPresentationProcessingSlot(variant, async () => {
-    let published = false;
-    try {
+  const job = Promise.resolve()
+    .then(async () => {
       await verifyPresentationSource(db, file, variant, key);
-      const generatedType = await generate(temporaryPath);
-      await requireBoundedFile(temporaryPath, maxOutputBytes);
-      await verifyPresentationSource(db, file, variant, key);
-      await rename(temporaryPath, destination);
-      published = true;
-      await verifyPresentationSource(db, file, variant, key);
-      const obsolete = recordPresentationFiles(
-        db,
-        file,
-        `${variant}-${suffix}`,
-        key,
-        [destination]
-      );
-      await removePresentationDerivativeFiles(config.cacheDir, obsolete).catch(
-        () => undefined
-      );
-      return { path: destination, contentType: generatedType };
-    } catch (error) {
-      if (published) await rm(destination, { force: true });
-      throw error;
-    } finally {
-      await rm(temporaryPath, { force: true });
-    }
-  }).finally(() => {
-    jobs.delete(destination);
-    pendingJobs -= 1;
-  });
+      await hooks.prepare?.();
+      return withPresentationProcessingSlot(variant, async () => {
+        let published = false;
+        let companions: string[] = [];
+        try {
+          await verifyPresentationSource(db, file, variant, key);
+          const generatedType = await generate(temporaryPath);
+          await requireBoundedFile(temporaryPath, maxOutputBytes);
+          await verifyPresentationSource(db, file, variant, key);
+          await rename(temporaryPath, destination);
+          published = true;
+          const publishedCompanions =
+            (await hooks.publishCompanions?.(destination)) ?? [];
+          if (
+            publishedCompanions.length > 1 ||
+            publishedCompanions.some((entry) => entry !== `${destination}.json`)
+          )
+            throw new PresentationMediaError("unsafe_cache", 500);
+          companions = publishedCompanions;
+          await verifyPresentationSource(db, file, variant, key);
+          const obsolete = recordPresentationFiles(
+            db,
+            file,
+            `${variant}-${suffix}`,
+            key,
+            [destination, ...companions]
+          );
+          await removePresentationDerivativeFiles(
+            config.cacheDir,
+            obsolete
+          ).catch(() => undefined);
+          return { path: destination, contentType: generatedType };
+        } catch (error) {
+          if (published) {
+            await Promise.all(
+              [destination, ...companions].map((entry) =>
+                rm(entry, { force: true })
+              )
+            );
+          }
+          throw error;
+        } finally {
+          await rm(temporaryPath, { force: true });
+        }
+      });
+    })
+    .finally(() => {
+      jobs.delete(destination);
+      pendingJobs -= 1;
+    });
   jobs.set(destination, job);
   return job;
 }

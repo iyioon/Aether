@@ -178,7 +178,10 @@ export async function sweepDerivativeCache(
             referencedFiles.has(cachedPath) &&
             (await isSafeCachedFile(cachedPath))
           ) {
-            await chmod(cachedPath, 0o600);
+            // Avoid changing ctime on already private files: presentation
+            // metadata uses it to detect an altered cached rendition.
+            if (((await lstat(cachedPath)).mode & 0o7777) !== 0o600)
+              await chmod(cachedPath, 0o600);
           } else {
             await rm(cachedPath, { force: true, recursive: true });
             removedEntries += 1;

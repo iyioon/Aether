@@ -490,7 +490,7 @@ describe("presentation video delivery", () => {
         "SELECT path FROM derivatives WHERE asset_id = ? AND kind GLOB 'presentation:bounce-*'"
       )
       .all(asset.id) as Array<{ path: string }>;
-    expect(oldFiles).toHaveLength(2);
+    expect(oldFiles).toHaveLength(4);
     const updated = setHighlight(asset.id, 350, 850, "bounce");
     expect(
       (

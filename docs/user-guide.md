@@ -69,6 +69,8 @@ frame is ready. With highlights enabled, the preview shows the selected start.
 If loading fails in the viewer, the preview stays visible while you retry.
 Missing previews do not prevent the media from loading. A slim bar along the
 top shows loading or preparation, including while Bounce is being prepared.
+It also appears if a playing video needs to buffer, keeping the current frame
+visible until playback continues.
 
 The viewer's **View options** includes:
 
@@ -122,6 +124,8 @@ lossless video from a section of up to 30 seconds, keeping the source frames and
 timing. Some formats, including HDR video, need Repeat instead. The editor shows
 the available limit. Browser support varies, and first playback may need
 preparation; prepared sections are reused on later visits.
+Lossless Bounce files can be larger than ordinary videos, so slower connections
+may need more time to load them.
 If playback fails, the notice distinguishes server preparation problems from
 browser playback support. Retry after a temporary failure; a shorter highlight
 is needed only when the section exceeds its limit.

@@ -115,6 +115,11 @@ Never test rebuild or wipe against the only copy of a real library database.
   Validate actual HEVC playback
   and native fullscreen on an iPhone 16 Home Screen installation; record this
   separately from browser codec detection and desktop tests.
+- Revisit prepared Bounce files after a server restart. Check cached video and
+  timing reuse, source replacement and reset cleanup. In Feed, confirm next-item
+  preparation is bounded and yields to current playback. Under a slow connection,
+  buffering should show the slim bar over the current frame and resume without
+  a reload; an explicit pause must remain paused.
 - Check full-range SDR MOV screen recordings in Edit media, Gallery, Feed and
   the viewer. Both Bounce codecs must preserve native decoded frame hashes,
   color range and timing; retain the original download and existing limits.

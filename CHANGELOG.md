@@ -23,6 +23,9 @@ Notable changes to Aether are recorded here.
 
 ### Changed
 
+- Reuse prepared Bounce video and timing metadata without repeating source-frame
+  analysis, prioritize active Feed playback over bounded next-item preparation,
+  and show the slim loading bar during video buffering.
 - Use compact, themed media notices with specific preparation and playback
   errors, and add sound controls to editor previews.
 - Add editor-wide Framing arrows and zoom shortcuts, with Shift for precise

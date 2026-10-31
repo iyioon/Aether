@@ -40,6 +40,7 @@ import {
 import { requestPresentedVideoFrame } from "./video-frame-presentation";
 import { VideoControls } from "./VideoControls";
 import { useVideoPlayback, type VideoPlayback } from "./useVideoPlayback";
+import { useVideoBuffering } from "./useVideoBuffering";
 import { usePresentationPreferences } from "./presentation-context";
 import { usePresentationCapabilities } from "./usePresentationCapabilities";
 import {
@@ -326,6 +327,14 @@ export function MediaViewer({
     sourceKey: `${videoSource}:${retryAttempt}`,
     enabled: asset.mediaType === "video" && failedVideoAssetId !== asset.id
   });
+  const isVideoBuffering = useVideoBuffering({
+    videoRef: viewerVideoRef,
+    sourceKey: `${videoSource}:${retryAttempt}`,
+    enabled:
+      asset.mediaType === "video" &&
+      failedVideoAssetId !== asset.id &&
+      !playbackBlocked
+  });
   const presentedPlayback = useVideoPresentation(
     viewerVideoRef,
     playback,
@@ -390,7 +399,7 @@ export function MediaViewer({
     !bounceUnavailable &&
     !bounceOverBudget &&
     (asset.mediaType === "video"
-      ? !isViewerVideoReady && !isViewerVideoFailed
+      ? (!isViewerVideoReady || isVideoBuffering) && !isViewerVideoFailed
       : !isViewerImageReady && !isViewerImageFailed);
   const {
     togglePlayback: togglePlaybackCommand,

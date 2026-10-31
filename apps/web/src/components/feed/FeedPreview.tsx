@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -23,6 +24,7 @@ import {
 } from "../scroll-restoration";
 import { FeedItem, type FeedSoundState } from "./FeedItem";
 import { FeedNavRail } from "./FeedNavRail";
+import { observeFeedPrewarmPriority } from "./feed-prewarm";
 import type { GalleryMetadataField } from "../gallery/gallery-metadata";
 import {
   FEED_PRELOAD_DISTANCE,
@@ -126,6 +128,10 @@ export function FeedPreview({
   const [isScrollPositionReady, setIsScrollPositionReady] = useState(false);
   const [isFeedMuted, setIsFeedMuted] = useState(true);
   const [isFeedAudioBlocked, setIsFeedAudioBlocked] = useState(false);
+  const [prewarmPriority, setPrewarmPriority] = useState({
+    session: null as object | null,
+    allowed: false
+  });
   const feedSoundState: FeedSoundState = isFeedAudioBlocked
     ? "blocked"
     : isFeedMuted
@@ -638,6 +644,42 @@ export function FeedPreview({
     [assets.length, scrollToFeedItem]
   );
 
+  const activeAsset = assets[activeIndex] ?? assets[0];
+  const activeAssetId = activeAsset?.id;
+  const activeMediaType = activeAsset?.mediaType;
+  const prewarmKey = `${scrollContextKey}:${activeIndex}:${activeAsset?.id ?? ""}:${activeAsset?.presentation?.renditionKeys.bounce ?? ""}`;
+  const canPrepareNext =
+    isContentReady && isScrollPositionReady && !isPlaybackPaused;
+  const prewarmSession = useMemo(
+    () => ({ key: prewarmKey, enabled: canPrepareNext }),
+    [prewarmKey, canPrepareNext]
+  );
+  useEffect(() => {
+    const feed = feedRef.current;
+    if (!feed || !activeAssetId || !canPrepareNext) return;
+    return observeFeedPrewarmPriority(
+      feed,
+      () => itemRefs.current[activeIndex] ?? null,
+      activeMediaType === "video",
+      (allowed) =>
+        setPrewarmPriority((current) =>
+          current.session === prewarmSession && current.allowed === allowed
+            ? current
+            : { session: prewarmSession, allowed }
+        )
+    );
+  }, [
+    activeIndex,
+    activeAssetId,
+    activeMediaType,
+    canPrepareNext,
+    prewarmSession
+  ]);
+  const prepareNext =
+    canPrepareNext &&
+    prewarmPriority.session === prewarmSession &&
+    prewarmPriority.allowed;
+
   useAutoLoadSentinel({
     enabled: hasMore && !isLoading && !isLoadingMore,
     onLoadMore,
@@ -669,8 +711,6 @@ export function FeedPreview({
       </section>
     );
   }
-
-  const activeAsset = assets[activeIndex] ?? assets[0];
 
   if (!activeAsset) {
     return null;
@@ -717,8 +757,9 @@ export function FeedPreview({
             key={asset.id}
             loadMoreRef={loadMoreRef}
             preloadPreview={
+              prepareNext &&
               asset.mediaType === "video" &&
-              Math.abs(index - activeIndex) <= FEED_PRELOAD_DISTANCE
+              index === activeIndex + FEED_PRELOAD_DISTANCE
             }
             renderMedia={shouldRenderFeedMedia(index, activeIndex)}
             showLoadSentinel={hasMore && index === assets.length - 1}

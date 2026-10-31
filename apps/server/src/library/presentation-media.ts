@@ -8,7 +8,8 @@ import type { AetherDatabase } from "../db/database.js";
 import type { ResolvedAssetFile } from "./media-serving.js";
 import {
   presentationForFile,
-  PresentationMediaError
+  PresentationMediaError,
+  verifyPresentationSource
 } from "./presentation-cache.js";
 import {
   LOCAL_MEDIA_INPUT_ARGS,
@@ -22,6 +23,10 @@ import {
   type VideoBouncePlan,
   type VideoBounceProfile
 } from "./presentation-bounce.js";
+import {
+  backfillBounceCache,
+  readBounceCache
+} from "./presentation-bounce-cache.js";
 export { videoBounceMaxDurationMs } from "./presentation-bounce.js";
 
 export {
@@ -137,9 +142,36 @@ export async function getPresentationMediaCapabilities({
   config: AppConfig;
   file: ResolvedAssetFile;
 }): Promise<PresentationMediaCapabilities> {
-  void config;
-  const media = await probePresentationMedia(db, file);
   const presentation = presentationForFile(db, file);
+  if (file.asset.mediaType === "video" && presentation.loopMode === "bounce") {
+    for (const codec of ["hevc", "h264"] as const) {
+      const cached = await readBounceCache(
+        db,
+        config,
+        file,
+        presentation.renditionKeys.bounce,
+        codec
+      );
+      if (cached.metadata) {
+        await verifyPresentationSource(
+          db,
+          file,
+          "bounce",
+          presentation.renditionKeys.bounce
+        );
+        return {
+          kind: "video",
+          ...cached.metadata.media,
+          bounceTimeline: cached.metadata.timeline,
+          maxHighlightDurationMs: 120_000,
+          maxAnimationDurationMs: ANIMATION_LIMITS.durationMs,
+          maxAnimationFrames: ANIMATION_LIMITS.frames,
+          renditionKeys: presentation.renditionKeys
+        };
+      }
+    }
+  }
+  const media = await probePresentationMedia(db, file);
   let bounceTimeline: PresentationMediaCapabilities["bounceTimeline"];
   const maxBounceDurationMs =
     media.kind === "video"
@@ -170,6 +202,21 @@ export async function getPresentationMediaCapabilities({
           sourceTimesMs: plan.sourceTimesMs,
           durationsMs: plan.durationsMs
         };
+        await backfillBounceCache(
+          db,
+          config,
+          file,
+          presentation.renditionKeys.bounce,
+          {
+            width: media.width,
+            height: media.height,
+            durationMs: media.durationMs!,
+            hasAudio: media.hasAudio,
+            maxBounceDurationMs
+          },
+          range,
+          plan
+        );
       } catch (error) {
         if (!(error instanceof PresentationMediaError)) throw error;
         if (error.code === "bounce_duration_exceeded") bounceOverBudget = true;

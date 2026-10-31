@@ -162,7 +162,8 @@ export function UserGuidePage() {
                   preparation. The preview stays visible until the full photo or
                   first playback frame is ready. Highlights show their selected
                   start while loading. If loading fails in the viewer, the
-                  preview stays visible while you retry.
+                  preview stays visible while you retry. The bar also appears
+                  during video buffering, keeping the current frame visible.
                 </p>
                 <p>
                   On iPhone, Safari's Share menu → Add to Home Screen opens

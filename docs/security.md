@@ -54,6 +54,9 @@ responses and media bypass it.
 Comparison preloading requests a small number of upcoming items through the
 same authenticated media routes. Its queue stays in memory and stops when the
 page is hidden; it does not create a separate persistent media store.
+Feed prepares only the next video, with a low-priority range of at most 512 KiB
+after current playback has buffered ahead. Hidden, offline and constrained
+connections stop preparation, as do current playback waits and pauses.
 
 Metadata responses are marked `no-store`. Media files and generated previews
 use private browser caching with `no-cache`: the browser must authenticate and
@@ -146,6 +149,10 @@ same integer milliseconds as scanning; they do not allow a timestamp tolerance.
 Rendition and atlas routes keep authenticated private, revalidated caching and HEAD/range
 semantics. Their opaque keys contain no private paths. Capability/manifest
 responses use `no-store`; the PWA never caches private media or metadata.
+Prepared Bounce timing metadata remains beside its registered video in the
+managed cache. Reuse requires matching source/rendition fingerprints and current
+edit keys, bounded fields and verified file descriptors. Reset, replacement and
+asset removal retire the metadata with its video.
 Failed playback responses expose only fixed public error codes in
 `x-aether-media-error`. The browser can read them with an authenticated,
 deadline-limited HEAD request after native playback fails; it does not download

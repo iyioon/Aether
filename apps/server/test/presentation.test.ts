@@ -48,6 +48,11 @@ import { scanLibrary } from "../src/library/scanner.js";
 import * as presentationMedia from "../src/library/presentation-media.js";
 import * as derivativeCache from "../src/library/derivative-cache.js";
 import * as processing from "../src/library/video-processing.js";
+import { resolveAssetFile } from "../src/library/media-serving.js";
+import {
+  ensurePresentationDerivative,
+  withPresentationLifecycle
+} from "../src/library/presentation-cache.js";
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:fs/promises")>();
@@ -543,6 +548,253 @@ describe("saved media presentation", () => {
       expect(await readFile(source)).toEqual(originalBytes);
     }
   );
+
+  it.each(["save", "reset"] as const)(
+    "keeps a restored A rendition after an older %s retires its previous bytes",
+    async (operation) => {
+      const asset = await video("lifecycle.mp4");
+      const valuesA = {
+        ...defaultPresentationValues(),
+        highlight: { startMs: 0, endMs: 1000 },
+        loopMode: "bounce" as const
+      };
+      expect(
+        (await put(asset.id, { ...valuesA, expectedRevision: 0 })).statusCode
+      ).toBe(200);
+      const file = (await resolveAssetFile(db, asset.id))!;
+      const keyA = getAsset(db, asset.id)!.presentation.renditionKeys.bounce;
+      const prepare = (bytes: string) =>
+        ensurePresentationDerivative(
+          db,
+          config,
+          file,
+          "bounce",
+          keyA,
+          "mp4",
+          async (temporary) => {
+            await writeFile(temporary, bytes);
+            return "video/mp4";
+          },
+          128,
+          {
+            publishCompanions: async (destination) => {
+              await writeFile(`${destination}.json`, bytes, { mode: 0o600 });
+              return [`${destination}.json`];
+            }
+          }
+        );
+      const initial = await prepare("old-a");
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let entered!: () => void;
+      const began = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const original = derivativeCache.removePresentationDerivativeFiles;
+      vi.spyOn(
+        derivativeCache,
+        "removePresentationDerivativeFiles"
+      ).mockImplementationOnce(async (...args) => {
+        entered();
+        await gate;
+        return original(...args);
+      });
+      const retire =
+        operation === "save"
+          ? put(asset.id, {
+              ...valuesA,
+              expectedRevision: 1,
+              highlight: { startMs: 100, endMs: 1100 }
+            }).then((response) => response)
+          : app
+              .inject({
+                method: "POST",
+                url: "/api/admin/database/reset",
+                ...auth,
+                payload: { confirmation: "RESET", presentationPlayback: true }
+              })
+              .then((response) => response);
+      await began;
+      const restored = put(asset.id, { ...valuesA, expectedRevision: 2 }).then(
+        async (response) => {
+          expect(response.statusCode).toBe(200);
+          return prepare("current-a");
+        }
+      );
+      const settled = restored.then(() => true);
+      try {
+        expect(
+          await Promise.race([
+            settled,
+            new Promise<false>((resolve) =>
+              setTimeout(() => resolve(false), 50)
+            )
+          ])
+        ).toBe(false);
+      } finally {
+        release();
+      }
+      expect((await retire).statusCode).toBe(200);
+      const current = await restored;
+      expect(current.path).toBe(initial.path);
+      expect(await readFile(current.path, "utf8")).toBe("current-a");
+      expect(await readFile(`${current.path}.json`, "utf8")).toBe("current-a");
+      expect(getAsset(db, asset.id)!.presentation).toMatchObject({
+        revision: 3,
+        highlight: valuesA.highlight,
+        loopMode: "bounce"
+      });
+      expect(
+        db
+          .prepare(
+            "SELECT path FROM derivatives WHERE asset_id = ? ORDER BY path"
+          )
+          .all(asset.id)
+      ).toEqual([{ path: current.path }, { path: `${current.path}.json` }]);
+    }
+  );
+
+  it("keeps encoding outside the lifecycle lock and rejects obsolete output at publication", async () => {
+    const asset = await video("encoding.mp4");
+    const file = (await resolveAssetFile(db, asset.id))!;
+    const key = getAsset(db, asset.id)!.presentation.renditionKeys.bounce;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered!: () => void;
+    const began = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const generation = ensurePresentationDerivative(
+      db,
+      config,
+      file,
+      "bounce",
+      key,
+      "mp4",
+      async (temporary) => {
+        entered();
+        await gate;
+        await writeFile(temporary, "obsolete");
+        return "video/mp4";
+      }
+    );
+    const rejected = expect(generation).rejects.toMatchObject({
+      code: "stale_rendition"
+    });
+    await began;
+    try {
+      const saved = await put(asset.id, {
+        ...defaultPresentationValues(),
+        expectedRevision: 0,
+        highlight: { startMs: 0, endMs: 1000 }
+      });
+      expect(saved.statusCode).toBe(200);
+    } finally {
+      release();
+    }
+    await rejected;
+    expect(
+      db.prepare("SELECT id FROM derivatives WHERE asset_id = ?").all(asset.id)
+    ).toEqual([]);
+  });
+
+  it("rolls failed publication back before allowing a later save", async () => {
+    const asset = await video("rollback.mp4");
+    const file = (await resolveAssetFile(db, asset.id))!;
+    const key = getAsset(db, asset.id)!.presentation.renditionKeys.bounce;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered!: () => void;
+    const began = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let destination = "";
+    const generation = ensurePresentationDerivative(
+      db,
+      config,
+      file,
+      "bounce",
+      key,
+      "mp4",
+      async (temporary) => {
+        await writeFile(temporary, "partial");
+        return "video/mp4";
+      },
+      128,
+      {
+        publishCompanions: async (published) => {
+          destination = published;
+          entered();
+          await gate;
+          throw new Error("sidecar publication failed");
+        }
+      }
+    );
+    const rejected = expect(generation).rejects.toThrow(
+      "sidecar publication failed"
+    );
+    await began;
+    const saved = put(asset.id, {
+      ...defaultPresentationValues(),
+      expectedRevision: 0,
+      zoom: 2
+    }).then(async (response) => {
+      expect(response.statusCode).toBe(200);
+      await expect(stat(destination)).rejects.toMatchObject({ code: "ENOENT" });
+      return response;
+    });
+    try {
+      expect(
+        await Promise.race([
+          saved.then(() => true),
+          new Promise<false>((resolve) => setTimeout(() => resolve(false), 50))
+        ])
+      ).toBe(false);
+      expect(getAsset(db, asset.id)!.presentation.revision).toBe(0);
+    } finally {
+      release();
+    }
+    await rejected;
+    await saved;
+  });
+
+  it("returns bounded lifecycle admission failures without committing edits", async () => {
+    const asset = await image("busy.jpg");
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tasks = Array.from({ length: 8 }, () =>
+      withPresentationLifecycle(db, async () => gate)
+    );
+    try {
+      const saved = await put(asset.id, {
+        ...defaultPresentationValues(),
+        expectedRevision: 0,
+        zoom: 2
+      });
+      expect(saved.statusCode).toBe(503);
+      expect(saved.json()).toEqual({ error: "processing_busy" });
+      const reset = await app.inject({
+        method: "POST",
+        url: "/api/admin/database/reset",
+        ...auth,
+        payload: { confirmation: "RESET", presentationFraming: true }
+      });
+      expect(reset.statusCode).toBe(503);
+      expect(reset.json()).toEqual({ error: "processing_busy" });
+      expect(getAsset(db, asset.id)!.presentation.revision).toBe(0);
+    } finally {
+      release();
+    }
+    await Promise.all(tasks);
+  });
 
   it("bounds bounce duration and accepts a thirty-second section of a longer video", async () => {
     const asset = await video("long.mp4", 31);

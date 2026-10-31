@@ -147,6 +147,14 @@ Source identity comparisons use exact filesystem timestamps converted to the
 same integer milliseconds as scanning; they do not allow a timestamp tolerance.
 Device and inode are also rechecked after probing, so an atomic replacement
 with the same size and timestamp cannot receive edits validated for another file.
+Shared presentation publication performs the same identity check. In-memory
+probe and frame-plan caches include the physical source identity, preventing an
+atomic replacement from reusing the previous file's metadata or timeline.
+Short cache publication and retirement steps share bounded coordination with
+presentation saves and resets. No later change can reuse a path while an older
+cleanup or rollback is still deleting it. Shutdown drains request processing
+before closing the database, removing temporary work or releasing its runtime
+lock, including work started by clients that have disconnected.
 
 Rendition and atlas routes keep authenticated private, revalidated caching and HEAD/range
 semantics. Their opaque keys contain no private paths. Capability/manifest

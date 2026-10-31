@@ -265,7 +265,9 @@ export function UserGuidePage() {
                   Save closes the editor after confirmation. If saving fails,
                   the message appears beside Save and your draft stays open.
                   Retry checks for a completed save first. If another window
-                  saved first, reload its settings before saving again.
+                  saved first, reload its settings and preview before saving
+                  again. Correct any invalid times shown beside Save before
+                  retrying.
                 </p>
                 <p>
                   Saving a new Bounce section or changing its range turns on

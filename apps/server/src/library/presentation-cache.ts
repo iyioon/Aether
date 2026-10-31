@@ -29,6 +29,10 @@ const jobsByDatabase = new WeakMap<
 let pendingJobs = 0;
 let reversing = false;
 const reverseQueue: Array<() => void> = [];
+const lifecycles = new WeakMap<
+  AetherDatabase,
+  { tail: Promise<void>; admitted: number }
+>();
 
 export type PresentationVariant = "full" | "highlight" | "bounce";
 
@@ -46,6 +50,33 @@ export class StalePresentationRenditionError extends PresentationMediaError {
   constructor() {
     super("stale_rendition", 409);
     this.name = "StalePresentationRenditionError";
+  }
+}
+
+/** Serializes short metadata/publication phases; callers must not acquire it again. */
+export async function withPresentationLifecycle<T>(
+  db: AetherDatabase,
+  task: () => Promise<T>
+): Promise<T> {
+  let state = lifecycles.get(db);
+  if (!state) {
+    state = { tail: Promise.resolve(), admitted: 0 };
+    lifecycles.set(db, state);
+  }
+  if (state.admitted >= 8)
+    throw new PresentationMediaError("processing_busy", 503);
+  const previous = state.tail;
+  let release!: () => void;
+  state.tail = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  state.admitted++;
+  await previous;
+  try {
+    return await task();
+  } finally {
+    state.admitted--;
+    release();
   }
 }
 
@@ -76,6 +107,8 @@ export async function verifyPresentationSource(
     current.sourcePath !== file.sourcePath ||
     current.mtimeMs !== file.mtimeMs ||
     current.sizeBytes !== file.sizeBytes ||
+    current.device !== file.device ||
+    current.inode !== file.inode ||
     presentationForFile(db, current).renditionKeys[variant] !== key
   ) {
     throw new StalePresentationRenditionError();
@@ -224,45 +257,51 @@ export async function ensurePresentationDerivative(
       await verifyPresentationSource(db, file, variant, key);
       await hooks.prepare?.();
       return withPresentationProcessingSlot(variant, async () => {
-        let published = false;
-        let companions: string[] = [];
         try {
           await verifyPresentationSource(db, file, variant, key);
           const generatedType = await generate(temporaryPath);
           await requireBoundedFile(temporaryPath, maxOutputBytes);
-          await verifyPresentationSource(db, file, variant, key);
-          await rename(temporaryPath, destination);
-          published = true;
-          const publishedCompanions =
-            (await hooks.publishCompanions?.(destination)) ?? [];
-          if (
-            publishedCompanions.length > 1 ||
-            publishedCompanions.some((entry) => entry !== `${destination}.json`)
-          )
-            throw new PresentationMediaError("unsafe_cache", 500);
-          companions = publishedCompanions;
-          await verifyPresentationSource(db, file, variant, key);
-          const obsolete = recordPresentationFiles(
-            db,
-            file,
-            `${variant}-${suffix}`,
-            key,
-            [destination, ...companions]
-          );
-          await removePresentationDerivativeFiles(
-            config.cacheDir,
-            obsolete
-          ).catch(() => undefined);
-          return { path: destination, contentType: generatedType };
-        } catch (error) {
-          if (published) {
-            await Promise.all(
-              [destination, ...companions].map((entry) =>
-                rm(entry, { force: true })
+          return await withPresentationLifecycle(db, async () => {
+            let published = false;
+            let companions: string[] = [];
+            try {
+              await verifyPresentationSource(db, file, variant, key);
+              await rename(temporaryPath, destination);
+              published = true;
+              const publishedCompanions =
+                (await hooks.publishCompanions?.(destination)) ?? [];
+              if (
+                publishedCompanions.length > 1 ||
+                publishedCompanions.some(
+                  (entry) => entry !== `${destination}.json`
+                )
               )
-            );
-          }
-          throw error;
+                throw new PresentationMediaError("unsafe_cache", 500);
+              companions = publishedCompanions;
+              await verifyPresentationSource(db, file, variant, key);
+              const obsolete = recordPresentationFiles(
+                db,
+                file,
+                `${variant}-${suffix}`,
+                key,
+                [destination, ...companions]
+              );
+              await removePresentationDerivativeFiles(
+                config.cacheDir,
+                obsolete
+              ).catch(() => undefined);
+              return { path: destination, contentType: generatedType };
+            } catch (error) {
+              if (published) {
+                await Promise.all(
+                  [destination, ...companions].map((entry) =>
+                    rm(entry, { force: true })
+                  )
+                );
+              }
+              throw error;
+            }
+          });
         } finally {
           await rm(temporaryPath, { force: true });
         }

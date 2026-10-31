@@ -15,6 +15,7 @@ import {
   PresentationMediaError
 } from "./presentation-media.js";
 import { AssetParams } from "./route-schemas.js";
+import { withPresentationLifecycle } from "./presentation-cache.js";
 import {
   getAsset,
   saveAssetPresentation,
@@ -152,51 +153,53 @@ export function registerPresentationRoutes(
           );
         }
       }
-      const fresh = await resolveAssetFile(db, assetId);
-      if (
-        !fresh ||
-        fresh.mtimeMs !== file.mtimeMs ||
-        fresh.sizeBytes !== file.sizeBytes ||
-        fresh.device !== file.device ||
-        fresh.inode !== file.inode
-      ) {
-        return reply.code(409).send({ error: "source_changed" });
-      }
-      const keys = getPresentationRenditionKeys(
-        {
-          id: assetId,
-          mtimeMs: file.asset.indexedMtimeMs,
-          sizeBytes: file.asset.indexedSizeBytes
-        },
-        values
-      );
-      const obsoleteFiles = obsoletePresentationDerivativeFiles(
-        db,
-        assetId,
-        keys
-      );
-      const saved = saveAssetPresentation(db, {
-        assetId,
-        expectedRevision,
-        values,
-        sourceMtimeMs: file.asset.indexedMtimeMs,
-        sourceSizeBytes: file.asset.indexedSizeBytes,
-        updatedAt: new Date().toISOString()
-      });
-      if (!saved) return reply.code(404).send({ error: "asset_not_indexed" });
-      if (obsoleteFiles.length > 0) {
-        try {
-          await removePresentationDerivativeFiles(
-            config.cacheDir,
-            obsoleteFiles
-          );
-        } catch {
-          request.log.warn("Presentation cache cleanup could not finish");
+      return await withPresentationLifecycle(db, async () => {
+        const fresh = await resolveAssetFile(db, assetId);
+        if (
+          !fresh ||
+          fresh.mtimeMs !== file.mtimeMs ||
+          fresh.sizeBytes !== file.sizeBytes ||
+          fresh.device !== file.device ||
+          fresh.inode !== file.inode
+        ) {
+          return reply.code(409).send({ error: "source_changed" });
         }
-      }
-      const asset = getAsset(db, assetId);
-      if (!asset) return reply.code(404).send({ error: "asset_not_indexed" });
-      return { asset };
+        const keys = getPresentationRenditionKeys(
+          {
+            id: assetId,
+            mtimeMs: file.asset.indexedMtimeMs,
+            sizeBytes: file.asset.indexedSizeBytes
+          },
+          values
+        );
+        const obsoleteFiles = obsoletePresentationDerivativeFiles(
+          db,
+          assetId,
+          keys
+        );
+        const saved = saveAssetPresentation(db, {
+          assetId,
+          expectedRevision,
+          values,
+          sourceMtimeMs: file.asset.indexedMtimeMs,
+          sourceSizeBytes: file.asset.indexedSizeBytes,
+          updatedAt: new Date().toISOString()
+        });
+        if (!saved) return reply.code(404).send({ error: "asset_not_indexed" });
+        if (obsoleteFiles.length > 0) {
+          try {
+            await removePresentationDerivativeFiles(
+              config.cacheDir,
+              obsoleteFiles
+            );
+          } catch {
+            request.log.warn("Presentation cache cleanup could not finish");
+          }
+        }
+        const asset = getAsset(db, assetId);
+        if (!asset) return reply.code(404).send({ error: "asset_not_indexed" });
+        return { asset };
+      });
     } catch (error) {
       if (error instanceof PresentationConflictError) {
         return reply.code(409).send({

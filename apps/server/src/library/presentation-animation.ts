@@ -28,7 +28,8 @@ import {
   recordPresentationFiles,
   requireBoundedFile,
   safeCachedFile,
-  verifyPresentationSource
+  verifyPresentationSource,
+  withPresentationLifecycle
 } from "./presentation-cache.js";
 import {
   LOCAL_MEDIA_INPUT_ARGS,
@@ -182,7 +183,6 @@ async function generateAnimation(
 ): Promise<CachedAnimation> {
   const workDirectory = await mkdtemp(path.join(directory, "work-"));
   const deadline = Date.now() + 120_000;
-  const published: string[] = [];
   try {
     const images =
       probe.decoder === "sharp"
@@ -284,31 +284,36 @@ async function generateAnimation(
     await writeFile(temporaryManifest, JSON.stringify(manifest), {
       mode: 0o600
     });
-    await verifyPresentationSource(db, file, "full", key);
-    for (const destination of atlasPaths) {
-      await rename(
-        path.join(workDirectory, path.basename(destination)),
-        destination
-      );
-      published.push(destination);
-    }
-    await rename(temporaryManifest, manifestPath);
-    published.push(manifestPath);
-    await verifyPresentationSource(db, file, "full", key);
-    const obsolete = recordPresentationFiles(db, file, "animation", key, [
-      manifestPath,
-      ...atlasPaths
-    ]);
-    await removePresentationDerivativeFiles(
-      path.dirname(path.dirname(directory)),
-      obsolete
-    ).catch(() => undefined);
-    return { manifest, atlasPaths };
-  } catch (error) {
-    await Promise.all(
-      published.map((destination) => rm(destination, { force: true }))
-    );
-    throw error;
+    return await withPresentationLifecycle(db, async () => {
+      const published: string[] = [];
+      try {
+        await verifyPresentationSource(db, file, "full", key);
+        for (const destination of atlasPaths) {
+          await rename(
+            path.join(workDirectory, path.basename(destination)),
+            destination
+          );
+          published.push(destination);
+        }
+        await rename(temporaryManifest, manifestPath);
+        published.push(manifestPath);
+        await verifyPresentationSource(db, file, "full", key);
+        const obsolete = recordPresentationFiles(db, file, "animation", key, [
+          manifestPath,
+          ...atlasPaths
+        ]);
+        await removePresentationDerivativeFiles(
+          path.dirname(path.dirname(directory)),
+          obsolete
+        ).catch(() => undefined);
+        return { manifest, atlasPaths };
+      } catch (error) {
+        await Promise.all(
+          published.map((destination) => rm(destination, { force: true }))
+        );
+        throw error;
+      }
+    });
   } finally {
     await rm(workDirectory, { recursive: true, force: true });
   }

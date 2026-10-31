@@ -246,6 +246,19 @@ export function presentationSaveOutcome(
     : "conflict";
 }
 
+export function presentationRenditionKeysEqual(
+  left: MediaPresentation["renditionKeys"] | undefined,
+  right: MediaPresentation["renditionKeys"] | undefined
+): boolean {
+  return Boolean(
+    left &&
+    right &&
+    (["full", "highlight", "bounce"] as const).every(
+      (variant) => left[variant] === right[variant]
+    )
+  );
+}
+
 /** Explicit Bounce edits should reveal the section the user just saved. */
 export function shouldEnableHighlightPlayback(
   previous: PresentationValues,

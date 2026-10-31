@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { copyFile, mkdir, rm } from "node:fs/promises";
+import { copyFile, mkdir, rm, utimes } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import sharp from "sharp";
@@ -13,6 +13,7 @@ import {
 import type {
   AssetListResponse,
   AssetRecord,
+  PresentationMediaCapabilities,
   PresentationValues,
   ScanJob,
   TreeResponse
@@ -2161,6 +2162,703 @@ test("keeps the fullscreen editor shell consistent through loading, cancellation
   }
 });
 
+test("does not start another save after an uncertain retry is unmounted by navigation", async ({
+  browser
+}) => {
+  const context = await browser.newContext({ storageState });
+  const gate = loadingGate();
+  const readStarted = loadingGate();
+  const readReleased = loadingGate();
+  try {
+    const page = await context.newPage();
+    const photo = fixture("photo.png");
+    await setPresentation(page, photo, defaults);
+    const before = await getAsset(page, photo.id);
+    await open(page, "gallery", "image", photo.name);
+    await openGalleryEditor(page, photo);
+    const editor = page.getByRole("dialog", {
+      name: "Edit media",
+      exact: true
+    });
+    await editor
+      .getByRole("slider", { name: "Media zoom", exact: true })
+      .press("ArrowRight");
+    let writes = 0;
+    await page.route(
+      `**/api/assets/${photo.id}/presentation`,
+      async (route) => {
+        if (route.request().method() !== "PUT") {
+          await route.continue();
+          return;
+        }
+        writes += 1;
+        await route.abort("connectionreset");
+      }
+    );
+    const save = editor.getByRole("button", { name: "Save", exact: true });
+    await save.click();
+    await expect(editor.getByRole("alert")).toContainText(
+      "Could not save these edits."
+    );
+    await expect(save).toBeEnabled();
+    await page.route(`**/api/assets/${photo.id}`, async (route) => {
+      readStarted.release();
+      await gate.promise;
+      await route
+        .fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify(before)
+        })
+        .catch(() => undefined);
+      readReleased.release();
+    });
+    await save.click();
+    await readStarted.promise;
+    await expect(
+      editor.getByRole("button", { name: "Saving…", exact: true })
+    ).toBeDisabled();
+    await page.evaluate(() => {
+      const next = new URL(window.location.href);
+      next.searchParams.delete("asset");
+      next.searchParams.set("view", "feed");
+      window.history.pushState(null, "", next);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await expect(editor).toHaveCount(0);
+    await expect(
+      page.getByRole("region", { name: "Feed view", exact: true })
+    ).toBeVisible();
+    gate.release();
+    await readReleased.promise;
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+        )
+    );
+    expect(writes).toBe(1);
+    expect((await getAsset(page, photo.id)).presentation).toEqual(
+      before.presentation
+    );
+  } finally {
+    gate.release();
+    await context.close();
+  }
+});
+
+test("keeps a removed media save error beside the retained draft until the editor is closed", async ({
+  browser
+}) => {
+  const context = await browser.newContext({ storageState });
+  try {
+    const page = await context.newPage();
+    const photo = fixture("photo.png");
+    await setPresentation(page, photo, defaults);
+    const before = await getAsset(page, photo.id);
+    await open(page, "gallery", "image", photo.name);
+    await openGalleryEditor(page, photo);
+    const editor = page.getByRole("dialog", {
+      name: "Edit media",
+      exact: true
+    });
+    const zoom = editor.getByRole("slider", {
+      name: "Media zoom",
+      exact: true
+    });
+    await zoom.press("ArrowRight");
+    let writes = 0;
+    await page.route(
+      `**/api/assets/${photo.id}/presentation`,
+      async (route) => {
+        writes += 1;
+        await route.fulfill({
+          status: 404,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "asset_not_found" })
+        });
+      }
+    );
+    await editor.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(editor.getByRole("alert")).toHaveText(
+      "This media is no longer available. Close the editor and check the library."
+    );
+    await expect(zoom).toHaveAttribute("aria-valuenow", "1.01");
+    await expect(
+      editor.getByRole("button", { name: "Save", exact: true })
+    ).toBeDisabled();
+    await expect(
+      editor.getByRole("button", { name: "Reload saved settings", exact: true })
+    ).toHaveCount(0);
+    const cancel = editor.getByRole("button", { name: "Cancel", exact: true });
+    await expect(cancel).toBeEnabled();
+    expect(writes).toBe(1);
+    expect((await getAsset(page, photo.id)).presentation).toEqual(
+      before.presentation
+    );
+    await cancel.click();
+    await expect(editor).toHaveCount(0);
+  } finally {
+    await context.close();
+  }
+});
+
+test("refetches mixed editor settings once before exposing playback controls", async ({
+  browser
+}) => {
+  const context = await browser.newContext({ storageState });
+  try {
+    const page = await context.newPage();
+    const video = fixture("clip.mp4");
+    await setPresentation(page, video, defaults);
+    await open(page, "gallery", "video", video.name);
+    let metadataReads = 0;
+    let assetReads = 0;
+    await page.route(`**/api/assets/${video.id}`, async (route) => {
+      assetReads += 1;
+      await route.continue();
+    });
+    await page.route(
+      `**/api/assets/${video.id}/presentation-media`,
+      async (route) => {
+        metadataReads += 1;
+        const response = await route.fetch();
+        const capabilities =
+          (await response.json()) as PresentationMediaCapabilities;
+        await route.fulfill({
+          response,
+          json:
+            metadataReads === 1
+              ? {
+                  ...capabilities,
+                  durationMs: 1000,
+                  renditionKeys: {
+                    ...capabilities.renditionKeys,
+                    full: "0".repeat(32)
+                  }
+                }
+              : capabilities
+        });
+      }
+    );
+    await openGalleryEditor(page, video);
+    const editor = page.getByRole("dialog", {
+      name: "Edit media",
+      exact: true
+    });
+    await expect(
+      editor.getByRole("slider", { name: "Preview position", exact: true })
+    ).toHaveAttribute("aria-valuemax", "6000");
+    expect(metadataReads).toBe(2);
+    expect(assetReads).toBe(2);
+    await editor.getByRole("button", { name: "Cancel", exact: true }).click();
+  } finally {
+    await context.close();
+  }
+});
+
+test("keeps persistently mixed editor settings behind a dismissible bounded loading failure", async ({
+  browser
+}) => {
+  const context = await browser.newContext({ storageState });
+  try {
+    const page = await context.newPage();
+    const video = fixture("clip.mp4");
+    await setPresentation(page, video, defaults);
+    await open(page, "gallery", "video", video.name);
+    let metadataReads = 0;
+    let assetReads = 0;
+    let mismatch = true;
+    await page.route(`**/api/assets/${video.id}`, async (route) => {
+      assetReads += 1;
+      await route.continue();
+    });
+    await page.route(
+      `**/api/assets/${video.id}/presentation-media`,
+      async (route) => {
+        metadataReads += 1;
+        const response = await route.fetch();
+        const capabilities =
+          (await response.json()) as PresentationMediaCapabilities;
+        await route.fulfill({
+          response,
+          json: mismatch
+            ? {
+                ...capabilities,
+                durationMs: 1000,
+                renditionKeys: {
+                  ...capabilities.renditionKeys,
+                  bounce: "0".repeat(32)
+                }
+              }
+            : capabilities
+        });
+      }
+    );
+    await openGalleryEditor(page, video);
+    const editor = page.getByRole("dialog", {
+      name: "Edit media",
+      exact: true
+    });
+    await expect(
+      editor.getByText("Could not open this file’s settings.", { exact: true })
+    ).toBeVisible();
+    expect(metadataReads).toBe(2);
+    expect(assetReads).toBe(2);
+    await expect(editor.getByRole("slider")).toHaveCount(0);
+    await expect(
+      editor.getByRole("button", { name: "Save", exact: true })
+    ).toBeDisabled();
+    await expect(
+      editor.getByRole("button", { name: "Cancel", exact: true })
+    ).toBeEnabled();
+    mismatch = false;
+    await editor.getByRole("button", { name: "Retry", exact: true }).click();
+    await expect(
+      editor.getByRole("slider", { name: "Preview position", exact: true })
+    ).toHaveAttribute("aria-valuemax", "6000");
+    expect(metadataReads).toBe(3);
+    expect(assetReads).toBe(3);
+    await editor.getByRole("button", { name: "Cancel", exact: true }).click();
+  } finally {
+    await context.close();
+  }
+});
+
+test("preserves the current draft when reloading receives inconsistent media settings", async ({
+  browser
+}) => {
+  const context = await browser.newContext({ storageState });
+  try {
+    const page = await context.newPage();
+    const photo = fixture("photo.png");
+    await setPresentation(page, photo, defaults);
+    await open(page, "gallery", "image", photo.name);
+    await openGalleryEditor(page, photo);
+    const editor = page.getByRole("dialog", {
+      name: "Edit media",
+      exact: true
+    });
+    const zoom = editor.getByRole("slider", {
+      name: "Media zoom",
+      exact: true
+    });
+    await zoom.press("ArrowRight");
+    await setPresentation(page, photo, {
+      ...defaults,
+      aspectFraming: {
+        Square: { fit: "cover", focalX: 0.5, focalY: 0.5, zoom: 1.8 }
+      }
+    });
+    await editor.getByRole("button", { name: "Save", exact: true }).click();
+    const reload = editor.getByRole("button", {
+      name: "Reload saved settings",
+      exact: true
+    });
+    await expect(reload).toBeVisible();
+    let mismatch = true;
+    let metadataReads = 0;
+    await page.route(
+      `**/api/assets/${photo.id}/presentation-media`,
+      async (route) => {
+        metadataReads += 1;
+        const response = await route.fetch();
+        const capabilities =
+          (await response.json()) as PresentationMediaCapabilities;
+        await route.fulfill({
+          response,
+          json: mismatch
+            ? {
+                ...capabilities,
+                renditionKeys: {
+                  ...capabilities.renditionKeys,
+                  highlight: "0".repeat(32)
+                }
+              }
+            : capabilities
+        });
+      }
+    );
+    const preview = editor.locator(".media-editor-frame img");
+    const retainedNode = await preview.elementHandle();
+    expect(retainedNode).not.toBeNull();
+    await reload.click();
+    await expect(editor.getByRole("alert").locator("p")).toHaveText(
+      "Could not reload saved settings. Check your connection and try again."
+    );
+    expect(metadataReads).toBe(2);
+    await expect(zoom).toHaveAttribute("aria-valuenow", "1.01");
+    expect(
+      await preview.evaluate(
+        (node, previous) => node === previous,
+        retainedNode
+      )
+    ).toBe(true);
+    await expect(reload).toBeEnabled();
+    await expect(
+      editor.getByRole("button", { name: "Save", exact: true })
+    ).toBeDisabled();
+    mismatch = false;
+    await reload.click();
+    await expect(zoom).toHaveAttribute("aria-valuenow", "1.8");
+    await expect(editor.getByRole("alert")).toHaveCount(0);
+    expect(metadataReads).toBe(3);
+    await editor.getByRole("button", { name: "Cancel", exact: true }).click();
+  } finally {
+    await context.close();
+  }
+});
+
+test("does not confirm an uncertain Reset save against a replacement source with matching defaults", async ({
+  browser
+}) => {
+  const context = await browser.newContext({ storageState });
+  try {
+    const page = await context.newPage();
+    const photo = fixture("photo.png");
+    await setPresentation(page, photo, {
+      ...defaults,
+      aspectFraming: {
+        Square: { fit: "cover", focalX: 0.5, focalY: 0.5, zoom: 2 }
+      }
+    });
+    const before = await getAsset(page, photo.id);
+    const capabilities = (await (
+      await page.request.get(
+        `${origin}/api/assets/${photo.id}/presentation-media`
+      )
+    ).json()) as PresentationMediaCapabilities;
+    await open(page, "gallery", "image", photo.name);
+    await openGalleryEditor(page, photo);
+    const editor = page.getByRole("dialog", {
+      name: "Edit media",
+      exact: true
+    });
+    await editor.getByRole("button", { name: "Reset", exact: true }).click();
+    const replacement: AssetRecord = {
+      ...before,
+      mtimeMs: before.mtimeMs + 1,
+      sizeBytes: before.sizeBytes + 1,
+      presentation: {
+        ...defaults,
+        revision: before.presentation!.revision + 1,
+        renditionKeys: {
+          full: "a".repeat(32),
+          highlight: "b".repeat(32),
+          bounce: "c".repeat(32)
+        }
+      }
+    };
+    await page.route(`**/api/assets/${photo.id}`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(replacement)
+      })
+    );
+    await page.route(`**/api/assets/${photo.id}/presentation-media`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ...capabilities,
+          renditionKeys: replacement.presentation!.renditionKeys
+        })
+      })
+    );
+    let writes = 0;
+    await page.route(
+      `**/api/assets/${photo.id}/presentation`,
+      async (route) => {
+        writes += 1;
+        await route.abort("connectionreset");
+      }
+    );
+    await editor.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(editor.getByRole("alert")).toHaveText(
+      "The source file changed. Close this editor and scan the library before editing again."
+    );
+    await expect(editor).toBeVisible();
+    expect(writes).toBe(1);
+    await expect(
+      editor.getByRole("button", { name: "Reload saved settings", exact: true })
+    ).toHaveCount(0);
+    await editor.getByRole("button", { name: "Cancel", exact: true }).click();
+    await openGalleryEditor(page, photo);
+    await expect(
+      editor.getByRole("slider", { name: "Media zoom", exact: true })
+    ).toHaveAttribute("aria-valuenow", "1");
+    await expect(editor.locator(".media-editor-frame img")).toHaveAttribute(
+      "src",
+      `/api/assets/${photo.id}/media?v=${replacement.mtimeMs}-${replacement.sizeBytes}`
+    );
+    await editor.getByRole("button", { name: "Cancel", exact: true }).click();
+    expect((await getAsset(page, photo.id)).presentation).toEqual(
+      before.presentation
+    );
+  } finally {
+    await context.close();
+  }
+});
+
+for (const mediaType of ["image", "video"] as const) {
+  test(`recovers a failed ${mediaType} editor preview after a source version change and explicit reload`, async ({
+    browser
+  }) => {
+    const context = await browser.newContext({ storageState });
+    const page = await context.newPage();
+    const name = `editor-reload-recovery.${mediaType === "image" ? "png" : "mp4"}`;
+    const sourcePath = path.join(directory, name);
+    try {
+      if (mediaType === "image")
+        await sharp({
+          create: {
+            width: 260,
+            height: 130,
+            channels: 3,
+            background: "#7797bb"
+          }
+        })
+          .png()
+          .toFile(sourcePath);
+      else
+        await promisify(execFile)("ffmpeg", [
+          "-hide_banner",
+          "-loglevel",
+          "error",
+          "-nostdin",
+          "-f",
+          "lavfi",
+          "-i",
+          "color=c=red:size=256x128:rate=24",
+          "-t",
+          "4",
+          "-c:v",
+          "libx264",
+          "-preset",
+          "ultrafast",
+          "-pix_fmt",
+          "yuv420p",
+          "-movflags",
+          "+faststart",
+          "-y",
+          sourcePath
+        ]);
+      await scan(page);
+      const current = (await (
+        await page.request.get(
+          `${origin}/api/folders/${folderId}/assets?sort=filename&limit=10`
+        )
+      ).json()) as AssetListResponse;
+      const asset = current.items.find((entry) => entry.name === name)!;
+      expect(asset).toBeTruthy();
+      await open(page, "gallery", mediaType, name);
+      await openGalleryEditor(page, asset);
+      const editor = page.getByRole("dialog", {
+        name: "Edit media",
+        exact: true
+      });
+      const preview = editor.locator(
+        `.media-editor-frame ${mediaType === "image" ? "img" : "video"}`
+      );
+      await expect
+        .poll(() =>
+          preview.evaluate((node) =>
+            node instanceof HTMLVideoElement
+              ? node.readyState >= 1
+              : (node as HTMLImageElement).complete &&
+                (node as HTMLImageElement).naturalWidth > 0
+          )
+        )
+        .toBe(true);
+      if (mediaType === "video")
+        await editor.getByRole("tab", { name: "Framing", exact: true }).click();
+      await editor
+        .getByRole("slider", { name: "Media zoom", exact: true })
+        .press("ArrowRight");
+      await preview.dispatchEvent("error");
+      const unavailable = editor.getByText(
+        mediaType === "image"
+          ? "Preview unavailable."
+          : "Video preview unavailable.",
+        { exact: true }
+      );
+      await expect(unavailable).toBeVisible();
+      if (mediaType === "video")
+        await expect(
+          editor.getByRole("button", { name: "Play preview", exact: true })
+        ).toBeDisabled();
+      await editor
+        .getByRole("combobox", { name: "Media layout", exact: true })
+        .click();
+      await page.getByRole("option", { name: "Portrait", exact: true }).click();
+      await expect(unavailable).toBeVisible();
+      if (mediaType === "video") {
+        await editor
+          .getByRole("tab", { name: "Playback", exact: true })
+          .click();
+        await editor.getByRole("tab", { name: "Framing", exact: true }).click();
+        await expect(preview).toHaveCount(0);
+      } else await expect(preview).toHaveCount(0);
+      const touched = new Date(asset.mtimeMs + 2000);
+      await utimes(sourcePath, touched, touched);
+      await scan(page);
+      const refreshed = await getAsset(page, asset.id);
+      expect(refreshed.id).toBe(asset.id);
+      expect(`${refreshed.mtimeMs}-${refreshed.sizeBytes}`).not.toBe(
+        `${asset.mtimeMs}-${asset.sizeBytes}`
+      );
+      await setPresentation(page, asset, {
+        ...defaults,
+        aspectFraming: {
+          Square: { fit: "cover", focalX: 0.5, focalY: 0.5, zoom: 1.8 }
+        }
+      });
+      await editor.getByRole("button", { name: "Save", exact: true }).click();
+      const reload = editor.getByRole("button", {
+        name: "Reload saved settings",
+        exact: true
+      });
+      await expect(reload).toBeVisible();
+      await reload.click();
+      await expect(unavailable).toHaveCount(0);
+      await expect(preview).toHaveAttribute(
+        "src",
+        `/api/assets/${asset.id}/media?v=${refreshed.mtimeMs}-${refreshed.sizeBytes}`
+      );
+      await expect
+        .poll(() =>
+          preview.evaluate((node) =>
+            node instanceof HTMLVideoElement
+              ? node.readyState >= 1 && Math.abs(node.duration - 4) < 0.05
+              : (node as HTMLImageElement).complete &&
+                (node as HTMLImageElement).naturalWidth === 260
+          )
+        )
+        .toBe(true);
+      if (mediaType === "video") {
+        const play = editor.getByRole("button", {
+          name: "Play preview",
+          exact: true
+        });
+        await expect(play).toBeEnabled();
+        await expect(
+          editor.getByRole("slider", { name: "Preview position", exact: true })
+        ).toHaveAttribute("aria-valuemax", "4000");
+        await play.click();
+        await expect
+          .poll(() =>
+            preview.evaluate((node: HTMLVideoElement) => node.currentTime)
+          )
+          .toBeGreaterThan(0.1);
+      }
+      const retainedNode = await preview.elementHandle();
+      expect(retainedNode).not.toBeNull();
+      await editor
+        .getByRole("combobox", { name: "Media layout", exact: true })
+        .click();
+      await page
+        .getByRole("option", { name: "Landscape", exact: true })
+        .click();
+      if (mediaType === "video") {
+        await editor
+          .getByRole("tab", { name: "Playback", exact: true })
+          .click();
+        await editor.getByRole("tab", { name: "Framing", exact: true }).click();
+      }
+      expect(
+        await preview.evaluate(
+          (node, previous) => node === previous,
+          retainedNode
+        )
+      ).toBe(true);
+      await editor.getByRole("button", { name: "Cancel", exact: true }).click();
+    } finally {
+      await rm(sourcePath, { force: true });
+      try {
+        await scan(page);
+      } finally {
+        await context.close();
+      }
+    }
+  });
+}
+
+test("shows current time validation after a failed save and retries the corrected draft", async ({
+  browser
+}) => {
+  const context = await browser.newContext({ storageState });
+  try {
+    const page = await context.newPage();
+    const video = fixture("clip.mp4");
+    await setPresentation(page, video, defaults);
+    await open(page, "gallery", "video", video.name);
+    await openGalleryEditor(page, video);
+    const editor = page.getByRole("dialog", {
+      name: "Edit media",
+      exact: true
+    });
+    await editor.getByRole("combobox", { name: "Speed", exact: true }).click();
+    await page.getByRole("option", { name: "0.5×", exact: true }).click();
+    let failureCode: string | null = "presentation_save_failed";
+    await page.route(
+      `**/api/assets/${video.id}/presentation`,
+      async (route) => {
+        if (route.request().method() !== "PUT" || failureCode === null) {
+          await route.continue();
+          return;
+        }
+        await route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({ error: failureCode })
+        });
+      }
+    );
+    const save = editor.getByRole("button", { name: "Save", exact: true });
+    await save.click();
+    const alert = editor.getByRole("alert");
+    await expect(alert).toHaveText("Could not save these edits. Try again.");
+    const start = editor.getByRole("textbox", {
+      name: "Start time",
+      exact: true
+    });
+    await start.fill("invalid");
+    await expect(start).toHaveAttribute("aria-invalid", "true");
+    await expect(alert).toHaveText(
+      "Enter a valid time within the selected range."
+    );
+    await expect(save).toBeDisabled();
+    await start.fill("0:00.500");
+    await expect(start).toHaveAttribute("aria-invalid", "false");
+    const end = editor.getByRole("textbox", { name: "End time", exact: true });
+    await end.fill("invalid");
+    await expect(end).toHaveAttribute("aria-invalid", "true");
+    await expect(alert).toHaveText(
+      "Enter a valid time within the selected range."
+    );
+    await end.fill("0:02.000");
+    await expect(end).toHaveAttribute("aria-invalid", "false");
+    await expect(alert).toHaveCount(0);
+    await expect(save).toBeEnabled();
+    failureCode = "processing_busy";
+    await save.click();
+    await expect(alert).toHaveText(
+      "The server is busy. Try again in a moment."
+    );
+    await expect(save).toBeEnabled();
+    failureCode = null;
+    await save.click();
+    await expect(editor).toHaveCount(0);
+    expect((await getAsset(page, video.id)).presentation).toMatchObject({
+      playbackRate: 0.5,
+      highlight: { startMs: 500, endMs: 2000 }
+    });
+  } finally {
+    await context.close();
+  }
+});
+
 test("keeps editor code-loading failures inside a dismissible dialog", async ({
   browser
 }) => {
@@ -2476,6 +3174,73 @@ for (const format of ["jpg", "heic"] as const) {
     }
   });
 }
+
+test("rejects mixed playback metadata without caching it and recovers on Retry", async ({
+  browser
+}) => {
+  const context = await browser.newContext({ storageState });
+  try {
+    const page = await context.newPage();
+    const asset = fixture("clip.mp4");
+    await setPresentation(page, asset, {
+      ...defaults,
+      highlight: { startMs: 500, endMs: 2000 },
+      loopMode: "bounce"
+    });
+    const current = await getAsset(page, asset.id);
+    const mismatched = "f".repeat(32);
+    expect(current.presentation!.renditionKeys.bounce).not.toBe(mismatched);
+    let reads = 0;
+    let wrongPlaybackRequests = 0;
+    page.on("request", (request) => {
+      const url = new URL(request.url());
+      if (
+        url.pathname.endsWith(`/assets/${asset.id}/playback`) &&
+        url.searchParams.get("v") === mismatched
+      )
+        wrongPlaybackRequests += 1;
+    });
+    await page.route(
+      `**/api/assets/${asset.id}/presentation-media`,
+      async (route) => {
+        reads += 1;
+        const response = await route.fetch();
+        if (reads !== 1) {
+          await route.fulfill({ response });
+          return;
+        }
+        const capabilities = await response.json();
+        await route.fulfill({
+          response,
+          json: {
+            ...capabilities,
+            renditionKeys: { ...capabilities.renditionKeys, bounce: mismatched }
+          }
+        });
+      }
+    );
+    await open(page, "feed", "video", asset.name, true);
+    const item = page.locator(".feed-item").first();
+    await expect(
+      item.getByText("Media changed. Try again.", { exact: true })
+    ).toBeVisible();
+    expect(wrongPlaybackRequests).toBe(0);
+    expect(reads).toBe(1);
+    await item.getByRole("button", { name: "Retry", exact: true }).click();
+    await expect(item.locator("video")).toHaveAttribute(
+      "src",
+      new RegExp(
+        `playback\\?variant=bounce&v=${current.presentation!.renditionKeys.bounce}`
+      )
+    );
+    await expect.poll(() => reads).toBe(2);
+    await expect(
+      item.getByText("Media changed. Try again.", { exact: true })
+    ).toHaveCount(0);
+  } finally {
+    await context.close();
+  }
+});
 
 test("loads the viewer original when its thumbnail is unavailable", async ({
   browser
@@ -3312,7 +4077,9 @@ async function csrf(page: Page) {
   };
 }
 async function getAsset(page: Page, id: string): Promise<AssetRecord> {
-  return (await page.request.get(`${origin}/api/assets/${id}`)).json();
+  const response = await page.request.get(`${origin}/api/assets/${id}`);
+  expect(response.ok(), `Asset ${id} remains indexed`).toBe(true);
+  return response.json();
 }
 async function setPresentation(
   page: Page,

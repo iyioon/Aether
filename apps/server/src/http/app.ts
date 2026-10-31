@@ -98,6 +98,26 @@ export async function buildApp({
       : false,
     trustProxy: config.trustProxy
   });
+  const activeHandlers = new Set<Promise<void>>();
+  let drainingHandlers = false;
+  app.addHook("onRoute", (route) => {
+    const handler = route.handler;
+    route.handler = async function (request, reply) {
+      if (drainingHandlers)
+        return reply.code(503).send({ error: "server_closing" });
+      let finish!: () => void;
+      const completion = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      activeHandlers.add(completion);
+      try {
+        return await handler.call(this, request, reply);
+      } finally {
+        activeHandlers.delete(completion);
+        finish();
+      }
+    };
+  });
 
   try {
     await app.register(helmet, {
@@ -299,8 +319,12 @@ export async function buildApp({
       : null;
 
     app.addHook("onClose", async () => {
+      drainingHandlers = true;
       await watcher?.stop();
       await scanner.stop();
+      // Disconnected requests can leave their async handlers running after
+      // Fastify closes the response. Keep SQLite and private work available.
+      await Promise.allSettled(activeHandlers);
       checkpointDatabase(db);
     });
 

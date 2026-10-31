@@ -50,6 +50,14 @@ Notable changes to Aether are recorded here.
 
 ### Fixed
 
+- Recover editor previews when saved settings are reloaded, show current input
+  errors before earlier save failures, and stop closed editors from starting
+  another save. Reject mixed media versions during loading and save recovery.
+- Coordinate presentation publication, saves and resets with cache cleanup so
+  overlapping changes cannot remove a current rendition. Detect physical source
+  replacements in shared validation and in-memory media caches.
+- Drain processing from disconnected requests before shutdown releases the
+  database, temporary work and runtime lock.
 - Show newly saved Bounce sections immediately, preserve the view preference
   for framing-only edits, and keep save errors visible beside Save. Reconcile
   delayed saves before retrying and close the editor only after confirmation.

@@ -98,6 +98,8 @@ not change saved settings. The editor closes after the server confirms the save.
 If saving fails, the message stays beside Save and your draft remains available.
 Retry checks whether an interrupted save completed before sending it again.
 If another window saves first, reload its saved settings before trying again.
+Reload also refreshes the preview. Invalid times are shown beside Save; correct
+them before retrying. If the server is busy, wait a moment and try again.
 
 ### Playback
 

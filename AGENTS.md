@@ -115,6 +115,9 @@ Paths in this section are relative to `apps/server/src`.
   receive validated records, not browser-supplied paths. Preserve authenticated
   HEAD/range behavior, shared derivative jobs, cleanup, and bounded processing.
   Spawn subprocesses with argument arrays, never assembled shell commands.
+- Preserve request draining during shutdown. Disconnected requests can still
+  own processing work; finish it before closing the database or releasing the
+  data-directory runtime lock.
 
 ### Web State And Media
 

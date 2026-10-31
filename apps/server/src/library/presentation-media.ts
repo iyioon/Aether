@@ -5,7 +5,7 @@ import { requiresImageDisplay } from "./media-types.js";
 import { ImageDerivativeError } from "./image-cache.js";
 import type { AppConfig } from "../config/config.js";
 import type { AetherDatabase } from "../db/database.js";
-import type { ResolvedAssetFile } from "./media-serving.js";
+import { assetEntityTag, type ResolvedAssetFile } from "./media-serving.js";
 import {
   presentationForFile,
   PresentationMediaError,
@@ -111,7 +111,7 @@ export async function getPresentationVideoBouncePlan(
     cache = new Map();
     bouncePlans.set(db, cache);
   }
-  const key = `${file.asset.id}:${file.mtimeMs}:${file.sizeBytes}:${range.startMs}:${range.endMs}`;
+  const key = `${assetEntityTag(file)}:${range.startMs}:${range.endMs}`;
   const existing = cache.get(key);
   if (existing) return existing;
   if (queuedBouncePlans >= 8)
@@ -263,7 +263,7 @@ export async function probePresentationMedia(
     cache = new Map();
     probes.set(db, cache);
   }
-  const key = `${file.asset.id}:${file.mtimeMs}:${file.sizeBytes}`;
+  const key = assetEntityTag(file);
   const cached = cache.get(key);
   if (cached) {
     cache.delete(key);

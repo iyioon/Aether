@@ -13,7 +13,8 @@ import { removePresentationDerivativeFiles } from "./derivative-cache.js";
 import {
   presentationForFile,
   recordPresentationFiles,
-  verifyPresentationSource
+  verifyPresentationSource,
+  withPresentationLifecycle
 } from "./presentation-cache.js";
 import {
   VIDEO_BOUNCE_MAX_DURATION_MS,
@@ -287,51 +288,56 @@ export async function backfillBounceCache(
   range: BounceMetadata["range"],
   plan: VideoBouncePlan
 ): Promise<void> {
-  for (const codec of ["hevc", "h264"] as const) {
-    const suffix = bounceCacheSuffix(codec);
-    const variant = `bounce-${suffix}`;
-    const id = (index: number) =>
-      stableId("derivative", file.asset.id, variant, key, String(index));
-    if (getDerivative(db, id(1))) continue;
-    const entry = getDerivative(db, id(0));
-    const destination = path.join(
-      config.cacheDir,
-      "presentations",
-      file.asset.id,
-      `${key}-${suffix}`
-    );
-    if (
-      !entry ||
-      entry.path !== destination ||
-      entry.status !== "ready" ||
-      entry.sourceMtimeMs !== file.mtimeMs ||
-      entry.kind !== `presentation:${variant}:${key}:0`
-    )
-      continue;
-    let companions: string[] = [];
-    try {
-      await verifyPresentationSource(db, file, "bounce", key);
-      companions = await publishBounceCache(
-        config,
-        file,
-        destination,
-        key,
-        codec,
-        media,
-        range,
-        plan
+  await withPresentationLifecycle(db, async () => {
+    for (const codec of ["hevc", "h264"] as const) {
+      const suffix = bounceCacheSuffix(codec);
+      const variant = `bounce-${suffix}`;
+      const id = (index: number) =>
+        stableId("derivative", file.asset.id, variant, key, String(index));
+      if (getDerivative(db, id(1))) continue;
+      const entry = getDerivative(db, id(0));
+      const destination = path.join(
+        config.cacheDir,
+        "presentations",
+        file.asset.id,
+        `${key}-${suffix}`
       );
-      if (!companions.length) continue;
-      await verifyPresentationSource(db, file, "bounce", key);
-      const obsolete = recordPresentationFiles(db, file, variant, key, [
-        destination,
-        ...companions
-      ]);
-      await removePresentationDerivativeFiles(config.cacheDir, obsolete).catch(
-        () => undefined
-      );
-    } catch {
-      await Promise.all(companions.map((entry) => rm(entry, { force: true })));
+      if (
+        !entry ||
+        entry.path !== destination ||
+        entry.status !== "ready" ||
+        entry.sourceMtimeMs !== file.mtimeMs ||
+        entry.kind !== `presentation:${variant}:${key}:0`
+      )
+        continue;
+      let companions: string[] = [];
+      try {
+        await verifyPresentationSource(db, file, "bounce", key);
+        companions = await publishBounceCache(
+          config,
+          file,
+          destination,
+          key,
+          codec,
+          media,
+          range,
+          plan
+        );
+        if (!companions.length) continue;
+        await verifyPresentationSource(db, file, "bounce", key);
+        const obsolete = recordPresentationFiles(db, file, variant, key, [
+          destination,
+          ...companions
+        ]);
+        await removePresentationDerivativeFiles(
+          config.cacheDir,
+          obsolete
+        ).catch(() => undefined);
+      } catch {
+        await Promise.all(
+          companions.map((entry) => rm(entry, { force: true }))
+        );
+      }
     }
-  }
+  });
 }

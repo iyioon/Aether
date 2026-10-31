@@ -4,6 +4,7 @@ import {
   mkdtemp,
   readFile,
   readdir,
+  rename,
   rm,
   stat,
   symlink,
@@ -31,10 +32,17 @@ import {
 import { resetLibraryData } from "../src/library/repository-reset.js";
 import * as processing from "../src/library/video-processing.js";
 import * as bounce from "../src/library/presentation-bounce.js";
-import { ensurePresentationDerivative } from "../src/library/presentation-cache.js";
+import {
+  ensurePresentationDerivative,
+  verifyPresentationSource
+} from "../src/library/presentation-cache.js";
 import { resolveAssetFile } from "../src/library/media-serving.js";
 import { readBounceCache } from "../src/library/presentation-bounce-cache.js";
 import * as privateCache from "../src/security/private-cache-file.js";
+import {
+  getPresentationVideoBouncePlan,
+  probePresentationMedia
+} from "../src/library/presentation-media.js";
 
 let directory: string;
 let config: AppConfig;
@@ -125,6 +133,43 @@ async function prepare(rate = 24, codec = "h264") {
 }
 
 describe("persistent Bounce startup cache", () => {
+  it("rejects atomic replacement and does not reuse probes or plans from a different source inode", async () => {
+    const prepared = await prepare();
+    const seconds =
+      Math.floor((await stat(prepared.sourcePath)).mtimeMs) / 1000;
+    await utimes(prepared.sourcePath, seconds, seconds);
+    await scanLibrary(db, config.mediaRoots);
+    const file = (await resolveAssetFile(db, prepared.asset.id))!;
+    const key = getAsset(db, prepared.asset.id)!.presentation.renditionKeys
+      .bounce;
+    const range = { startMs: 100, endMs: 600 };
+    const oldProbe = await probePresentationMedia(db, file);
+    const oldPlan = await getPresentationVideoBouncePlan(db, file, range);
+    const replacement = path.join(directory, "replacement.mp4");
+    await writeFile(replacement, await readFile(prepared.sourcePath));
+    await utimes(replacement, seconds, seconds);
+    await rename(replacement, prepared.sourcePath);
+    const fresh = (await resolveAssetFile(db, prepared.asset.id))!;
+    expect(fresh.inode).not.toBe(file.inode);
+    expect(fresh.mtimeMs).toBe(file.mtimeMs);
+    expect(fresh.sizeBytes).toBe(file.sizeBytes);
+    await expect(
+      verifyPresentationSource(db, file, "bounce", key)
+    ).rejects.toMatchObject({ code: "stale_rendition" });
+    const command = vi.spyOn(processing, "runMediaCommand");
+    expect(await probePresentationMedia(db, fresh)).not.toBe(oldProbe);
+    expect(command.mock.calls.some(([name]) => name === "ffprobe")).toBe(true);
+    command.mockClear();
+    expect(await getPresentationVideoBouncePlan(db, fresh, range)).not.toBe(
+      oldPlan
+    );
+    expect(
+      command.mock.calls.some(
+        ([name, args]) => name === "ffprobe" && args.includes("-show_frames")
+      )
+    ).toBe(true);
+  });
+
   it("does not treat a failed rendition fingerprint check as missing optional metadata", async () => {
     const prepared = await prepare();
     const file = (await resolveAssetFile(db, prepared.asset.id))!;

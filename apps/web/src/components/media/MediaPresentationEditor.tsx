@@ -60,6 +60,18 @@ interface PresentationEditorError {
 }
 
 function saveError(error: unknown): PresentationEditorError {
+  if (
+    error instanceof ApiError &&
+    error.status === 404 &&
+    ["asset_not_found", "asset_not_indexed"].includes(error.code)
+  ) {
+    return {
+      message:
+        "This media is no longer available. Close the editor and check the library.",
+      conflict: true,
+      sourceChanged: true
+    };
+  }
   if (error instanceof ApiError && error.status === 409) {
     return {
       message:
@@ -82,6 +94,7 @@ function saveError(error: unknown): PresentationEditorError {
         "Playback editing is unavailable for this file.",
       presentation_limit_exceeded:
         "This file exceeds the playback editing limit. Framing is still available.",
+      processing_busy: "The server is busy. Try again in a moment.",
       presentation_save_failed: "Could not save these edits. Try again."
     };
     const message = messages[error.code];
@@ -145,6 +158,7 @@ export function MediaPresentationEditor({
   });
   const [pending, setPending] = useState<"save" | "reload" | null>(null);
   const [resetKey, setResetKey] = useState(0);
+  const [previewAttempt, setPreviewAttempt] = useState(0);
   const pendingRef = useRef(false);
   const activeRef = useRef(true);
   const [error, setError] = useState<PresentationEditorError | null>(null);
@@ -273,6 +287,9 @@ export function MediaPresentationEditor({
         setOriginal(values);
         setDraft(values);
         setRevision(latest.presentation?.revision ?? 0);
+        setPreviewAttempt((current) => current + 1);
+        setObservedDuration(0);
+        setPlaybackAvailable(true);
         setPlayheadMs(values.highlight?.startMs ?? 0);
         setInvalidFields({ start: false, end: false });
         setError(null);
@@ -320,6 +337,7 @@ export function MediaPresentationEditor({
             onChange={changeFraming}
           >
             <PresentationPreview
+              key={`${asset.id}:${asset.mtimeMs}:${asset.sizeBytes}:${previewAttempt}`}
               asset={asset}
               capabilities={capabilities}
               presentation={framedDraft}
@@ -421,10 +439,11 @@ export function MediaPresentationEditor({
         canReset={!disabled && canReset}
         canSave={canSave}
         message={
-          error?.message ??
-          (invalidFields.start || invalidFields.end
-            ? "Enter a valid time within the selected range."
-            : validation)
+          error?.conflict
+            ? error.message
+            : invalidFields.start || invalidFields.end
+              ? "Enter a valid time within the selected range."
+              : (validation ?? error?.message)
         }
         onReload={
           error?.conflict && !error.sourceChanged && onReload

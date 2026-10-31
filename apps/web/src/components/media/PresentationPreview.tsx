@@ -186,24 +186,33 @@ export function PresentationPreview({
         aria-label={`Preview ${asset.name}`}
         onVolumeChange={(event) => {
           const video = event.currentTarget;
+          if (!video.isConnected || videoRef.current !== video) return;
           onMutedChange(video.muted || video.volume === 0);
         }}
         onPause={(event) => {
           const video = event.currentTarget;
+          if (!video.isConnected || videoRef.current !== video) return;
           const time = video.currentTime * 1000;
           emittedRef.current = time;
           callbacks.current.onTimeChange(time);
           // A queued cleanup pause may arrive after playback has restarted.
-          if (video.isConnected && video.paused && !video.ended)
+          if (video.paused && !video.ended)
             callbacks.current.onPlayingChange(false);
         }}
-        onError={() => {
+        onError={(event) => {
+          if (
+            !event.currentTarget.isConnected ||
+            videoRef.current !== event.currentTarget
+          )
+            return;
           setVideoError(true);
           callbacks.current.onPlayingChange(false);
           callbacks.current.onPlaybackAvailableChange(false);
         }}
         onLoadedMetadata={(event) => {
           const video = event.currentTarget;
+          if (!video.isConnected || videoRef.current !== video) return;
+          callbacks.current.onPlaybackAvailableChange(true);
           if (Number.isFinite(video.duration) && video.duration > 0) {
             setObservedDuration(video.duration * 1000);
             callbacks.current.onDurationChange(video.duration * 1000);

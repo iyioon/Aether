@@ -284,6 +284,13 @@ through safe moves or timestamp changes; a content replacement clears them.
 
 ### Processing And Delivery
 
+Presentation saves, playback resets, publication, sidecar backfill and retirement
+share a short per-database lifecycle lock. It admits at most eight operations;
+excess work returns `processing_busy` before mutation. Probing and encoding run
+outside the lock. Final source checks, file publication, registration, cleanup
+and rollback stay together, preventing an earlier cleanup from deleting a
+rendition made current by a later change.
+
 `routes-presentation.ts` validates edits and verifies the resolved source before
 and after capability probing, including device/inode identity. Save validation
 checks the submitted range independently of any previously saved Bounce range.
@@ -386,6 +393,14 @@ match the requested asset, values and a newer revision before publication and
 closing. Save errors remain in the fixed editor footer with the draft intact.
 An explicit highlighted Bounce or Bounce range edit enables highlight playback
 after confirmation; framing-only and speed-only saves preserve the view choice.
+Editor opening and reloading compare the asset and capability rendition keys;
+one bounded refetch handles overlapping updates. Persistent mismatches retain
+the loading error or existing draft instead of combining different media
+versions. Shared playback capabilities also reject mismatched keys before
+caching them. Reconciliation checks the loaded source version, and its reads
+are aborted on unmount before another write can start. A write already sent may
+still complete on the server. Explicit reload resets failed preview state and
+observed timing; tab and aspect switches keep the same preview.
 
 ### Playback And Limits
 
@@ -549,6 +564,13 @@ private settings, private native-tool temporary work under `tmp`, and a safety
 marker. Temporary process scopes are removed on exit; dead-process work is
 pruned under an exclusive runtime or maintenance lock. Docker mounts the same directory at
 **/data**. Source media remains on separate read-only mounts.
+
+Application route handlers remain tracked until their asynchronous work settles,
+including after a client disconnects. Shutdown stops watching/scanning, drains
+these handlers and checkpoints the database before runtime cleanup closes the
+database, removes temporary work and releases the data-directory lock. Existing
+processing deadlines remain in force; a disconnected client does not authorize
+an early lock release.
 
 See [Data management](data-management.md) for backup, rebuild, and wipe
 behavior.

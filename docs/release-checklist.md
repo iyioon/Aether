@@ -154,6 +154,17 @@ Never test rebuild or wipe against the only copy of a real library database.
   without another write. Save errors must stay visible beside Save on phones.
   With highlights off, save a Bounce section and check immediate Bounce playback;
   framing-only edits must preserve a deliberately disabled highlight preference.
+- After a failed Save, enter an invalid time and confirm its correction message
+  appears beside Save. Correct it and retry. Reload after a preview failure and
+  concurrent edit; the refreshed image/video must load, while tab and aspect
+  switches keep playback available. Closing the editor during retry must not
+  start another write or close a subsequently opened editor.
+- Use overlapping windows to change a section away and back while its cache is
+  being retired; the current rendition must survive. Repeat with a playback
+  reset during preparation, and verify that obsolete output is discarded.
+- Disconnect a request during preparation and shut down the server. Processing
+  must settle before the database, temporary work and runtime lock are released;
+  a fresh start must find no partial rendition or stale active ownership.
 - Reset only playback or framing and confirm other edits, scores, tags,
   favorites, navigation and Undo survive.
 - On an actual installed iPhone PWA, check editor header/footer and input keyboard

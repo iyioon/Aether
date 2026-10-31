@@ -201,7 +201,9 @@ symlinked target. The same checks apply after resolving parent-directory aliases
 `runtime.lock` prevents maintenance work while Aether is using the data
 directory. Aether normally removes it on shutdown and automatically clears a
 verifiably stale same-host lock. Acquiring a new lock also removes abandoned
-heartbeat temporary files before its timer starts. After an abrupt container
+heartbeat temporary files before its timer starts. Normal shutdown waits for
+active processing, including work whose browser disconnected, before removing
+the lock. After an abrupt container
 stop reuses the same PID, the lock may require 60 seconds without a heartbeat
 before recovery; this avoids taking a fresh lock from another process namespace.
 If a command still reports a

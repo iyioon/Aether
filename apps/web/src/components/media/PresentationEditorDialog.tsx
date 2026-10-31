@@ -20,6 +20,7 @@ import { Button } from "../ui/button";
 import { Dialog, DialogContent, DialogTitle } from "../ui/dialog";
 import {
   getPresentationValues,
+  presentationRenditionKeysEqual,
   presentationSaveOutcome,
   shouldEnableHighlightPlayback
 } from "./presentation-model";
@@ -64,6 +65,28 @@ async function loadEditorCapabilities(assetId: string, signal: AbortSignal) {
   }
 }
 
+async function loadEditorSettings(assetId: string, signal: AbortSignal) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    signal.throwIfAborted();
+    const [asset, capabilities] = await Promise.all([
+      getAsset(assetId, signal),
+      loadEditorCapabilities(assetId, signal)
+    ]);
+    if (
+      !capabilities ||
+      presentationRenditionKeysEqual(
+        asset.presentation?.renditionKeys,
+        capabilities.renditionKeys
+      )
+    )
+      return {
+        asset,
+        capabilities: capabilities ?? unavailableCapabilities(asset)
+      };
+  }
+  throw new ApiError(409, "presentation_conflict");
+}
+
 export function PresentationEditorDialog({
   asset,
   initialAspect,
@@ -88,29 +111,24 @@ export function PresentationEditorDialog({
   const uncertain = useRef(false);
   const active = useRef(true);
   const reloadController = useRef<AbortController | null>(null);
+  const saveReadController = useRef<AbortController | null>(null);
 
   useEffect(() => {
     active.current = true;
     const controller = new AbortController();
     setError(null);
-    const capabilitiesRequest = loadEditorCapabilities(
-      asset.id,
-      controller.signal
-    );
     void Promise.all([
-      getAsset(asset.id, controller.signal),
-      capabilitiesRequest,
+      loadEditorSettings(asset.id, controller.signal),
       import("./MediaPresentationEditor").catch((failure: unknown) => {
         if (!controller.signal.aborted) setError("tools");
         throw failure;
       })
     ])
-      .then(([current, capabilities, { MediaPresentationEditor }]) => {
+      .then(([settings, { MediaPresentationEditor }]) => {
         if (!controller.signal.aborted)
           setLoaded({
-            asset: current,
-            Editor: MediaPresentationEditor,
-            capabilities: capabilities ?? unavailableCapabilities(current)
+            ...settings,
+            Editor: MediaPresentationEditor
           });
       })
       .catch(() => {
@@ -123,11 +141,27 @@ export function PresentationEditorDialog({
       active.current = false;
       controller.abort();
       reloadController.current?.abort();
+      saveReadController.current?.abort();
     };
   }, [asset.id, attempt]);
 
-  async function reconcile(values: PresentationValues, revision: number) {
-    const current = await getAsset(asset.id);
+  function verifySource(current: AssetRecord) {
+    if (current.id !== asset.id)
+      throw new ApiError(409, "presentation_conflict");
+    if (
+      current.presentation?.renditionKeys.full !==
+      loaded?.asset.presentation?.renditionKeys.full
+    )
+      throw new ApiError(409, "source_changed");
+  }
+
+  async function reconcile(
+    values: PresentationValues,
+    revision: number,
+    signal: AbortSignal
+  ) {
+    const current = await getAsset(asset.id, signal);
+    verifySource(current);
     const outcome = presentationSaveOutcome(
       current.presentation,
       values,
@@ -142,40 +176,53 @@ export function PresentationEditorDialog({
   }
 
   async function save(values: PresentationValues, revision: number) {
-    let saved: AssetRecord | null = null;
-    if (uncertain.current) saved = await reconcile(values, revision);
-    if (!saved) {
-      try {
-        saved = await updateAssetPresentation(asset.id, values, revision);
-      } catch (failure) {
-        if (
-          failure instanceof ApiError &&
-          failure.status >= 400 &&
-          failure.status < 500 &&
-          !(
-            uncertain.current &&
-            failure.status === 409 &&
-            failure.code !== "source_changed"
-          )
-        )
-          throw failure;
-        uncertain.current = true;
+    const controller = new AbortController();
+    saveReadController.current = controller;
+    const requireActive = () => {
+      if (!active.current) controller.abort();
+      controller.signal.throwIfAborted();
+    };
+    try {
+      requireActive();
+      let saved: AssetRecord | null = null;
+      if (uncertain.current)
+        saved = await reconcile(values, revision, controller.signal);
+      requireActive();
+      if (!saved) {
         try {
-          saved = await reconcile(values, revision);
-        } catch (readFailure) {
-          if (readFailure instanceof ApiError && readFailure.status === 409)
-            throw readFailure;
+          saved = await updateAssetPresentation(asset.id, values, revision);
+        } catch (failure) {
+          requireActive();
+          if (
+            failure instanceof ApiError &&
+            failure.status >= 400 &&
+            failure.status < 500 &&
+            !(
+              uncertain.current &&
+              failure.status === 409 &&
+              failure.code !== "source_changed"
+            )
+          )
+            throw failure;
+          uncertain.current = true;
+          try {
+            saved = await reconcile(values, revision, controller.signal);
+          } catch (readFailure) {
+            requireActive();
+            if (readFailure instanceof ApiError && readFailure.status === 409)
+              throw readFailure;
+          }
+          if (!saved) throw failure;
         }
-        if (!saved) throw failure;
       }
-    }
-    if (
-      saved.id !== asset.id ||
-      presentationSaveOutcome(saved.presentation, values, revision) !== "saved"
-    )
-      throw new ApiError(409, "presentation_conflict");
-    uncertain.current = false;
-    if (active.current) {
+      requireActive();
+      verifySource(saved);
+      if (
+        presentationSaveOutcome(saved.presentation, values, revision) !==
+        "saved"
+      )
+        throw new ApiError(409, "presentation_conflict");
+      uncertain.current = false;
       onSaved(
         saved,
         shouldEnableHighlightPlayback(
@@ -184,30 +231,32 @@ export function PresentationEditorDialog({
         )
       );
       onClose();
+      return saved;
+    } finally {
+      controller.abort();
+      if (saveReadController.current === controller)
+        saveReadController.current = null;
     }
-    return saved;
   }
 
   async function reload() {
     reloadController.current?.abort();
     const controller = new AbortController();
     reloadController.current = controller;
-    const [current, capabilities] = await Promise.all([
-      getAsset(asset.id, controller.signal),
-      loadEditorCapabilities(asset.id, controller.signal)
-    ]);
-    uncertain.current = false;
-    if (active.current && !controller.signal.aborted)
-      setLoaded((previous) =>
-        previous
-          ? {
-              ...previous,
-              asset: current,
-              capabilities: capabilities ?? unavailableCapabilities(current)
-            }
-          : previous
-      );
-    return current;
+    try {
+      const settings = await loadEditorSettings(asset.id, controller.signal);
+      controller.signal.throwIfAborted();
+      uncertain.current = false;
+      if (active.current)
+        setLoaded((previous) =>
+          previous ? { ...previous, ...settings } : previous
+        );
+      return settings.asset;
+    } finally {
+      controller.abort();
+      if (reloadController.current === controller)
+        reloadController.current = null;
+    }
   }
 
   return (

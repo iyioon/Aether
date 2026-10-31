@@ -5,6 +5,7 @@ import {
   type AssetRecord,
   type PresentationMediaCapabilities
 } from "../../api/client";
+import { presentationRenditionKeysEqual } from "./presentation-model";
 
 const cached = new Map<string, PresentationMediaCapabilities>();
 let generation = 0;
@@ -49,12 +50,16 @@ export function usePresentationCapabilities(
   asset: AssetRecord,
   enabled = true
 ) {
+  const full = asset.presentation?.renditionKeys.full;
+  const highlight = asset.presentation?.renditionKeys.highlight;
+  const bounce = asset.presentation?.renditionKeys.bounce;
   const key = [
     asset.id,
     asset.mtimeMs,
     asset.sizeBytes,
-    asset.presentation?.renditionKeys.highlight,
-    asset.presentation?.renditionKeys.bounce
+    full,
+    highlight,
+    bounce
   ].join(":");
   const [state, setState] = useState<{
     key: string;
@@ -80,6 +85,21 @@ export function usePresentationCapabilities(
       (value) => {
         if (controller.signal.aborted || generation !== currentGeneration)
           return;
+        if (
+          !presentationRenditionKeysEqual(
+            full && highlight && bounce
+              ? { full, highlight, bounce }
+              : undefined,
+            value.renditionKeys
+          )
+        ) {
+          setState({
+            key,
+            value: null,
+            error: new ApiError(409, "stale_rendition")
+          });
+          return;
+        }
         cached.set(key, value);
         if (cached.size > 128) cached.delete(cached.keys().next().value!);
         setState({ key, value, error: null });
@@ -94,7 +114,7 @@ export function usePresentationCapabilities(
       }
     );
     return () => controller.abort();
-  }, [asset.id, key, enabled, attempt]);
+  }, [asset.id, key, full, highlight, bounce, enabled, attempt]);
   return {
     capabilities: state.key === key ? state.value : null,
     error: state.key === key ? state.error : null,

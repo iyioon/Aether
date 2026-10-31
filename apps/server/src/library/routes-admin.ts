@@ -3,6 +3,10 @@ import type { AppConfig } from "../config/config.js";
 import type { AetherDatabase } from "../db/database.js";
 import { presentationPlaybackDerivativeFiles } from "./repository-presentation.js";
 import { removePresentationDerivativeFiles } from "./derivative-cache.js";
+import {
+  PresentationMediaError,
+  withPresentationLifecycle
+} from "./presentation-cache.js";
 import { countPresentationEdits, resetLibraryData } from "./repository.js";
 import {
   LibraryDataResetBody,
@@ -102,18 +106,33 @@ export function registerAdminRoutes(
       return reply.code(400).send({ error: "invalid_request" });
     }
 
-    const obsoleteFiles = body.data.presentationPlayback
-      ? presentationPlaybackDerivativeFiles(db)
-      : [];
-    const result = resetLibraryData(db, body.data, new Date().toISOString());
-    if (obsoleteFiles.length > 0) {
-      try {
-        await removePresentationDerivativeFiles(config.cacheDir, obsoleteFiles);
-      } catch {
-        request.log.warn("Presentation cache cleanup could not finish");
+    const reset = async () => {
+      const obsoleteFiles = body.data.presentationPlayback
+        ? presentationPlaybackDerivativeFiles(db)
+        : [];
+      const result = resetLibraryData(db, body.data, new Date().toISOString());
+      if (obsoleteFiles.length > 0) {
+        try {
+          await removePresentationDerivativeFiles(
+            config.cacheDir,
+            obsoleteFiles
+          );
+        } catch {
+          request.log.warn("Presentation cache cleanup could not finish");
+        }
       }
+      return result;
+    };
+    try {
+      return await (body.data.presentationPlayback ||
+      body.data.presentationFraming
+        ? withPresentationLifecycle(db, reset)
+        : reset());
+    } catch (error) {
+      if (error instanceof PresentationMediaError)
+        return reply.code(error.status).send({ error: error.code });
+      throw error;
     }
-    return result;
   });
 }
 

@@ -4,6 +4,7 @@ import {
   open,
   readFile,
   readdir,
+  rename,
   rm,
   stat,
   symlink,
@@ -28,10 +29,12 @@ import {
 import { resolveAssetFile } from "../src/library/media-serving.js";
 import {
   getPresentationMediaCapabilities,
+  probePresentationMedia,
   PresentationMediaError
 } from "../src/library/presentation-media.js";
 import { ensurePresentationAnimation } from "../src/library/presentation-animation.js";
 import { ensurePresentationDerivative } from "../src/library/presentation-cache.js";
+import * as presentationCache from "../src/library/presentation-cache.js";
 import { VIDEO_BOUNCE_MAX_OUTPUT_BYTES } from "../src/library/presentation-bounce.js";
 import { registerPresentationMediaRoutes } from "../src/library/routes-presentation-media.js";
 import {
@@ -1132,7 +1135,290 @@ async function verifyAvifFixtureTiming(sourcePath: string): Promise<void> {
   }
 }
 
+async function mutableGifSource() {
+  const initial = await animatedFixture("gif");
+  const sourcePath = path.join(cwd, "media", initial.name);
+  const timestamp = 1_700_000_000;
+  await utimes(sourcePath, timestamp, timestamp);
+  const asset = await assetNamed(initial.name);
+  const file = (await resolveAssetFile(db, asset.id))!;
+  const source = await readFile(sourcePath);
+  const changed = Buffer.from(source);
+  expect(source[10]! & 0x80).toBe(0x80);
+  const paletteEnd = 13 + 3 * 2 ** ((source[10]! & 7) + 1);
+  let red = -1;
+  for (let offset = 13; offset < paletteEnd; offset += 3) {
+    if (
+      source[offset] === 255 &&
+      source[offset + 1] === 0 &&
+      source[offset + 2] === 0
+    ) {
+      red = offset;
+      break;
+    }
+  }
+  expect(red).toBeGreaterThanOrEqual(13);
+  changed[red] = 127;
+  return {
+    file,
+    key: asset.presentation.renditionKeys.full,
+    changed,
+    timestamp
+  };
+}
+
 describe("controllable transparent animations", () => {
+  it.each(["gif", "webp", "apng", "avif"] as const)(
+    "reuses prepared %s files across repeat requests and database restarts",
+    async (format) => {
+      const asset = await animatedFixture(format);
+      const file = (await resolveAssetFile(db, asset.id))!;
+      const source = await readFile(file.sourcePath);
+      const key = getPresentationRenditionKeys(asset, asset.presentation).full;
+      const first = await ensurePresentationAnimation({
+        db,
+        config,
+        file,
+        key
+      });
+      const paths = [
+        path.join(path.dirname(first.atlasPaths[0]!), `${key}-animation.json`),
+        ...first.atlasPaths
+      ];
+      const snapshot = () =>
+        Promise.all(
+          paths.map(async (filePath) => {
+            const info = await stat(filePath, { bigint: true });
+            return {
+              inode: info.ino,
+              mtimeNs: info.mtimeNs,
+              bytes: await readFile(filePath)
+            };
+          })
+        );
+      const prepared = await snapshot();
+      const privateManifest = JSON.parse(prepared[0]!.bytes.toString("utf8"));
+      expect(privateManifest).toMatchObject({
+        version: 1,
+        manifest: first.manifest
+      });
+      expect(Object.keys(privateManifest.source).sort()).toEqual([
+        "ctimeNs",
+        "dev",
+        "ino",
+        "mtimeNs",
+        "size"
+      ]);
+      await expect(
+        ensurePresentationAnimation({ db, config, file, key })
+      ).resolves.toEqual(first);
+      expect(await snapshot()).toEqual(prepared);
+      const publicManifest = await app.inject(
+        `/api/assets/${asset.id}/animation?v=${key}`
+      );
+      expect(publicManifest.statusCode).toBe(200);
+      expect(publicManifest.json()).toEqual(first.manifest);
+      expect(publicManifest.payload).not.toMatch(
+        /"(?:source|dev|ino|mtimeNs|ctimeNs)"/
+      );
+      expect(publicManifest.payload).not.toContain(cwd);
+
+      await app.close();
+      db.close();
+      db = openDatabase(config.configDir);
+      app = fastify();
+      registerPresentationMediaRoutes(app, config, db);
+      const fresh = (await resolveAssetFile(db, asset.id))!;
+      await expect(
+        ensurePresentationAnimation({ db, config, file: fresh, key })
+      ).resolves.toEqual(first);
+      expect(await snapshot()).toEqual(prepared);
+
+      // A partial cache still needs reconstruction rather than a false hit.
+      await rm(first.atlasPaths[0]!);
+      const rebuilt = await ensurePresentationAnimation({
+        db,
+        config,
+        file: fresh,
+        key
+      });
+      expect(rebuilt.manifest).toEqual(first.manifest);
+      expect(await readFile(first.atlasPaths[0]!)).toEqual(prepared[1]!.bytes);
+      expect(await readFile(file.sourcePath)).toEqual(source);
+    }
+  );
+
+  it.each(["legacy", "missing identity"])(
+    "rebuilds a %s animation manifest once without keeping obsolete cache metadata",
+    async (kind) => {
+      const asset = await animatedFixture("gif");
+      const file = (await resolveAssetFile(db, asset.id))!;
+      const key = asset.presentation.renditionKeys.full;
+      const first = await ensurePresentationAnimation({
+        db,
+        config,
+        file,
+        key
+      });
+      const manifestPath = path.join(
+        path.dirname(first.atlasPaths[0]!),
+        `${key}-animation.json`
+      );
+      await writeFile(
+        manifestPath,
+        JSON.stringify(
+          kind === "legacy"
+            ? first.manifest
+            : { version: 1, manifest: first.manifest }
+        )
+      );
+      const oldAtlas = await stat(first.atlasPaths[0]!, { bigint: true });
+      const rebuilt = await ensurePresentationAnimation({
+        db,
+        config,
+        file,
+        key
+      });
+      expect(rebuilt.manifest).toEqual(first.manifest);
+      const rewritten = await stat(first.atlasPaths[0]!, { bigint: true });
+      expect(rewritten.ino).not.toBe(oldAtlas.ino);
+      const metadata = await readFile(manifestPath);
+      expect(JSON.parse(metadata.toString("utf8")).source).toBeDefined();
+      await ensurePresentationAnimation({ db, config, file, key });
+      expect(await readFile(manifestPath)).toEqual(metadata);
+      expect((await stat(first.atlasPaths[0]!, { bigint: true })).ino).toBe(
+        rewritten.ino
+      );
+    }
+  );
+
+  it.each(["atomic", "in-place"])(
+    "does not reuse animation frames after a same-size, same-time %s source change",
+    async (kind) => {
+      const { file, key, changed, timestamp } = await mutableGifSource();
+      const first = await ensurePresentationAnimation({
+        db,
+        config,
+        file,
+        key
+      });
+      const oldAtlas = await readFile(first.atlasPaths[0]!);
+      const before = await stat(file.sourcePath, { bigint: true });
+      if (kind === "atomic") {
+        const replacement = path.join(cwd, "replacement.gif");
+        await writeFile(replacement, changed);
+        await utimes(replacement, timestamp, timestamp);
+        await rename(replacement, file.sourcePath);
+      } else {
+        await writeFile(file.sourcePath, changed);
+        await utimes(file.sourcePath, timestamp, timestamp);
+      }
+      const after = await stat(file.sourcePath, { bigint: true });
+      expect(after.size).toBe(before.size);
+      expect(after.mtimeNs).toBe(before.mtimeNs);
+      expect(after.ino === before.ino).toBe(kind === "in-place");
+      expect(after.ctimeNs).not.toBe(before.ctimeNs);
+      const fresh = (await resolveAssetFile(db, file.asset.id))!;
+      const rebuilt = await ensurePresentationAnimation({
+        db,
+        config,
+        file: fresh,
+        key
+      });
+      expect(rebuilt.manifest).toEqual(first.manifest);
+      expect(await readFile(rebuilt.atlasPaths[0]!)).not.toEqual(oldAtlas);
+      expect(await readFile(file.sourcePath)).toEqual(changed);
+      const pixels = await sharp(rebuilt.atlasPaths[0]!)
+        .ensureAlpha()
+        .raw()
+        .toBuffer();
+      expect(pixels[8 * 4]).toBe(127);
+    }
+  );
+
+  it("refreshes capabilities and animation timing after a same-stat GIF delay edit", async () => {
+    const { file, key, timestamp } = await mutableGifSource();
+    const probe = await probePresentationMedia(db, file);
+    expect(probe.durationMs).toBe(600);
+    await expect(probePresentationMedia(db, file)).resolves.toBe(probe);
+    const first = await ensurePresentationAnimation({ db, config, file, key });
+    expect(first.manifest.durationMs).toBe(600);
+    const before = await stat(file.sourcePath, { bigint: true });
+    const changed = await readFile(file.sourcePath);
+    const control = changed.indexOf(Buffer.from([0x21, 0xf9, 0x04]));
+    expect(control).toBeGreaterThanOrEqual(0);
+    expect(changed.readUInt16LE(control + 4)).toBe(10);
+    changed.writeUInt16LE(15, control + 4);
+    await writeFile(file.sourcePath, changed);
+    await utimes(file.sourcePath, timestamp, timestamp);
+    const after = await stat(file.sourcePath, { bigint: true });
+    expect(after.ino).toBe(before.ino);
+    expect(after.size).toBe(before.size);
+    expect(after.mtimeNs).toBe(before.mtimeNs);
+    expect(after.ctimeNs).not.toBe(before.ctimeNs);
+
+    const fresh = (await resolveAssetFile(db, file.asset.id))!;
+    const refreshed = await probePresentationMedia(db, fresh);
+    expect(refreshed).not.toBe(probe);
+    expect(refreshed.durationMs).toBe(650);
+    await expect(probePresentationMedia(db, fresh)).resolves.toBe(refreshed);
+    const capabilities = await getPresentationMediaCapabilities({
+      db,
+      config,
+      file: fresh
+    });
+    expect(capabilities.durationMs).toBe(650);
+    const rebuilt = await ensurePresentationAnimation({
+      db,
+      config,
+      file: fresh,
+      key
+    });
+    expect(rebuilt.manifest.durationMs).toBe(650);
+    expect(rebuilt.manifest.frames.map((frame) => frame.durationMs)).toEqual([
+      150, 200, 300
+    ]);
+    expect(rebuilt.manifest.frames.map((frame) => frame.startMs)).toEqual([
+      0, 150, 350
+    ]);
+    expect(await readFile(file.sourcePath)).toEqual(changed);
+  });
+
+  it.each([2, 3])(
+    "rejects same-stat source changes at publication check %s and removes partial output",
+    async (check) => {
+      const { file, key, changed, timestamp } = await mutableGifSource();
+      const original = presentationCache.verifyPresentationSource;
+      let checks = 0;
+      vi.spyOn(
+        presentationCache,
+        "verifyPresentationSource"
+      ).mockImplementation(async (...args) => {
+        checks++;
+        if (checks === check) {
+          await writeFile(file.sourcePath, changed);
+          await utimes(file.sourcePath, timestamp, timestamp);
+        }
+        await original(...args);
+      });
+      await expect(
+        ensurePresentationAnimation({ db, config, file, key })
+      ).rejects.toMatchObject({ code: "stale_rendition", status: 409 });
+      expect(checks).toBe(check);
+      expect(
+        await readdir(
+          path.join(config.cacheDir, "presentations", file.asset.id)
+        )
+      ).toEqual([]);
+      expect(
+        db
+          .prepare("SELECT id FROM derivatives WHERE asset_id = ?")
+          .all(file.asset.id)
+      ).toEqual([]);
+      expect(await readFile(file.sourcePath)).toEqual(changed);
+    }
+  );
+
   it.each(["gif", "webp", "apng", "avif"] as const)(
     "preserves original %s frame dimensions with bounded adaptive atlases",
     async (format) => {

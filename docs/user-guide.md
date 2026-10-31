@@ -66,7 +66,8 @@ Videos begin muted. An explicit pause survives leaving and returning to the app.
 Muted playback may resume when you return; audible playback waits for Play.
 A thumbnail or poster stays visible until the full photo or first playback
 frame is ready. With highlights enabled, the preview shows the selected start.
-If loading fails in the viewer, the preview stays visible while you retry.
+If loading fails, use **Retry** on the media. An available preview stays visible.
+If the server is busy, wait briefly before retrying.
 Missing previews do not prevent the media from loading. A slim bar along the
 top shows loading or preparation, including while Bounce is being prepared.
 It also appears if a playing video needs to buffer, keeping the current frame

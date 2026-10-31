@@ -537,7 +537,12 @@ for (const phone of [false, true]) {
         });
         const initialBounds = (await frame.boundingBox())!;
         release.release();
-        const host = surfaceName === "viewer" ? viewer : frame;
+        const host =
+          surfaceName === "viewer"
+            ? viewer
+            : surfaceName === "gallery"
+              ? page.locator(".media-tile .media-preview-frame").first()
+              : frame;
         const notice = host.locator(".media-error-notice");
         await expect(notice).toHaveCount(1);
         await expect(notice).toContainText(
@@ -566,39 +571,36 @@ for (const phone of [false, true]) {
             `bounce-error-${surfaceName}-${phone ? "phone" : "desktop"}.png`
           )
         });
-        if (surfaceName === "gallery") {
-          await expect(notice.getByRole("button")).toHaveCount(0);
-        } else {
-          const retry = notice.getByRole("button", {
-            name: "Retry",
-            exact: true
-          });
-          await expect(retry).toBeVisible();
-          const retryBounds = (await retry.boundingBox())!;
-          expect(retryBounds.width).toBeGreaterThanOrEqual(44);
-          expect(retryBounds.height).toBeGreaterThanOrEqual(44);
-          mode = surfaceName === "viewer" ? "browser" : "busy";
-          await retry.click();
-          await expect(notice).toContainText(
-            surfaceName === "viewer"
-              ? "This browser cannot play Bounce."
-              : "Media preparation is busy."
-          );
-          mode = "ready";
-          await retry.click();
-          await expect(notice).toHaveCount(0);
-          const video = frame.locator("video");
-          await expect
-            .poll(() =>
-              video.evaluate((node: HTMLVideoElement) => node.readyState)
-            )
-            .toBeGreaterThanOrEqual(2);
-          await expect
-            .poll(() =>
-              video.evaluate((node: HTMLVideoElement) => node.currentTime)
-            )
-            .toBeGreaterThan(0);
-        }
+        const retry = notice.getByRole("button", {
+          name: "Retry",
+          exact: true
+        });
+        await expect(retry).toBeVisible();
+        const retryBounds = (await retry.boundingBox())!;
+        expect(retryBounds.width).toBeGreaterThanOrEqual(44);
+        expect(retryBounds.height).toBeGreaterThanOrEqual(44);
+        mode = surfaceName === "viewer" ? "browser" : "busy";
+        await activate(retry, phone);
+        await expect(notice).toContainText(
+          surfaceName === "viewer"
+            ? "This browser cannot play Bounce."
+            : "Media preparation is busy."
+        );
+        mode = "ready";
+        await activate(retry, phone);
+        await expect(notice).toHaveCount(0);
+        const video = frame.locator("video");
+        await expect
+          .poll(() =>
+            video.evaluate((node: HTMLVideoElement) => node.readyState)
+          )
+          .toBeGreaterThanOrEqual(2);
+        await expect
+          .poll(() =>
+            video.evaluate((node: HTMLVideoElement) => node.currentTime)
+          )
+          .toBeGreaterThan(0);
+        if (surfaceName !== "viewer") await expect(viewer).toHaveCount(0);
         expect(await page.locator("button button").count()).toBe(0);
       }
       expect(headRequests).toBeGreaterThanOrEqual(5);
@@ -3915,10 +3917,24 @@ test("loops original video sections in Feed and Comparison, with an explicit cod
         comparisonVideo.evaluate((node: HTMLVideoElement) => node.currentTime)
       )
       .toBeGreaterThanOrEqual(2);
-    await page.route(`**/api/assets/${asset.id}/media?*`, (route) =>
-      route.abort("failed")
-    );
+    let incompatibleCodec = false;
+    await page.route(`**/api/assets/${asset.id}/media?*`, async (route) => {
+      if (!incompatibleCodec) await route.abort("failed");
+      else if (route.request().method() === "HEAD") await route.continue();
+      else
+        await route.fulfill({
+          status: 200,
+          contentType: "video/mp4",
+          body: "unplayable"
+        });
+    });
     await open(page, "feed", "video", asset.name, true);
+    const notice = page.locator(".feed-item .media-error-notice").first();
+    await expect(notice).toContainText("Media could not be reached.");
+    await expect(video).toHaveAttribute("src", /\/media(?:\?|$)/);
+    expect(encodedReads).toBe(0);
+    incompatibleCodec = true;
+    await notice.getByRole("button", { name: "Retry", exact: true }).click();
     await expect(video).toHaveAttribute("src", /playback\?variant=highlight/);
     await expect(video).toHaveAttribute("data-presentation-timeline", "local");
     await expect(

@@ -47,6 +47,7 @@ export interface ControlledAnimationProps {
   className?: string;
   controlsClassName?: string;
   controlsContainer?: HTMLElement | null;
+  noticeContainer?: HTMLElement | null;
   style?: CSSProperties;
   maxCanvasDimension?: number;
   playheadMs?: number;
@@ -77,6 +78,7 @@ export function ControlledAnimation({
   className = "",
   controlsClassName,
   controlsContainer,
+  noticeContainer,
   style,
   maxCanvasDimension,
   playheadMs,
@@ -543,6 +545,23 @@ export function ControlledAnimation({
     />
   );
   const notice = mediaFailureNotice({ kind: "animation", error: failure });
+  const errorNotice =
+    failed && showError ? (
+      <MediaErrorNotice
+        message={notice.message}
+        compact={!controls}
+        onRetry={
+          showRetry && notice.canRetry
+            ? () => {
+                setFailure(null);
+                setErrorKey("");
+                setAttempt((current) => current + 1);
+                onRetry?.();
+              }
+            : undefined
+        }
+      />
+    ) : null;
   return (
     <span
       className={`controlled-animation ${className}`.trim()}
@@ -566,22 +585,9 @@ export function ControlledAnimation({
         className="controlled-animation__canvas"
         style={{ ...mediaStyle, opacity: painted ? 1 : 0 }}
       />
-      {failed && showError ? (
-        <MediaErrorNotice
-          message={notice.message}
-          compact={!controls}
-          onRetry={
-            showRetry && notice.canRetry
-              ? () => {
-                  setFailure(null);
-                  setErrorKey("");
-                  setAttempt((current) => current + 1);
-                  onRetry?.();
-                }
-              : undefined
-          }
-        />
-      ) : null}
+      {noticeContainer && errorNotice
+        ? createPortal(errorNotice, noticeContainer)
+        : errorNotice}
       {controls
         ? controlsContainer
           ? createPortal(transport, controlsContainer)

@@ -231,6 +231,11 @@
   background: transparent;
 }
 
+.media-preview-frame {
+  position: relative;
+  min-width: 0;
+}
+
 .media-skeleton,
 .media-image-loading,
 .media-video-loading {
@@ -247,6 +252,7 @@
 }
 
 .media-placeholder {
+  position: relative;
   display: grid;
   place-items: center;
   color: var(--aether-accent);

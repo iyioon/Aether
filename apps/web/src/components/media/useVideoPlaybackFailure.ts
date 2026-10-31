@@ -34,9 +34,12 @@ export function useVideoPlaybackFailure({
     };
   }, [source, enabled]);
   const diagnose = useCallback(
-    (video: HTMLVideoElement) => {
+    (
+      video: HTMLVideoElement,
+      onDiagnosed?: (failure: VideoPlaybackFailure) => void
+    ) => {
       if (enabled && binding.current?.source === source)
-        binding.current.observer.diagnose(video);
+        binding.current.observer.diagnose(video, onDiagnosed);
     },
     [source, enabled]
   );

@@ -31,12 +31,14 @@ const abortError = () =>
 
 export class AnimationAtlasCache {
   private readonly ready = new Map<string, DecodedAnimationAtlas>();
+  private readyBytes = 0;
   private readonly jobs = new Map<string, AtlasJob>();
   private running = 0;
 
   constructor(
     private readonly load: AtlasLoader,
-    private readonly maximumReady = 3,
+    private readonly maximumReadyBytes = 48 * 1024 * 1024,
+    private readonly maximumReady = 32,
     private readonly maximumRunning = 2
   ) {}
 
@@ -99,6 +101,7 @@ export class AnimationAtlasCache {
   clear(): void {
     for (const atlas of this.ready.values()) atlas.dispose();
     this.ready.clear();
+    this.readyBytes = 0;
     for (const job of this.jobs.values()) {
       job.controller.abort();
       for (const consumer of job.consumers) {
@@ -128,6 +131,7 @@ export class AnimationAtlasCache {
         return;
       }
       this.ready.set(job.descriptor.url, atlas);
+      this.readyBytes += atlas.width * atlas.height * 4;
       // Draw callbacks execute before another job can evict this atlas.
       for (const consumer of job.consumers) {
         consumer.cleanup();
@@ -142,10 +146,15 @@ export class AnimationAtlasCache {
           consumer.reject(error);
         }
       }
-      while (this.ready.size > this.maximumReady) {
+      while (
+        this.ready.size > this.maximumReady ||
+        this.readyBytes > this.maximumReadyBytes
+      ) {
         const oldest = this.ready.keys().next().value;
         if (oldest === undefined) break;
-        this.ready.get(oldest)?.dispose();
+        const evicted = this.ready.get(oldest)!;
+        this.readyBytes -= evicted.width * evicted.height * 4;
+        evicted.dispose();
         this.ready.delete(oldest);
       }
     } catch (error) {

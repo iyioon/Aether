@@ -50,6 +50,13 @@ Notable changes to Aether are recorded here.
 
 ### Fixed
 
+- Bound poster and preview queues, allow failed cards to be retried without
+  opening them, and keep busy previews from downloading the original instead.
+- Reuse small animation atlases within the decoded-memory budget to prevent
+  repeated decoding when several animations are visible. Reuse generated
+  animation files across requests and restarts instead of preparing them again.
+- Release removed previews' native media sources and keep inactive Feed photos
+  on thumbnails, preserving original quality for the current item.
 - Recover editor previews when saved settings are reloaded, show current input
   errors before earlier save failures, and stop closed editors from starting
   another save. Reject mixed media versions during loading and save recovery.

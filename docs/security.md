@@ -163,6 +163,11 @@ Prepared Bounce timing metadata remains beside its registered video in the
 managed cache. Reuse requires matching source/rendition fingerprints and current
 edit keys, bounded fields and verified file descriptors. Reset, replacement and
 asset removal retire the metadata with its video.
+Animation cache manifests keep a private source fingerprint, including exact
+device/inode and nanosecond modification/change times. Reuse and publication
+verify that fingerprint through source descriptors, so a same-size/time
+replacement cannot reuse old frames. Public animation manifests omit it.
+Older animation caches without a fingerprint are rebuilt once.
 Failed playback responses expose only fixed public error codes in
 `x-aether-media-error`. The browser can read them with an authenticated,
 deadline-limited HEAD request after native playback fails; it does not download
@@ -184,3 +189,10 @@ Unsafe source/cache symlinks are rejected. Temporary files are removed on
 failure; stale generation is rejected, and successful replacements remove only
 superseded registered files. These limits reduce resource exposure; Aether still
 expects media folders controlled by its operator.
+
+Ordinary video posters and previews each cap distinct pending jobs at 32,
+including active jobs. Requests for existing jobs share work, and ready files
+remain accessible when the queue is full. Overload returns `503 processing_busy`
+and `Retry-After` without allocating an asset cache directory. Browser media
+failures can be retried explicitly; a busy preview must not trigger a larger
+original-media download.

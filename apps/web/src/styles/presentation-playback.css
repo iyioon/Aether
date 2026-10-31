@@ -37,10 +37,6 @@
   pointer-events: none;
 }
 
-.media-error-notice[data-interactive="true"] {
-  pointer-events: auto;
-}
-
 .media-error-notice > svg {
   flex: 0 0 auto;
 }
@@ -63,6 +59,7 @@
 }
 
 .media-error-notice .media-error-notice__retry {
+  pointer-events: auto;
   flex: 0 0 auto;
   width: auto;
   min-width: 44px;

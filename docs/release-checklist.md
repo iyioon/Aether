@@ -29,6 +29,12 @@ Review any skipped test instead of treating a partial run as a release pass.
 GitHub checks are disabled; run these checks locally. The retained workflow has
 manual dispatch only and can be used after re-enabling it in Actions.
 
+For media or scrolling performance changes, run the
+[mixed-library resource check](development.md#commands). Review its desktop and
+phone measurements separately from real-device acceptance. Check queue overload,
+retry recovery, warm-cache reuse and temporary-file cleanup; do not interpret
+JavaScript heap alone as total image/video memory.
+
 ## Fresh-Install Test
 
 1. Start from a clean checkout.

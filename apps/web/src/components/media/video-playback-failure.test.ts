@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { ApiTimeoutError, type VideoPlaybackFailure } from "../../api/client";
-import { observeVideoPlaybackFailure } from "./video-playback-failure";
+import {
+  canFallbackFromVideoFailure,
+  observeVideoPlaybackFailure
+} from "./video-playback-failure";
 
 const source = "/api/assets/video/playback?variant=bounce";
 const failure: VideoPlaybackFailure = {
@@ -33,6 +36,47 @@ function pending() {
 
 describe("video playback failure observer", () => {
   it.each([
+    { kind: "busy", code: "processing_busy", status: 503 },
+    { kind: "preparation", code: "media_preparation_failed", status: 503 },
+    { kind: "preparation", code: "media_preparation_failed", status: 429 },
+    { kind: "preparation", code: "media_preparation_failed", status: 422 },
+    { kind: "limit", code: "presentation_limit_exceeded", status: 422 },
+    { kind: "preparation", code: "bounce_source_not_supported", status: 415 },
+    { kind: "network", code: "media_network_failed" },
+    { kind: "session", code: "unauthorized", status: 401 },
+    { kind: "source", code: "source_changed", status: 409 }
+  ] satisfies VideoPlaybackFailure[])(
+    "does not fetch a larger compatibility source after $code/$status",
+    (failure) => expect(canFallbackFromVideoFailure(failure)).toBe(false)
+  );
+
+  it.each([
+    { kind: "browser", code: "browser_playback_unsupported", status: 200 },
+    { kind: "preparation", code: "media_preparation_failed", status: 415 }
+  ] satisfies VideoPlaybackFailure[])(
+    "retains compatibility fallback after $code/$status",
+    (failure) => expect(canFallbackFromVideoFailure(failure)).toBe(true)
+  );
+
+  it("finishes diagnosis before allowing a current-source fallback", async () => {
+    const owner = new FakeDocument();
+    const job = pending();
+    const completed = vi.fn();
+    const observer = observeVideoPlaybackFailure(
+      source,
+      vi.fn(),
+      owner.document,
+      () => job.promise
+    );
+    observer.diagnose(new FakeVideo().video, completed);
+    expect(completed).not.toHaveBeenCalled();
+    job.resolve(failure);
+    await Promise.resolve();
+    expect(completed).toHaveBeenCalledExactlyOnceWith(failure);
+    observer.dispose();
+  });
+
+  it.each([
     [2, "network", "media_network_failed"],
     [3, "browser", "browser_playback_unsupported"],
     [4, "browser", "browser_playback_unsupported"]
@@ -43,6 +87,7 @@ describe("video playback failure observer", () => {
       const video = new FakeVideo();
       video.error = { code };
       const publish = vi.fn();
+      const completed = vi.fn();
       const observer = observeVideoPlaybackFailure(
         source,
         publish,
@@ -54,7 +99,7 @@ describe("video playback failure observer", () => {
             status: 200
           })
       );
-      observer.diagnose(video.video);
+      observer.diagnose(video.video, completed);
       await Promise.resolve();
       expect(publish).toHaveBeenCalledExactlyOnceWith(
         code === 2
@@ -143,6 +188,7 @@ describe("video playback failure observer", () => {
       const job = pending();
       let signal: AbortSignal | undefined;
       const publish = vi.fn();
+      const completed = vi.fn();
       const observer = observeVideoPlaybackFailure(
         source,
         publish,
@@ -152,7 +198,7 @@ describe("video playback failure observer", () => {
           return job.promise;
         }
       );
-      observer.diagnose(video.video);
+      observer.diagnose(video.video, completed);
       if (reason === "dispose") observer.dispose();
       if (reason === "hidden") {
         owner.hidden = true;
@@ -165,6 +211,7 @@ describe("video playback failure observer", () => {
       job.resolve(failure);
       await Promise.resolve();
       expect(publish).not.toHaveBeenCalled();
+      expect(completed).not.toHaveBeenCalled();
       observer.dispose();
     }
   );

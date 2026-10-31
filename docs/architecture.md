@@ -90,6 +90,17 @@ The cache contains data that Aether can recreate from source files:
 Concurrent requests for the same preview share one generation job. When a scan
 removes an asset, its generated files are removed. A startup sweep also clears
 cache entries that no longer belong to a database asset or source revision.
+Poster and video-preview generation each admit at most 32 distinct pending
+jobs, including active work, sharing two processing slots. Cached results and
+requests joining an existing job remain available at that limit. Additional
+work receives `503 processing_busy` with `Retry-After`, without creating cache
+directories for rejected jobs.
+Removed preview nodes release native image/video sources after the DOM commit;
+connected nodes retain playback. Feed neighbors retain thumbnails and only the
+current still image loads its original. Retry uses the same versioned URLs and
+does not bypass authenticated caching. A failed video is diagnosed before any
+codec/source fallback; transient overload, network errors and processing limits
+do not start larger downloads or another encode.
 Private media responses require authenticated revalidation before reuse; asset
 URLs also carry source versions so replaced files cannot reuse a stale decoded
 image. Public static files are opened inside the web build through verified
@@ -406,9 +417,13 @@ observed timing; tab and aspect switches keep the same preview.
 
 `ControlledAnimation` draws verified atlas frames on canvas, retaining variable
 delays and alpha. It uses bounded shared atlas decoding, a source-time timeline,
-repeat/bounce ordering, and the same transport controls as video. The decoded
-atlas cache retains at most three 2048px atlases (48 MiB RGBA), plus two bounded
-concurrent fetch/decode jobs. Hidden or
+repeat/bounce ordering, and the same transport controls as video. Private source
+fingerprints protect cache reuse across requests and restarts. Legacy cache
+manifests rebuild once; public manifests contain no filesystem identity fields.
+Final publication verifies the source before and after rename. The decoded
+atlas cache retains up to 48 MiB RGBA across at most 32 atlases, plus two bounded
+concurrent fetch/decode jobs. Small atlases share that budget without repeated
+decoding; three full-size 2048px atlases exhaust it. Hidden or
 obsolete browser work is cancelled. Inactive or hidden animation canvases release
 their backing storage; lightweight Gallery canvases use the thumbnail-size
 budget, while Feed, Comparison, viewer and editor retain source-size frames. Shared server generation already started

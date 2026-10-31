@@ -64,6 +64,7 @@ import { registerComparisonRoutes } from "./routes-comparisons.js";
 import { registerPresentationRoutes } from "./routes-presentation.js";
 import { registerPresentationMediaRoutes } from "./routes-presentation-media.js";
 import { registerImageDisplayRoutes } from "./routes-image-display.js";
+import { ImageDerivativeError } from "./image-cache.js";
 
 export async function registerLibraryRoutes(
   app: FastifyInstance,
@@ -219,8 +220,14 @@ export async function registerLibraryRoutes(
           return reply.code(415).send({ error: "thumbnail_not_supported" });
         }
 
-        return reply.code(derivativeErrorStatus(error)).send({
-          error: "thumbnail_generation_failed"
+        const status = derivativeErrorStatus(error);
+        if (status === 503)
+          reply
+            .header("retry-after", "1")
+            .header("x-aether-media-error", "processing_busy");
+        return reply.code(status).send({
+          error:
+            status === 503 ? "processing_busy" : "thumbnail_generation_failed"
         });
       }
     }
@@ -263,8 +270,14 @@ export async function registerLibraryRoutes(
           return reply.code(415).send({ error: "preview_not_supported" });
         }
 
-        return reply.code(derivativeErrorStatus(error)).send({
-          error: "preview_generation_failed"
+        const status = derivativeErrorStatus(error);
+        if (status === 503)
+          reply
+            .header("retry-after", "1")
+            .header("x-aether-media-error", "processing_busy");
+        return reply.code(status).send({
+          error:
+            status === 503 ? "processing_busy" : "preview_generation_failed"
         });
       }
     }
@@ -588,6 +601,12 @@ function normalizedHeader(
 }
 
 function derivativeErrorStatus(error: unknown): number {
+  if (
+    error instanceof ImageDerivativeError &&
+    error.code === "processing_busy" &&
+    error.status === 503
+  )
+    return 503;
   const mediaStatus = mediaErrorStatus(error);
   return mediaStatus === 403 ? 403 : 422;
 }

@@ -161,9 +161,10 @@ export function UserGuidePage() {
                   A slim bar at the top of the media shows loading or
                   preparation. The preview stays visible until the full photo or
                   first playback frame is ready. Highlights show their selected
-                  start while loading. If loading fails in the viewer, the
-                  preview stays visible while you retry. The bar also appears
-                  during video buffering, keeping the current frame visible.
+                  start while loading. If loading fails, use Retry on the media;
+                  an available preview stays visible. If the server is busy,
+                  wait briefly before retrying. The bar also appears during
+                  video buffering, keeping the current frame visible.
                 </p>
                 <p>
                   On iPhone, Safari's Share menu → Add to Home Screen opens

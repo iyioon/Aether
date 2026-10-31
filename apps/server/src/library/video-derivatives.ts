@@ -11,6 +11,7 @@ import type { FastifyReply } from "fastify";
 import type { AppConfig } from "../config/config.js";
 import type { AetherDatabase } from "../db/database.js";
 import { stableId } from "./ids.js";
+import { ImageDerivativeError } from "./image-cache.js";
 import {
   parseRangeHeader,
   sendRangeNotSatisfiable,
@@ -56,6 +57,8 @@ const PREVIEW_TIMEOUT_MS = 45_000;
 const PROBE_TIMEOUT_MS = 10_000;
 const VIDEO_POSTER_CACHE_VERSION = "v3";
 const VIDEO_PREVIEW_CACHE_VERSION = "v4";
+const MAX_PENDING_POSTER_JOBS = 32;
+const MAX_PENDING_PREVIEW_JOBS = 32;
 
 const pendingPosterJobs = new Map<string, Promise<ThumbnailFile>>();
 const pendingPreviewJobs = new Map<string, Promise<VideoPreviewFile>>();
@@ -90,7 +93,6 @@ export async function ensureVideoPoster({
     String(size),
     videoSourceKey(file)
   );
-  await ensurePrivateCacheDirectory(config.cacheDir, "posters", file.asset.id);
   await verifyVideoSource(db, file);
   const existing = getDerivative(db, derivativeId);
 
@@ -110,16 +112,23 @@ export async function ensureVideoPoster({
   if (pending) {
     return pending;
   }
+  if (pendingPosterJobs.size >= MAX_PENDING_POSTER_JOBS)
+    throw new ImageDerivativeError("processing_busy", 503);
 
-  const job = withVideoProcessingSlot(async () =>
-    generateVideoPoster({
+  const job = withVideoProcessingSlot(async () => {
+    await ensurePrivateCacheDirectory(
+      config.cacheDir,
+      "posters",
+      file.asset.id
+    );
+    return generateVideoPoster({
       db,
       file,
       size,
       posterPath,
       derivativeId
-    })
-  ).finally(() => {
+    });
+  }).finally(() => {
     pendingPosterJobs.delete(jobKey);
   });
 
@@ -164,7 +173,6 @@ export async function ensureVideoPreview({
     String(previewDurationSeconds),
     videoSourceKey(file)
   );
-  await ensurePrivateCacheDirectory(config.cacheDir, "previews", file.asset.id);
   await verifyVideoSource(db, file);
   const existing = getDerivative(db, derivativeId);
 
@@ -184,17 +192,24 @@ export async function ensureVideoPreview({
   if (pending) {
     return pending;
   }
+  if (pendingPreviewJobs.size >= MAX_PENDING_PREVIEW_JOBS)
+    throw new ImageDerivativeError("processing_busy", 503);
 
-  const job = withVideoProcessingSlot(async () =>
-    generateVideoPreview({
+  const job = withVideoProcessingSlot(async () => {
+    await ensurePrivateCacheDirectory(
+      config.cacheDir,
+      "previews",
+      file.asset.id
+    );
+    return generateVideoPreview({
       db,
       file,
       size: previewSize,
       durationSeconds: previewDurationSeconds,
       previewPath,
       derivativeId
-    })
-  ).finally(() => {
+    });
+  }).finally(() => {
     pendingPreviewJobs.delete(jobKey);
   });
 

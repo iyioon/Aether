@@ -1,4 +1,11 @@
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState
+} from "react";
 import { createPortal } from "react-dom";
 import { Image, Video } from "lucide-react";
 import type { AssetRecord, PresentationAspect } from "../../api/client";
@@ -35,7 +42,9 @@ import { MediaLoadingBar } from "./MediaLoadingBar";
 import { MediaErrorNotice } from "./MediaErrorNotice";
 import { mediaFailureNotice } from "./media-failure-notice";
 import { useVideoPlaybackFailure } from "./useVideoPlaybackFailure";
+import { canFallbackFromVideoFailure } from "./video-playback-failure";
 import { useVideoRangePreload } from "./useVideoRangePreload";
+import { releaseDetachedMedia } from "./detached-media";
 
 const VIDEO_HOLD_DELAY_MS = 320;
 
@@ -46,6 +55,7 @@ export interface MediaPlaybackCommands {
 
 interface MediaPreviewProps {
   controlsContainer?: HTMLElement | null;
+  noticeContainer?: HTMLElement | null;
   asset: AssetRecord;
   applyPlaybackPreferences?: boolean;
   framingAspect?: PresentationAspect;
@@ -75,6 +85,7 @@ interface MediaPreviewProps {
 export const MediaPreview = memo(function MediaPreview({
   asset,
   controlsContainer,
+  noticeContainer,
   applyPlaybackPreferences = true,
   defaultFit = "cover",
   framingAspect = "Original",
@@ -102,6 +113,31 @@ export const MediaPreview = memo(function MediaPreview({
   const surfaceRef = useRef<HTMLSpanElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
+  const attachVideo = useCallback((video: HTMLVideoElement | null) => {
+    videoRef.current = video;
+    if (!video) return;
+    return () => {
+      if (videoRef.current === video) videoRef.current = null;
+      releaseDetachedMedia(video);
+    };
+  }, []);
+  const attachImage = useCallback((image: HTMLImageElement | null) => {
+    imageRef.current = image;
+    if (!image) return;
+    return () => {
+      if (imageRef.current === image) imageRef.current = null;
+      releaseDetachedMedia(image);
+    };
+  }, []);
+  const attachPoster = useCallback((image: HTMLImageElement | null) => {
+    if (image) return () => releaseDetachedMedia(image);
+  }, []);
+  const visibilityBindingRef = useRef<{
+    element: Element;
+    video: HTMLVideoElement | null;
+    key: string;
+    dispose: () => void;
+  } | null>(null);
   const holdTimerRef = useRef<number | null>(null);
   const holdTriggeredRef = useRef(false);
   const videoPlaybackRequestSequenceRef = useRef(0);
@@ -115,6 +151,7 @@ export const MediaPreview = memo(function MediaPreview({
   const userPausedRef = useRef(false);
   const isAnimatedImage = !staticPreview && isAnimatedImagePreview(asset);
   const [hasError, setHasError] = useState(false);
+  const [retryAttempt, setRetryAttempt] = useState(0);
   const [animatedImageFailed, setAnimatedImageFailed] = useState(false);
   const [originalImageFailed, setOriginalImageFailed] = useState(false);
   const [originalVideoFailed, setOriginalVideoFailed] = useState(false);
@@ -225,8 +262,7 @@ export const MediaPreview = memo(function MediaPreview({
       : "";
   const playbackFailure = useVideoPlaybackFailure({
     source: videoSource,
-    enabled:
-      asset.mediaType === "video" && variant === "bounce" && !staticPreview
+    enabled: asset.mediaType === "video" && !staticPreview
   });
   useVideoRangePreload(
     videoSource,
@@ -506,30 +542,45 @@ export const MediaPreview = memo(function MediaPreview({
     []
   );
 
-  useEffect(() => {
+  const publishVisibility = useCallback((visible: boolean) => {
+    setIsVisible(visible);
+  }, []);
+  useLayoutEffect(() => {
     const previewElement =
       surfaceRef.current ??
       (asset.mediaType === "video" ? videoRef.current : imageRef.current);
     const video = videoRef.current;
-
-    if (!previewElement) {
+    const key = `${asset.id}:${asset.mtimeMs}:${asset.sizeBytes}:${asset.mediaType}:${animationCandidate}:${staticPreview}`;
+    const binding = visibilityBindingRef.current;
+    if (
+      binding?.element === previewElement &&
+      binding.video === video &&
+      binding.key === key
+    )
       return;
-    }
-
+    binding?.dispose();
+    visibilityBindingRef.current = null;
+    if (!previewElement) return;
     if (typeof IntersectionObserver === "undefined") {
-      setIsVisible(true);
+      publishVisibility(true);
+      visibilityBindingRef.current = {
+        element: previewElement,
+        video,
+        key,
+        dispose: () => video?.pause()
+      };
       return;
     }
-
+    let active = true;
     const observer = new IntersectionObserver(
       (entries) => {
         const firstEntry = entries[0];
 
-        if (!firstEntry) {
+        if (!active || !firstEntry) {
           return;
         }
 
-        setIsVisible(firstEntry.isIntersecting);
+        publishVisibility(firstEntry.isIntersecting);
       },
       asset.mediaType === "video"
         ? { threshold: 0.45 }
@@ -537,22 +588,24 @@ export const MediaPreview = memo(function MediaPreview({
     );
 
     observer.observe(previewElement);
-
-    return () => {
-      observer.disconnect();
-
-      if (asset.mediaType === "video") {
+    visibilityBindingRef.current = {
+      element: previewElement,
+      video,
+      key,
+      dispose: () => {
+        active = false;
+        observer.disconnect();
         video?.pause();
       }
     };
-  }, [
-    asset.id,
-    asset.mtimeMs,
-    asset.sizeBytes,
-    asset.mediaType,
-    animationCandidate,
-    staticPreview
-  ]);
+  });
+  useLayoutEffect(
+    () => () => {
+      visibilityBindingRef.current?.dispose();
+      visibilityBindingRef.current = null;
+    },
+    []
+  );
 
   useEffect(() => {
     if (asset.mediaType !== "video") {
@@ -571,7 +624,13 @@ export const MediaPreview = memo(function MediaPreview({
       videoPlaybackRequestSequenceRef.current += 1;
       video.pause();
     }
-  }, [asset.id, asset.mediaType, playVisibleVideo, shouldAutoplayVideo]);
+  }, [
+    asset.id,
+    asset.mediaType,
+    playVisibleVideo,
+    shouldAutoplayVideo,
+    retryAttempt
+  ]);
 
   const toggleVideoPlayback = useCallback(() => {
     const video = videoRef.current;
@@ -723,7 +782,7 @@ export const MediaPreview = memo(function MediaPreview({
         video.removeEventListener(event, remember);
       video.removeEventListener("loadedmetadata", restore);
     };
-  }, [asset.mediaType, showVideoTimeline, videoSource, variant]);
+  }, [asset.mediaType, showVideoTimeline, videoSource, variant, retryAttempt]);
 
   useEffect(() => {
     if (asset.mediaType === "video" && !shouldLoadVideo) {
@@ -780,22 +839,52 @@ export const MediaPreview = memo(function MediaPreview({
     />
   );
 
-  if (
-    hasError ||
-    (asset.mediaType === "video" &&
-      variant === "full" &&
-      (videoPlaybackFailed || staticPreview) &&
-      didVideoPosterFail)
-  ) {
-    return (
-      <div className={tall ? "media-placeholder tall" : "media-placeholder"}>
-        {asset.mediaType === "video" ? (
-          <Video size={30} />
-        ) : (
-          <Image size={30} />
-        )}
-      </div>
+  const retryMedia = () => {
+    playbackFailure.clear();
+    cancelPendingVideoReveal();
+    videoPlaybackRequestSequenceRef.current += 1;
+    videoFrameRequestSequenceRef.current += 1;
+    setHasError(false);
+    setAnimatedImageFailed(false);
+    setOriginalImageFailed(false);
+    setOriginalVideoFailed(false);
+    setVideoPreviewFailed(false);
+    setVideoPlaybackFailed(false);
+    setReadyVideoSource(null);
+    setLoadedVideoPosterSource(null);
+    setFailedVideoPosterSource(null);
+    setLoadedImageSource(null);
+    setLoadedThumbnailSource(null);
+    setFailedThumbnailSource(null);
+    setRetryAttempt((attempt) => attempt + 1);
+    if (capabilitiesError) retryCapabilities();
+  };
+  const errorNotice = (message: string, canRetry = true) => {
+    const notice = (
+      <MediaErrorNotice
+        message={message}
+        compact={!showVideoTimeline}
+        onRetry={canRetry ? retryMedia : undefined}
+      />
     );
+    return noticeContainer ? createPortal(notice, noticeContainer) : notice;
+  };
+  const placeholder = (
+    <span
+      ref={surfaceRef}
+      className={tall ? "media-placeholder tall" : "media-placeholder"}
+    >
+      {asset.mediaType === "video" ? <Video size={30} /> : <Image size={30} />}
+      {errorNotice(
+        asset.mediaType === "video"
+          ? "Preview unavailable."
+          : "Image unavailable."
+      )}
+    </span>
+  );
+
+  if (hasError) {
+    return placeholder;
   }
 
   if (asset.mediaType === "image") {
@@ -803,7 +892,7 @@ export const MediaPreview = memo(function MediaPreview({
     const shouldUseOriginalImage =
       (!animationCandidate || capabilities?.kind === "still") &&
       ((useOriginalImage && !originalImageFailed) ||
-        (isAnimatedImage && isVisible && !animatedImageFailed));
+        (isAnimatedImage && isActive && isVisible && !animatedImageFailed));
     const isProgressiveImage = shouldUseOriginalImage;
     const hasImagePoster =
       useOriginalImage ||
@@ -828,11 +917,7 @@ export const MediaPreview = memo(function MediaPreview({
       !controlledAnimation &&
       (staticPreview || capabilities?.kind === "still")
     )
-      return (
-        <div className={tall ? "media-placeholder tall" : "media-placeholder"}>
-          <Image size={30} />
-        </div>
-      );
+      return placeholder;
 
     return (
       <span
@@ -859,21 +944,16 @@ export const MediaPreview = memo(function MediaPreview({
           (!staticPreview && animationCandidate && !capabilities)) ? (
           <MediaLoadingBar />
         ) : null}
-        {capabilitiesError && !controlledAnimation ? (
-          <MediaErrorNotice
-            message={failureNotice.message}
-            compact={!showVideoTimeline}
-            onRetry={
-              showVideoTimeline && failureNotice.canRetry
-                ? retryCapabilities
-                : undefined
-            }
-          />
-        ) : null}
+        {capabilitiesError && !controlledAnimation
+          ? errorNotice(failureNotice.message, failureNotice.canRetry)
+          : (originalImageFailed || animatedImageFailed) && !controlledAnimation
+            ? errorNotice("Image unavailable.")
+            : null}
         <span className="media-image-loading" aria-hidden="true" />
         {hasImagePoster && failedThumbnailSource !== posterSource ? (
           <img
-            key={posterSource}
+            key={`${posterSource}:${retryAttempt}`}
+            ref={attachPoster}
             aria-hidden={
               shouldUseOriginalImage || controlledAnimation || undefined
             }
@@ -928,6 +1008,8 @@ export const MediaPreview = memo(function MediaPreview({
               useOriginalImage || useOriginalVideo ? undefined : thumbnailSize
             }
             onRetry={retryCapabilities}
+            showRetry
+            noticeContainer={noticeContainer}
             showPoster={false}
             onReadyChange={(ready) =>
               setReadyAnimationKey(ready ? animationDisplayKey : null)
@@ -966,8 +1048,8 @@ export const MediaPreview = memo(function MediaPreview({
           />
         ) : !hasImagePoster || shouldUseOriginalImage ? (
           <img
-            key={previewSource}
-            ref={imageRef}
+            key={`${previewSource}:${retryAttempt}`}
+            ref={attachImage}
             style={mediaStyle}
             className={[
               "media-image",
@@ -1008,7 +1090,12 @@ export const MediaPreview = memo(function MediaPreview({
               };
               void image.decode().then(ready, ready);
             }}
-            onError={() => {
+            onError={(event) => {
+              if (
+                !event.currentTarget.isConnected ||
+                imageRef.current !== event.currentTarget
+              )
+                return;
               if (useOriginalImage && !originalImageFailed) {
                 setOriginalImageFailed(true);
                 setAnimatedImageFailed(true);
@@ -1055,7 +1142,8 @@ export const MediaPreview = memo(function MediaPreview({
       <span className="media-video-loading" aria-hidden="true" />
       {!didVideoPosterFail ? (
         <img
-          key={posterSource}
+          key={`${posterSource}:${retryAttempt}`}
+          ref={attachPoster}
           className="media-video-poster"
           style={mediaStyle}
           src={posterSource}
@@ -1086,7 +1174,8 @@ export const MediaPreview = memo(function MediaPreview({
       ) : null}
       {!staticPreview ? (
         <video
-          ref={videoRef}
+          key={retryAttempt}
+          ref={attachVideo}
           style={mediaStyle}
           className={tall ? "media-video tall" : "media-video"}
           src={shouldLoadVideo ? videoSource : undefined}
@@ -1158,36 +1247,35 @@ export const MediaPreview = memo(function MediaPreview({
             }
           }}
           onError={(event) => {
+            const video = event.currentTarget;
+            if (
+              !video.isConnected ||
+              videoRef.current !== video ||
+              video.getAttribute("src") !== videoSource
+            )
+              return;
             cancelPendingVideoReveal();
             videoFrameRequestSequenceRef.current += 1;
             setReadyVideoSource(null);
-            if (variant === "bounce" && bounceCodec.tryFallback()) return;
-
-            if (
-              variant === "highlight" &&
-              useOriginalVideo &&
-              !originalVideoFailed
-            ) {
-              setOriginalVideoFailed(true);
-              return;
-            }
-            if (variant !== "full") {
-              setVideoPlaybackFailed(true);
-              if (variant === "bounce")
-                playbackFailure.diagnose(event.currentTarget);
-              return;
-            }
-            if (useOriginalVideo && !originalVideoFailed) {
-              setOriginalVideoFailed(true);
-              return;
-            }
-
-            if (!useOriginalVideo && !videoPreviewFailed) {
-              setVideoPreviewFailed(true);
-              return;
-            }
-
             setVideoPlaybackFailed(true);
+            playbackFailure.diagnose(video, (failure) => {
+              if (
+                videoRef.current !== video ||
+                !video.isConnected ||
+                !canFallbackFromVideoFailure(failure)
+              )
+                return;
+              if (variant === "bounce" && bounceCodec.tryFallback()) return;
+              if (useOriginalVideo && !originalVideoFailed) {
+                setOriginalVideoFailed(true);
+              } else if (
+                variant === "full" &&
+                !useOriginalVideo &&
+                !videoPreviewFailed
+              ) {
+                setVideoPreviewFailed(true);
+              }
+            });
           }}
         />
       ) : null}
@@ -1195,22 +1283,11 @@ export const MediaPreview = memo(function MediaPreview({
       bounceOverBudget ||
       limitExceeded ||
       capabilitiesError ||
-      videoPlaybackFailed ? (
-        <MediaErrorNotice
-          message={failureNotice.message}
-          compact={!showVideoTimeline}
-          onRetry={
-            showVideoTimeline && failureNotice.canRetry
-              ? () => {
-                  playbackFailure.clear();
-                  setVideoPlaybackFailed(false);
-                  retryCapabilities();
-                  videoRef.current?.load();
-                }
-              : undefined
-          }
-        />
-      ) : null}
+      videoPlaybackFailed
+        ? errorNotice(failureNotice.message, failureNotice.canRetry)
+        : didVideoPosterFail && !isVideoReady
+          ? errorNotice("Preview unavailable.")
+          : null}
       {showVideoTimeline && !staticPreview ? (
         <>
           {controlsContainer ? (

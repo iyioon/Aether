@@ -72,6 +72,23 @@ between local FFmpeg and the runtime package.
 Run `npm run build` before the browser suite. Phone layout and offline checks
 use the production web build.
 
+For media or scrolling performance changes, also run the opt-in mixed-library
+check after building:
+
+```bash
+AETHER_E2E_LOAD_TESTS=1 npm run test:e2e -- tests/e2e/library-load.spec.ts
+```
+
+It creates 1,024 disposable items, including 12-megapixel JPEGs, 1080p video,
+animated WebP and genuine HEIC. Desktop and phone runs exercise pagination,
+repeated Gallery traversal, Feed playback and background cleanup. The test
+reports first-frame timing, transfers, mounted media, retained JavaScript heap
+and DOM counts; Linux also reports the test browser's resident memory. Timing
+and resident memory are observations rather than hardware-independent pass
+limits. Assertions cover bounded mounted media and repeated-pass heap growth.
+It uses the same exclusive `.e2e` directory and ports as the normal suite.
+Remove `.e2e`, `test-results` and `playwright-report` after test servers stop.
+
 Run `docker build --target media-verification .` to verify presentation media
 decoding and real HEVC-backed HEIC pixel conversion with the container's
 FFmpeg/libheif versions. The optional workflow runs this target as well

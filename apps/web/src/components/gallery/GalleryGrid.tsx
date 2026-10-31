@@ -1067,6 +1067,9 @@ const GalleryAssetCard = memo(function GalleryAssetCard({
   onSelectAsset,
   onToggleSelection
 }: GalleryAssetCardProps) {
+  const [noticeContainer, setNoticeContainer] = useState<HTMLDivElement | null>(
+    null
+  );
   const secondaryMetadata = gallerySecondaryMetadata(asset, metadataFields);
   const tagBadges = metadataFields.has("tags") ? asset.tags.slice(0, 2) : [];
   const hiddenTagCount = metadataFields.has("tags")
@@ -1110,19 +1113,26 @@ const GalleryAssetCard = memo(function GalleryAssetCard({
             onClick={() => onToggleSelection(asset.id)}
           />
         ) : null}
-        <button
-          className="media-preview-button"
-          type="button"
-          disabled={isSelectionMode}
-          aria-label={`Open ${asset.name}`}
-          onClick={() => onSelectAsset(asset.id)}
+        <div
+          className="media-preview-frame"
+          ref={setNoticeContainer}
+          inert={isSelectionMode}
         >
-          <MediaPreview
-            framingAspect={aspect}
-            asset={asset}
-            onDimensionsKnown={onMediaDimensionsKnown}
-          />
-        </button>
+          <button
+            className="media-preview-button"
+            type="button"
+            disabled={isSelectionMode}
+            aria-label={`Open ${asset.name}`}
+            onClick={() => onSelectAsset(asset.id)}
+          >
+            <MediaPreview
+              framingAspect={aspect}
+              asset={asset}
+              noticeContainer={noticeContainer}
+              onDimensionsKnown={onMediaDimensionsKnown}
+            />
+          </button>
+        </div>
         {hasCardInfo ? (
           <div className="tile-info">
             {hasTitle ? (

@@ -4,16 +4,16 @@ import {
   type DecodedAnimationAtlas
 } from "./animation-atlas-cache";
 
-const descriptor = (index: number) => ({
+const descriptor = (index: number, side = 1) => ({
   url: `atlas-${index}`,
-  width: 1,
-  height: 1
+  width: side,
+  height: side
 });
-function decoded(): DecodedAnimationAtlas {
+function decoded(side = 1): DecodedAnimationAtlas {
   return {
     image: {} as CanvasImageSource,
-    width: 1,
-    height: 1,
+    width: side,
+    height: side,
     dispose: vi.fn()
   };
 }
@@ -28,8 +28,8 @@ function deferred<T>() {
 }
 
 describe("bounded decoded animation atlas cache", () => {
-  it("shares concurrent work, draws current consumers and keeps only three least-recently-used atlases", async () => {
-    const decodedAtlases = Array.from({ length: 4 }, decoded);
+  it("shares concurrent work and keeps three full-size atlases within the decoded byte budget", async () => {
+    const decodedAtlases = Array.from({ length: 4 }, () => decoded(2048));
     const load = vi.fn(
       async (atlas: { url: string }) =>
         decodedAtlases[Number(atlas.url.at(-1))]!
@@ -38,20 +38,84 @@ describe("bounded decoded animation atlas cache", () => {
     const signal = new AbortController().signal;
     const draw = vi.fn();
     await Promise.all([
-      cache.use(descriptor(0), signal, draw),
-      cache.use(descriptor(0), signal, draw)
+      cache.use(descriptor(0, 2048), signal, draw),
+      cache.use(descriptor(0, 2048), signal, draw)
     ]);
     expect(load).toHaveBeenCalledTimes(1);
     expect(draw).toHaveBeenCalledTimes(2);
-    await cache.use(descriptor(1), signal, draw);
-    await cache.use(descriptor(2), signal, draw);
-    await cache.use(descriptor(0), signal, draw);
-    await cache.use(descriptor(3), signal, draw);
+    await cache.use(descriptor(1, 2048), signal, draw);
+    await cache.use(descriptor(2, 2048), signal, draw);
+    await cache.use(descriptor(0, 2048), signal, draw);
+    await cache.use(descriptor(3, 2048), signal, draw);
     expect(decodedAtlases[1]!.dispose).toHaveBeenCalledOnce();
     expect(decodedAtlases[0]!.dispose).not.toHaveBeenCalled();
     cache.clear();
     for (const atlas of decodedAtlases)
       expect(atlas.dispose).toHaveBeenCalledOnce();
+  });
+
+  it.each([4, 6])(
+    "reuses %i independent small atlases across repeated animation frames",
+    async (count) => {
+      const atlases: DecodedAnimationAtlas[] = [];
+      const load = vi.fn(async () => {
+        const atlas = decoded(640);
+        atlases.push(atlas);
+        return atlas;
+      });
+      const cache = new AnimationAtlasCache(load);
+      const signal = new AbortController().signal;
+      const draw = vi.fn();
+      for (let frame = 0; frame < 24; frame++) {
+        for (let index = 0; index < count; index++)
+          await cache.use(descriptor(index, 640), signal, draw);
+      }
+      expect(load).toHaveBeenCalledTimes(count);
+      expect(draw).toHaveBeenCalledTimes(count * 24);
+      cache.clear();
+      for (const atlas of atlases) expect(atlas.dispose).toHaveBeenCalledOnce();
+    }
+  );
+
+  it("bounds small entries independently of bytes and retains recent atlases", async () => {
+    const atlases = new Map<string, DecodedAnimationAtlas>();
+    const load = vi.fn(async (atlas: { url: string }) => {
+      const value = decoded();
+      atlases.set(atlas.url, value);
+      return value;
+    });
+    const cache = new AnimationAtlasCache(load);
+    const signal = new AbortController().signal;
+    for (let index = 0; index < 32; index++)
+      await cache.use(descriptor(index), signal, () => undefined);
+    await cache.use(descriptor(0), signal, () => undefined);
+    await cache.use(descriptor(32), signal, () => undefined);
+    expect(load).toHaveBeenCalledTimes(33);
+    expect(atlases.get("atlas-0")!.dispose).not.toHaveBeenCalled();
+    expect(atlases.get("atlas-1")!.dispose).toHaveBeenCalledOnce();
+    cache.clear();
+    for (const atlas of atlases.values())
+      expect(atlas.dispose).toHaveBeenCalledOnce();
+  });
+
+  it("resets decoded byte accounting when private media is cleared", async () => {
+    const atlases: DecodedAnimationAtlas[] = [];
+    const load = vi.fn(async () => {
+      const atlas = decoded(2048);
+      atlases.push(atlas);
+      return atlas;
+    });
+    const cache = new AnimationAtlasCache(load);
+    const signal = new AbortController().signal;
+    for (let index = 0; index < 3; index++)
+      await cache.use(descriptor(index, 2048), signal, () => undefined);
+    cache.clear();
+    for (let index = 3; index < 6; index++)
+      await cache.use(descriptor(index, 2048), signal, () => undefined);
+    for (const atlas of atlases.slice(3))
+      expect(atlas.dispose).not.toHaveBeenCalled();
+    cache.clear();
+    for (const atlas of atlases) expect(atlas.dispose).toHaveBeenCalledOnce();
   });
 
   it("cancels one consumer without interrupting another and aborts work after the last leaves", async () => {

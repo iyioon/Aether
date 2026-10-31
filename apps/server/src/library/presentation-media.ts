@@ -5,10 +5,11 @@ import { requiresImageDisplay } from "./media-types.js";
 import { ImageDerivativeError } from "./image-cache.js";
 import type { AppConfig } from "../config/config.js";
 import type { AetherDatabase } from "../db/database.js";
-import { assetEntityTag, type ResolvedAssetFile } from "./media-serving.js";
+import { openAssetFile, type ResolvedAssetFile } from "./media-serving.js";
 import {
   presentationForFile,
   PresentationMediaError,
+  StalePresentationRenditionError,
   verifyPresentationSource
 } from "./presentation-cache.js";
 import {
@@ -98,12 +99,32 @@ const bouncePlans = new WeakMap<
 >();
 let queuedBouncePlans = 0;
 
+async function mediaProbeIdentity(file: ResolvedAssetFile): Promise<string> {
+  const handle = await openAssetFile(file);
+  try {
+    const info = await handle.stat({ bigint: true });
+    return [
+      file.asset.id,
+      info.dev,
+      info.ino,
+      info.size,
+      info.mtimeNs,
+      info.ctimeNs
+    ].join(":");
+  } finally {
+    await handle.close();
+  }
+}
+
 export async function getPresentationVideoBouncePlan(
   db: AetherDatabase,
   file: ResolvedAssetFile,
   range: { startMs: number; endMs: number }
 ): Promise<VideoBouncePlan> {
+  const identity = await mediaProbeIdentity(file);
   const media = await probePresentationMedia(db, file);
+  if (identity !== (await mediaProbeIdentity(file)))
+    throw new StalePresentationRenditionError();
   if (!media.videoBounce)
     throw new PresentationMediaError("bounce_source_not_supported");
   let cache = bouncePlans.get(db);
@@ -111,16 +132,24 @@ export async function getPresentationVideoBouncePlan(
     cache = new Map();
     bouncePlans.set(db, cache);
   }
-  const key = `${assetEntityTag(file)}:${range.startMs}:${range.endMs}`;
+  const key = `${identity}:${range.startMs}:${range.endMs}`;
   const existing = cache.get(key);
   if (existing) return existing;
   if (queuedBouncePlans >= 8)
     throw new PresentationMediaError("processing_busy", 503);
   queuedBouncePlans++;
   const profile = media.videoBounce;
-  const job = withVideoProcessingSlot(() =>
-    createBouncePlan(file.sourcePath, range.startMs, range.endMs, profile)
-  ).finally(() => {
+  const job = withVideoProcessingSlot(async () => {
+    const plan = await createBouncePlan(
+      file.sourcePath,
+      range.startMs,
+      range.endMs,
+      profile
+    );
+    if (identity !== (await mediaProbeIdentity(file)))
+      throw new StalePresentationRenditionError();
+    return plan;
+  }).finally(() => {
     queuedBouncePlans--;
   });
   cache.set(key, job);
@@ -263,7 +292,7 @@ export async function probePresentationMedia(
     cache = new Map();
     probes.set(db, cache);
   }
-  const key = assetEntityTag(file);
+  const key = await mediaProbeIdentity(file);
   const cached = cache.get(key);
   if (cached) {
     cache.delete(key);
@@ -275,7 +304,10 @@ export async function probePresentationMedia(
   queuedProbes += 1;
   const job = withVideoProcessingSlot(async () => {
     try {
-      return await inspectMedia(file);
+      const media = await inspectMedia(file);
+      if (key !== (await mediaProbeIdentity(file)))
+        throw new StalePresentationRenditionError();
+      return media;
     } catch (error) {
       if (error instanceof PresentationMediaError) throw error;
       throw new PresentationMediaError("media_decode_failed");

@@ -1,7 +1,5 @@
 import {
-  chmod,
   mkdtemp,
-  readFile,
   readdir,
   rename,
   rm,
@@ -9,11 +7,13 @@ import {
   writeFile
 } from "node:fs/promises";
 import path from "node:path";
+import type { BigIntStats } from "node:fs";
 import sharp from "sharp";
+import { openPrivateCacheFile } from "../security/private-cache-file.js";
 import { removePresentationDerivativeFiles } from "./derivative-cache.js";
 import type { AppConfig } from "../config/config.js";
 import type { AetherDatabase } from "../db/database.js";
-import type { ResolvedAssetFile } from "./media-serving.js";
+import { openAssetFile, type ResolvedAssetFile } from "./media-serving.js";
 import {
   ANIMATION_LIMITS,
   probePresentationMedia,
@@ -28,6 +28,7 @@ import {
   recordPresentationFiles,
   requireBoundedFile,
   safeCachedFile,
+  StalePresentationRenditionError,
   verifyPresentationSource,
   withPresentationLifecycle
 } from "./presentation-cache.js";
@@ -58,6 +59,54 @@ interface CachedAnimation {
   manifest: AnimationManifest;
   atlasPaths: string[];
 }
+type SourceIdentity = Record<
+  "dev" | "ino" | "size" | "mtimeNs" | "ctimeNs",
+  string
+>;
+
+function statIdentity(info: BigIntStats): SourceIdentity {
+  return {
+    dev: String(info.dev),
+    ino: String(info.ino),
+    size: String(info.size),
+    mtimeNs: String(info.mtimeNs),
+    ctimeNs: String(info.ctimeNs)
+  };
+}
+
+function sameIdentity(candidate: unknown, expected: SourceIdentity): boolean {
+  return (
+    typeof candidate === "object" &&
+    candidate !== null &&
+    Object.entries(expected).every(
+      ([field, value]) =>
+        (candidate as Record<string, unknown>)[field] === value
+    )
+  );
+}
+
+async function sourceIdentity(
+  file: ResolvedAssetFile
+): Promise<SourceIdentity> {
+  const handle = await openAssetFile(file);
+  try {
+    return statIdentity(await handle.stat({ bigint: true }));
+  } finally {
+    await handle.close();
+  }
+}
+
+async function verifyAnimationSource(
+  db: AetherDatabase,
+  file: ResolvedAssetFile,
+  key: string,
+  expected: SourceIdentity
+): Promise<void> {
+  await verifyPresentationSource(db, file, "full", key);
+  if (!sameIdentity(await sourceIdentity(file), expected))
+    throw new StalePresentationRenditionError();
+}
+
 const jobsByDatabase = new WeakMap<
   AetherDatabase,
   Map<string, Promise<CachedAnimation>>
@@ -75,10 +124,11 @@ export async function ensurePresentationAnimation({
   file: ResolvedAssetFile;
   key: string;
 }): Promise<CachedAnimation> {
+  const identity = await sourceIdentity(file);
   const media = await probePresentationMedia(db, file);
   if (!media.animation)
     throw new PresentationMediaError("animation_not_supported");
-  await verifyPresentationSource(db, file, "full", key);
+  await verifyAnimationSource(db, file, key, identity);
   const directory = await presentationCacheDirectory(config, file.asset.id);
   const manifestPath = path.join(directory, `${key}-animation.json`);
   if (await safeCachedFile(manifestPath)) {
@@ -86,27 +136,41 @@ export async function ensurePresentationAnimation({
       manifestPath,
       directory,
       key,
-      file.asset.id
+      file.asset.id,
+      config.cacheDir,
+      identity
     );
-    if (cached) return cached;
+    if (cached) {
+      await verifyAnimationSource(db, file, key, identity);
+      return cached;
+    }
   }
   let jobs = jobsByDatabase.get(db);
   if (!jobs) {
     jobs = new Map();
     jobsByDatabase.set(db, jobs);
   }
-  const existing = jobs.get(manifestPath);
+  const jobKey = `${manifestPath}:${Object.values(identity).join(":")}`;
+  const existing = jobs.get(jobKey);
   if (existing) return existing;
   if (pendingJobs >= 8)
     throw new PresentationMediaError("processing_busy", 503);
   pendingJobs += 1;
   const job = withVideoProcessingSlot(() =>
-    generateAnimation(db, file, media.animation!, key, directory, manifestPath)
+    generateAnimation(
+      db,
+      file,
+      media.animation!,
+      key,
+      directory,
+      manifestPath,
+      identity
+    )
   ).finally(() => {
-    jobs.delete(manifestPath);
+    jobs.delete(jobKey);
     pendingJobs -= 1;
   });
-  jobs.set(manifestPath, job);
+  jobs.set(jobKey, job);
   return job;
 }
 
@@ -179,7 +243,8 @@ async function generateAnimation(
   probe: AnimationProbe,
   key: string,
   directory: string,
-  manifestPath: string
+  manifestPath: string,
+  identity: SourceIdentity
 ): Promise<CachedAnimation> {
   const workDirectory = await mkdtemp(path.join(directory, "work-"));
   const deadline = Date.now() + 120_000;
@@ -281,13 +346,17 @@ async function generateAnimation(
       atlases
     };
     const temporaryManifest = path.join(workDirectory, "manifest.json");
-    await writeFile(temporaryManifest, JSON.stringify(manifest), {
-      mode: 0o600
-    });
+    await writeFile(
+      temporaryManifest,
+      JSON.stringify({ version: 1, source: identity, manifest }),
+      {
+        mode: 0o600
+      }
+    );
     return await withPresentationLifecycle(db, async () => {
       const published: string[] = [];
       try {
-        await verifyPresentationSource(db, file, "full", key);
+        await verifyAnimationSource(db, file, key, identity);
         for (const destination of atlasPaths) {
           await rename(
             path.join(workDirectory, path.basename(destination)),
@@ -297,7 +366,7 @@ async function generateAnimation(
         }
         await rename(temporaryManifest, manifestPath);
         published.push(manifestPath);
-        await verifyPresentationSource(db, file, "full", key);
+        await verifyAnimationSource(db, file, key, identity);
         const obsolete = recordPresentationFiles(db, file, "animation", key, [
           manifestPath,
           ...atlasPaths
@@ -432,17 +501,69 @@ async function ffmpegFrames(
   };
 }
 
+async function readPrivateManifest(
+  manifestPath: string,
+  cacheDir: string
+): Promise<unknown> {
+  const handle = await openPrivateCacheFile(manifestPath, cacheDir);
+  try {
+    const before = await handle.stat({ bigint: true });
+    if (before.size < 1n || before.size > 128n * 1024n) return null;
+    const bytes = Buffer.alloc(Number(before.size) + 1);
+    let length = 0;
+    while (length < bytes.length) {
+      const read = await handle.read(
+        bytes,
+        length,
+        bytes.length - length,
+        length
+      );
+      if (!read.bytesRead) break;
+      length += read.bytesRead;
+    }
+    const after = await handle.stat({ bigint: true });
+    if (
+      length !== Number(before.size) ||
+      !sameIdentity(statIdentity(after), statIdentity(before))
+    )
+      return null;
+    if ((before.mode & 0o7777n) !== 0o600n) await handle.chmod(0o600);
+    return JSON.parse(bytes.subarray(0, length).toString("utf8"));
+  } finally {
+    await handle.close();
+  }
+}
+
 async function readCachedAnimation(
   manifestPath: string,
   directory: string,
   key: string,
-  assetId: string
+  assetId: string,
+  cacheDir: string,
+  identity: SourceIdentity
 ): Promise<CachedAnimation | null> {
   try {
-    if ((await stat(manifestPath)).size > 128 * 1024) return null;
-    const manifest = JSON.parse(
-      await readFile(manifestPath, "utf8")
-    ) as AnimationManifest;
+    const cached = (await readPrivateManifest(manifestPath, cacheDir)) as {
+      version?: unknown;
+      source?: unknown;
+      manifest?: AnimationManifest;
+    } | null;
+    if (
+      cached?.version !== 1 ||
+      !sameIdentity(cached.source, identity) ||
+      !cached.manifest
+    )
+      return null;
+    const { kind, durationMs, width, height, frames, atlases } =
+      cached.manifest;
+    const manifest: AnimationManifest = {
+      kind,
+      durationMs,
+      width,
+      height,
+      frames,
+      atlases
+    };
     if (
       manifest.kind !== "animation" ||
       !Array.isArray(manifest.frames) ||
@@ -506,9 +627,14 @@ async function readCachedAnimation(
     const atlasPaths = manifest.atlases.map((_, index) =>
       path.join(directory, `${key}-atlas-${index}.png`)
     );
-    if (!(await Promise.all(atlasPaths.map(safeCachedFile))).every(Boolean))
+    if (
+      !(
+        await Promise.all(
+          atlasPaths.map((atlasPath) => safeCachedFile(atlasPath))
+        )
+      ).every(Boolean)
+    )
       return null;
-    await chmod(manifestPath, 0o600);
     return { manifest, atlasPaths };
   } catch {
     return null;

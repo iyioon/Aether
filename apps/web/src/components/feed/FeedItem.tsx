@@ -95,7 +95,7 @@ export const FeedItem = memo(function FeedItem({
               preloadPreview={preloadPreview}
               showVideoTimeline
               tall
-              useOriginalImage
+              useOriginalImage={isActive}
               useOriginalVideo
             />
           </div>

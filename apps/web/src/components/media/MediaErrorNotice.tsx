@@ -24,7 +24,6 @@ export function MediaErrorNotice({
       ]
         .filter(Boolean)
         .join(" ")}
-      data-interactive={Boolean(onRetry) || undefined}
       role="status"
     >
       {!compact ? <CircleAlert aria-hidden="true" size={16} /> : null}

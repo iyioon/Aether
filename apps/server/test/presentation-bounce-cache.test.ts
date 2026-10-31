@@ -133,6 +133,156 @@ async function prepare(rate = 24, codec = "h264") {
 }
 
 describe("persistent Bounce startup cache", () => {
+  it("prepares a one-second midpoint section from a long GOP and reuses it across range requests and restart", async () => {
+    const sourcePath = path.join(directory, "media", "long-gop.mp4");
+    await processing.runMediaCommand(
+      "ffmpeg",
+      [
+        "-v",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc2=size=64x48:rate=20:duration=1800",
+        "-c:v",
+        "libx264",
+        "-threads",
+        "1",
+        "-preset",
+        "ultrafast",
+        "-crf",
+        "35",
+        "-g",
+        "60000",
+        "-keyint_min",
+        "60000",
+        "-sc_threshold",
+        "0",
+        "-bf",
+        "0",
+        "-color_range",
+        "tv",
+        "-y",
+        sourcePath
+      ],
+      15_000
+    );
+    const original = await readFile(sourcePath);
+    await scanLibrary(db, config.mediaRoots);
+    const initial = listAssets(db, {
+      folderId: folderIdFor(config.mediaRoots[0]!.id, ""),
+      offset: 0,
+      limit: 1,
+      sort: "filename",
+      type: "all",
+      recursive: true
+    })!.items[0]!;
+    db.prepare(
+      "INSERT INTO asset_presentations (asset_id, revision, highlight_start_ms, highlight_end_ms, fit, focal_x, focal_y, zoom, playback_rate, loop_mode, updated_at) VALUES (?,1,900025,901025,'auto',0.5,0.5,1,1,'bounce','2026-01-01T00:00:00.000Z')"
+    ).run(initial.id);
+    const asset = getAsset(db, initial.id)!;
+    const url = `/api/assets/${asset.id}/playback?variant=bounce&v=${asset.presentation.renditionKeys.bounce}&codec=h264`;
+    const commands = vi.spyOn(processing, "runMediaCommand");
+    const cold = await app.inject(url);
+    expect(cold.statusCode).toBe(200);
+    expect(
+      commands.mock.calls.filter(([, args]) => args.includes("-show_frames"))
+    ).toHaveLength(1);
+    const prepared = db
+      .prepare("SELECT path FROM derivatives WHERE asset_id = ? ORDER BY path")
+      .all(asset.id) as Array<{ path: string }>;
+    expect(prepared).toHaveLength(2);
+    const identities = () =>
+      Promise.all(
+        prepared.map(async ({ path: filePath }) => {
+          const info = await stat(filePath, { bigint: true });
+          return { inode: info.ino, mtimeNs: info.mtimeNs, size: info.size };
+        })
+      );
+    const before = await identities();
+    const output = prepared.find((entry) => entry.path.endsWith(".mp4"))!.path;
+    const frameSamples = async (filePath: string, source: boolean) => {
+      const chunks: Buffer[] = [];
+      let bytes = 0;
+      await processing.runMediaCommand(
+        "ffmpeg",
+        [
+          "-v",
+          "error",
+          "-threads",
+          "1",
+          "-noautorotate",
+          ...(source ? ["-ss", "900"] : []),
+          "-i",
+          filePath,
+          "-map",
+          "0:v:0",
+          ...(source ? ["-frames:v", "21"] : []),
+          "-fps_mode",
+          "passthrough",
+          "-f",
+          "rawvideo",
+          "pipe:1"
+        ],
+        15_000,
+        undefined,
+        (chunk) => {
+          bytes += chunk.length;
+          if (bytes > 64 * 48 * 1.5 * (source ? 21 : 40))
+            throw new Error("Unexpected frame output");
+          chunks.push(chunk);
+        }
+      );
+      const data = Buffer.concat(chunks);
+      const frameBytes = 64 * 48 * 1.5;
+      expect(data.length).toBe(frameBytes * (source ? 21 : 40));
+      return Array.from({ length: source ? 21 : 40 }, (_, index) =>
+        data.subarray(index * frameBytes, (index + 1) * frameBytes)
+      );
+    };
+    const selected = await frameSamples(sourcePath, true);
+    expect(selected).toHaveLength(21);
+    const expected = [...selected, ...selected.slice(1, -1).reverse()];
+    const decoded = await frameSamples(output, false);
+    decoded.forEach((frame, index) => {
+      let error = 0;
+      frame.forEach((value, sample) => {
+        error += Math.abs(value - expected[index]![sample]!);
+      });
+      expect(error / frame.length).toBeLessThan(4);
+    });
+    commands.mockClear();
+    const assertWarm = async () => {
+      const capabilities = await app.inject(
+        `/api/assets/${asset.id}/presentation-media`
+      );
+      expect(capabilities.statusCode).toBe(200);
+      expect(capabilities.json().bounceTimeline.sourceTimesMs).toHaveLength(21);
+      expect(capabilities.json().bounceTimeline.durationsMs).toEqual([
+        25,
+        ...Array(19).fill(50),
+        25
+      ]);
+      const warm = await app.inject(url);
+      expect(warm.statusCode).toBe(200);
+      expect(warm.rawPayload).toEqual(cold.rawPayload);
+      const head = await app.inject({ method: "HEAD", url });
+      expect(head.statusCode).toBe(200);
+      expect(head.rawPayload.length).toBe(0);
+      const range = await app.inject({ url, headers: { range: "bytes=0-31" } });
+      expect(range.statusCode).toBe(206);
+      expect(range.rawPayload).toEqual(cold.rawPayload.subarray(0, 32));
+      expect(commands).not.toHaveBeenCalled();
+      expect(await identities()).toEqual(before);
+    };
+    await assertWarm();
+    await restart();
+    await sweepDerivativeCache(db, config.cacheDir, { pruneStaleFiles: true });
+    await assertWarm();
+    expect(await readFile(sourcePath)).toEqual(original);
+    expect(await readdir(path.dirname(output))).toHaveLength(2);
+  }, 30_000);
+
   it("rejects atomic replacement and does not reuse probes or plans from a different source inode", async () => {
     const prepared = await prepare();
     const seconds =
@@ -372,7 +522,7 @@ describe("persistent Bounce startup cache", () => {
     await writeFile(prepared.destination, corrupt);
     await utimes(prepared.destination, info.atime, info.mtime);
     await restart();
-    const generate = vi.spyOn(bounce, "generateLosslessBounce");
+    const generate = vi.spyOn(bounce, "generateVideoBounce");
     const response = await app.inject(prepared.url);
     expect(response.statusCode).toBe(200);
     expect(response.rawPayload).toEqual(prepared.bytes);

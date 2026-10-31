@@ -1,7 +1,7 @@
 # Media Playback And Presentation Plan
 
-Status: Presentation, lossless Bounce and HEIC implemented; automated local, browser, container and mixed-library resource checks verified. Device acceptance is tracked below.\
-Reviewed: 2026-10-31.
+Status: Presentation, Bounce and HEIC implemented; automated checks and device acceptance are tracked below.\
+Reviewed: 2026-11-01.
 
 ## Outcome And Scope
 
@@ -72,6 +72,10 @@ HEIC uses the shared media surfaces and preserves the original download.
 - Video bounce is silent. Its saved rendition is continuous forward/reverse;
   draft preview plays forward until Save. Animation retains alpha and variable
   delays, with interior frames reversed to avoid duplicate endpoint holds.
+  Video uses high-quality compressed playback at the original dimensions and
+  frame timing, replacing bit-exact lossless copies. HEVC retains supported
+  input bit depth; H.264 uses 8-bit SDR for native compatibility. Original
+  sources and downloads remain unchanged.
 - Keep ordinary Gallery tiles lightweight; transport controls belong in Feed
   and the expanded viewer. Gallery Edit and Download actions belong in the
   viewer toolbar and the card context menu (right-click, keyboard or touch hold).
@@ -119,8 +123,8 @@ web presentation model, geometry, record ordering and URL-state tests.
   Unsupported codecs fall back to complete compatibility highlights: at most two
   minutes, 1080px, 128 MiB and a 120-second encode deadline, with a completeness
   check. Short Gallery previews are never used as complete sections.
-- Video Bounce prepares decoded-pixel-lossless HEVC (`hvc1`) or H.264 QP0 video
-  with source frame timing, coded dimensions/SAR, color metadata and rotation.
+- Video Bounce prepares high-quality HEVC (`hvc1`) or H.264 High video with
+  source frame timing, coded dimensions/SAR, color metadata and rotation.
   Eligible inputs are 8/10-bit 4:2:0 SDR; unsupported HDR/Dolby Vision,
   interlaced, odd-sized, nonzero timestamp-origin or unusual formats/profiles
   use Repeat. Endpoints are not duplicated and video Bounce stays silent.
@@ -158,11 +162,11 @@ Negative native playback rates are
 [not portable](https://developer.mozilla.org/en-US/docs/Web/API/HTMLMediaElement/playbackRate);
 FFmpeg's [reverse filter](https://ffmpeg.org/ffmpeg-filters.html#reverse) buffers
 frames, which requires explicit resource bounds.
-Use [x265 lossless](https://x265.readthedocs.io/en/master/lossless.html) and
+Use [x265 quality and bitrate controls](https://x265.readthedocs.io/en/master/cli.html#quality-rate-control-and-rate-distortion-options) and
 [Apple codec guidance](https://developer.apple.com/streaming/hls-authoring-specification-for-apple-devices.html)
-for encoding/profile decisions. Exact decoded equality and visually lossless
-encoding are different promises. Lossless H.264 High444 is outside Apple's usual
-H.264 profile guidance; reported HEVC support still requires device testing.
+for encoding/profile decisions. Full resolution is retained; compressed output
+does not promise exact decoded-pixel equality. Reported HEVC support still
+requires device testing.
 
 ## Remaining Work
 
@@ -175,7 +179,7 @@ H.264 profile guidance; reported HEVC support still requires device testing.
 2. Follow [Presentation acceptance](../release-checklist.md#presentation-acceptance)
    on a real installed iPhone: VoiceOver handles, short landscape, keyboard,
    pinch/drag, safe areas, Home/return and native fullscreen section bounds.
-   On iPhone 16, verify actual lossless HEVC playback and native fullscreen;
+   On iPhone 16, verify actual HEVC playback and native fullscreen;
    codec detection and desktop pixel tests do not establish device support.
 3. Repeat packaging/runtime decoder and mixed-library resource checks when media
    processing changes. Run decoder fixtures with the runtime's
@@ -187,7 +191,7 @@ H.264 profile guidance; reported HEVC support still requires device testing.
    profile-preserving PNGs; tests cover 8/10-bit SDR, alpha, orientation, collections,
    stale sources, bounded work and unchanged downloads. Unsupported HDR and
    resource limits fail explicitly. See [HEIC tools](../installation.md#heic-tools).
-5. Preserve decoded-frame hash and timestamp regression coverage for lossless
+5. Preserve decoded-frame fidelity and timestamp regression coverage for
    Bounce. Native and container tests cover VFR, 8/10-bit samples, source
    color/orientation, frame boundaries and resource rejection. Do not extend
    support to HDR or per-frame Dolby Vision metadata
@@ -216,11 +220,14 @@ Status: Cache reuse and bounded Feed preparation implemented. Preparation after
 Save remains deferred.
 
 Currently, Save validates the selected section and stores presentation settings.
-The first playback request generates the lossless Bounce video and saves it in
+The first playback request generates the compressed Bounce video and saves it in
 the managed cache. Current files survive server restarts. Playback now checks
 the cache before source-frame analysis; newly prepared files also retain bounded
 timing/capability metadata for safe reuse after restart. Source identity, edit
 keys and verified file access still apply. Missing metadata uses normal analysis.
+Frame analysis uses one streamed pass and discards earlier keyframe preroll,
+keeping short sections late in long videos within the metadata budget. A long
+keyframe interval can still require extra source decoding on first preparation.
 
 Feed gives the current video priority and prepares at most 512 KiB of the next
 video after the current one has buffered ahead. Preparation stops for buffering,
@@ -238,10 +245,12 @@ Let the viewing client select a supported codec and retain lazy fallback without
 preparing both formats for every save. Reuse existing processing queues rather
 than adding a general job framework.
 
-Keep the existing lossless quality, processing limits, managed data directory
-and cleanup rules. HEVC and H.264 have separate files; a new browser codec may
-require its own preparation. Large lossless files still take time to transfer
-and decode. Reuse the shared loading and error feedback.
+Keep the high-quality, original-resolution playback policy, processing limits,
+managed data directory and cleanup rules. HEVC and H.264 have separate files;
+a new browser codec may require its own preparation. The `bounce-playback-v6`
+identity retires older lossless copies without changing saved settings or other
+renditions. High dimensions, frame rates and playback speeds still need sufficient network and
+decoding capacity. Reuse the shared loading and error feedback.
 
 Acceptance: verify cache reuse before and after restart without repeated frame
 analysis; first preparation, codec fallback and concurrent requests; source or

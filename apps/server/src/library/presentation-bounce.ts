@@ -1,5 +1,6 @@
 import { mkdtemp, rm, stat, statfs, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import {
   decodeBounceFrames,
   encodeBounceFrames,
@@ -95,13 +96,13 @@ interface ProbeStream {
   }>;
   codec_name?: string;
   profile?: string;
+  level?: number;
   time_base?: string;
 }
 interface ProbeFrame {
   best_effort_timestamp_time?: string;
   pkt_duration_time?: string;
   duration_time?: string;
-  side_data_list?: Array<{ side_data_type?: string }>;
 }
 
 function unsupported(): never {
@@ -332,35 +333,101 @@ export async function createBouncePlan(
     Math.round(endMs * 1000),
     Math.round(profile.durationMs * 1000)
   );
-  let payload: { frames?: ProbeFrame[] };
+  const frames: ProbeFrame[] = [];
+  let previousTime: number | undefined;
+  const acceptFrame = (line: string) => {
+    if (!line.trim()) return;
+    if (Buffer.byteLength(line) > 8192) badTiming();
+    const fields = line.split("|").flatMap((field) => {
+      const separator = field.indexOf("=");
+      return separator < 1
+        ? []
+        : [
+            [
+              field.slice(0, separator).split(":").at(-1)!,
+              field.slice(separator + 1)
+            ]
+          ];
+    });
+    if (
+      fields.some(
+        ([field, value]) =>
+          field === "side_data_type" &&
+          /dovi|dolby|mastering display|content light|hdr/i.test(value!)
+      )
+    )
+      unsupported();
+    const record = Object.fromEntries(fields) as Record<string, string>;
+    if (!("best_effort_timestamp_time" in record)) {
+      if (
+        fields.length &&
+        fields.every(([field]) => field === "side_data_type")
+      )
+        return;
+      badTiming();
+    }
+    validateSourceFrame(record, profile);
+    const time =
+      Math.round(Number(record.best_effort_timestamp_time) * MICROSECONDS) -
+      originUs;
+    if (
+      !Number.isSafeInteger(time) ||
+      (previousTime !== undefined && time <= previousTime) ||
+      (previousTime === undefined && startUs === 0 && time !== 0)
+    )
+      badTiming();
+    previousTime = time;
+    if (time < startUs) frames.length = 0;
+    else if (
+      frames.length &&
+      Math.round(
+        Number(frames.at(-1)!.best_effort_timestamp_time) * MICROSECONDS
+      ) -
+        originUs >=
+        endUs
+    )
+      return;
+    frames.push(record);
+    if (frames.length > VIDEO_BOUNCE_MAX_FRAMES + 2) overBudget();
+  };
+  const decoder = new StringDecoder("utf8");
+  let pending = "";
+  const consume = (chunk: Buffer) => {
+    const lines = (pending + decoder.write(chunk)).split("\n");
+    pending = lines.pop()!;
+    if (Buffer.byteLength(pending) > 8192) badTiming();
+    lines.forEach(acceptFrame);
+  };
   const interval = `${Math.max(0, profile.startTimeSeconds + startMs / 1000 - 1)}%${profile.startTimeSeconds + endMs / 1000 + 2}`;
   try {
-    const result = await runMediaCommand(
+    await runMediaCommand(
       "ffprobe",
       [
         "-v",
         "error",
+        "-threads",
+        "1",
         "-select_streams",
         String(profile.streamIndex),
         "-read_intervals",
         interval,
         "-show_frames",
         "-show_entries",
-        "frame=best_effort_timestamp_time,pkt_duration_time,duration_time:frame_side_data=side_data_type",
+        "frame=best_effort_timestamp_time,pkt_duration_time,duration_time,width,height,pix_fmt,interlaced_frame,color_range,color_space,color_transfer,color_primaries,chroma_location:frame_side_data=side_data_type",
         "-of",
-        "json=compact=1",
+        "compact=p=0",
         ...LOCAL_MEDIA_INPUT_ARGS,
         sourcePath
       ],
       20_000,
-      1024 * 1024
+      1024 * 1024,
+      consume
     );
-    payload = JSON.parse(result.stdout) as { frames?: ProbeFrame[] };
-  } catch {
+    acceptFrame(pending + decoder.end());
+  } catch (error) {
+    if (error instanceof PresentationMediaError) throw error;
     badTiming();
   }
-  const frames = payload.frames ?? [];
-  if (frames.some((frame) => hdrSideData(frame.side_data_list))) unsupported();
   const timestamps = frames.map(
     (frame) =>
       Math.round(Number(frame.best_effort_timestamp_time) * MICROSECONDS) -
@@ -423,7 +490,6 @@ export async function createBouncePlan(
     decodedBytes > VIDEO_BOUNCE_MAX_DECODED_BYTES
   )
     overBudget();
-  await validateSourceFrames(sourcePath, interval, profile);
   const outputSourceIndices = selected.map((_frame, index) => index);
   for (let index = selected.length - 2; index >= 1; index--)
     outputSourceIndices.push(index);
@@ -457,84 +523,33 @@ function lookupExpression(
   return `if(lt(N,${middle}),${lookupExpression(values, start, middle)},${lookupExpression(values, middle, end)})`;
 }
 
-async function validateSourceFrames(
-  sourcePath: string,
-  interval: string,
+function validateSourceFrame(
+  frame: Record<string, string>,
   profile: VideoBounceProfile
 ) {
-  for (const fields of [
-    "width,height,pix_fmt,interlaced_frame,color_range",
-    "color_range,color_space,color_transfer,color_primaries,chroma_location"
+  if (
+    Number(frame.width) !== profile.width ||
+    Number(frame.height) !== profile.height ||
+    canonicalPixelFormat(frame.pix_fmt, frame.color_range) !==
+      profile.pixelFormat ||
+    (profile.colorRange && frame.color_range !== profile.colorRange) ||
+    frame.interlaced_frame !== "0"
+  )
+    unsupported();
+  for (const [key, expected] of [
+    ["color_range", profile.colorRange],
+    ["color_space", profile.colorSpace],
+    ["color_transfer", profile.colorTransfer],
+    ["color_primaries", profile.colorPrimaries],
+    ["chroma_location", profile.chromaLocation]
   ]) {
-    let output: string;
-    try {
-      output = (
-        await runMediaCommand(
-          "ffprobe",
-          [
-            "-v",
-            "error",
-            "-select_streams",
-            String(profile.streamIndex),
-            "-read_intervals",
-            interval,
-            "-show_frames",
-            "-show_entries",
-            `frame=${fields}`,
-            "-of",
-            "compact=p=0",
-            ...LOCAL_MEDIA_INPUT_ARGS,
-            sourcePath
-          ],
-          20_000,
-          1024 * 1024
-        )
-      ).stdout;
-    } catch {
-      badTiming();
-    }
-    const records = output
-      .split("\n")
-      .filter((line) => line.includes("="))
-      .map((line) =>
-        Object.fromEntries(
-          line.split("|").map((field) => {
-            const separator = field.indexOf("=");
-            return [field.slice(0, separator), field.slice(separator + 1)];
-          })
-        )
-      );
-    if (!records.length) badTiming();
-    for (const frame of records) {
-      if (fields.startsWith("width")) {
-        if (!("width" in frame)) continue;
-        if (
-          Number(frame.width) !== profile.width ||
-          Number(frame.height) !== profile.height ||
-          canonicalPixelFormat(frame.pix_fmt, frame.color_range) !==
-            profile.pixelFormat ||
-          (profile.colorRange && frame.color_range !== profile.colorRange) ||
-          frame.interlaced_frame !== "0"
-        )
-          unsupported();
-      } else {
-        for (const [key, expected] of [
-          ["color_range", profile.colorRange],
-          ["color_space", profile.colorSpace],
-          ["color_transfer", profile.colorTransfer],
-          ["color_primaries", profile.colorPrimaries],
-          ["chroma_location", profile.chromaLocation]
-        ]) {
-          const value = frame[key!];
-          if (
-            value &&
-            !["unknown", "unspecified", "reserved"].includes(value) &&
-            value !== expected
-          )
-            unsupported();
-        }
-      }
-    }
+    const value = frame[key!];
+    if (
+      value &&
+      !["unknown", "unspecified", "reserved"].includes(value) &&
+      value !== expected
+    )
+      unsupported();
   }
 }
 
@@ -552,7 +567,73 @@ function lowerLimit(value: number | undefined, maximum: number): number {
   return limit;
 }
 
-export async function generateLosslessBounce(
+export function videoBounceEncoding(
+  profile: Pick<
+    VideoBounceProfile,
+    "width" | "height" | "frameRate" | "bitDepth"
+  >,
+  codec: "hevc" | "h264"
+) {
+  const { width, height, frameRate, bitDepth } = profile;
+  if (
+    !Number.isSafeInteger(width) ||
+    !Number.isSafeInteger(height) ||
+    width < 16 ||
+    height < 16 ||
+    width % 2 ||
+    height % 2 ||
+    !Number.isFinite(frameRate) ||
+    frameRate <= 0 ||
+    (bitDepth !== 8 && bitDepth !== 10)
+  )
+    overBudget();
+  const base = codec === "hevc" ? 12_000_000 : 16_000_000;
+  const maximumRate = Math.min(
+    96_000_000,
+    Math.max(
+      2_000_000,
+      Math.ceil(
+        (base *
+          Math.sqrt((width * height) / (1920 * 1080)) *
+          Math.max(1, frameRate / 30)) /
+          1000
+      ) * 1000
+    )
+  );
+  return {
+    pixelFormat:
+      codec === "hevc" && bitDepth === 10 ? "yuv420p10le" : "yuv420p",
+    profile: codec === "h264" ? "high" : bitDepth === 10 ? "main10" : "main",
+    maximumRate,
+    bufferSize: maximumRate * 2
+  } as const;
+}
+
+export function videoBounceFrameRate(
+  plan: Pick<VideoBouncePlan, "sourceTimesMs" | "firstSourceTimeMs">,
+  sourceFrameRate: number
+): number {
+  if (
+    !plan.sourceTimesMs.length ||
+    !Number.isFinite(plan.firstSourceTimeMs) ||
+    !Number.isFinite(sourceFrameRate) ||
+    sourceFrameRate <= 0
+  )
+    badTiming();
+  let frameRate = 0;
+  let previousTime = plan.firstSourceTimeMs;
+  for (const time of plan.sourceTimesMs.slice(1)) {
+    const duration = time - previousTime;
+    if (!Number.isFinite(duration) || duration <= 0) badTiming();
+    frameRate = Math.max(frameRate, 1000 / duration);
+    previousTime = time;
+  }
+  // A highlight can contain a dense burst in an otherwise static recording.
+  // Use original cadence; clipped boundary holds do not describe source FPS.
+  return frameRate || sourceFrameRate;
+}
+
+export async function generateVideoBounce(
   sourcePath: string,
   outputPath: string,
   plan: VideoBouncePlan,
@@ -573,6 +654,8 @@ export async function generateLosslessBounce(
       VIDEO_BOUNCE_MAX_DECODED_BYTES
   )
     overBudget();
+  const frameRate = videoBounceFrameRate(plan, profile.frameRate);
+  const encoding = videoBounceEncoding({ ...profile, frameRate }, codec);
   const maxWorkBytes = lowerLimit(
     options.maxWorkBytes,
     VIDEO_BOUNCE_MAX_WORK_BYTES
@@ -624,7 +707,11 @@ export async function generateLosslessBounce(
     ]
       .flatMap(([option, value]) => (value ? [`${option}=${value}`] : []))
       .join(":");
-    const filter = `[0:v]${frameColor ? `setparams=${frameColor},` : ""}setsar=${profile.sampleAspectRatio.replace(":", "/")}:max=65535,settb=1/1000000,setpts='${lookupExpression(plan.outputTimesMs.map((time) => Math.round(time * 1000)))}'[out]`;
+    const rangeConversion =
+      profile.pixelFormat !== encoding.pixelFormat
+        ? `scale=in_range=${profile.colorRange === "pc" ? "pc" : "tv"}:out_range=${profile.colorRange === "pc" ? "pc" : "tv"},format=${encoding.pixelFormat},`
+        : "";
+    const filter = `[0:v]${frameColor ? `setparams=${frameColor},` : ""}${rangeConversion}setsar=${profile.sampleAspectRatio.replace(":", "/")}:max=65535,settb=1/1000000,setpts='${lookupExpression(plan.outputTimesMs.map((time) => Math.round(time * 1000)))}'[out]`;
     await writeFile(filterPath, filter, { flag: "wx", mode: 0o600 });
     const filterFileArgs = await bounceFilterFileArguments(
       filterPath,
@@ -693,6 +780,8 @@ export async function generateLosslessBounce(
     const lastDuration = Math.round(
       plan.durationsMs[plan.outputSourceIndices.at(-1)!]! * 1000
     );
+    // Older wrappers infer codec FPS from the microsecond encoder time base.
+    // Set nominal FPS directly for rate control while preserving every VFR PTS.
     try {
       await encodeBounceFrames(
         spool,
@@ -709,7 +798,7 @@ export async function generateLosslessBounce(
           "-video_size",
           `${profile.width}x${profile.height}`,
           "-framerate",
-          String(profile.frameRate),
+          String(frameRate),
           "-i",
           "pipe:0",
           "-filter_complex_threads",
@@ -723,18 +812,24 @@ export async function generateLosslessBounce(
           ...(codec === "hevc"
             ? [
                 "-x265-params",
-                "lossless=1:pools=1:frame-threads=1:log-level=error:bframes=0:rc-lookahead=0:ref=1",
+                `pools=1:frame-threads=1:log-level=error:bframes=0:rc-lookahead=0:ref=1:fps=${frameRate}`,
                 "-tag:v",
                 "hvc1"
               ]
             : [
-                "-qp",
-                "0",
                 "-x264-params",
-                "bframes=0:rc-lookahead=0:sync-lookahead=0:ref=1"
+                `bframes=0:rc-lookahead=0:sync-lookahead=0:ref=1:fps=${frameRate}`
               ]),
+          "-profile:v",
+          encoding.profile,
           "-preset",
-          codec === "hevc" ? "ultrafast" : "veryfast",
+          "veryfast",
+          "-crf",
+          "18",
+          "-maxrate",
+          String(encoding.maximumRate),
+          "-bufsize",
+          String(encoding.bufferSize),
           "-tune",
           "zerolatency",
           "-threads",
@@ -742,7 +837,7 @@ export async function generateLosslessBounce(
           "-bf",
           "0",
           "-pix_fmt",
-          profile.pixelFormat,
+          encoding.pixelFormat,
           ...colorArgs,
           "-fps_mode",
           "passthrough",
@@ -854,6 +949,7 @@ async function validateOutput(
   codec: "hevc" | "h264",
   timeoutMs: number
 ) {
+  const encoding = videoBounceEncoding(profile, codec);
   const result = await runMediaCommand(
     "ffprobe",
     [
@@ -863,7 +959,7 @@ async function validateOutput(
       "v:0",
       "-show_packets",
       "-show_entries",
-      "stream=codec_name,profile,time_base,width,height,pix_fmt,sample_aspect_ratio,color_range,color_space,color_transfer,color_primaries,chroma_location:stream_side_data=rotation:packet=pts_time,duration_time",
+      "stream=codec_name,profile,level,time_base,width,height,pix_fmt,sample_aspect_ratio,color_range,color_space,color_transfer,color_primaries,chroma_location:stream_side_data=rotation:packet=pts_time,duration_time",
       "-of",
       "json=compact=1",
       ...LOCAL_MEDIA_INPUT_ARGS,
@@ -883,14 +979,17 @@ async function validateOutput(
     stream.width !== profile.width ||
     stream.height !== profile.height ||
     canonicalPixelFormat(stream.pix_fmt, stream.color_range) !==
-      profile.pixelFormat ||
+      encoding.pixelFormat ||
     stream.codec_name !== codec ||
     stream.profile !==
       (codec === "h264"
-        ? "High 4:4:4 Predictive"
+        ? "High"
         : profile.bitDepth === 10
           ? "Main 10"
           : "Main") ||
+    !Number.isSafeInteger(stream.level) ||
+    stream.level! < (codec === "hevc" ? 30 : 10) ||
+    stream.level! > (codec === "hevc" ? 186 : 62) ||
     stream.time_base !== "1/1000000" ||
     rational(stream.sample_aspect_ratio) !==
       rational(profile.sampleAspectRatio) ||

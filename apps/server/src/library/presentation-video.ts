@@ -15,7 +15,7 @@ import {
 } from "./presentation-media.js";
 import { LOCAL_MEDIA_INPUT_ARGS, runMediaCommand } from "./video-processing.js";
 import {
-  generateLosslessBounce,
+  generateVideoBounce,
   videoBounceMaxDurationMs,
   VIDEO_BOUNCE_MAX_OUTPUT_BYTES,
   type VideoBouncePlan
@@ -96,7 +96,7 @@ export async function ensurePresentationVideo({
       const { capabilities, range, durationMs, bouncePlan } = prepared;
       const seconds = durationMs / 1000;
       if (bouncePlan && capabilities.videoBounce) {
-        await generateLosslessBounce(
+        await generateVideoBounce(
           file.sourcePath,
           temporaryPath,
           bouncePlan,

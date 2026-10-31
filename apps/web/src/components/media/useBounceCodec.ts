@@ -9,7 +9,7 @@ function preferredCodec(): BounceCodec {
     : "h264";
 }
 
-/** Both encodings retain the decoded source pixels; support varies by device. */
+/** Both encodings keep source dimensions; native profile support varies. */
 export function useBounceCodec(sourceKey: string) {
   const [preferred] = useState(preferredCodec);
   const [fallbackKey, setFallbackKey] = useState<string | null>(null);

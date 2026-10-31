@@ -400,7 +400,7 @@ describe("presentation video delivery", () => {
     expect((await stat(prepared.path)).mode & 0o777).toBe(0o600);
   });
 
-  it("keeps original HDR playback available when lossless Bounce is unsupported", async () => {
+  it("keeps original HDR playback available when Bounce is unsupported", async () => {
     await video();
     const source = path.join(cwd, "media", "hdr.mp4");
     await runMediaCommand(
@@ -449,7 +449,7 @@ describe("presentation video delivery", () => {
     expect(bounce.json()).toEqual({ error: "bounce_source_not_supported" });
   });
 
-  it("keeps codec caches separate and exposes the clipped source clock for lossless Bounce", async () => {
+  it("keeps codec caches separate and exposes the clipped source clock for Bounce", async () => {
     const initial = await video();
     const asset = setHighlight(initial.id, 320, 810, "bounce");
     const capabilities = (

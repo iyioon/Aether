@@ -15,8 +15,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as bounceFrames from "../src/library/presentation-bounce-frames.js";
 import {
   createBouncePlan,
-  generateLosslessBounce,
+  generateVideoBounce,
   inspectBounceSource,
+  videoBounceEncoding,
+  videoBounceFrameRate,
   videoBounceMaxDurationMs,
   videoBounceWorkingBytes,
   VIDEO_BOUNCE_MAX_DECODED_BYTES,
@@ -28,8 +30,9 @@ import { runMediaCommand } from "../src/library/video-processing.js";
 import * as videoProcessing from "../src/library/video-processing.js";
 
 let directory: string;
+let sampleSequence = 0;
 beforeEach(async () => {
-  directory = await mkdtemp(path.join(tmpdir(), "aether-lossless-bounce-"));
+  directory = await mkdtemp(path.join(tmpdir(), "aether-video-bounce-"));
 });
 afterEach(async () => {
   vi.restoreAllMocks();
@@ -114,13 +117,105 @@ async function hashes(file: string) {
     .filter((line) => line && !line.startsWith("#"))
     .map((line) => line.split(",").at(-1)!.trim());
 }
+
+async function decodedFrames(
+  file: string,
+  profile: VideoBounceProfile,
+  {
+    plan,
+    indices,
+    fullResolution = false
+  }: {
+    plan?: Awaited<ReturnType<typeof createBouncePlan>>;
+    indices?: number[];
+    fullResolution?: boolean;
+  } = {}
+) {
+  const raw = path.join(directory, `samples-${sampleSequence++}.yuv`);
+  const range = profile.colorRange === "pc" ? "pc" : "tv";
+  const filters = [
+    ...(plan
+      ? [
+          `select='gte(t,${plan.firstSourceTimeMs / 1000 - 0.000001})*lt(t,${plan.endMs / 1000 - 0.0000005})'`
+        ]
+      : []),
+    ...(indices
+      ? [`select='${indices.map((index) => `eq(n,${index})`).join("+")}'`]
+      : []),
+    fullResolution
+      ? `scale=in_range=${range}:out_range=${range}`
+      : `scale=16:16:flags=area:in_range=${range}:out_range=${range}`,
+    "format=yuv420p16le"
+  ];
+  try {
+    await runMediaCommand(
+      "ffmpeg",
+      [
+        "-v",
+        "error",
+        "-threads",
+        "1",
+        "-noautorotate",
+        "-i",
+        file,
+        "-map",
+        "0:v:0",
+        "-filter_threads",
+        "1",
+        "-vf",
+        filters.join(","),
+        "-fps_mode",
+        "passthrough",
+        "-threads",
+        "1",
+        "-f",
+        "rawvideo",
+        "-y",
+        raw
+      ],
+      20_000
+    );
+    const bytes = await readFile(raw);
+    const frameBytes = fullResolution
+      ? profile.width * profile.height * 3
+      : 16 * 16 * 3;
+    expect(bytes.length % frameBytes).toBe(0);
+    return Array.from({ length: bytes.length / frameBytes }, (_, index) =>
+      bytes.subarray(index * frameBytes, (index + 1) * frameBytes)
+    );
+  } finally {
+    await rm(raw, { force: true });
+  }
+}
+
+function frameFidelity(actual: Buffer, expected: Buffer) {
+  expect(actual.length).toBe(expected.length);
+  let absolute = 0;
+  let squared = 0;
+  for (let index = 0; index < actual.length; index += 2) {
+    const difference =
+      actual.readUInt16LE(index) - expected.readUInt16LE(index);
+    absolute += Math.abs(difference);
+    squared += difference ** 2;
+  }
+  const samples = actual.length / 2;
+  return {
+    normalizedMae: absolute / samples / 65535,
+    psnr:
+      squared === 0
+        ? Infinity
+        : 10 * Math.log10(65535 ** 2 / (squared / samples))
+  };
+}
+
 async function verifyBoth(
   file: string,
   startMs: number,
   endMs: number,
   profile: VideoBounceProfile,
   selectedHashes: string[],
-  observeOutput?: (output: string, codec: "hevc" | "h264") => Promise<void>
+  observeOutput?: (output: string, codec: "hevc" | "h264") => Promise<void>,
+  minimumPsnr = 30
 ) {
   const plan = await createBouncePlan(file, startMs, endMs, profile);
   expect(plan.sourceFrameCount).toBe(selectedHashes.length);
@@ -129,19 +224,50 @@ async function verifyBoth(
     ...sourceIndices,
     ...sourceIndices.slice(1, -1).reverse()
   ]);
-  const expectedHashes = [
-    ...selectedHashes,
-    ...selectedHashes.slice(1, -1).reverse()
-  ];
+  const reference = await decodedFrames(file, profile, { plan });
+  expect(reference).toHaveLength(selectedHashes.length);
+  const outputSamples = Array.from(
+    new Set([0, plan.sourceFrameCount - 1, plan.outputSourceIndices.length - 1])
+  ).sort((left, right) => left - right);
+  const sourceSamples = Array.from(
+    new Set(outputSamples.map((index) => plan.outputSourceIndices[index]!))
+  ).sort((left, right) => left - right);
+  const fullReference = await decodedFrames(file, profile, {
+    plan,
+    indices: sourceSamples,
+    fullResolution: true
+  });
   for (const codec of ["hevc", "h264"] as const) {
     const output = path.join(directory, `${codec}-${startMs}.mp4`);
-    await generateLosslessBounce(file, output, plan, profile, codec);
+    await generateVideoBounce(file, output, plan, profile, codec);
     expect(
       (await readdir(directory)).filter((name) =>
         name.startsWith(".bounce-work-")
       )
     ).toEqual([]);
-    expect(await hashes(output)).toEqual(expectedHashes);
+    const actual = await decodedFrames(output, profile);
+    expect(actual).toHaveLength(plan.outputSourceIndices.length);
+    for (const [index, frame] of actual.entries())
+      expect(
+        frameFidelity(frame, reference[plan.outputSourceIndices[index]!]!)
+          .normalizedMae
+      ).toBeLessThan(0.02);
+    const fullActual = await decodedFrames(output, profile, {
+      indices: outputSamples,
+      fullResolution: true
+    });
+    expect(fullActual).toHaveLength(outputSamples.length);
+    for (const [index, frame] of fullActual.entries()) {
+      const sourceIndex = plan.outputSourceIndices[outputSamples[index]!]!;
+      const fidelity = frameFidelity(
+        frame,
+        fullReference[sourceSamples.indexOf(sourceIndex)]!
+      );
+      expect(fidelity.normalizedMae).toBeLessThan(0.025);
+      expect(fidelity.psnr, `${codec} full-resolution PSNR`).toBeGreaterThan(
+        minimumPsnr
+      );
+    }
     await observeOutput?.(output, codec);
   }
   return plan;
@@ -174,7 +300,195 @@ async function packetTimeline(file: string) {
     });
 }
 
-describe("lossless native Bounce", () => {
+async function verifyPlaybackLevel(file: string, codec: "hevc" | "h264") {
+  const result = await runMediaCommand(
+    "ffprobe",
+    [
+      "-v",
+      "error",
+      "-select_streams",
+      "v:0",
+      "-show_entries",
+      "stream=level",
+      "-of",
+      "json",
+      file
+    ],
+    5000
+  );
+  const { streams } = JSON.parse(result.stdout) as {
+    streams: Array<{ level: number }>;
+  };
+  expect(streams[0]!.level).toBeGreaterThan(0);
+  expect(streams[0]!.level).toBeLessThanOrEqual(codec === "hevc" ? 153 : 42);
+}
+
+describe("original-resolution video Bounce", () => {
+  it.each([
+    [[0, 100, 116.667, 133.334], 0, 5, 1000 / 16.667],
+    [[99.999, 100], 0, 10, 10],
+    [[99.999], 0, 10, 10],
+    [[100, 200, 300], 100, 120, 10]
+  ] as const)(
+    "uses original selected cadence for %j without clipped-boundary FPS spikes",
+    (times, firstSourceTimeMs, sourceFrameRate, expected) => {
+      expect(
+        videoBounceFrameRate(
+          { sourceTimesMs: [...times], firstSourceTimeMs },
+          sourceFrameRate
+        )
+      ).toBeCloseTo(expected, 8);
+    }
+  );
+
+  it.each([
+    [96, 64, 24, 2_000_000, 2_000_000],
+    [1920, 1080, 30, 12_000_000, 16_000_000],
+    [1920, 1080, 60, 24_000_000, 32_000_000],
+    [3840, 2160, 30, 24_000_000, 32_000_000],
+    [3840, 2160, 60, 48_000_000, 64_000_000],
+    [3840, 2160, 240, 96_000_000, 96_000_000]
+  ])(
+    "bounds the playback rate envelope for %ix%i at %ifps",
+    (width, height, frameRate, hevcRate, h264Rate) => {
+      const profile = { width, height, frameRate, bitDepth: 10 as const };
+      expect(videoBounceEncoding(profile, "hevc")).toEqual({
+        pixelFormat: "yuv420p10le",
+        profile: "main10",
+        maximumRate: hevcRate,
+        bufferSize: hevcRate! * 2
+      });
+      expect(videoBounceEncoding(profile, "h264")).toEqual({
+        pixelFormat: "yuv420p",
+        profile: "high",
+        maximumRate: h264Rate,
+        bufferSize: h264Rate! * 2
+      });
+      expect(
+        videoBounceEncoding({ ...profile, bitDepth: 8 }, "hevc")
+      ).toMatchObject({ pixelFormat: "yuv420p", profile: "main" });
+    }
+  );
+
+  it.each([
+    { width: 95 },
+    { height: 0 },
+    { frameRate: 0 },
+    { frameRate: Infinity }
+  ])("rejects an invalid playback envelope %j", (invalid) => {
+    expect(() =>
+      videoBounceEncoding(
+        { width: 96, height: 64, frameRate: 24, bitDepth: 8, ...invalid },
+        "hevc"
+      )
+    ).toThrow(PresentationMediaError);
+  });
+
+  it("keeps distinctly colored frames in forward and reverse order", async () => {
+    const file = await fixture("ordered.mkv", 4, 1, [
+      "geq=lum='32+48*N':cb='64+16*N':cr='192-16*N'"
+    ]);
+    const profile = await inspectBounceSource(file);
+    const plan = await verifyBoth(file, 0, 1000, profile, await hashes(file));
+    expect(plan.outputSourceIndices).toEqual([0, 1, 2, 3, 2, 1]);
+  });
+
+  it("sizes playback for a dense highlight in a low-average-rate recording", async () => {
+    const file = await fixture(
+      "variable-density.mp4",
+      60,
+      1,
+      ["settb=1/1000000", "setpts='if(eq(N,0),0,20000000+(N-1)*1000000/60)'"],
+      [
+        "-c:v",
+        "libx264",
+        "-bf",
+        "0",
+        "-enc_time_base",
+        "1/1000000",
+        "-bsf:v",
+        "setts=duration=16667"
+      ],
+      "1280x720"
+    );
+    const profile = await inspectBounceSource(file);
+    expect(profile.frameRate).toBeLessThan(5);
+    const original = await hashes(file);
+    const plan = await createBouncePlan(file, 20_000, 20_500, profile);
+    await verifyBoth(
+      file,
+      20_000,
+      20_500,
+      profile,
+      original.slice(1, 31),
+      async (output, codec) => {
+        const result = await runMediaCommand(
+          "ffprobe",
+          [
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=level,r_frame_rate",
+            "-of",
+            "json",
+            output
+          ],
+          5000
+        );
+        const { streams } = JSON.parse(result.stdout) as {
+          streams: Array<{ level: number; r_frame_rate: string }>;
+        };
+        expect(streams[0]!.level).toBeGreaterThanOrEqual(
+          codec === "hevc" ? 120 : 32
+        );
+        const [numerator, denominator] = streams[0]!.r_frame_rate
+          .split("/")
+          .map(Number);
+        expect(numerator! / denominator!).toBeCloseTo(60, 1);
+        const packets = await packetTimeline(output);
+        packets.forEach((packet, index) => {
+          expect(packet.timeMs).toBeCloseTo(plan.outputTimesMs[index]!, 3);
+        });
+      }
+    );
+    expect(videoBounceFrameRate(plan, profile.frameRate)).toBeCloseTo(60, 1);
+  }, 30_000);
+
+  it("keeps high-detail 1080p output within its playback envelope with high decoded fidelity", async () => {
+    const file = await fixture(
+      "detail.mkv",
+      30,
+      1,
+      ["noise=alls=8:allf=t"],
+      ["-c:v", "ffv1"],
+      "1920x1080"
+    );
+    const source = await readFile(file);
+    const profile = await inspectBounceSource(file);
+    const plan = await createBouncePlan(file, 0, 1000, profile);
+    await verifyBoth(
+      file,
+      0,
+      1000,
+      profile,
+      await hashes(file),
+      async (output, codec) => {
+        const encoding = videoBounceEncoding(profile, codec);
+        const bytes = (await stat(output)).size;
+        const envelope =
+          (encoding.maximumRate * (plan.outputDurationMs / 1000) +
+            encoding.bufferSize) /
+            8 +
+          64 * 1024;
+        expect(bytes).toBeLessThan(envelope);
+      },
+      34
+    );
+    expect((await readFile(file)).equals(source)).toBe(true);
+  }, 60_000);
+
   it.each([
     ["hevc", "libx265", "bounce_hevc_encoder_unavailable"],
     ["h264", "libx264", "bounce_h264_encoder_unavailable"]
@@ -205,7 +519,7 @@ exec "$AETHER_TEST_FFMPEG" "$@"
       vi.stubEnv("PATH", `${tools}${path.delimiter}${process.env.PATH ?? ""}`);
       const output = path.join(directory, "dependency.mp4");
       await expect(
-        generateLosslessBounce(file, output, plan, profile, codec)
+        generateVideoBounce(file, output, plan, profile, codec)
       ).rejects.toMatchObject({
         code,
         status: 503,
@@ -231,7 +545,7 @@ exec "$AETHER_TEST_FFMPEG" "$@"
     vi.stubEnv("PATH", tools);
     const output = path.join(directory, "missing-tool.mp4");
     await expect(
-      generateLosslessBounce(file, output, plan, profile)
+      generateVideoBounce(file, output, plan, profile)
     ).rejects.toMatchObject({
       code: "media_tool_unavailable",
       status: 503,
@@ -283,7 +597,7 @@ exec "$AETHER_TEST_FFMPEG" "$@"
     ["1920x1080", 4, 96],
     ["3840x2160", 1, 24]
   ] as const) {
-    it(`preserves ${size} pixels across disk-backed boundaries beyond the old complete-section memory budget`, async () => {
+    it(`retains ${size} resolution and high visual fidelity across disk-backed boundaries beyond the old complete-section memory budget`, async () => {
       const file = await fixture(
         `large-${size}.mkv`,
         24,
@@ -320,7 +634,7 @@ exec "$AETHER_TEST_FFMPEG" "$@"
     }, 60_000);
   }
 
-  it("retains 60fps source frames and timing in both lossless codecs", async () => {
+  it("retains 60fps source frames and timing in both playback codecs", async () => {
     const file = await fixture("sixty.mkv", 60);
     const profile = await inspectBounceSource(file);
     expect(profile).toMatchObject({
@@ -391,7 +705,14 @@ exec "$AETHER_TEST_FFMPEG" "$@"
   it("supports the 600 source-frame and 1198 output-frame boundary within command output limits", async () => {
     const file = await fixture("boundary.mkv", 60, 10);
     const profile = await inspectBounceSource(file);
-    const plan = await verifyBoth(file, 0, 10_000, profile, await hashes(file));
+    const plan = await verifyBoth(
+      file,
+      0,
+      10_000,
+      profile,
+      await hashes(file),
+      verifyPlaybackLevel
+    );
     expect(plan.sourceFrameCount).toBe(600);
     expect(plan.outputSourceIndices).toHaveLength(1198);
   }, 15_000);
@@ -461,7 +782,8 @@ exec "$AETHER_TEST_FFMPEG" "$@"
         800,
         profile,
         original,
-        async (output) => {
+        async (output, codec) => {
+          await verifyPlaybackLevel(output, codec);
           expect(await packetTimeline(output)).toEqual([
             { timeMs: 0, durationMs: 100 },
             { timeMs: 100, durationMs: 200 },
@@ -482,7 +804,8 @@ exec "$AETHER_TEST_FFMPEG" "$@"
         750,
         profile,
         original.slice(1),
-        async (output) => {
+        async (output, codec) => {
+          await verifyPlaybackLevel(output, codec);
           expect(await packetTimeline(output)).toEqual([
             { timeMs: 0, durationMs: 150 },
             { timeMs: 150, durationMs: 400 },
@@ -546,24 +869,13 @@ exec "$AETHER_TEST_FFMPEG" "$@"
       ["-c:v", "libx264", "-color_range", "pc"]
     );
     const profile = await inspectBounceSource(file);
-    const originalRun = videoProcessing.runMediaCommand;
-    vi.spyOn(videoProcessing, "runMediaCommand").mockImplementation(
-      async (command, args, ...limits) => {
-        const result = await originalRun(command, args, ...limits);
-        return command === "ffprobe" &&
-          args.includes(
-            "frame=width,height,pix_fmt,interlaced_frame,color_range"
-          )
-          ? {
-              ...result,
-              stdout: result.stdout.replace(/color_range=pc/g, "color_range=tv")
-            }
-          : result;
-      }
-    );
-    await expect(createBouncePlan(file, 0, 500, profile)).rejects.toMatchObject(
-      { code: "bounce_source_not_supported", status: 415 }
-    );
+    // A stream declaration must agree with actual decoded full-range samples.
+    await expect(
+      createBouncePlan(file, 0, 500, { ...profile, colorRange: "tv" })
+    ).rejects.toMatchObject({
+      code: "bounce_source_not_supported",
+      status: 415
+    });
   });
 
   it("rejects a changed output range and removes the incomplete full-range rendition", async () => {
@@ -591,12 +903,44 @@ exec "$AETHER_TEST_FFMPEG" "$@"
       }
     );
     await expect(
-      generateLosslessBounce(file, output, plan, profile)
+      generateVideoBounce(file, output, plan, profile)
     ).rejects.toMatchObject({ code: "incomplete_rendition", status: 422 });
     expect(await readdir(directory)).toEqual(["output-range.mov"]);
   });
 
-  it("preserves 10-bit pixels, exact SAR, SDR color and rotation without resampling", async () => {
+  it.each([
+    ["hevc", 255],
+    ["h264", 99],
+    ["hevc", -99],
+    ["h264", -99]
+  ] as const)(
+    "rejects unsupported %s playback level %i and removes the rendition",
+    async (codec, level) => {
+      const file = await fixture("output-level.mkv", 24, 0.5);
+      const profile = await inspectBounceSource(file);
+      const plan = await createBouncePlan(file, 0, 500, profile);
+      const output = path.join(directory, "wrong-level.mp4");
+      const originalRun = videoProcessing.runMediaCommand;
+      vi.spyOn(videoProcessing, "runMediaCommand").mockImplementation(
+        async (command, args, ...limits) => {
+          const result = await originalRun(command, args, ...limits);
+          if (command !== "ffprobe" || !args.includes("-show_packets"))
+            return result;
+          const metadata = JSON.parse(result.stdout) as {
+            streams: Array<Record<string, unknown>>;
+          };
+          metadata.streams[0] = { ...metadata.streams[0], level };
+          return { ...result, stdout: JSON.stringify(metadata) };
+        }
+      );
+      await expect(
+        generateVideoBounce(file, output, plan, profile, codec)
+      ).rejects.toMatchObject({ code: "incomplete_rendition", status: 422 });
+      expect(await readdir(directory)).toEqual(["output-level.mkv"]);
+    }
+  );
+
+  it("retains original dimensions, exact SAR, SDR color and rotation across 10-bit HEVC and 8-bit H264", async () => {
     const original = await fixture(
       "ten-bit.mp4",
       24,
@@ -651,7 +995,7 @@ exec "$AETHER_TEST_FFMPEG" "$@"
     await verifyBoth(file, 0, 500, profile, await hashes(file));
   });
 
-  it("keeps full-range 10-bit SDR samples and transfer metadata unchanged", async () => {
+  it("keeps full-range SDR appearance and transfer metadata with 10-bit HEVC and compatible H264", async () => {
     const file = await fixture(
       "full-range-ten-bit.mov",
       24,
@@ -784,7 +1128,7 @@ exec "$AETHER_TEST_FFMPEG" "$@"
       const plan = await createBouncePlan(file, 0, 500, profile);
       const output = path.join(directory, "bounded.mp4");
       await expect(
-        generateLosslessBounce(file, output, plan, profile, "hevc", options)
+        generateVideoBounce(file, output, plan, profile, "hevc", options)
       ).rejects.toMatchObject({
         code: "presentation_limit_exceeded",
         status: 422
@@ -805,7 +1149,7 @@ exec "$AETHER_TEST_FFMPEG" "$@"
       .mockReturnValue(wallClock - 3_600_000);
     try {
       await expect(
-        generateLosslessBounce(
+        generateVideoBounce(
           file,
           path.join(directory, "clock.mp4"),
           plan,
@@ -826,7 +1170,7 @@ exec "$AETHER_TEST_FFMPEG" "$@"
     const plan = await createBouncePlan(file, 0, 500, profile);
     await writeFile(file, "invalid disposable source");
     await expect(
-      generateLosslessBounce(
+      generateVideoBounce(
         file,
         path.join(directory, "broken.mp4"),
         plan,
@@ -859,7 +1203,7 @@ exec "$AETHER_TEST_FFMPEG" "$@"
         throw new PresentationMediaError("presentation_processing_failed", 422);
       });
     await expect(
-      generateLosslessBounce(file, output, plan, profile)
+      generateVideoBounce(file, output, plan, profile)
     ).rejects.toMatchObject({
       code: "presentation_processing_failed",
       status: 422
@@ -895,7 +1239,7 @@ exec "$AETHER_TEST_FFMPEG" "$@"
     }, 5);
     try {
       await expect(
-        generateLosslessBounce(file, output, plan, profile, "hevc", {
+        generateVideoBounce(file, output, plan, profile, "hevc", {
           signal: controller.signal
         })
       ).rejects.toMatchObject({

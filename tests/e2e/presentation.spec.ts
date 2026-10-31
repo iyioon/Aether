@@ -2080,7 +2080,8 @@ test("keeps the fullscreen editor shell consistent through loading, cancellation
     viewport: { width: 393, height: 852 },
     hasTouch: true,
     isMobile: true,
-    reducedMotion: "reduce"
+    reducedMotion: "reduce",
+    serviceWorkers: "block"
   });
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
@@ -2132,8 +2133,10 @@ test("keeps the fullscreen editor shell consistent through loading, cancellation
     await page.unrouteAll({ behavior: "wait" });
     await expect(editor).toHaveCount(0);
     let failCapabilities = true;
+    let failedCapabilityRequests = 0;
     await page.route(endpoint, async (route) => {
       if (failCapabilities) {
+        failedCapabilityRequests += 1;
         await route.fulfill({
           status: 503,
           contentType: "application/json",
@@ -2145,6 +2148,7 @@ test("keeps the fullscreen editor shell consistent through loading, cancellation
       .getByRole("button", { name: `Edit ${photo.name}`, exact: true })
       .click();
     const retry = editor.getByRole("button", { name: "Retry", exact: true });
+    await expect.poll(() => failedCapabilityRequests).toBeGreaterThan(0);
     await expect(retry).toBeVisible();
     const size = (await retry.boundingBox())!;
     expect(size.width).toBeLessThan(160);
@@ -4913,7 +4917,137 @@ for (const phone of [false, true]) {
   });
 }
 
-test("falls back between lossless Bounce codecs when a reported decoder fails", async ({
+test("plays a one-second midpoint Bounce from a thirty-minute source on phone and reopens it", async ({
+  browser
+}) => {
+  const context = await browser.newContext({
+    storageState,
+    viewport: { width: 393, height: 852 },
+    isMobile: true,
+    hasTouch: true
+  });
+  const page = await context.newPage();
+  const name = "midpoint.mp4";
+  const source = path.join(directory, name);
+  try {
+    await context.addInitScript(() => {
+      const original = HTMLMediaElement.prototype.canPlayType;
+      HTMLMediaElement.prototype.canPlayType = function (type) {
+        return type.includes("hvc1") ? "" : original.call(this, type);
+      };
+    });
+    await promisify(execFile)(
+      "ffmpeg",
+      [
+        "-v",
+        "error",
+        "-nostdin",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc2=size=64x48:rate=20:duration=1800",
+        "-c:v",
+        "libx264",
+        "-threads",
+        "1",
+        "-preset",
+        "ultrafast",
+        "-crf",
+        "30",
+        "-g",
+        "100000",
+        "-keyint_min",
+        "100000",
+        "-sc_threshold",
+        "0",
+        "-bf",
+        "0",
+        "-pix_fmt",
+        "yuv420p",
+        "-movflags",
+        "+faststart",
+        "-y",
+        source
+      ],
+      { timeout: 15_000 }
+    );
+    await scan(page);
+    const response = await page.request.get(
+      `${origin}/api/folders/${folderId}/assets?q=${name}&limit=2`
+    );
+    const asset = ((await response.json()) as AssetListResponse).items[0]!;
+    expect(asset.name).toBe(name);
+    await setPresentation(page, asset, {
+      ...defaults,
+      highlight: { startMs: 900_025, endMs: 901_025 },
+      loopMode: "bounce"
+    });
+    const assertPlaying = async (video: Locator) => {
+      await expect(video).toHaveAttribute(
+        "src",
+        /playback\?variant=bounce.*codec=h264/
+      );
+      await expect
+        .poll(() =>
+          video.evaluate(
+            (node: HTMLVideoElement) =>
+              node.readyState >= 2 &&
+              !node.paused &&
+              node.currentTime > 0 &&
+              node.duration < 2
+          )
+        )
+        .toBe(true);
+      await expect(video).toHaveJSProperty("videoWidth", 64);
+      await expect(video).toHaveJSProperty("videoHeight", 48);
+      await video.evaluate((node: HTMLVideoElement) => {
+        let previous = node.currentTime;
+        node.dataset.completedLoops = "0";
+        node.addEventListener("timeupdate", () => {
+          if (node.currentTime < previous)
+            node.dataset.completedLoops = String(
+              Number(node.dataset.completedLoops) + 1
+            );
+          previous = node.currentTime;
+        });
+      });
+      await expect
+        .poll(async () =>
+          Number(await video.getAttribute("data-completed-loops"))
+        )
+        .toBeGreaterThanOrEqual(2);
+      await expect(page.locator(".media-error-notice")).toHaveCount(0);
+    };
+    await open(page, "feed", "video", name, true);
+    await assertPlaying(page.locator(".feed-item video").first());
+    await expect(
+      page.getByRole("slider", { name: `Seek ${name}`, exact: true })
+    ).toHaveAttribute("min", "900.025");
+    const playbackSource = await page
+      .locator(".feed-item video")
+      .first()
+      .getAttribute("src");
+    await page.reload();
+    await assertPlaying(page.locator(".feed-item video").first());
+    await expect(page.locator(".feed-item video").first()).toHaveAttribute(
+      "src",
+      playbackSource!
+    );
+    await open(page, "gallery", "video", name, true);
+    await page.getByRole("button", { name: `Open ${name}`, exact: true }).tap();
+    const viewer = page.getByRole("dialog", { name, exact: true });
+    await assertPlaying(viewer.locator("video"));
+  } finally {
+    await rm(source, { force: true });
+    try {
+      await scan(page);
+    } finally {
+      await context.close();
+    }
+  }
+});
+
+test("falls back between Bounce codecs when a reported decoder fails", async ({
   browser
 }) => {
   const context = await browser.newContext({ storageState });

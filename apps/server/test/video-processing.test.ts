@@ -52,6 +52,43 @@ describe("bounded media processing", () => {
     ).rejects.toThrow("timed out");
   });
 
+  it("streams large output without retaining it in the command result", async () => {
+    let bytes = 0;
+    const result = await runMediaCommand(
+      process.execPath,
+      ["-e", "require('node:fs').writeSync(1,Buffer.alloc(2*1024*1024,120))"],
+      2000,
+      undefined,
+      (chunk) => {
+        bytes += chunk.length;
+      }
+    );
+    expect(bytes).toBe(2 * 1024 * 1024);
+    expect(result.stdout).toBe("");
+  });
+
+  it("kills and reaps a child when its bounded output consumer rejects data", async () => {
+    const failure = new Error("invalid bounded frame record");
+    let pid = 0;
+    await expect(
+      runMediaCommand(
+        process.execPath,
+        [
+          "-e",
+          "require('node:fs').writeSync(1,String(process.pid));setInterval(()=>{},1000)"
+        ],
+        2000,
+        undefined,
+        (chunk) => {
+          pid = Number(chunk.toString("utf8"));
+          throw failure;
+        }
+      )
+    ).rejects.toBe(failure);
+    expect(pid).toBeGreaterThan(0);
+    expect(() => process.kill(pid, 0)).toThrow();
+  });
+
   it("allows a bounded metadata stdout override without raising the default or exceeding one MiB", async () => {
     const result = await runMediaCommand(
       process.execPath,

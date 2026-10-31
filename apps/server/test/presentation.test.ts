@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import * as fileSystem from "node:fs/promises";
 import {
   mkdir,
@@ -105,6 +106,73 @@ describe("saved media presentation", () => {
     vi.restoreAllMocks();
     db.close();
     await rm(cwd, { recursive: true, force: true });
+  });
+
+  it("retires legacy lossless Bounce files while preserving saved edits and other renditions", async () => {
+    const asset = await video("clip.mp4");
+    const saved = await put(asset.id, {
+      ...defaultPresentationValues(),
+      expectedRevision: 0,
+      highlight: { startMs: 500, endMs: 1500 },
+      loopMode: "bounce"
+    });
+    expect(saved.statusCode).toBe(200);
+    const presentation = getAsset(db, asset.id)!.presentation;
+    const identity = [
+      "presentation-v2",
+      asset.id,
+      asset.mtimeMs,
+      asset.sizeBytes
+    ];
+    // Reproduce the retired on-disk identity so upgrades cannot reuse large files.
+    const legacyKey = (variant: string, ...values: unknown[]) =>
+      createHash("sha256")
+        .update(JSON.stringify([...identity, variant, ...values]))
+        .digest("hex")
+        .slice(0, 32);
+    const range = [500, 1500];
+    const oldBounce = legacyKey("bounce-lossless-v5", range, "bounce");
+    expect(presentation.renditionKeys.bounce).not.toBe(oldBounce);
+    expect(presentation.renditionKeys.full).toBe(legacyKey("full"));
+    expect(presentation.renditionKeys.highlight).toBe(
+      legacyKey("highlight", range)
+    );
+    const directory = path.join(config.cacheDir, "presentations", asset.id);
+    await mkdir(directory, { recursive: true });
+    const files = [
+      ["bounce-mp4", oldBounce, "mp4", false],
+      ["bounce-mp4", oldBounce, "mp4.json", false],
+      ["bounce-h264.mp4", oldBounce, "h264.mp4", false],
+      ["full-mp4", presentation.renditionKeys.full, "mp4", true],
+      ["highlight-mp4", presentation.renditionKeys.highlight, "mp4", true]
+    ] as const;
+    for (const [index, [variant, key, suffix]] of files.entries()) {
+      const filePath = path.join(directory, `${key}-${suffix}`);
+      await writeFile(filePath, "cached media");
+      upsertDerivative(db, {
+        id: `cached-${index}`,
+        assetId: asset.id,
+        kind: `presentation:${variant}:${key}:${index}`,
+        width: 0,
+        height: 0,
+        path: filePath,
+        sourceMtimeMs: asset.mtimeMs,
+        status: "ready",
+        error: null,
+        createdAt: new Date().toISOString()
+      });
+    }
+    await derivativeCache.sweepDerivativeCache(db, config.cacheDir, {
+      pruneStaleFiles: true
+    });
+    for (const [, key, suffix, keep] of files)
+      expect(
+        await stat(path.join(directory, `${key}-${suffix}`)).then(
+          () => true,
+          () => false
+        )
+      ).toBe(keep);
+    expect(getAsset(db, asset.id)!.presentation).toEqual(presentation);
   });
 
   it("protects edits with authentication and CSRF, persists framing and returns authoritative records", async () => {

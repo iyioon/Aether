@@ -128,12 +128,14 @@ and speed changes keep your current view preference.
 Repeat highlights use the original video in Feed, Comparison and the viewer.
 If the browser cannot play it, Aether prepares a compatible section. Highlights
 can span up to two minutes. For supported videos, Bounce prepares a silent
-lossless video from a section of up to 30 seconds, keeping the source frames and
-timing. Some formats, including HDR video, need Repeat instead. The editor shows
+high-quality video from a section of up to 30 seconds, keeping the original
+dimensions and frame timing. Some formats, including HDR video, need Repeat instead. The editor shows
 the available limit. Browser support varies, and first playback may need
 preparation; prepared sections are reused on later visits.
-Lossless Bounce files can be larger than ordinary videos, so slower connections
-may need more time to load them.
+Bounce compresses the playback copy. Originals and downloads stay unchanged. Playback still
+needs enough network speed and device decoding capacity, especially for large
+dimensions, high frame rates or faster playback. After an update changes the playback format,
+the first visit prepares a replacement; later visits reuse it.
 If playback fails, the notice distinguishes server preparation problems from
 browser playback support. Retry after a temporary failure; a shorter highlight
 is needed only when the section exceeds its limit.

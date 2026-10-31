@@ -447,7 +447,14 @@ coded dimensions, sample aspect ratio, rotation, color metadata and variable
 frame durations for supported 8/10-bit YUV 4:2:0 SDR inputs (`yuv420p` or
 `yuv420p10le`) with even coded dimensions of at least 16px. Encoded timestamps
 use a microsecond timebase; each output packet is checked against the selected
-source timeline at that precision. HDR, Dolby Vision,
+source timeline at that precision. Codec-native parameters set the nominal frame
+rate independently of that timebase, so older FFmpeg versions do not infer an
+unrealistic rate or codec level. The rate follows the fastest original interval
+between selected frames, using the source rate when only one frame is selected.
+Clipped boundary holds do not inflate it. This keeps dense sections of otherwise
+low-frame-rate recordings within the intended bitrate and codec level. Output
+validation also bounds the encoded level.
+HDR, Dolby Vision,
 interlaced video, odd dimensions, nonzero stream/container timestamp origins and
 unsupported formats/profiles have Bounce disabled; ordinary source playback and
 Repeat remain available. Timestamp-origin support requires separate browser and
@@ -467,11 +474,22 @@ Source-frame and output validation check both layout and range. No range
 reduction, rescaling or tone mapping is applied. See FFmpeg's
 [pixel format definitions](https://ffmpeg.org/doxygen/8.0/pixfmt_8h.html).
 
-Lossless HEVC uses an `hvc1` MP4 when the browser reports HEVC support. A lossless
-H.264 QP0/High444 Predictive copy provides an alternative for supporting browsers.
-Decoded-frame equality is distinct from copying the original bitstream or using
-a visually lossless quality setting. Browser codec claims do not establish
-native iPhone compatibility; real-device acceptance is tracked separately.
+Bounce uses high-quality compressed video at the original coded dimensions,
+with source frame ordering and timing. HEVC uses an `hvc1` MP4 with Main/Main 10
+for supported 8/10-bit SDR sources. The H.264 High fallback uses 8-bit 4:2:0 for
+broader native playback support; 10-bit input is quantized only in that fallback.
+Both codecs use CRF 18 with the veryfast preset and no B-frames. A two-second VBV
+buffer bounds bitrate bursts. The maximum rate scales with the square root of
+pixel count relative to 1080p and with selected-frame cadence above 30 fps: base rates are
+12 Mb/s for HEVC and 16 Mb/s for H.264, clamped to 2–96 Mb/s. For 4K30 the
+respective ceilings are 24 and 32 Mb/s. Short files can use the buffer allowance
+in addition to the nominal rate; these limits do not guarantee playback over a
+slower connection. This application policy balances quality and playback cost,
+following [x265 rate control](https://x265.readthedocs.io/en/master/cli.html#quality-rate-control-and-rate-distortion-options).
+It replaces the older bit-exact lossless playback copies; the temporary frame
+store remains lossless.
+Browser codec claims do not establish native iPhone compatibility; real-device
+acceptance is tracked separately.
 
 One Bounce job runs at a time. Queued Bounce work waits outside the shared
 processing slots so posters and other media can continue. A section can contain
@@ -487,11 +505,15 @@ frame storage, 1 GiB of final output and a five-minute preparation deadline.
 Codec/runtime overhead is additional to the decoded-frame estimate. The
 temporary frame store and any partial output are removed on success or failure;
 startup clears abandoned work after a crash. Files that exceed a processing
-budget fail explicitly without reducing resolution or quality. Capabilities and
+budget fail explicitly without reducing resolution. Capabilities and
 save validation expose the available duration, including the frame-count limit
 at high frame rates. Actual selected frame counts are checked beyond estimates.
 The source/range timeline cache admits eight pending probes and retains at most
-64 entries. Bounce keys include `bounce-lossless-v5`, invalidating earlier
+64 entries. Frame timing, format, color and side-data checks share one streamed
+FFprobe pass. The parser discards keyframe preroll and retains only the selected
+frames and their boundary, with bounded records and the existing probe deadline.
+Long keyframe intervals can still require decoding earlier frames; they no
+longer consume the retained metadata budget. Bounce keys include `bounce-playback-v6`, invalidating earlier
 prepared output and cached capability limits without changing full-source or
 animation identities.
 Animations retain source dimensions up to 2048px per side in lossless PNG atlases,
@@ -505,13 +527,15 @@ have a two-minute budget, including a sixty-second source-decoding deadline.
 These are editing/playback budgets,
 not restrictions on indexing ordinary source media.
 
-Media failures use one compact themed notice on each surface. Gallery and
-Comparison cards remain noninteractive inside their preview buttons; Feed and
-the viewer provide Retry for recoverable failures. After the final Bounce
-codec attempt fails, one authenticated HEAD request reads a whitelisted
+Media failures use one compact themed notice on each surface, with Retry for
+recoverable failures. Gallery notices sit outside the preview activation button;
+notice text does not block card activation, and Retry does not open or select
+the media. After native playback fails, one authenticated HEAD request reads a whitelisted
 `x-aether-media-error` code without downloading the video. A healthy HEAD
 response distinguishes native decoding from server preparation failures;
-native network errors retain their network classification. Diagnostics are
+native network errors retain their network classification. Only confirmed
+compatibility failures can switch Bounce codecs; busy, network, source and
+resource-limit failures retain the current codec for explicit recovery. Diagnostics are
 bounded, cancelled on hide, exit, retry or source replacement, and cannot
 publish results for a stale source. A viewer-owned animation error suppresses
 the canvas component's duplicate notice.

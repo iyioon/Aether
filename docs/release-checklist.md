@@ -110,9 +110,13 @@ Never test rebuild or wipe against the only copy of a real library database.
   sharp, consistently framed thumbnail handoff, original-size animation frames, silent video
   bounce and retained animation transparency. Test a first-time preparation,
   failure/retry, unsupported or over-budget file, and a changed source before scan.
-- Verify native lossless Bounce with eligible 8/10-bit SDR sources and variable
-  frame timing: decoded-frame hashes, timestamps, coded dimensions, SAR, color
-  metadata and rotation must match the selected source frames. Confirm no
+- Verify native original-resolution Bounce with eligible 8/10-bit SDR sources and variable
+  frame timing: verify decoded-frame fidelity/order, timestamps, coded dimensions,
+  SAR, color metadata and rotation. HEVC retains input bit depth; the H.264 High
+  fallback uses 8-bit SDR. Check compressed output size and bitrate bounds, plus
+  valid codec levels and nominal frame-rate signaling in the container build.
+  Test a one-second section in the middle of a long-GOP 30-minute source and a
+  dense moving section in a mostly static, low-average-frame-rate recording. Confirm no
   repeated endpoints, no audio, cache reuse, and a 30-second selected-section
   limit. Check frame order, bounded working memory, temporary-disk/output
   rejection and cleanup after success, timeout and failure. HDR, Dolby Vision,
@@ -121,13 +125,14 @@ Never test rebuild or wipe against the only copy of a real library database.
   Validate actual HEVC playback
   and native fullscreen on an iPhone 16 Home Screen installation; record this
   separately from browser codec detection and desktop tests.
-- Revisit prepared Bounce files after a server restart. Check cached video and
+- Verify startup removes older lossless Bounce files while preserving saved
+  settings, source files and unrelated renditions. Revisit prepared Bounce files after a server restart. Check cached video and
   timing reuse, source replacement and reset cleanup. In Feed, confirm next-item
   preparation is bounded and yields to current playback. Under a slow connection,
   buffering should show the slim bar over the current frame and resume without
   a reload; an explicit pause must remain paused.
 - Check full-range SDR MOV screen recordings in Edit media, Gallery, Feed and
-  the viewer. Both Bounce codecs must preserve native decoded frame hashes,
+  the viewer. Both Bounce codecs must preserve decoded-frame fidelity/order,
   color range and timing; retain the original download and existing limits.
 - Test Fit/Fill, drag, pinch, keyboard movement and zoom across shapes and
   orientations. The grid stays visible in both modes. Legacy Auto displays the

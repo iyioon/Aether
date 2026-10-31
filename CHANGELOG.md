@@ -50,6 +50,15 @@ Notable changes to Aether are recorded here.
 
 ### Fixed
 
+- Replace lossless Bounce playback with high-quality, original-resolution HEVC
+  and compatible H.264 copies with bounded bitrate. Retire earlier Bounce files
+  while preserving saved edits, original downloads and other cached media.
+- Read Bounce frame timing in one bounded pass, discarding earlier frames so
+  short sections late in long videos do not exceed the metadata output limit.
+- Set Bounce's encoder frame rate separately from precise timestamps so older
+  FFmpeg releases do not produce invalid codec levels or degraded video.
+- Diagnose viewer playback failures before switching Bounce codecs, so a busy
+  server or interrupted connection does not start another encode.
 - Bound poster and preview queues, allow failed cards to be retried without
   opening them, and keep busy previews from downloading the original instead.
 - Reuse small animation atlases within the decoded-memory budget to prevent
@@ -89,7 +98,7 @@ Notable changes to Aether are recorded here.
 - Keep thumbnails/posters sharp and consistently framed until the source is
   ready; missing posters no longer block supported video playback. Repeat
   highlights use original video with a complete compatibility fallback.
-- Preserve supported video frames and timing in cached, silent lossless Bounce
+- Preserve original video dimensions and frame timing in cached, silent Bounce
   output, with explicit format, browser and processing limits. Retain rotation
   through FFmpeg 6 display-matrix handling and reject sheared source matrices.
 - Preserve explicit pause, keep Info from interrupting playback, and hide

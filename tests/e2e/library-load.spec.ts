@@ -133,7 +133,7 @@ test.describe("representative library", () => {
       try {
         context.setDefaultTimeout(15_000);
         await context.addInitScript(() => {
-          // Exercise the lossless codec available in this desktop test browser.
+          // Exercise the Bounce codec available in this desktop test browser.
           const original = HTMLMediaElement.prototype.canPlayType;
           HTMLMediaElement.prototype.canPlayType = function (type) {
             return type.includes("hvc1") ? "" : original.call(this, type);

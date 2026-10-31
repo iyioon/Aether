@@ -64,6 +64,7 @@ import { MediaLoadingBar } from "./MediaLoadingBar";
 import { MediaErrorNotice } from "./MediaErrorNotice";
 import { mediaFailureNotice } from "./media-failure-notice";
 import { useVideoPlaybackFailure } from "./useVideoPlaybackFailure";
+import { canFallbackFromVideoFailure } from "./video-playback-failure";
 import {
   canPresentVideoFullscreen,
   toggleVideoFullscreen
@@ -1535,17 +1536,29 @@ export function MediaViewer({
                       );
                     }}
                     onError={(event) => {
+                      const video = event.currentTarget;
+                      const current = () =>
+                        !isClosingRef.current &&
+                        activeAssetIdRef.current === asset.id &&
+                        viewerVideoRef.current === video &&
+                        video.isConnected &&
+                        video.getAttribute("src") === videoSource;
+                      if (!current()) return;
                       cancelPendingVideoReveal();
                       videoFrameRequestSequenceRef.current += 1;
                       setReadyVideoAssetId(null);
-                      if (variant === "bounce" && bounceCodec.tryFallback())
+                      if (variant === "bounce") {
+                        setFailedVideoAssetId(asset.id);
+                        playbackFailure.diagnose(video, (failure) => {
+                          if (current() && canFallbackFromVideoFailure(failure))
+                            bounceCodec.tryFallback();
+                        });
                         return;
+                      }
                       if (variant === "highlight" && !originalVideoFailed) {
                         setOriginalVideoFailed(true);
                       } else {
                         setFailedVideoAssetId(asset.id);
-                        if (variant === "bounce")
-                          playbackFailure.diagnose(event.currentTarget);
                       }
                     }}
                   />

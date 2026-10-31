@@ -174,13 +174,19 @@ deadline-limited HEAD request after native playback fails; it does not download
 the media body or expose subprocess output, source paths or private settings.
 FFmpeg permits local media protocols/containers only and uses fixed argument
 arrays, bounded work queues, deadlines, metadata/output limits, and serialized
-reverse work. Lossless Bounce retains supported source pixels and timing without
-writing the source. It rejects unsupported profiles/metadata and bounds section
+reverse work. Bounce retains original dimensions and source frame timing in a
+high-quality compressed playback copy without writing the source. HEVC retains
+supported input bit depth; the compatible H.264 fallback uses 8-bit SDR. It
+rejects unsupported source profiles/metadata and bounds section
 duration, frame count, decoded-frame work, temporary disk use, output bytes and
 preparation time. Bounce uses a private lossless frame store under the cache and
 streams frames through bounded buffers; codec overhead is additional to the
 decoded-frame budget. Temporary stores and partial output are removed after
 completion or failure, and startup removes abandoned work after a crash.
+Bounce frame probes discard earlier keyframe preroll as it is read and retain
+only bounded section metadata. Record sizes, selected frame counts and probe
+deadlines remain limited; malformed or unsupported metadata cannot produce a
+partial success.
 Animation decoding has
 frame, duration, source-size, pixel and byte limits, and rejects excess dimensions
 instead of downscaling. Native repeat highlights use the same authenticated

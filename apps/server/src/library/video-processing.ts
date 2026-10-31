@@ -19,11 +19,13 @@ const MAX_VIDEO_PROCESSING_JOBS = 2;
 const videoProcessingQueue: Array<() => void> = [];
 let activeVideoProcessingJobs = 0;
 
+/** A stdout consumer must bound retained data; throwing kills and reaps the child. */
 export async function runMediaCommand(
   command: string,
   args: string[],
   timeoutMs: number,
-  maxStdoutBytes = MAX_PROCESS_OUTPUT_BYTES
+  maxStdoutBytes = MAX_PROCESS_OUTPUT_BYTES,
+  consumeStdout?: (chunk: Buffer) => void
 ): Promise<CommandResult> {
   if (
     !Number.isSafeInteger(maxStdoutBytes) ||
@@ -41,6 +43,7 @@ export async function runMediaCommand(
     let stderrBytes = 0;
     let timedOut = false;
     let outputExceeded = false;
+    let consumerFailure: Error | undefined;
     let settled = false;
 
     const timer = setTimeout(() => {
@@ -49,6 +52,19 @@ export async function runMediaCommand(
     }, timeoutMs);
 
     child.stdout.on("data", (chunk: Buffer) => {
+      if (consumeStdout) {
+        if (consumerFailure) return;
+        try {
+          consumeStdout(chunk);
+        } catch (error) {
+          consumerFailure =
+            error instanceof Error
+              ? error
+              : new MediaProcessingError("Invalid media command output.");
+          child.kill("SIGKILL");
+        }
+        return;
+      }
       stdoutBytes += chunk.byteLength;
 
       if (stdoutBytes <= maxStdoutBytes) {
@@ -78,6 +94,10 @@ export async function runMediaCommand(
         const stdoutText = Buffer.concat(stdout).toString("utf8");
         const stderrText = Buffer.concat(stderr).toString("utf8");
 
+        if (consumerFailure) {
+          reject(consumerFailure);
+          return;
+        }
         if (outputExceeded) {
           reject(
             new MediaProcessingError(`${command} exceeded its output limit.`)

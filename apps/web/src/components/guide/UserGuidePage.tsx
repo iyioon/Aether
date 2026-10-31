@@ -207,11 +207,17 @@ export function UserGuidePage() {
                     <p>
                       Choose a speed and loop mode. Repeat plays forward; Bounce
                       plays forward and then backward, without sound. Supported
-                      videos use a lossless copy of a section up to 30 seconds,
-                      prepared after Save. MOV screen recordings with full-range
-                      color can also use Bounce. Some formats, including HDR
-                      video, need Repeat. Large files may exceed processing
-                      limits.
+                      videos use a high-quality copy of a section up to 30
+                      seconds at the original dimensions, prepared on first
+                      playback. Later visits reuse it. MOV screen recordings
+                      with full-range color can also use Bounce. Some formats,
+                      including HDR video, need Repeat. Large files may exceed
+                      processing limits.
+                    </p>
+                    <p>
+                      Bounce compresses the playback copy. Your originals and
+                      downloads stay unchanged. Large dimensions or high frame
+                      rates can still need a faster connection and device.
                     </p>
                     <p>
                       Turn on Play highlights only in View options to loop the

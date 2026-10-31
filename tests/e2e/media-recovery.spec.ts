@@ -110,6 +110,156 @@ test.afterAll(async ({ browser }) => {
 });
 
 for (const phone of [false, true]) {
+  test(`diagnoses viewer Bounce overload before changing codec (${phone ? "phone" : "desktop"})`, async ({
+    browser
+  }) => {
+    const context = await browser.newContext({
+      storageState,
+      viewport: phone
+        ? { width: 393, height: 852 }
+        : { width: 1440, height: 980 },
+      isMobile: phone,
+      hasTouch: phone,
+      serviceWorkers: "block"
+    });
+    let releaseHead: () => void = () => undefined;
+    try {
+      await context.addInitScript(() => {
+        const original = HTMLMediaElement.prototype.canPlayType;
+        HTMLMediaElement.prototype.canPlayType = function (type) {
+          return type.includes("hvc1") ? "probably" : original.call(this, type);
+        };
+      });
+      const page = await context.newPage();
+      const asset = assets.find((asset) => asset.name === "video-0.mp4")!;
+      const currentResponse = await page.request.get(
+        `${origin}/api/assets/${asset.id}`
+      );
+      expect(currentResponse.ok()).toBe(true);
+      const current = (await currentResponse.json()) as AssetRecord;
+      const token = (await context.cookies()).find(
+        (cookie) => cookie.name === "aether_csrf"
+      )!.value;
+      const saved = await page.request.put(
+        `${origin}/api/assets/${asset.id}/presentation`,
+        {
+          headers: { "x-csrf-token": token },
+          data: {
+            expectedRevision: current.presentation.revision,
+            highlight: { startMs: 500, endMs: 1500 },
+            fit: "cover",
+            focalX: 0.5,
+            focalY: 0.5,
+            zoom: 1,
+            playbackRate: 1,
+            loopMode: "bounce"
+          }
+        }
+      );
+      expect(saved.ok()).toBe(true);
+      let mode: "busy" | "limit" | "browser" = "busy";
+      let holdHead = false;
+      let headStarted = false;
+      const heldHead = new Promise<void>((resolve) => {
+        releaseHead = resolve;
+      });
+      const requestedCodecs = new Set<string>();
+      await page.route(
+        `**/api/assets/${asset.id}/playback?*`,
+        async (route) => {
+          const request = route.request();
+          const codec = new URL(request.url()).searchParams.get("codec")!;
+          if (request.method() === "GET") requestedCodecs.add(codec);
+          if (mode === "browser" && codec === "h264") {
+            await route.continue();
+            return;
+          }
+          if (holdHead && request.method() === "HEAD") {
+            headStarted = true;
+            await heldHead;
+          }
+          const code =
+            mode === "busy" ? "processing_busy" : "presentation_limit_exceeded";
+          await route
+            .fulfill({
+              status: mode === "browser" ? 200 : mode === "busy" ? 503 : 422,
+              headers:
+                mode === "browser"
+                  ? { "content-type": "video/mp4" }
+                  : {
+                      "content-type": "application/json",
+                      "x-aether-media-error": code
+                    },
+              body:
+                mode === "browser"
+                  ? "unsupported HEVC video"
+                  : JSON.stringify({ error: code })
+            })
+            .catch(() => undefined);
+        }
+      );
+      await page.goto(
+        `${url("gallery", "video", asset.name)}&highlight=1&asset=${asset.id}`
+      );
+      const viewer = page.getByRole("dialog", {
+        name: asset.name,
+        exact: true
+      });
+      const notice = viewer.locator(".media-error-notice");
+      await expect(notice).toContainText("Media preparation is busy.");
+      expect([...requestedCodecs]).toEqual(["hevc"]);
+      const retry = notice.getByRole("button", { name: "Retry", exact: true });
+      mode = "limit";
+      if (phone) await retry.tap();
+      else await retry.click();
+      await expect(notice).toContainText(
+        "Playback exceeds a processing limit."
+      );
+      expect([...requestedCodecs]).toEqual(["hevc"]);
+      await expect(retry).toHaveCount(0);
+      await viewer
+        .getByRole("button", { name: "Close viewer", exact: true })
+        .click();
+      await expect(viewer).toHaveCount(0);
+      mode = "browser";
+      const open = page.getByRole("button", {
+        name: `Open ${asset.name}`,
+        exact: true
+      });
+      holdHead = true;
+      if (phone) await open.tap();
+      else await open.click();
+      await expect.poll(() => headStarted).toBe(true);
+      await viewer
+        .getByRole("button", { name: "Close viewer", exact: true })
+        .click();
+      releaseHead();
+      await expect(viewer).toHaveCount(0);
+      expect([...requestedCodecs]).toEqual(["hevc"]);
+      holdHead = false;
+      if (phone) await open.tap();
+      else await open.click();
+      await expect(viewer.locator("video")).toHaveAttribute(
+        "src",
+        /[?&]codec=h264(?:&|$)/
+      );
+      await expect
+        .poll(() =>
+          viewer
+            .locator("video")
+            .evaluate(
+              (video: HTMLVideoElement) =>
+                video.readyState >= 2 && video.currentTime > 0 && !video.paused
+            )
+        )
+        .toBe(true);
+      await expect(notice).toHaveCount(0);
+    } finally {
+      releaseHead();
+      await context.close();
+    }
+  });
+
   test(`recovers Gallery animation manifest and atlas failures outside the activation button (${phone ? "phone" : "desktop"})`, async ({
     browser
   }) => {

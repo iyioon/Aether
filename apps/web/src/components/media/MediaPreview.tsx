@@ -830,6 +830,7 @@ export const MediaPreview = memo(function MediaPreview({
       playback={presentationVideo.playback}
       minimumTime={presentationVideo.minimumTime}
       sectionLabel={presentationVideo.sectionLabel}
+      highlight={asset.presentation?.highlight}
       hasAudio={presentationVideo.hasAudio}
       seekLabel={`Seek ${asset.name}`}
       onTogglePlayback={toggleVideoPlayback}

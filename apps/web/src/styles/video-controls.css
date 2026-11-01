@@ -46,6 +46,29 @@
   box-shadow: none;
 }
 
+.playback-highlight {
+  position: absolute;
+  inset: 20px 7px auto;
+  height: 6px;
+  pointer-events: none;
+}
+
+.playback-highlight__range {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  border: solid currentColor;
+  border-width: 2px 1px 0;
+  border-radius: 1px 1px 0 0;
+  opacity: 0.8;
+}
+
+@media (forced-colors: active) {
+  .playback-highlight__range {
+    opacity: 1;
+  }
+}
+
 .video-controls__button.video-controls__button:hover:not(:disabled) {
   color: #fff;
   background: rgba(255, 255, 255, 0.12);

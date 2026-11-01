@@ -211,6 +211,9 @@
   min-width: 0;
   position: relative;
 }
+.media-editor-timeline .playback-highlight {
+  inset: 18px 10px auto;
+}
 .media-editor-transport[data-has-audio] {
   grid-template-columns: 44px minmax(0, 1fr) 44px;
 }

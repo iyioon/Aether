@@ -222,7 +222,9 @@ export function UserGuidePage() {
                     <p>
                       Turn on Play highlights only in View options to loop the
                       saved section. It is available in Gallery, Feed, Compare
-                      and the viewer. Compare always plays forward at 1×.
+                      and the viewer. Compare always plays forward at 1×. A thin
+                      bracket above the seek bar marks the highlight; the
+                      editor's preview bar follows your draft in both tabs.
                     </p>
                   </CardContent>
                 </Card>

@@ -2,7 +2,12 @@ import { useId } from "react";
 import { Pause, Play, Volume2, VolumeX } from "lucide-react";
 import { Button } from "../ui/button";
 import { Slider } from "../ui/slider";
-import { formatPresentationTime } from "./presentation-model";
+import {
+  formatPresentationTime,
+  highlightTimelineRange
+} from "./presentation-model";
+import { PlaybackHighlight } from "./PlaybackHighlight";
+import type { PresentationValues } from "../../api/client";
 import {
   PRESENTATION_TIMING_KEYBOARD_HINT,
   isModifiedPresentationTimingKey,
@@ -11,6 +16,7 @@ import {
 
 export function PresentationTransport({
   durationMs,
+  highlight,
   playheadMs,
   isPlaying,
   disabled,
@@ -22,6 +28,7 @@ export function PresentationTransport({
   onSeek
 }: {
   durationMs: number;
+  highlight?: PresentationValues["highlight"];
   playheadMs: number;
   isPlaying: boolean;
   disabled: boolean;
@@ -33,6 +40,8 @@ export function PresentationTransport({
   onSeek: (time: number) => void;
 }) {
   const keyboardHintId = useId();
+  const highlightDescriptionId = useId();
+  const highlightRange = highlightTimelineRange(highlight, 0, durationMs);
   return (
     <div
       className="media-editor-transport"
@@ -63,7 +72,11 @@ export function PresentationTransport({
           disabled={disabled || durationMs <= 0}
           thumbLabels={["Preview position"]}
           formatValue={formatPresentationTime}
-          aria-describedby={keyboardHintId}
+          aria-describedby={
+            highlightRange
+              ? `${keyboardHintId} ${highlightDescriptionId}`
+              : keyboardHintId
+          }
           onKeyDownCapture={(event) => {
             const thumb = event.target;
             if (
@@ -103,6 +116,12 @@ export function PresentationTransport({
             }
           }}
         />
+        {highlightRange ? (
+          <PlaybackHighlight
+            range={highlightRange}
+            descriptionId={highlightDescriptionId}
+          />
+        ) : null}
         <p id={keyboardHintId} className="sr-only">
           {PRESENTATION_TIMING_KEYBOARD_HINT}
         </p>

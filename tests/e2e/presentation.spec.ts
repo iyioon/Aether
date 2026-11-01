@@ -443,6 +443,218 @@ for (const phone of [false, true]) {
 }
 
 for (const phone of [false, true]) {
+  const layout = phone ? "phone" : "desktop";
+  test(`marks saved highlights in ${layout} playback bars without changing their controls`, async ({
+    browser
+  }, testInfo) => {
+    const context = await browser.newContext({
+      storageState,
+      viewport: phone
+        ? { width: 393, height: 852 }
+        : { width: 1440, height: 980 },
+      hasTouch: phone,
+      isMobile: phone,
+      reducedMotion: "reduce",
+      serviceWorkers: "block"
+    });
+    try {
+      const page = await context.newPage();
+      for (const name of ["clip.mp4", "sequence.webp"]) {
+        const asset = fixture(name);
+        await setPresentation(page, asset, {
+          ...defaults,
+          highlight: { startMs: 500, endMs: 1500 }
+        });
+        await open(page, "feed", asset.mediaType, name);
+        const feedControls = page.locator(".feed-item .video-controls").first();
+        await expect(feedControls).toBeVisible();
+        const feedSeek = feedControls.getByRole("slider");
+        await expect(feedSeek).toBeEnabled();
+        await expectHighlightMarker(feedControls, feedSeek, 500, 1500);
+        await expect(feedControls.locator(".video-controls__row")).toHaveCSS(
+          "height",
+          "44px"
+        );
+        await expect(feedSeek).toHaveCSS("height", "44px");
+        const feedHeight = (await feedControls.boundingBox())!.height;
+        if ((await feedControls.getAttribute("data-paused")) === "false")
+          await feedControls
+            .getByRole("button", { name: "Pause video", exact: true })
+            .click();
+        await feedSeek.press("Home");
+        await feedSeek.press("ArrowRight");
+        await expect(feedSeek).toHaveValue("1");
+        await feedSeek.press("End");
+        await clickHighlightMarker(page, feedControls, phone);
+        await expect
+          .poll(async () => Number(await feedSeek.inputValue()))
+          .toBeGreaterThan(0.5);
+        await expect
+          .poll(async () => Number(await feedSeek.inputValue()))
+          .toBeLessThan(1.5);
+        if (name === "clip.mp4")
+          await feedControls.screenshot({
+            path: testInfo.outputPath(`highlight-feed-${layout}.png`)
+          });
+
+        await feedControls.locator(".video-controls__button--expand").click();
+        const viewer = page.getByRole("dialog", { name, exact: true });
+        const viewerControls = viewer.locator(".video-controls");
+        const viewerSeek = viewerControls.getByRole("slider");
+        await expect(viewerSeek).toBeEnabled();
+        await setViewerHighlights(page, viewer, false, phone);
+        await expectHighlightMarker(viewerControls, viewerSeek, 500, 1500);
+        const viewerHeight = (await viewerControls.boundingBox())!.height;
+        await setViewerHighlights(page, viewer, true, phone);
+        await expect(viewerSeek).toHaveAttribute("min", "0.5");
+        await expect(viewerSeek).toHaveAttribute("max", "1.5");
+        await expectHighlightMarker(viewerControls, viewerSeek, 500, 1500);
+        expect((await viewerControls.boundingBox())!.height).toBe(viewerHeight);
+        if (name === "clip.mp4")
+          await viewerControls.screenshot({
+            path: testInfo.outputPath(`highlight-viewer-${layout}.png`)
+          });
+        await viewer
+          .getByRole("button", { name: "Close viewer", exact: true })
+          .click();
+
+        // A saved section keeps its source-time coordinates in Bounce playback.
+        if (asset.mediaType === "video") {
+          await setPresentation(page, asset, {
+            ...defaults,
+            highlight: { startMs: 500, endMs: 1500 },
+            loopMode: "bounce"
+          });
+          await open(page, "feed", asset.mediaType, name, true);
+          await expect(feedSeek).toBeEnabled();
+          await expect(feedSeek).toHaveAttribute("min", "0.5");
+          await expect(feedSeek).toHaveAttribute("max", "1.5");
+          await expectHighlightMarker(feedControls, feedSeek, 500, 1500);
+        }
+        await setPresentation(page, asset, defaults);
+        await open(page, "feed", asset.mediaType, name);
+        await expect(feedSeek).toBeEnabled();
+        await expect(feedControls.locator(".playback-highlight")).toHaveCount(
+          0
+        );
+        expect(await feedSeek.getAttribute("aria-describedby")).toBeNull();
+        expect((await feedControls.boundingBox())!.height).toBe(feedHeight);
+      }
+    } finally {
+      await context.close();
+    }
+  });
+
+  test(`updates ${layout} editor highlight markers across tabs without blocking seeking`, async ({
+    browser
+  }, testInfo) => {
+    const context = await browser.newContext({
+      storageState,
+      viewport: phone
+        ? { width: 393, height: 852 }
+        : { width: 1440, height: 980 },
+      hasTouch: phone,
+      isMobile: phone,
+      reducedMotion: "reduce",
+      serviceWorkers: "block"
+    });
+    if (!phone)
+      await context.addInitScript(() => {
+        localStorage.setItem("aether.appearance.theme", "light");
+      });
+    try {
+      const page = await context.newPage();
+      for (const name of ["clip.mp4", "sequence.webp"]) {
+        const asset = fixture(name);
+        await setPresentation(page, asset, {
+          ...defaults,
+          highlight: { startMs: 500, endMs: 1500 }
+        });
+        await open(page, "feed", asset.mediaType, name);
+        await page
+          .getByRole("button", { name: `Edit ${name}`, exact: true })
+          .click();
+        const editor = page.getByRole("dialog", {
+          name: "Edit media",
+          exact: true
+        });
+        const transport = editor.locator(".media-editor-transport");
+        const timeline = transport.getByRole("slider", {
+          name: "Preview position",
+          exact: true
+        });
+        await expect(timeline).toBeEnabled();
+        await expectHighlightMarker(transport, timeline, 500, 1500);
+        await expect(transport.locator('[data-slot="slider"]')).toHaveCSS(
+          "height",
+          "44px"
+        );
+        const transportHeight = (await transport.boundingBox())!.height;
+        await editor
+          .getByRole("textbox", { name: "Start time", exact: true })
+          .fill("0.2");
+        await editor
+          .getByRole("textbox", { name: "End time", exact: true })
+          .fill("1.2");
+        await timeline.focus();
+        await expectHighlightMarker(transport, timeline, 200, 1200);
+        await editor.getByRole("tab", { name: "Framing", exact: true }).click();
+        await expectHighlightMarker(transport, timeline, 200, 1200);
+        expect((await transport.boundingBox())!.height).toBe(transportHeight);
+        await timeline.press("Home");
+        await timeline.press("Shift+ArrowRight");
+        await expect(timeline).toHaveAttribute("aria-valuenow", "1");
+        await clickHighlightMarker(page, transport, phone);
+        await expect
+          .poll(async () =>
+            Number(await timeline.getAttribute("aria-valuenow"))
+          )
+          .toBeGreaterThan(200);
+        await expect
+          .poll(async () =>
+            Number(await timeline.getAttribute("aria-valuenow"))
+          )
+          .toBeLessThan(1200);
+        await expect(
+          editor.getByRole("slider", { name: "Media zoom", exact: true })
+        ).toHaveAttribute("aria-valuenow", "1");
+        if (name === "clip.mp4")
+          await editor.screenshot({
+            path: testInfo.outputPath(`highlight-editor-${layout}.png`)
+          });
+        await editor
+          .getByRole("tab", { name: "Playback", exact: true })
+          .click();
+        await expectHighlightMarker(transport, timeline, 200, 1200);
+        const durationMs = Number(await timeline.getAttribute("aria-valuemax"));
+        await editor
+          .getByRole("textbox", { name: "Start time", exact: true })
+          .fill("0");
+        await editor
+          .getByRole("textbox", { name: "End time", exact: true })
+          .fill(String(durationMs / 1000));
+        await timeline.focus();
+        await expect(transport.locator(".playback-highlight")).toHaveCount(0);
+        await expect(timeline).not.toHaveAccessibleDescription(
+          /Highlight from/
+        );
+        await editor
+          .getByRole("button", { name: "Cancel", exact: true })
+          .click();
+        expect(
+          (await getAsset(page, asset.id)).presentation?.highlight
+        ).toEqual({
+          startMs: 500,
+          endMs: 1500
+        });
+      }
+    } finally {
+      await context.close();
+    }
+  });
+}
+
+for (const phone of [false, true]) {
   test(`shows compact actionable Bounce failures on ${phone ? "phone" : "desktop"}`, async ({
     browser
   }, testInfo) => {
@@ -4214,6 +4426,66 @@ async function setViewerHighlights(
   await page.keyboard.press("Escape");
   await expect(menu).toHaveCount(0);
 }
+async function expectHighlightMarker(
+  transport: Locator,
+  slider: Locator,
+  startMs: number,
+  endMs: number
+) {
+  const marker = transport.locator(".playback-highlight");
+  const range = marker.locator(".playback-highlight__range");
+  await expect(marker).toBeVisible();
+  await expect(marker).toHaveAttribute("aria-hidden", "true");
+  await expect(marker).toHaveCSS("pointer-events", "none");
+  await expect(range).toHaveCSS("pointer-events", "none");
+  const timestamp = (time: number) =>
+    `${Math.floor(time / 60_000)}:${String(Math.floor((time % 60_000) / 1000)).padStart(2, "0")}.${String(time % 1000).padStart(3, "0")}`;
+  await expect(slider).toHaveAccessibleDescription(
+    new RegExp(`Highlight from ${timestamp(startMs)} to ${timestamp(endMs)}\\.`)
+  );
+  const domain = await slider.evaluate((node) => {
+    const native = node instanceof HTMLInputElement;
+    return {
+      minimumMs:
+        Number(node.getAttribute(native ? "min" : "aria-valuemin")) *
+        (native ? 1000 : 1),
+      maximumMs:
+        Number(node.getAttribute(native ? "max" : "aria-valuemax")) *
+        (native ? 1000 : 1)
+    };
+  });
+  const bounds = (await marker.boundingBox())!;
+  const selected = (await range.boundingBox())!;
+  const length = domain.maximumMs - domain.minimumMs;
+  const expectedLeft = Math.min(
+    ((startMs - domain.minimumMs) / length) * bounds.width,
+    bounds.width - 2
+  );
+  const expectedWidth = Math.max(
+    2,
+    ((endMs - startMs) / length) * bounds.width
+  );
+  expect(Math.abs(selected.x - bounds.x - expectedLeft)).toBeLessThan(1);
+  expect(Math.abs(selected.width - expectedWidth)).toBeLessThan(1);
+  expect(selected.height).toBe(6);
+  expect(selected.x).toBeGreaterThanOrEqual(bounds.x - 0.1);
+  expect(selected.x + selected.width).toBeLessThanOrEqual(
+    bounds.x + bounds.width + 0.1
+  );
+}
+async function clickHighlightMarker(
+  page: Page,
+  transport: Locator,
+  phone: boolean
+) {
+  const bounds = (await transport
+    .locator(".playback-highlight__range")
+    .boundingBox())!;
+  const x = bounds.x + bounds.width / 2;
+  const y = bounds.y + bounds.height / 2;
+  if (phone) await page.touchscreen.tap(x, y);
+  else await page.mouse.click(x, y);
+}
 async function expectFrameAspect(viewer: Locator, ratio: number) {
   await expect
     .poll(async () => {
@@ -5037,6 +5309,40 @@ test("plays a one-second midpoint Bounce from a thirty-minute source on phone an
     await page.getByRole("button", { name: `Open ${name}`, exact: true }).tap();
     const viewer = page.getByRole("dialog", { name, exact: true });
     await assertPlaying(viewer.locator("video"));
+    await expect(viewer).toHaveClass(/controls-hidden/);
+    await viewer.locator(".viewer-fit-area").tap();
+    await expect(viewer).toHaveClass(/controls-visible/);
+    await setViewerHighlights(page, viewer, false, true);
+    const viewerControls = viewer.locator(".video-controls");
+    await expectHighlightMarker(
+      viewerControls,
+      viewerControls.getByRole("slider"),
+      900_025,
+      901_025
+    );
+    await expect(
+      viewerControls.locator(".playback-highlight__range")
+    ).toHaveCSS("width", "2px");
+    await viewer
+      .getByRole("button", { name: "Close viewer", exact: true })
+      .click();
+    await setPresentation(page, asset, {
+      ...defaults,
+      highlight: { startMs: 1_799_900, endMs: 1_800_000 }
+    });
+    await open(page, "feed", "video", name);
+    const controls = page.locator(".feed-item .video-controls").first();
+    await expect(controls.getByRole("slider")).toBeEnabled();
+    await expectHighlightMarker(
+      controls,
+      controls.getByRole("slider"),
+      1_799_900,
+      1_800_000
+    );
+    await expect(controls.locator(".playback-highlight__range")).toHaveCSS(
+      "width",
+      "2px"
+    );
   } finally {
     await rm(source, { force: true });
     try {

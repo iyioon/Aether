@@ -89,6 +89,11 @@ Never test rebuild or wipe against the only copy of a real library database.
 
 ## Presentation Acceptance
 
+- Check highlight brackets on Feed/viewer seek bars for video and animation:
+  full playback locates the saved section, section-only playback spans the rail,
+  and unhighlighted media has no marker. The editor follows unsaved range changes
+  in both tabs. Verify subsecond bounds, tiny sections in long media, screen-reader
+  descriptions, pointer/keyboard seeking and unchanged phone control heights.
 - Check the portrait Feed on desktop and phones: centered desktop media,
   controls/details attached to that frame, safe phone controls and an inline
   heart-only favorite indicator. Confirm no aspect selector in Feed, old layout links still

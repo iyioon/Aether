@@ -1,4 +1,4 @@
-import { useEffect, useRef, type CSSProperties } from "react";
+import { useEffect, useId, useRef, type CSSProperties } from "react";
 import {
   Maximize,
   Minimize,
@@ -10,6 +10,9 @@ import {
 import { Button } from "../ui/button";
 import { formatVideoTime } from "./video-playback";
 import type { VideoPlayback } from "./useVideoPlayback";
+import type { PresentationValues } from "../../api/client";
+import { highlightTimelineRange } from "./presentation-model";
+import { PlaybackHighlight } from "./PlaybackHighlight";
 
 interface VideoControlsProps {
   playback: VideoPlayback;
@@ -24,6 +27,7 @@ interface VideoControlsProps {
   minimumTime?: number;
   sectionLabel?: string;
   hasAudio?: boolean;
+  highlight?: PresentationValues["highlight"];
 }
 
 export function VideoControls({
@@ -38,13 +42,20 @@ export function VideoControls({
   onInteractionChange,
   minimumTime = 0,
   sectionLabel,
-  hasAudio = true
+  hasAudio = true,
+  highlight
 }: VideoControlsProps) {
+  const highlightDescriptionId = useId();
   const focusedRef = useRef(false);
   const hoveredRef = useRef(false);
   const scrubbingRef = useRef(false);
   const interactionCallbackRef = useRef(onInteractionChange);
   const { state } = playback;
+  const highlightRange = highlightTimelineRange(
+    highlight,
+    minimumTime * 1000,
+    state.duration * 1000
+  );
   const length = state.duration - minimumTime;
   const progress = length > 0 ? (state.currentTime - minimumTime) / length : 0;
   const buffered =
@@ -163,6 +174,9 @@ export function VideoControls({
           <input
             aria-label={seekLabel}
             aria-valuetext={`${currentTime} of ${duration}`}
+            aria-describedby={
+              highlightRange ? highlightDescriptionId : undefined
+            }
             className="video-controls__seek"
             type="range"
             min={minimumTime}
@@ -218,6 +232,12 @@ export function VideoControls({
               playback.seek(Number(event.currentTarget.value))
             }
           />
+          {highlightRange ? (
+            <PlaybackHighlight
+              range={highlightRange}
+              descriptionId={highlightDescriptionId}
+            />
+          ) : null}
           <span className="video-controls__time" aria-hidden="true">
             <span>{currentTime}</span>
             {sectionLabel ? (

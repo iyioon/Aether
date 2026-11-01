@@ -357,6 +357,7 @@ export function MediaPresentationEditor({
           {timed ? (
             <PresentationTransport
               durationMs={durationMs}
+              highlight={draft.highlight}
               playheadMs={playheadMs}
               isPlaying={isPlaying}
               disabled={disabled || !playbackAvailable}

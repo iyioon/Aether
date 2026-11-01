@@ -1576,6 +1576,7 @@ export function MediaViewer({
             playback={presentedPlayback.playback}
             minimumTime={presentedPlayback.minimumTime}
             sectionLabel={presentedPlayback.sectionLabel}
+            highlight={presentation.highlight}
             hasAudio={
               presentedPlayback.hasAudio &&
               (capabilityState.capabilities?.hasAudio ?? true)

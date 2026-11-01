@@ -125,6 +125,43 @@ export function presentationRange(
     : [0, durationMs];
 }
 
+export interface HighlightTimelineRange {
+  startMs: number;
+  endMs: number;
+  startPercent: number;
+  endPercent: number;
+}
+
+export function highlightTimelineRange(
+  highlight: PresentationValues["highlight"] | undefined,
+  minimumMs: number,
+  maximumMs: number
+): HighlightTimelineRange | null {
+  if (
+    !highlight ||
+    !Number.isFinite(minimumMs) ||
+    minimumMs < 0 ||
+    !Number.isFinite(maximumMs) ||
+    maximumMs <= minimumMs ||
+    !Number.isFinite(highlight.startMs) ||
+    !Number.isFinite(highlight.endMs) ||
+    highlight.startMs < 0 ||
+    highlight.endMs <= highlight.startMs
+  )
+    return null;
+
+  const startMs = Math.max(minimumMs, highlight.startMs);
+  const endMs = Math.min(maximumMs, highlight.endMs);
+  if (endMs <= startMs) return null;
+  const durationMs = maximumMs - minimumMs;
+  return {
+    startMs,
+    endMs,
+    startPercent: ((startMs - minimumMs) / durationMs) * 100,
+    endPercent: ((endMs - minimumMs) / durationMs) * 100
+  };
+}
+
 export function updatePresentationRange(
   values: PresentationValues,
   startMs: number,

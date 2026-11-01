@@ -3,6 +3,7 @@ import {
   defaultPresentationValues,
   formatPresentationTime,
   getPresentationValues,
+  highlightTimelineRange,
   parsePresentationTime,
   presentationRange,
   presentationFramingForAspect,
@@ -13,6 +14,74 @@ import {
   presentationValuesEqual,
   updatePresentationRange
 } from "./presentation-model";
+
+describe("playback highlight markers", () => {
+  it("locates the saved section within the full source timeline", () => {
+    const range = highlightTimelineRange(
+      { startMs: 1000, endMs: 3000 },
+      0,
+      6000
+    )!;
+    expect(range).toMatchObject({ startMs: 1000, endMs: 3000, endPercent: 50 });
+    expect(range.startPercent).toBeCloseTo(100 / 6);
+  });
+
+  it.each([
+    [{ startMs: 1000, endMs: 3000 }, 1000, 3000],
+    [{ startMs: 500, endMs: 4500 }, 1000, 3000],
+    [{ startMs: 0, endMs: 6000 }, 0, 6000]
+  ] as const)(
+    "spans the active seek domain for %j",
+    (highlight, minimum, maximum) => {
+      expect(highlightTimelineRange(highlight, minimum, maximum)).toEqual({
+        startMs: minimum,
+        endMs: maximum,
+        startPercent: 0,
+        endPercent: 100
+      });
+    }
+  );
+
+  it("clips an overlapping section to the displayed source-time domain", () => {
+    expect(
+      highlightTimelineRange({ startMs: 1000, endMs: 3000 }, 2000, 6000)
+    ).toEqual({ startMs: 2000, endMs: 3000, startPercent: 0, endPercent: 25 });
+  });
+
+  it("retains subsecond precision for tiny sections in long media", () => {
+    const range = highlightTimelineRange(
+      { startMs: 900_025, endMs: 900_125 },
+      0,
+      1_800_000
+    )!;
+    expect(range).toMatchObject({ startMs: 900_025, endMs: 900_125 });
+    expect(range.startPercent).toBeCloseTo(50.00138889);
+    expect(range.endPercent - range.startPercent).toBeCloseTo(0.00555556);
+  });
+
+  it.each([
+    [null, 0, 6000],
+    [undefined, 0, 6000],
+    [{ startMs: 1000, endMs: 3000 }, 0, 0],
+    [{ startMs: 1000, endMs: 3000 }, 3000, 1000],
+    [{ startMs: 1000, endMs: 3000 }, -1, 6000],
+    [{ startMs: 1000, endMs: 3000 }, NaN, 6000],
+    [{ startMs: 1000, endMs: 3000 }, 0, Infinity],
+    [{ startMs: 1000, endMs: 3000 }, 0, NaN],
+    [{ startMs: -1, endMs: 3000 }, 0, 6000],
+    [{ startMs: NaN, endMs: 3000 }, 0, 6000],
+    [{ startMs: 1000, endMs: Infinity }, 0, 6000],
+    [{ startMs: 3000, endMs: 3000 }, 0, 6000],
+    [{ startMs: 3000, endMs: 1000 }, 0, 6000],
+    [{ startMs: 0, endMs: 1000 }, 1000, 6000],
+    [{ startMs: 3000, endMs: 6000 }, 0, 3000]
+  ] as const)(
+    "omits absent, invalid or disjoint ranges %j in [%s, %s]",
+    (highlight, minimum, maximum) => {
+      expect(highlightTimelineRange(highlight, minimum, maximum)).toBeNull();
+    }
+  );
+});
 
 describe("saved presentation drafts", () => {
   it("keeps legacy records neutral and returns independent nested drafts", () => {

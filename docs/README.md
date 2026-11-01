@@ -22,6 +22,8 @@
 - [Media playback and presentation plan](plans/media-experience.md): active
   milestones for controls, HEIC, video/animation highlights and playback,
   framing, and device compatibility.
+- [Media management plan](plans/media-management.md): device uploads, moves,
+  recoverable Trash, filesystem safety and interruption recovery.
 - [Architecture](architecture.md): the main parts of the app and how data moves
   between them.
 - [Development](development.md): repository layout, commands, and testing.

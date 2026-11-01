@@ -5,32 +5,32 @@ Reviewed: 2026-11-01.
 
 ## Outcome And Scope
 
-Add media from a phone or computer, move media between library folders, and
-delete media to a recoverable Trash. Single-item and selected-item actions use
-the same server operations. Moves and restores retain asset IDs, tags,
+Add media from a phone or computer, move media and folders within or between
+assigned roots, and delete media to a recoverable Trash. Single-item and
+selected-item actions use the same server operations. Moves and restores retain asset IDs, tags,
 favorites, presentation settings and comparison history.
 
 This extends the current source-read-only product boundary. Enable writes
 explicitly for named media roots; existing installations remain read-only.
 Presentation editing continues to change metadata rather than source bytes.
 
-Included: device uploads, existing and newly created destination folders,
-same-drive and cross-drive moves, Trash, restore, permanent deletion from Trash,
-progress, cancellation and recovery. Existing external file copying and scanning
+Included: device uploads, folder creation, same-drive and cross-drive media and
+folder moves, Trash, restore, permanent deletion from Trash, progress,
+cancellation and recovery. Existing external file copying and scanning
 remain supported. Excluded: arbitrary server-path imports, URL imports, archives,
-folder uploads, recursive folder moves/deletion, source transcoding, cloud sync,
+folder uploads, folder deletion, source transcoding, cloud sync,
 public uploads and device photo-library synchronization.
 
 ## Delivery Tracker
 
-| Stage | Deliverable                         | State   | Completion requirement                                                                                                  |
-| ----- | ----------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------- |
-| F0    | Filesystem and upload proofs        | Planned | Demonstrate safe publication, recovery and resumable uploads on supported platforms before choosing dependencies.       |
-| F1    | Write policy and durable operations | Planned | Root capabilities, path safety, schema, scanner coordination, startup recovery and maintenance guards pass fault tests. |
-| F2    | Move media                          | Planned | Complete same-drive and cross-drive flows with identity preservation, collision handling and partial batch results.     |
-| F3    | Trash and restore                   | Planned | Active visibility, ranking, restore, retention, purge and maintenance behavior pass recovery tests.                     |
-| F4    | Add media                           | Planned | Secure resumable uploads publish complete files and index them through the shared operation path.                       |
-| F5    | Release acceptance                  | Planned | Desktop, actual iPhone PWA, container, security, failure, cleanup and documentation checks pass.                        |
+| Stage | Deliverable                         | State   | Completion requirement                                                                                                         |
+| ----- | ----------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| F0    | Filesystem and upload proofs        | Planned | Demonstrate safe file/subtree publication, metadata preservation, recovery and resumable uploads before choosing dependencies. |
+| F1    | Write policy and durable operations | Planned | Root capabilities, path safety, schema, scanner coordination, startup recovery and maintenance guards pass fault tests.        |
+| F2    | Move media and folders              | Planned | Complete same-drive and cross-drive flows with stable asset/folder IDs, collision handling and recovery of whole folders.      |
+| F3    | Trash and restore                   | Planned | Active visibility, ranking, restore, retention, purge and maintenance behavior pass recovery tests.                            |
+| F4    | Add media                           | Planned | Secure resumable uploads publish complete files and index them through the shared operation path.                              |
+| F5    | Release acceptance                  | Planned | Desktop, actual iPhone PWA, container, security, failure, cleanup and documentation checks pass.                               |
 
 Implement in this order. Each stage includes its API, minimal working UI,
 regressions and affected documentation. Update this tracker when a stage changes
@@ -72,6 +72,56 @@ the default is Skip. Never offer silent replacement. Moving into the current
 folder is a no-op. A batch reports each item's result and retries failed items
 without repeating successful ones.
 
+### Move Folders
+
+Add a Move to action to the folder context menu, including long press, and an
+accessible actions button for the selected folder. Reuse the media destination picker;
+the initial interface moves one folder at a time. Folder drag-and-drop and
+folder deletion remain outside this delivery.
+
+Move the whole folder, including nested and empty folders, hidden regular files
+and sidecars that Aether does not index. Show its destination, item count and
+total size before starting. A name conflict offers Skip or Keep both for the
+whole folder, without merging or replacing a destination tree. Moving to the
+existing parent is a no-op. An assigned root is a valid destination but cannot
+itself be moved. Reject destinations outside assigned roots, the source folder
+or its descendants, reserved Trash/staging directories and overlapping
+operations. Reject symlinks, special files, nested mounts or required
+filesystem metadata that cannot be preserved safely; never omit them silently.
+
+Inventory the source into a bounded durable manifest. Reserve the entire source
+and destination subtrees before execution. Revalidate their identities and
+contents as work proceeds; external changes require recovery rather than guessed
+deletions. F0 must establish limits for manifest depth, entries and total bytes,
+and preservation of supported permissions, timestamps and extended attributes.
+
+A same-drive move publishes the directory without replacement. A cross-drive
+move copies and verifies the complete tree in an owned destination stage, then
+publishes its top-level directory without replacement. A folder is one durable
+operation item, not a series of visible imports. For cross-drive copies, retain
+the source until publication and the metadata commit succeed; same-drive rename
+must recover the interval before its DB commit. Retire only verified manifest
+entries and remove only empty directories; never recursively delete a source
+tree that may have acquired new files. Interrupted retirement remains reserved
+for recovery, and the folder is not reported as complete until cleanup succeeds.
+
+Preserve the moved folder's ID, descendant folder IDs and every asset ID.
+Current folder IDs derive from paths; adapt scanner discovery to reuse stored
+IDs by current location and allocate fresh IDs for new folders. Migration must
+retain existing IDs, and recreating the old path must receive a new ID. Commit
+all descendant root/path changes, the top folder's parent, active asset locations,
+search rows and folder counts together. Resolve descendants using the folder
+hierarchy and exact path segments rather than an unescaped string prefix.
+Refresh breadcrumbs/tree and keep an open moved folder selected by ID; reject
+stale folder versions and invalidate obsolete comparisons and reads.
+
+If media was trashed before its original folder moved, leave its payload in the
+original root's Trash. Restore follows the preserved folder ID to its current
+location, showing that destination and checking both roots' write permissions.
+Keep deletion-time root/path details for history separately from physical Trash
+identity. If the folder is unavailable, request another destination. A recreated
+old pathname with a new folder ID must not silently become the restore target.
+
 ### Delete And Restore
 
 Label the ordinary action Move to Trash. Use the existing shadcn AlertDialog
@@ -108,6 +158,10 @@ or roles. Reject unknown writable roots and overlapping configured roots wheneve
 either is writable. A writable subtree must not also be indexed through a
 read-only parent. Nested filesystems are not writable through a parent root;
 configure disjoint roots on each filesystem so Trash stays on the source drive.
+Navigation can reach an assigned root but cannot move above it. File and folder
+operations cannot rename, move or delete that root. Another root is eligible
+only when separately assigned and writable; filesystem paths supplied by the
+browser never grant access to a parent or sibling outside those boundaries.
 
 Keep the default Compose media mount read-only. Document an explicit writable
 mount override for chosen roots, retaining the read-only container filesystem,
@@ -172,7 +226,11 @@ reads may finish, but new requests follow the current asset lifecycle.
 ### Trash Storage And Maintenance
 
 Keep trashed original bytes in an app-reserved, protected directory on their
-current media root, addressed by opaque IDs and excluded from scanning. This
+current media root, addressed by opaque IDs and excluded from scanning. For
+example, a root at `/media/library` keeps its Trash under
+`/media/library/.aether-trash`, never in `/media` or beside the data directory.
+The reserved name and directory ownership must pass F0 validation. Folder moves
+cannot include, target, merge or relocate this reserved storage. This
 avoids copying large videos to the data drive. All metadata, restore locations,
 operation records and resumable upload staging remain under `AETHER_DATA_DIR`.
 Cross-drive publication also needs an exclusive stage on the destination
@@ -290,28 +348,29 @@ Unknown leftovers stay protected and visible to the operator.
 
 ## Repository Integration
 
-| Area                         | Extend                                                                                                                                                     |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Write policy and startup     | `apps/server/src/config/config.ts`, `http/app.ts`, private configuration examples, Compose and runtime drain order.                                        |
-| Operation feature            | Focused routes, schemas, repository and filesystem modules under `apps/server/src/library`; reuse the repository facade and descriptor validation.         |
-| Lifecycle and reconciliation | `db/database.ts`, `library/asset-query.ts`, repository scan/ranking/comparison modules, `scanner.ts`, watcher coordination and direct media resolution.    |
-| Cache and maintenance        | Existing derivative/presentation cache cleanup, `maintenance` backup/restore/data commands and startup recovery.                                           |
-| Browser                      | `api/client.ts`, AppShell feature hook, GalleryCardActions, BatchActionsBar, destination picker, viewer More menu, sidebar Trash and one operations panel. |
-| Existing state               | Library tree/list refresh, selection, viewer anchors, scroll restoration, random order, comparison generation/resume and unauthorized handling.            |
+| Area                         | Extend                                                                                                                                                                     |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Write policy and startup     | `apps/server/src/config/config.ts`, `http/app.ts`, private configuration examples, Compose and runtime drain order.                                                        |
+| Operation feature            | Focused routes, schemas, repository and filesystem modules under `apps/server/src/library`; reuse the repository facade and descriptor validation.                         |
+| Lifecycle and reconciliation | `db/database.ts`, `library/asset-query.ts`, repository folder/scan/ranking/comparison modules, `scanner.ts`, watcher coordination and direct media resolution.             |
+| Cache and maintenance        | Existing derivative/presentation cache cleanup, `maintenance` backup/restore/data commands and startup recovery.                                                           |
+| Browser                      | `api/client.ts`, AppShell feature hook, GalleryCardActions, BatchActionsBar, folder actions, destination picker, viewer More menu, sidebar Trash and one operations panel. |
+| Existing state               | Library tree/list refresh, selection, viewer anchors, scroll restoration, random order, comparison generation/resume and unauthorized handling.                            |
 
 Server paths after a listed application root are relative to its `src` directory.
 Do not move unrelated modules or rename existing components to deliver this work.
 
 ## Verification And Completion
 
-| Coverage                | Required cases                                                                                                                                                                                                                                                  |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Authorization and paths | Default read-only behavior; configured root capabilities; auth/CSRF on all upload methods; traversal, symlink/parent swaps, hard links, reserved names, Unicode/case collisions and concurrent destination creation.                                            |
-| Files and recovery      | Fault injection before/after each durable phase; same/cross-drive moves; source replacement; disk full; quota races; permission loss; disconnected drives; crash/restart; process shutdown; unknown files; cancellation; partial batches and request-ID replay. |
-| Metadata and media      | Stable IDs with duplicate content; annotations, frames/highlights, manual scores and history across move/restore; active-only ranking and direct access; invalidated derivatives; stale generator publication; watcher/scan races and repeated cleanup.         |
-| Uploads                 | Partial/duplicate/out-of-order chunks; offset/checksum errors; spoofed type/length; unsupported media; HEIC/MOV/animation inspection; oversized input; inactivity expiry; reselected changed file; browser close; login expiry and bounded memory/disk.         |
-| Maintenance             | Fresh/upgrade schemas; old backups; paused work/Trash guards; no historical operation replay; unavailable Trash payloads; root removal; backup/source separation and rebuild/wipe data safety.                                                                  |
-| Interface               | Single/batch operations, destination conflicts, retry of failed items only, progress after dialog close, accessible confirmation/focus, narrow/landscape layouts, viewer navigation, stale editors/pairs and foreground restoration.                            |
+| Coverage                | Required cases                                                                                                                                                                                                                                                                                                                                                                               |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Authorization and paths | Default read-only behavior; configured root capabilities; auth/CSRF on all upload methods; traversal, symlink/parent swaps, hard links, reserved names, Unicode/case collisions and concurrent destination creation.                                                                                                                                                                         |
+| Files and recovery      | Fault injection before/after each durable phase; same/cross-drive moves; source replacement; disk full; quota races; permission loss; disconnected drives; crash/restart; process shutdown; unknown files; cancellation; partial batches and request-ID replay.                                                                                                                              |
+| Folder moves            | Protected-root source rejection; valid root destinations; same-parent no-op; self/descendant rejection; no merging; stable folder/asset IDs and recreated paths; empty/hidden/sidecar entries; unsupported metadata/symlinks/mounts; bounded inventories; concurrent changes and crash recovery; search/counts and open-folder restoration; restoring Trash after its original folder moves. |
+| Metadata and media      | Stable IDs with duplicate content; annotations, frames/highlights, manual scores and history across move/restore; active-only ranking and direct access; invalidated derivatives; stale generator publication; watcher/scan races and repeated cleanup.                                                                                                                                      |
+| Uploads                 | Partial/duplicate/out-of-order chunks; offset/checksum errors; spoofed type/length; unsupported media; HEIC/MOV/animation inspection; oversized input; inactivity expiry; reselected changed file; browser close; login expiry and bounded memory/disk.                                                                                                                                      |
+| Maintenance             | Fresh/upgrade schemas; old backups; paused work/Trash guards; no historical operation replay; unavailable Trash payloads; root removal; backup/source separation and rebuild/wipe data safety.                                                                                                                                                                                               |
+| Interface               | Single/batch operations, destination conflicts, retry of failed items only, progress after dialog close, accessible confirmation/focus, narrow/landscape layouts, viewer navigation, stale editors/pairs and foreground restoration.                                                                                                                                                         |
 
 Run `npm run verify`, relevant browser suites, the mixed-library resource check,
 production dependency audit, Compose validation/build and media verification

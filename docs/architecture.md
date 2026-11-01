@@ -221,15 +221,14 @@ controls share one visibility state. Tapping
 the media hides or reveals them together without changing playback; hidden
 controls leave the pointer, keyboard, and accessibility navigation paths.
 
-`PlaybackHighlight` adds a passive bracket above the seek rail in video/animation
-controls and the editor transport. `highlightTimelineRange` clips source-time
-milliseconds to the displayed seek domain; highlight-only and Bounce controls
-retain their existing source-time mapping. Editor markers follow the draft in
-both tabs. A static description supplies precise section bounds to the slider,
-without adding live announcements, seek targets or changes to playback. The
-boundary shapes follow [W3C's non-color guidance](https://www.w3.org/WAI/WCAG22/Understanding/use-of-color.html),
-with [Apple's bounded timeline](https://support.apple.com/guide/quicktime-player/trim-a-movie-or-clip-qtpf2115f6fd/10.5/mac/26)
-as an interaction reference; the playback marker itself does not edit the range.
+`PlaybackHighlight` adds a passive, rounded accent segment within the seek rail
+in video/animation controls and the editor transport. The rail and highlight sit
+behind the seek thumb, preserving its interaction and the existing control height.
+`highlightTimelineRange` clips source-time milliseconds to the displayed seek
+domain. Playback markers are omitted for highlight-only and Bounce sections;
+editor markers follow the draft on the full timeline in both tabs. A static
+description supplies precise section bounds to the slider without live
+announcements, additional seek targets or changes to playback.
 
 Only the active Feed video attaches a native source and requests automatic
 buffering. Once it has decoded future data and about two seconds buffered,

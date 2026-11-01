@@ -1576,7 +1576,7 @@ export function MediaViewer({
             playback={presentedPlayback.playback}
             minimumTime={presentedPlayback.minimumTime}
             sectionLabel={presentedPlayback.sectionLabel}
-            highlight={presentation.highlight}
+            highlight={variant === "full" ? presentation.highlight : undefined}
             hasAudio={
               presentedPlayback.hasAudio &&
               (capabilityState.capabilities?.hasAudio ?? true)

@@ -7,6 +7,12 @@
 }
 
 .video-controls {
+  --playback-highlight-edge: rgb(0 0 0 / 65%);
+  --playback-highlight-color: color-mix(
+    in srgb,
+    var(--aether-accent) 60%,
+    white
+  );
   display: block;
   min-width: 0;
   padding: 5px 12px;
@@ -48,8 +54,8 @@
 
 .playback-highlight {
   position: absolute;
-  inset: 20px 7px auto;
-  height: 6px;
+  inset: 27px 7px auto;
+  height: 4px;
   pointer-events: none;
 }
 
@@ -57,16 +63,9 @@
   position: absolute;
   top: 0;
   height: 100%;
-  border: solid currentColor;
-  border-width: 2px 1px 0;
-  border-radius: 1px 1px 0 0;
-  opacity: 0.8;
-}
-
-@media (forced-colors: active) {
-  .playback-highlight__range {
-    opacity: 1;
-  }
+  border-radius: 999px;
+  background: var(--playback-highlight-color, var(--aether-accent-strong));
+  box-shadow: inset 0 0 0 1px var(--playback-highlight-edge, var(--background));
 }
 
 .video-controls__button.video-controls__button:hover:not(:disabled) {
@@ -101,6 +100,8 @@
 }
 
 .video-controls__seek {
+  position: relative;
+  z-index: 1;
   width: 100%;
   height: 44px;
   min-width: 0;
@@ -114,9 +115,12 @@
   appearance: none;
 }
 
-.video-controls__seek::-webkit-slider-runnable-track {
+.video-controls__rail {
+  position: absolute;
+  inset: 27px 7px auto;
   height: 4px;
   border-radius: 999px;
+  pointer-events: none;
   background:
     linear-gradient(
       to right,
@@ -130,20 +134,16 @@
     );
 }
 
+.video-controls__seek::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: transparent;
+}
+
 .video-controls__seek::-moz-range-track {
   height: 4px;
   border-radius: 999px;
-  background:
-    linear-gradient(
-      to right,
-      #fff var(--video-played, 0%),
-      transparent var(--video-played, 0%)
-    ),
-    linear-gradient(
-      to right,
-      rgba(255, 255, 255, 0.5) var(--video-buffered, 0%),
-      rgba(255, 255, 255, 0.24) var(--video-buffered, 0%)
-    );
+  background: transparent;
 }
 
 .video-controls__seek::-moz-range-progress {
@@ -178,6 +178,19 @@
 .video-controls__seek:disabled {
   cursor: default;
   opacity: 0.5;
+}
+
+@media (forced-colors: active) {
+  .video-controls__rail {
+    background: GrayText;
+    forced-color-adjust: none;
+  }
+
+  .playback-highlight__range {
+    background: Highlight;
+    box-shadow: inset 0 0 0 1px Canvas;
+    forced-color-adjust: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

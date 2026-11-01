@@ -171,6 +171,7 @@ export function VideoControls({
           )}
         </Button>
         <span className="video-controls__timeline">
+          <span className="video-controls__rail" aria-hidden="true" />
           <input
             aria-label={seekLabel}
             aria-valuetext={`${currentTime} of ${duration}`}

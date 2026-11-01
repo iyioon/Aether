@@ -62,9 +62,9 @@ bar focused, arrow keys move one second, Page keys move ten seconds, and
 Home/End jump to the beginning/end. In Feed, holding a video pauses it until
 release; an existing pause stays paused.
 
-A thin bracket above the seek bar marks the highlight's start and end. In
-highlight-only playback it spans the active section. The editor shows your draft
-range on its preview bar in both tabs.
+A rounded accent segment in the seek bar marks the highlight's start and end
+during full playback. It is hidden while playing highlights only. The editor
+shows your draft range on its preview bar in both tabs.
 
 Videos begin muted. An explicit pause survives leaving and returning to the app.
 Muted playback may resume when you return; audible playback waits for Play.

@@ -212,7 +212,14 @@
   position: relative;
 }
 .media-editor-timeline .playback-highlight {
-  inset: 18px 10px auto;
+  inset: 25px 10px auto;
+  height: 6px;
+}
+.media-editor-timeline [data-slot="slider-range"] {
+  background: var(--foreground);
+}
+.media-editor-timeline [data-slot="slider-thumb"] {
+  z-index: 1;
 }
 .media-editor-transport[data-has-audio] {
   grid-template-columns: 44px minmax(0, 1fr) 44px;

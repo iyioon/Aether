@@ -540,7 +540,7 @@ export function ControlledAnimation({
       seekLabel="Seek animation"
       minimumTime={selected ? selected.startMs / 1000 : 0}
       sectionLabel={sectionLabel}
-      highlight={presentation.highlight}
+      highlight={selected ? undefined : presentation.highlight}
       onExpand={onExpand}
       onInteractionChange={onInteractionChange}
     />

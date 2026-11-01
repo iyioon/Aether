@@ -80,9 +80,9 @@ HEIC uses the shared media surfaces and preserves the original download.
   and the expanded viewer. Gallery Edit and Download actions belong in the
   viewer toolbar and the card context menu (right-click, keyboard or touch hold).
   Do not add a second speed or crop control panel.
-- Playback bars mark saved highlight bounds with a passive bracket; the editor
-  follows its draft in both tabs. Section-only playback keeps its source-time
-  seek domain, with precise static descriptions for assistive technology.
+- Playback bars mark saved highlights with a rounded accent segment inside the
+  seek track, hidden during highlight-only playback. The editor follows its
+  draft in both tabs, with precise descriptions for assistive technology.
 
 ## Implemented Contracts And Evidence
 

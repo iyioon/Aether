@@ -6,8 +6,9 @@ Notable changes to Aether are recorded here.
 
 ### Added
 
-- Subtle highlight boundaries on Feed, viewer and editor playback bars, including
-  animated media, with precise screen-reader descriptions.
+- Rounded accent segments within Feed, viewer and editor seek tracks mark
+  highlights, including animated media, with precise screen-reader descriptions.
+  Playback markers are hidden while looping the highlight.
 - HEIC/HEIF photo thumbnails, full-resolution browser display and framing,
   retaining orientation, alpha and color profiles with original downloads.
 

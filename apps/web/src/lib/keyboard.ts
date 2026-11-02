@@ -130,8 +130,15 @@ export function isDirectionalKeyboardTarget(
   return targetMatches(target, DIRECTIONAL_TARGET_SELECTOR);
 }
 
-export function hasOpenKeyboardLayer(root: ParentNode = document): boolean {
-  return Boolean(root.querySelector(OPEN_KEYBOARD_LAYER_SELECTOR));
+export function hasOpenKeyboardLayer(
+  root: ParentNode = document,
+  ignoredLayer?: Element | null
+): boolean {
+  if (!ignoredLayer)
+    return Boolean(root.querySelector(OPEN_KEYBOARD_LAYER_SELECTOR));
+  return Array.from(root.querySelectorAll(OPEN_KEYBOARD_LAYER_SELECTOR)).some(
+    (layer) => layer !== ignoredLayer
+  );
 }
 
 function targetMatches(target: EventTarget | null, selector: string): boolean {

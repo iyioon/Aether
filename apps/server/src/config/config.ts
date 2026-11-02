@@ -4,6 +4,7 @@ import path from "node:path";
 import { z } from "zod";
 import { assertSupportedPasswordHash } from "../auth/password.js";
 import { stableId } from "../library/ids.js";
+import { isPathInside } from "../security/path-safety.js";
 import {
   assertDataDirectoryOutsideMediaRoots,
   initializeDataDirectory,
@@ -15,6 +16,7 @@ export interface MediaRootConfig {
   label: string;
   inputPath: string;
   realPath: string;
+  writable?: boolean;
 }
 
 export interface AppConfig {
@@ -43,12 +45,43 @@ export interface AppConfig {
   ollamaBaseUrl: string;
   ollamaVisionModel: string;
   aiTimeoutMs: number;
+  fileManagement?: {
+    maxUploadBytes: number;
+    maxStagingBytes: number;
+    minFreeBytes: number;
+    trashRetentionDays: number;
+  };
 }
 
 const EnvSchema = z.object({
   AETHER_HOST: z.string().trim().min(1).default("127.0.0.1"),
   AETHER_PORT: z.coerce.number().int().min(1).max(65_535).default(3030),
   AETHER_MEDIA_ROOTS: z.string().default(""),
+  AETHER_WRITABLE_ROOTS: z.string().default(""),
+  AETHER_MAX_UPLOAD_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(20 * 1024 ** 3, "Upload publication supports at most 20 GiB per file.")
+    .default(20 * 1024 ** 3),
+  AETHER_MAX_STAGING_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(Number.MAX_SAFE_INTEGER)
+    .default(20 * 1024 ** 3),
+  AETHER_MIN_FREE_BYTES: z.coerce
+    .number()
+    .int()
+    .nonnegative()
+    .max(Number.MAX_SAFE_INTEGER)
+    .default(2 * 1024 ** 3),
+  AETHER_TRASH_RETENTION_DAYS: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(365)
+    .default(30),
   AETHER_DATA_DIR: z.string().trim().min(1).default("./aether-data"),
   AETHER_PASSWORD_HASH: z.string().trim().optional(),
   AETHER_SESSION_SECRET: z.string().trim().optional(),
@@ -133,7 +166,11 @@ export async function loadConfig(
     { ...env, AETHER_DATA_DIR: parsed.AETHER_DATA_DIR },
     cwd
   );
-  const mediaRoots = await resolveMediaRoots(parsed.AETHER_MEDIA_ROOTS, cwd);
+  const mediaRoots = await resolveMediaRoots(
+    parsed.AETHER_MEDIA_ROOTS,
+    cwd,
+    parsed.AETHER_WRITABLE_ROOTS
+  );
   assertDataDirectoryOutsideMediaRoots(
     dataPaths.dataDir,
     mediaRoots.map((root) => root.realPath)
@@ -175,7 +212,13 @@ export async function loadConfig(
     aiProvider: parsed.AETHER_AI_PROVIDER,
     ollamaBaseUrl: parsed.AETHER_OLLAMA_BASE_URL.replace(/\/+$/, ""),
     ollamaVisionModel: parsed.AETHER_OLLAMA_VISION_MODEL,
-    aiTimeoutMs: parsed.AETHER_AI_TIMEOUT_MS
+    aiTimeoutMs: parsed.AETHER_AI_TIMEOUT_MS,
+    fileManagement: {
+      maxUploadBytes: parsed.AETHER_MAX_UPLOAD_BYTES,
+      maxStagingBytes: parsed.AETHER_MAX_STAGING_BYTES,
+      minFreeBytes: parsed.AETHER_MIN_FREE_BYTES,
+      trashRetentionDays: parsed.AETHER_TRASH_RETENTION_DAYS
+    }
   };
 }
 
@@ -202,9 +245,26 @@ function parseOptionalBoolean(
 
 async function resolveMediaRoots(
   rootList: string,
-  cwd: string
+  cwd: string,
+  writableList = ""
 ): Promise<MediaRootConfig[]> {
   const configuredRoots = parseConfiguredMediaRoots(rootList);
+  const writableNames = new Set(
+    writableList
+      .split(",")
+      .map((name) => name.trim())
+      .filter(Boolean)
+  );
+  const configuredNames = new Set(
+    configuredRoots.flatMap((root) => (root.key ? [root.key] : []))
+  );
+  for (const name of writableNames) {
+    if (!MEDIA_ROOT_KEY_PATTERN.test(name) || !configuredNames.has(name)) {
+      throw new Error(
+        "AETHER_WRITABLE_ROOTS must contain configured media root names."
+      );
+    }
+  }
 
   const roots: MediaRootConfig[] = [];
   const seenPaths = new Map<string, string | null>();
@@ -238,8 +298,25 @@ async function resolveMediaRoots(
       id: key ? stableId("root", "named", key) : stableId("root", rootRealPath),
       label: key ?? (path.basename(rootRealPath) || rootRealPath),
       inputPath,
-      realPath: rootRealPath
+      realPath: rootRealPath,
+      writable: key !== null && writableNames.has(key)
     });
+  }
+
+  for (let first = 0; first < roots.length; first += 1) {
+    for (let second = first + 1; second < roots.length; second += 1) {
+      const left = roots[first]!;
+      const right = roots[second]!;
+      if (
+        (left.writable || right.writable) &&
+        (isPathInside(left.realPath, right.realPath) ||
+          isPathInside(right.realPath, left.realPath))
+      ) {
+        throw new Error(
+          "Writable media roots cannot overlap another configured media root."
+        );
+      }
+    }
   }
 
   return roots;

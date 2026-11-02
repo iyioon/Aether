@@ -1,7 +1,8 @@
 # Contributing
 
 Aether handles private media. Changes must preserve that boundary and keep
-source folders read-only.
+source folders read-only by default. Explicit file-management operations must
+use the shared durable runner and named writable roots.
 
 ## Local Setup
 

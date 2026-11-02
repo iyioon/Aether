@@ -71,7 +71,9 @@ export function saveAssetPresentation(
 ): boolean {
   return db.transaction(() => {
     const source = db
-      .prepare("SELECT mtime_ms, size_bytes FROM assets WHERE id = ?")
+      .prepare(
+        "SELECT mtime_ms, size_bytes FROM assets WHERE id = ? AND lifecycle = 'active'"
+      )
       .get(input.assetId) as
       { mtime_ms: number; size_bytes: number } | undefined;
     if (!source) return false;

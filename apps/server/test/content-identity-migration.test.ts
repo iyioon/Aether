@@ -28,7 +28,7 @@ describe("content identity migration", () => {
         );
       }
 
-      applyMigrations(db);
+      applyMigrations(db, 20);
 
       expect(db.prepare("SELECT id FROM assets ORDER BY id").all()).toEqual([
         { id: "legacy-one" },
@@ -121,7 +121,7 @@ describe("content identity migration", () => {
         );
       }
 
-      expect(applyMigrations(db)).toEqual([16, 17, 18, 19, 20]);
+      expect(applyMigrations(db, 20)).toEqual([16, 17, 18, 19, 20]);
 
       expect(
         db

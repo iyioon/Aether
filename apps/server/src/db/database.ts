@@ -530,6 +530,176 @@ const migrations: Migration[] = [
       ALTER TABLE asset_presentations ADD COLUMN feed_framing TEXT NOT NULL DEFAULT '{}'
         CHECK(json_valid(feed_framing) AND json_type(feed_framing) = 'object' AND length(feed_framing) <= 1024);
     `
+  },
+  {
+    version: 21,
+    name: "managed_media_operations",
+    sql: `
+      ALTER TABLE assets ADD COLUMN lifecycle TEXT NOT NULL DEFAULT 'active' CHECK(lifecycle IN ('active', 'trashed'));
+      ALTER TABLE assets ADD COLUMN source_revision INTEGER NOT NULL DEFAULT 1;
+      ALTER TABLE folders ADD COLUMN source_revision INTEGER NOT NULL DEFAULT 1;
+      ALTER TABLE folders ADD COLUMN fs_device_id TEXT;
+      ALTER TABLE folders ADD COLUMN fs_inode TEXT;
+      CREATE INDEX idx_assets_lifecycle ON assets(lifecycle, root_id, folder_id);
+      CREATE TABLE library_state (id INTEGER PRIMARY KEY CHECK(id = 1), revision INTEGER NOT NULL DEFAULT 1, writes_need_scan INTEGER NOT NULL DEFAULT 0 CHECK(writes_need_scan IN (0, 1)));
+      INSERT INTO library_state (id, revision) VALUES (1, 1);
+      CREATE TABLE file_operations (
+        id TEXT PRIMARY KEY,
+        request_id TEXT NOT NULL UNIQUE,
+        type TEXT NOT NULL,
+        request_json TEXT NOT NULL CHECK(json_valid(request_json)),
+        status TEXT NOT NULL,
+        state_json TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(state_json)),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX idx_file_operations_status ON file_operations(status, created_at);
+      CREATE TABLE file_operation_items (
+        id TEXT PRIMARY KEY,
+        operation_id TEXT NOT NULL REFERENCES file_operations(id) ON DELETE CASCADE,
+        item_index INTEGER NOT NULL,
+        asset_id TEXT,
+        folder_id TEXT,
+        status TEXT NOT NULL,
+        phase TEXT NOT NULL DEFAULT 'queued',
+        journal_json TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(journal_json)),
+        result_json TEXT CHECK(result_json IS NULL OR json_valid(result_json)),
+        error TEXT,
+        updated_at TEXT NOT NULL,
+        UNIQUE(operation_id, item_index)
+      );
+      CREATE INDEX idx_file_operation_items_status ON file_operation_items(status, operation_id);
+      CREATE TABLE managed_uploads (
+        id TEXT PRIMARY KEY,
+        request_id TEXT NOT NULL UNIQUE,
+        operation_id TEXT REFERENCES file_operations(id),
+        state_json TEXT NOT NULL CHECK(json_valid(state_json)),
+        status TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL CHECK(size_bytes >= 0),
+        received_bytes INTEGER NOT NULL DEFAULT 0 CHECK(received_bytes >= 0),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+      );
+      CREATE INDEX idx_managed_uploads_status ON managed_uploads(status, expires_at);
+      CREATE TABLE upload_cancellations (
+        request_id TEXT PRIMARY KEY,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+      );
+      CREATE INDEX idx_upload_cancellations_expiry ON upload_cancellations(expires_at, request_id);
+      CREATE TABLE managed_root_ownership (
+        root_id TEXT PRIMARY KEY,
+        identity_json TEXT NOT NULL CHECK(json_valid(identity_json)),
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE media_loss_acknowledgements (
+        id TEXT PRIMARY KEY,
+        root_id TEXT NOT NULL,
+        records_json TEXT NOT NULL CHECK(json_valid(records_json)),
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE trash_records (
+        id TEXT PRIMARY KEY,
+        asset_id TEXT NOT NULL UNIQUE REFERENCES assets(id) ON DELETE CASCADE,
+        original_root_id TEXT NOT NULL,
+        original_folder_id TEXT,
+        original_relative_path TEXT NOT NULL,
+        original_name TEXT NOT NULL,
+        physical_relative_path TEXT NOT NULL,
+        identity_json TEXT NOT NULL CHECK(json_valid(identity_json)),
+        trashed_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+      );
+      CREATE INDEX idx_trash_records_expiry ON trash_records(expires_at, id);
+      CREATE TABLE asset_manual_adjustments (
+        asset_id TEXT PRIMARY KEY REFERENCES assets(id) ON DELETE CASCADE,
+        manual_adjustment INTEGER NOT NULL,
+        absolute_score INTEGER
+      );
+      INSERT INTO asset_manual_adjustments SELECT asset_id, manual_adjustment, NULL FROM asset_rankings;
+      CREATE TRIGGER preserve_manual_adjustment_insert AFTER INSERT ON asset_rankings BEGIN
+        INSERT INTO asset_manual_adjustments VALUES (NEW.asset_id, NEW.manual_adjustment, NULL)
+        ON CONFLICT(asset_id) DO UPDATE SET manual_adjustment = excluded.manual_adjustment, absolute_score = NULL;
+      END;
+      CREATE TRIGGER preserve_manual_adjustment_update AFTER UPDATE OF manual_adjustment ON asset_rankings BEGIN
+        INSERT INTO asset_manual_adjustments VALUES (NEW.asset_id, NEW.manual_adjustment, NULL)
+        ON CONFLICT(asset_id) DO UPDATE SET manual_adjustment = excluded.manual_adjustment, absolute_score = NULL;
+      END;
+      CREATE TRIGGER managed_asset_version AFTER UPDATE OF root_id, folder_id, relative_path, name, size_bytes, mtime_ms, content_sha256, fs_device_id, fs_inode, fs_birthtime_ns, fs_ctime_ns, lifecycle ON assets
+      WHEN OLD.root_id IS NOT NEW.root_id OR OLD.folder_id IS NOT NEW.folder_id OR OLD.relative_path IS NOT NEW.relative_path
+        OR OLD.name IS NOT NEW.name OR OLD.size_bytes IS NOT NEW.size_bytes OR OLD.mtime_ms IS NOT NEW.mtime_ms
+        OR OLD.content_sha256 IS NOT NEW.content_sha256 OR OLD.fs_device_id IS NOT NEW.fs_device_id OR OLD.fs_inode IS NOT NEW.fs_inode
+        OR OLD.fs_birthtime_ns IS NOT NEW.fs_birthtime_ns OR OLD.fs_ctime_ns IS NOT NEW.fs_ctime_ns OR OLD.lifecycle IS NOT NEW.lifecycle
+      BEGIN UPDATE assets SET source_revision = source_revision + 1 WHERE id = NEW.id; END;
+      CREATE TRIGGER managed_folder_version AFTER UPDATE OF root_id, parent_id, relative_path, name, fs_device_id, fs_inode ON folders
+      WHEN OLD.root_id IS NOT NEW.root_id OR OLD.parent_id IS NOT NEW.parent_id OR OLD.relative_path IS NOT NEW.relative_path OR OLD.name IS NOT NEW.name OR OLD.fs_device_id IS NOT NEW.fs_device_id OR OLD.fs_inode IS NOT NEW.fs_inode
+      BEGIN UPDATE folders SET source_revision = source_revision + 1 WHERE id = NEW.id; END;
+    `,
+    apply(db) {
+      const publicColumns: Record<string, readonly string[]> = {
+        assets: [
+          "root_id",
+          "folder_id",
+          "relative_path",
+          "name",
+          "extension",
+          "media_type",
+          "mime_type",
+          "size_bytes",
+          "mtime_ms",
+          "width",
+          "height",
+          "duration_ms",
+          "codec",
+          "status",
+          "error",
+          "content_sha256",
+          "fs_device_id",
+          "fs_inode",
+          "fs_birthtime_ns",
+          "fs_ctime_ns",
+          "lifecycle",
+          "source_revision"
+        ],
+        folders: [
+          "root_id",
+          "parent_id",
+          "relative_path",
+          "name",
+          "asset_count",
+          "source_revision",
+          "fs_device_id",
+          "fs_inode"
+        ],
+        asset_annotations: ["manual_score", "favorite"],
+        asset_tags: ["asset_id", "tag_id"],
+        asset_rankings: [
+          "skill",
+          "comparison_score",
+          "manual_adjustment",
+          "comparison_count"
+        ],
+        asset_presentations: ["revision"]
+      };
+      for (const table of [
+        "assets",
+        "folders",
+        "asset_annotations",
+        "asset_tags",
+        "asset_rankings",
+        "asset_presentations"
+      ]) {
+        for (const action of ["INSERT", "UPDATE", "DELETE"]) {
+          const condition =
+            action === "UPDATE"
+              ? `WHEN ${publicColumns[table]!.map((column) => `OLD.${column} IS NOT NEW.${column}`).join(" OR ")}`
+              : "";
+          db.exec(`CREATE TRIGGER library_revision_${table}_${action.toLowerCase()} AFTER ${action} ON ${table}
+            ${condition} BEGIN UPDATE library_state SET revision = revision + 1 WHERE id = 1; END;`);
+        }
+      }
+    }
   }
 ];
 
@@ -555,7 +725,10 @@ const REQUIRED_TABLE_COLUMNS = new Map<string, readonly string[]>([
       "name",
       "asset_count",
       "created_at",
-      "updated_at"
+      "updated_at",
+      "source_revision",
+      "fs_device_id",
+      "fs_inode"
     ]
   ],
   [
@@ -583,7 +756,9 @@ const REQUIRED_TABLE_COLUMNS = new Map<string, readonly string[]>([
       "fs_device_id",
       "fs_inode",
       "fs_birthtime_ns",
-      "fs_ctime_ns"
+      "fs_ctime_ns",
+      "lifecycle",
+      "source_revision"
     ]
   ],
   [
@@ -695,10 +870,84 @@ const REQUIRED_TABLE_COLUMNS = new Map<string, readonly string[]>([
     ]
   ],
   ["database_maintenance", ["name", "completed_at"]],
-  ["security_state", ["key", "value", "updated_at"]]
+  ["security_state", ["key", "value", "updated_at"]],
+  ["library_state", ["id", "revision", "writes_need_scan"]],
+  [
+    "file_operations",
+    [
+      "id",
+      "request_id",
+      "type",
+      "request_json",
+      "status",
+      "state_json",
+      "created_at",
+      "updated_at"
+    ]
+  ],
+  [
+    "file_operation_items",
+    [
+      "id",
+      "operation_id",
+      "item_index",
+      "status",
+      "phase",
+      "journal_json",
+      "result_json",
+      "error",
+      "updated_at"
+    ]
+  ],
+  [
+    "managed_uploads",
+    [
+      "id",
+      "request_id",
+      "operation_id",
+      "state_json",
+      "status",
+      "size_bytes",
+      "received_bytes",
+      "created_at",
+      "updated_at",
+      "expires_at"
+    ]
+  ],
+  ["managed_root_ownership", ["root_id", "identity_json", "created_at"]],
+  ["upload_cancellations", ["request_id", "created_at", "expires_at"]],
+  [
+    "media_loss_acknowledgements",
+    ["id", "root_id", "records_json", "created_at"]
+  ],
+  [
+    "trash_records",
+    [
+      "id",
+      "asset_id",
+      "original_root_id",
+      "original_folder_id",
+      "original_relative_path",
+      "original_name",
+      "physical_relative_path",
+      "identity_json",
+      "trashed_at",
+      "expires_at"
+    ]
+  ],
+  [
+    "asset_manual_adjustments",
+    ["asset_id", "manual_adjustment", "absolute_score"]
+  ]
 ]);
 
 const REQUIRED_INDEX_COLUMNS = new Map<string, readonly string[]>([
+  ["idx_assets_lifecycle", ["lifecycle", "root_id", "folder_id"]],
+  ["idx_file_operations_status", ["status", "created_at"]],
+  ["idx_file_operation_items_status", ["status", "operation_id"]],
+  ["idx_managed_uploads_status", ["status", "expires_at"]],
+  ["idx_upload_cancellations_expiry", ["expires_at", "request_id"]],
+  ["idx_trash_records_expiry", ["expires_at", "id"]],
   ["idx_assets_folder", ["folder_id"]],
   ["idx_assets_type", ["media_type"]],
   ["idx_assets_mtime", ["mtime_ms"]],
@@ -726,6 +975,25 @@ const REQUIRED_INDEX_COLUMNS = new Map<string, readonly string[]>([
   ]
 ]);
 
+const REQUIRED_MANAGEMENT_TRIGGERS = [
+  "managed_asset_version",
+  "managed_folder_version",
+  "preserve_manual_adjustment_insert",
+  "preserve_manual_adjustment_update",
+  ...[
+    "assets",
+    "folders",
+    "asset_annotations",
+    "asset_tags",
+    "asset_rankings",
+    "asset_presentations"
+  ].flatMap((table) =>
+    ["insert", "update", "delete"].map(
+      (action) => `library_revision_${table}_${action}`
+    )
+  )
+];
+
 export function validateLatestAetherSchema(db: AetherDatabase): void {
   const migrationRows = db
     .prepare("SELECT version, name FROM schema_migrations ORDER BY version")
@@ -741,6 +1009,15 @@ export function validateLatestAetherSchema(db: AetherDatabase): void {
   ) {
     throw new InvalidAetherSchemaError();
   }
+  const triggerNames = new Set(
+    (
+      db
+        .prepare("SELECT name FROM sqlite_schema WHERE type = 'trigger'")
+        .all() as Array<{ name: string }>
+    ).map((row) => row.name)
+  );
+  if (REQUIRED_MANAGEMENT_TRIGGERS.some((name) => !triggerNames.has(name)))
+    throw new InvalidAetherSchemaError();
 
   for (const [tableName, requiredColumns] of REQUIRED_TABLE_COLUMNS) {
     const table = db
@@ -898,7 +1175,10 @@ function runPendingPrivacyMaintenance(db: AetherDatabase): void {
   ).run(new Date().toISOString());
 }
 
-export function applyMigrations(db: AetherDatabase): number[] {
+export function applyMigrations(
+  db: AetherDatabase,
+  throughVersion = LATEST_SCHEMA_VERSION
+): number[] {
   db.exec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       version INTEGER PRIMARY KEY,
@@ -914,7 +1194,7 @@ export function applyMigrations(db: AetherDatabase): number[] {
   const appliedNow: number[] = [];
 
   for (const migration of migrations) {
-    if (applied.has(migration.version)) {
+    if (applied.has(migration.version) || migration.version > throughVersion) {
       continue;
     }
 

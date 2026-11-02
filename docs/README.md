@@ -3,10 +3,10 @@
 ## Run Aether
 
 - [Installation](installation.md): local setup, Docker, updates, and HTTPS.
-- [Configuration](configuration.md): media roots, sign-in, file watching, and
-  optional tag suggestions.
+- [Configuration](configuration.md): media roots, file-management permissions,
+  sign-in, file watching and optional tag suggestions.
 - [User guide](user-guide.md): browsing, presentation, comparison, organization,
-  downloads and Home Screen use.
+  file management, media handling, downloads and Home Screen use.
 
 ## Keep It Safe
 
@@ -22,13 +22,14 @@
 - [Media playback and presentation plan](plans/media-experience.md): active
   milestones for controls, HEIC, video/animation highlights and playback,
   framing, and device compatibility.
-- [Media management plan](plans/media-management.md): device uploads, file/folder moves,
-  recoverable Trash, interface flows, filesystem safety and interruption recovery.
+- [Media management plan](plans/media-management.md): device uploads, folder
+  creation, media/folder rename and moves, recoverable Trash, interface and guide
+  revisions, filesystem safety and interruption recovery.
 - [Architecture](architecture.md): the main parts of the app and how data moves
   between them.
 - [Development](development.md): repository layout, commands, and testing.
 - [Engineering standards](engineering.md): code boundaries, state rules,
-  accessibility, and quality checks.
+  accessibility, notifications, and quality checks.
 - [Release checklist](release-checklist.md): checks before a release or
   deployment.
 - [Contributing](../CONTRIBUTING.md): local setup and change expectations.

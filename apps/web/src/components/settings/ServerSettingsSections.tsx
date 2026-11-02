@@ -1,5 +1,5 @@
 import { LockKeyhole, ServerCog, Sparkles } from "lucide-react";
-import type { SettingsSummary } from "../../api/client";
+import type { SettingsSummary, TreeRoot } from "../../api/client";
 import { boolLabel } from "./settings-formatters";
 import { SettingsSection } from "./SettingsSection";
 import { SummaryList } from "./SettingsSummaryList";
@@ -52,8 +52,9 @@ export function SecuritySettingsSection({
 }
 
 export function ServerStatusSettingsSection({
-  settings
-}: ServerSettingsSectionsProps) {
+  settings,
+  mediaRoots
+}: ServerSettingsSectionsProps & { mediaRoots: TreeRoot[] }) {
   return (
     <SettingsSection
       icon={ServerCog}
@@ -65,6 +66,10 @@ export function ServerStatusSettingsSection({
           ["Environment", settings?.server.environment ?? "-"],
           ["Version", settings?.server.version ?? "0.1.0"],
           ["Media roots", String(settings?.library.mediaRootCount ?? 0)],
+          [
+            "Writable roots",
+            String(mediaRoots.filter((root) => root.writable).length)
+          ],
           ["Watcher", settings?.library.watchEnabled ? "Enabled" : "Disabled"],
           [
             "Debounce",
@@ -74,14 +79,20 @@ export function ServerStatusSettingsSection({
       />
       {settings?.library.mediaRoots.length ? (
         <div className="settings-root-list" aria-label="Media roots">
-          {settings.library.mediaRoots.map((root) => (
-            <span
-              className="settings-pill font-mono text-xs font-medium"
-              key={root.id}
-            >
-              {root.label}
-            </span>
-          ))}
+          {settings.library.mediaRoots.map((root) => {
+            const capability = mediaRoots.find((entry) => entry.id === root.id);
+            return (
+              <span
+                className="settings-pill font-mono text-xs font-medium"
+                key={root.id}
+              >
+                {root.label}
+                {capability
+                  ? ` · ${capability.writable ? "Writable" : "Read-only"}`
+                  : ""}
+              </span>
+            );
+          })}
         </div>
       ) : null}
     </SettingsSection>

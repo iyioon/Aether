@@ -19,7 +19,8 @@ export function getAssetTags(db: AetherDatabase, assetId: string): TagRecord[] {
       `SELECT t.id, t.normalized_name, t.display_name, t.usage_count
        FROM tags t
        JOIN asset_tags at ON at.tag_id = t.id
-       WHERE at.asset_id = ?
+       JOIN assets a ON a.id = at.asset_id
+       WHERE at.asset_id = ? AND a.lifecycle = 'active'
        ORDER BY t.display_name COLLATE NOCASE ASC`
     )
     .all(assetId) as TagRow[];
@@ -34,7 +35,7 @@ export function setAssetTags(
   now = new Date().toISOString()
 ): TagRecord[] | null {
   const asset = db
-    .prepare("SELECT id FROM assets WHERE id = ?")
+    .prepare("SELECT id FROM assets WHERE id = ? AND lifecycle = 'active'")
     .get(assetId) as { id: string } | undefined;
 
   if (!asset) {
@@ -46,7 +47,9 @@ export function setAssetTags(
   const transaction = db.transaction(() => {
     createAssetTagReplacer(db)(assetId, tags, now);
     refreshTagUsageCounts(db);
-    db.prepare("DELETE FROM tags WHERE usage_count = 0").run();
+    db.prepare(
+      "DELETE FROM tags WHERE NOT EXISTS (SELECT 1 FROM asset_tags WHERE tag_id = tags.id)"
+    ).run();
   });
 
   transaction();
@@ -88,7 +91,9 @@ export function updateAssetTagsBatch(
     }
 
     refreshTagUsageCounts(db);
-    db.prepare("DELETE FROM tags WHERE usage_count = 0").run();
+    db.prepare(
+      "DELETE FROM tags WHERE NOT EXISTS (SELECT 1 FROM asset_tags WHERE tag_id = tags.id)"
+    ).run();
   });
 
   transaction();
@@ -113,6 +118,7 @@ export function suggestTags(
       .prepare(
         `SELECT id, normalized_name, display_name, usage_count
          FROM tags
+         WHERE usage_count > 0
          ORDER BY usage_count DESC, display_name COLLATE NOCASE ASC
          LIMIT @limit`
       )
@@ -125,7 +131,7 @@ export function suggestTags(
     .prepare(
       `SELECT id, normalized_name, display_name, usage_count
        FROM tags
-       WHERE normalized_name LIKE @query ESCAPE '\\'
+       WHERE usage_count > 0 AND normalized_name LIKE @query ESCAPE '\\'
        ORDER BY usage_count DESC, display_name COLLATE NOCASE ASC
        LIMIT @limit`
     )
@@ -155,8 +161,9 @@ export function getTagsByAssetId(
          t.display_name,
          t.usage_count
        FROM asset_tags at
+       JOIN assets a ON a.id = at.asset_id
        JOIN tags t ON t.id = at.tag_id
-       WHERE at.asset_id IN (${placeholders})
+       WHERE at.asset_id IN (${placeholders}) AND a.lifecycle = 'active'
        ORDER BY t.display_name COLLATE NOCASE ASC`
     )
     .all(...uniqueIds) as AssetTagRow[];
@@ -332,8 +339,8 @@ function refreshTagUsageCounts(db: AetherDatabase): void {
     UPDATE tags
     SET usage_count = (
       SELECT COUNT(*)
-      FROM asset_tags
-      WHERE asset_tags.tag_id = tags.id
+      FROM asset_tags JOIN assets ON assets.id = asset_tags.asset_id
+      WHERE asset_tags.tag_id = tags.id AND assets.lifecycle = 'active'
     )
   `
   ).run();
@@ -357,7 +364,7 @@ function allAssetsExist(db: AetherDatabase, assetIds: string[]): boolean {
     .prepare(
       `SELECT COUNT(*) AS asset_count
        FROM assets
-       WHERE id IN (${placeholders})`
+       WHERE id IN (${placeholders}) AND lifecycle = 'active'`
     )
     .get(...assetIds) as { asset_count: number };
 

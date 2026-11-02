@@ -51,6 +51,49 @@ This document defines the working rules for keeping Aether reliable and easy to 
 - Motion uses the shared duration tokens and respects reduced-motion preferences.
 - Do not add decorative glow effects. Use borders, tokenized backgrounds, and restrained component-default elevation when separation is necessary.
 
+## Notifications
+
+- Use Sonner through the shared `components/ui/sonner.tsx` Toaster. Keep one
+  app-level host with the existing position, theme, icons and dismissal controls.
+- Announce acknowledged results, using one summary per batch. Give each event one
+  owner and a stable request/job identity so retries, polling and rerenders do not
+  repeat it. An unknown outcome is not a confirmed success or failure.
+- Keep validation, conflicts and editable-form save errors beside the relevant
+  field or footer, with the draft intact. Use an error toast when no persistent
+  local recovery surface exists; avoid repeating the same error in both places.
+- Keep transfer progress and detailed results in Activity. Ordinary selection,
+  navigation, preference changes and repeated score/favorite clicks use their
+  controls as feedback rather than producing a toast for every interaction.
+- Use the shared toast action for Undo or View activity, with an equivalent route
+  in Trash or Activity after the toast disappears. Notification actions must not
+  bypass confirmation, request reconciliation or the ordinary mutation flow.
+- Preserve keyboard focus and announce each result once. Verify toast visibility,
+  announcements and action access with dialogs, phone safe areas and keyboards.
+- Dismiss private toasts and invalidate their pending callbacks on logout or
+  session expiry. Keep sign-in and session-expiry guidance on the sign-in screen;
+  suppress duplicate mutation-failure toasts for the same unauthorized response.
+
+## Product Copy And User Documentation
+
+- Describe the action, result or condition in plain language. Use the exact UI
+  label in instructions and keep one term for each action throughout the app.
+- Use short task headings and numbered steps for procedures. Include prerequisites
+  and consequences where needed; omit introductions or subtitles that repeat a
+  heading, promotional claims, filler and decorative explanation.
+- Explain what changes and what is kept for the specific action. Avoid broad
+  assurances such as "Your files are safe" when the result depends on permissions,
+  the selected operation or a retention policy.
+- Errors identify the problem and the next useful action. Progress distinguishes
+  work still running from acknowledged completion; partial success is explicit.
+- Keep internal implementation terms in engineering/operator documentation unless
+  they help users make a decision. Do not repeat full policy text in every dialog.
+- Use sentence case for UI labels and guide headings. Remove secondary text only
+  when it repeats a title or control. Keep text that identifies an item, explains
+  scope or a disabled action, warns of a consequence or gives a recovery step.
+  Empty-state guidance must match the current query and available actions.
+- Keep the embedded and Markdown user guides consistent. Document behavior when
+  it ships; label future work in plans rather than presenting it as available.
+
 ## Quality Gates
 
 Every change must pass:

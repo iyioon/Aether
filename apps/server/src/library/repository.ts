@@ -98,6 +98,7 @@ export type {
   UpsertFolderInput
 } from "./repository-types.js";
 import { searchNgramText } from "./search-text.js";
+import { getLibraryRevision } from "./repository-management.js";
 
 export function assetIdFor(rootId: string, relativePath: string): string {
   return stableId("asset", rootId, relativePath);
@@ -272,7 +273,7 @@ export function listStoredAssetIdentities(
          a.width,
          a.height
        FROM assets a
-       JOIN roots ON roots.id = a.root_id`
+       JOIN roots ON roots.id = a.root_id WHERE a.lifecycle = 'active'`
     )
     .all() as Array<{
     id: string;
@@ -357,7 +358,9 @@ export function repairAssetSearchIndexForRoot(
   rootId: string
 ): void {
   const assetCount = db
-    .prepare("SELECT COUNT(*) AS count FROM assets WHERE root_id = ?")
+    .prepare(
+      "SELECT COUNT(*) AS count FROM assets WHERE root_id = ? AND lifecycle = 'active'"
+    )
     .get(rootId) as { count: number };
   const searchCount = db
     .prepare("SELECT COUNT(*) AS count FROM asset_search WHERE root_id = ?")
@@ -380,7 +383,7 @@ export function repairAssetSearchIndexForRoot(
          relative_path,
          aether_search_ngrams(name || ' ' || relative_path)
        FROM assets
-       WHERE root_id = ?`
+       WHERE root_id = ? AND lifecycle = 'active'`
     ).run(rootId);
   });
 
@@ -388,6 +391,13 @@ export function repairAssetSearchIndexForRoot(
 }
 
 export function listAssets(
+  db: AetherDatabase,
+  options: AssetListOptions
+): AssetPage | null {
+  return db.transaction(() => listAssetsSnapshot(db, options))();
+}
+
+function listAssetsSnapshot(
   db: AetherDatabase,
   options: AssetListOptions
 ): AssetPage | null {
@@ -440,7 +450,8 @@ export function listAssets(
     page: {
       offset: options.offset,
       limit: options.limit,
-      total
+      total,
+      revision: getLibraryRevision(db)
     }
   };
 }
@@ -456,7 +467,7 @@ export function getAsset(
       FROM assets a
       LEFT JOIN asset_annotations aa ON aa.asset_id = a.id
       LEFT JOIN asset_rankings ar ON ar.asset_id = a.id
-      WHERE a.id = ?`
+      WHERE a.id = ? AND a.lifecycle = 'active'`
     )
     .get(assetId) as AssetRow | undefined;
 
@@ -475,7 +486,7 @@ export function getAssetSource(
       JOIN roots ON roots.id = a.root_id
       LEFT JOIN asset_annotations aa ON aa.asset_id = a.id
       LEFT JOIN asset_rankings ar ON ar.asset_id = a.id
-      WHERE a.id = ?`
+      WHERE a.id = ? AND a.lifecycle = 'active'`
     )
     .get(assetId) as AssetRow | undefined;
 
@@ -547,6 +558,10 @@ export function updateAssetScore(
         manualAdjustment: input.score - ranking.comparison_score,
         updatedAt: input.updatedAt
       });
+    } else if (input.score !== undefined) {
+      db.prepare(
+        "UPDATE asset_manual_adjustments SET absolute_score = ? WHERE asset_id = ?"
+      ).run(input.score, input.assetId);
     }
 
     return getAsset(db, input.assetId);
@@ -570,6 +585,9 @@ export function clearAssetManualAdjustment(
        SET manual_score = 0, updated_at = ?
        WHERE asset_id = ?`
     ).run(updatedAt, assetId);
+    db.prepare("DELETE FROM asset_manual_adjustments WHERE asset_id = ?").run(
+      assetId
+    );
     db.prepare(
       `UPDATE asset_rankings
        SET manual_adjustment = 0, updated_at = ?
@@ -639,6 +657,10 @@ export function updateAssetScoresBatch(
           manualAdjustment: input.score - ranking.comparison_score,
           updatedAt: input.updatedAt
         });
+      } else if (input.score !== undefined) {
+        db.prepare(
+          "UPDATE asset_manual_adjustments SET absolute_score = ? WHERE asset_id = ?"
+        ).run(input.score, assetId);
       }
     }
   });
@@ -667,7 +689,7 @@ export function getAssetsByIds(
        FROM assets a
        LEFT JOIN asset_annotations aa ON aa.asset_id = a.id
        LEFT JOIN asset_rankings ar ON ar.asset_id = a.id
-       WHERE a.id IN (${placeholders})`
+       WHERE a.id IN (${placeholders}) AND a.lifecycle = 'active'`
     )
     .all(...assetIds) as AssetRow[];
   const assetsById = new Map(
@@ -753,7 +775,7 @@ function allAssetsExist(db: AetherDatabase, assetIds: string[]): boolean {
     .prepare(
       `SELECT COUNT(*) AS asset_count
        FROM assets
-       WHERE id IN (${placeholders})`
+       WHERE id IN (${placeholders}) AND lifecycle = 'active'`
     )
     .get(...assetIds) as { asset_count: number };
 
@@ -761,5 +783,9 @@ function allAssetsExist(db: AetherDatabase, assetIds: string[]): boolean {
 }
 
 function assetExists(db: AetherDatabase, assetId: string): boolean {
-  return Boolean(db.prepare("SELECT 1 FROM assets WHERE id = ?").get(assetId));
+  return Boolean(
+    db
+      .prepare("SELECT 1 FROM assets WHERE id = ? AND lifecycle = 'active'")
+      .get(assetId)
+  );
 }

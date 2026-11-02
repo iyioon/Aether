@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError,
   getAssets,
+  getAssetDetails,
   type AssetRecord,
   type MediaTypeFilter,
   type ScoreFilter,
@@ -11,14 +12,16 @@ import {
   type TagRecord,
   type TreeResponse
 } from "../../api/client";
-import {
-  buildAssetListQueryKey,
-  canRequestMoreAssets
-} from "../gallery-loading";
+import { buildAssetListQueryKey } from "../gallery-loading";
 import { randomSeedForQuery } from "./random-order-state";
+import {
+  readAssetAppend,
+  readAssetWindow,
+  sameAssetOrder
+} from "./asset-window";
+import { folderWithin } from "../management/management-model";
 
 const ASSET_PAGE_LIMIT = 80;
-
 interface UseAssetListOptions {
   folderId: string | null;
   mediaType: MediaTypeFilter;
@@ -42,20 +45,34 @@ export function useAssetList({
 }: UseAssetListOptions) {
   const [assets, setAssets] = useState<AssetRecord[]>([]);
   const [totalAssets, setTotalAssets] = useState(0);
+  const [unavailableAssetIds, setUnavailableAssetIds] = useState<string[]>([]);
+  const [outsideScopeAssetIds, setOutsideScopeAssetIds] = useState<string[]>(
+    []
+  );
+  const unavailableRef = useRef(new Set<string>());
   const [assetError, setAssetError] = useState<string | null>(null);
   const [isLoadingAssets, setIsLoadingAssets] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [loadedQueryKey, setLoadedQueryKey] = useState<string | null>(null);
-  const [assetReloadToken, setAssetReloadToken] = useState(0);
+  const [pendingQueryKey, setPendingQueryKey] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
-  const loadMoreInFlightRef = useRef(false);
-  const loadMoreRequestRef = useRef<AbortController | null>(null);
-  const loadedWindowRef = useRef({
-    queryKey: loadedQueryKey,
-    count: assets.length
+  const requestRef = useRef<AbortController | null>(null);
+  const appendRef = useRef<AbortController | null>(null);
+  const mutationEpochRef = useRef(0);
+  const acceptedEpochRef = useRef(0);
+  const acceptedQueryRef = useRef<string | null>(null);
+  const changedAssetIdsRef = useRef(new Set<string>());
+  const revisionRef = useRef<string | undefined>(undefined);
+  const explicitReloadRef = useRef(false);
+  const stateRef = useRef({
+    assets,
+    loadedQueryKey,
+    totalAssets,
+    pendingQueryKey
   });
-  loadedWindowRef.current = { queryKey: loadedQueryKey, count: assets.length };
-  const randomSeedBasis = buildAssetListQueryKey({
+  stateRef.current = { assets, loadedQueryKey, totalAssets, pendingQueryKey };
+  const basis = buildAssetListQueryKey({
     folderId,
     sort,
     sortDirection,
@@ -66,10 +83,8 @@ export function useAssetList({
   });
   const randomSeed = useMemo(
     () =>
-      sort === "random" && folderId
-        ? randomSeedForQuery(randomSeedBasis)
-        : undefined,
-    [folderId, randomSeedBasis, sort]
+      sort === "random" && folderId ? randomSeedForQuery(basis) : undefined,
+    [basis, folderId, sort]
   );
   const listQueryKey = useMemo(
     () =>
@@ -85,8 +100,8 @@ export function useAssetList({
       }),
     [
       folderId,
-      sort,
       randomSeed,
+      sort,
       sortDirection,
       mediaType,
       search,
@@ -94,34 +109,102 @@ export function useAssetList({
       scoreFilter
     ]
   );
-  const listQueryKeyRef = useRef(listQueryKey);
-  listQueryKeyRef.current = listQueryKey;
-  const hasMoreAssets = assets.length < totalAssets;
+  const queryRef = useRef(listQueryKey);
+  queryRef.current = listQueryKey;
+  const isResultsPending = pendingQueryKey === listQueryKey;
 
-  useEffect(() => {
-    loadMoreRequestRef.current?.abort();
-    loadMoreRequestRef.current = null;
-    loadMoreInFlightRef.current = false;
+  const markResultsPending = useCallback(() => {
+    appendRef.current?.abort();
+    appendRef.current = null;
     setIsLoadingMore(false);
-
-    if (!tree || !folderId) {
-      setAssets([]);
-      setTotalAssets(0);
-      setLoadedQueryKey(null);
-      setIsLoadingAssets(false);
-      return;
+    setPendingQueryKey(queryRef.current);
+  }, []);
+  const invalidateReads = useCallback(() => {
+    mutationEpochRef.current += 1;
+    requestRef.current?.abort();
+    appendRef.current?.abort();
+    appendRef.current = null;
+    setIsLoadingAssets(false);
+    setIsLoadingMore(false);
+    if (acceptedQueryRef.current === queryRef.current)
+      setLoadedQueryKey(queryRef.current);
+    else {
+      explicitReloadRef.current = true;
+      setReloadToken((current) => current + 1);
     }
+  }, []);
+  const mergeUpdatedAssets = useCallback(
+    (updatedAssets: AssetRecord[]) => {
+      invalidateReads();
+      for (const asset of updatedAssets)
+        changedAssetIdsRef.current.add(asset.id);
+      const updates = new Map(updatedAssets.map((asset) => [asset.id, asset]));
+      setAssets((current) =>
+        current.map((asset) => {
+          const updated = updates.get(asset.id);
+          return updated && !unavailableRef.current.has(asset.id)
+            ? preservePresentation(asset, updated)
+            : asset;
+        })
+      );
+    },
+    [invalidateReads]
+  );
+  const updateAssetTags = useCallback(
+    (assetId: string, tags: TagRecord[]) => {
+      invalidateReads();
+      changedAssetIdsRef.current.add(assetId);
+      setAssets((current) =>
+        current.map((asset) =>
+          asset.id === assetId && !unavailableRef.current.has(assetId)
+            ? { ...asset, tags }
+            : asset
+        )
+      );
+    },
+    [invalidateReads]
+  );
+  const removeAssets = useCallback(
+    (ids: string[]) => {
+      invalidateReads();
+      const removed = new Set(ids);
+      for (const id of ids) unavailableRef.current.add(id);
+      setAssets((current) => current.filter((asset) => !removed.has(asset.id)));
+      markResultsPending();
+    },
+    [invalidateReads, markResultsPending]
+  );
+  const markAssetsUnavailable = useCallback(
+    (ids: string[]) => {
+      if (!ids.length) return;
+      invalidateReads();
+      const removed = new Set(ids);
+      for (const id of ids) unavailableRef.current.add(id);
+      setUnavailableAssetIds((current) => [...new Set([...current, ...ids])]);
+      setAssets((current) =>
+        current.map((asset) =>
+          removed.has(asset.id) ? { ...asset, unavailable: true } : asset
+        )
+      );
+      markResultsPending();
+    },
+    [invalidateReads, markResultsPending]
+  );
+  const reloadAssets = useCallback(() => {
+    if (requestRef.current && stateRef.current.loadedQueryKey === null) return;
+    explicitReloadRef.current = true;
+    setReloadToken((current) => current + 1);
+  }, []);
 
-    let active = true;
-    const controller = new AbortController();
-    const requestQueryKey = listQueryKey;
-    setIsLoadingAssets(true);
-    setAssetError(null);
-    setLoadedQueryKey(null);
-
-    const getPage = (offset: number, limit: number) =>
+  const getPage = useCallback(
+    (
+      offset: number,
+      limit: number,
+      signal: AbortSignal,
+      expectedRevision?: string
+    ) =>
       getAssets({
-        folderId,
+        folderId: folderId!,
         offset,
         limit,
         sort,
@@ -132,235 +215,279 @@ export function useAssetList({
         tags: tagFilters,
         score: scoreFilter,
         seed: randomSeed,
-        signal: controller.signal
-      });
-    const restoreCount =
-      loadedWindowRef.current.queryKey === requestQueryKey
-        ? Math.max(ASSET_PAGE_LIMIT, loadedWindowRef.current.count)
-        : ASSET_PAGE_LIMIT;
-    const refreshLoadedWindow = async () => {
-      const response = await getPage(0, Math.min(250, restoreCount));
-      while (
-        response.items.length < Math.min(restoreCount, response.page.total) &&
-        !controller.signal.aborted
-      ) {
-        const next = await getPage(
-          response.items.length,
-          Math.min(250, restoreCount - response.items.length)
+        expectedRevision,
+        signal
+      }),
+    [
+      folderId,
+      sort,
+      sortDirection,
+      mediaType,
+      search,
+      tagFilters,
+      scoreFilter,
+      randomSeed
+    ]
+  );
+
+  useEffect(() => {
+    requestRef.current?.abort();
+    appendRef.current?.abort();
+    appendRef.current = null;
+    setIsLoadingMore(false);
+    if (!tree || !folderId) {
+      setAssets([]);
+      setTotalAssets(0);
+      setLoadedQueryKey(null);
+      setPendingQueryKey(null);
+      setIsLoadingAssets(false);
+      return;
+    }
+    const controller = new AbortController();
+    requestRef.current = controller;
+    const query = listQueryKey;
+    const epoch = mutationEpochRef.current;
+    const state = stateRef.current;
+    const sameQuery = state.loadedQueryKey === query;
+    const explicit = explicitReloadRef.current || !sameQuery;
+    explicitReloadRef.current = false;
+    if (!sameQuery) {
+      setOutsideScopeAssetIds([]);
+      setPendingQueryKey(null);
+      setLoadedQueryKey(null);
+    }
+    if (explicit) {
+      if (sameQuery) setLoadedQueryKey(null);
+      setIsLoadingAssets(true);
+      setAssetError(null);
+    }
+    const count = sameQuery
+      ? Math.max(ASSET_PAGE_LIMIT, state.assets.length)
+      : ASSET_PAGE_LIMIT;
+    void readAssetWindow(
+      count,
+      (offset, limit, revision) =>
+        getPage(offset, limit, controller.signal, revision),
+      controller.signal
+    )
+      .then(async (response) => {
+        if (
+          controller.signal.aborted ||
+          queryRef.current !== query ||
+          mutationEpochRef.current !== epoch
+        )
+          return;
+        const current = stateRef.current;
+        const orderChanged = !sameAssetOrder(current.assets, response.items);
+        const retainOrder =
+          sameQuery &&
+          !explicit &&
+          (current.pendingQueryKey === query || orderChanged);
+        const incoming = new Map(
+          response.items.map((asset) => [asset.id, asset])
         );
-        if (next.items.length === 0) break;
-        response.items.push(...next.items);
-        response.page = next.page;
-      }
-      return response;
-    };
-    refreshLoadedWindow()
-      .then((response) => {
-        if (active && listQueryKeyRef.current === requestQueryKey) {
-          setAssets((current) => {
-            const byId = new Map(current.map((asset) => [asset.id, asset]));
-            return response.items.map((incoming) => {
-              const previous = byId.get(incoming.id);
-              return previous
-                ? preservePresentation(previous, incoming)
-                : incoming;
+        if (retainOrder) {
+          const missing = current.assets
+            .filter((asset) => !incoming.has(asset.id))
+            .map((asset) => asset.id);
+          const missingUnavailable: string[] = [];
+          const outsideScope: string[] = [];
+          for (let offset = 0; offset < missing.length; offset += 500) {
+            const ids = missing.slice(offset, offset + 500);
+            const details = await getAssetDetails(ids, controller.signal);
+            if (details.revision !== response.page.revision)
+              throw new ApiError(409, "library_changed");
+            for (const asset of details.assets) {
+              incoming.set(asset.id, asset);
+              if (!folderWithin(tree, asset.folderId, folderId))
+                outsideScope.push(asset.id);
+            }
+            const activeIds = new Set(details.assets.map((asset) => asset.id));
+            missingUnavailable.push(...ids.filter((id) => !activeIds.has(id)));
+          }
+          if (
+            controller.signal.aborted ||
+            queryRef.current !== query ||
+            mutationEpochRef.current !== epoch
+          )
+            return;
+          for (const id of missingUnavailable) unavailableRef.current.add(id);
+          if (outsideScope.length)
+            setOutsideScopeAssetIds((previous) => [
+              ...new Set([...previous, ...outsideScope])
+            ]);
+          if (missingUnavailable.length)
+            setUnavailableAssetIds((previous) => [
+              ...new Set([...previous, ...missingUnavailable])
+            ]);
+          setAssets((previous) =>
+            previous.map((asset) => {
+              if (unavailableRef.current.has(asset.id))
+                return { ...asset, unavailable: true };
+              const update = incoming.get(asset.id);
+              const focused =
+                typeof document !== "undefined" &&
+                document.activeElement instanceof Element &&
+                document.activeElement.closest(
+                  `[data-asset-id="${CSS.escape(asset.id)}"] .score-control`
+                );
+              const held =
+                typeof document !== "undefined" &&
+                document.querySelector(
+                  `[data-asset-id="${CSS.escape(asset.id)}"] [data-pressing]`
+                );
+              return update && !focused && !held
+                ? preservePresentation(asset, update)
+                : asset;
+            })
+          );
+          markResultsPending();
+        } else {
+          setOutsideScopeAssetIds([]);
+          for (const asset of response.items)
+            unavailableRef.current.delete(asset.id);
+          setUnavailableAssetIds((previous) =>
+            previous.filter((id) => unavailableRef.current.has(id))
+          );
+          setAssets((previous) => {
+            const byId = new Map(previous.map((asset) => [asset.id, asset]));
+            return response.items.map((asset) => {
+              const old = byId.get(asset.id);
+              return old ? preservePresentation(old, asset) : asset;
             });
           });
           setTotalAssets(response.page.total);
-          setLoadedQueryKey(requestQueryKey);
+          revisionRef.current = response.page.revision;
+          acceptedEpochRef.current = epoch;
+          acceptedQueryRef.current = query;
+          setLoadedQueryKey(query);
+          setPendingQueryKey(null);
         }
       })
-      .catch((caught) => {
-        if (
-          active &&
-          listQueryKeyRef.current === requestQueryKey &&
-          !isAbortError(caught)
-        ) {
-          const message =
-            caught instanceof ApiError ? caught.code : "Unable to load assets.";
-          setAssetError(message);
+      .catch((caught: unknown) => {
+        if (controller.signal.aborted || queryRef.current !== query) return;
+        setAssetError(
+          caught instanceof ApiError && caught.status === 409
+            ? "The library changed while updating. Try Update results again."
+            : "Unable to update results. Try again."
+        );
+        if (sameQuery) {
+          setLoadedQueryKey(query);
+          markResultsPending();
         }
       })
       .finally(() => {
-        if (active && listQueryKeyRef.current === requestQueryKey) {
+        if (requestRef.current === controller) {
+          requestRef.current = null;
           setIsLoadingAssets(false);
         }
       });
-
-    return () => {
-      active = false;
-      controller.abort();
-    };
-  }, [
-    tree,
-    folderId,
-    sort,
-    sortDirection,
-    mediaType,
-    search,
-    tagFilters,
-    scoreFilter,
-    randomSeed,
-    assetReloadToken,
-    listQueryKey
-  ]);
-
-  const reloadAssets = useCallback(() => {
-    setAssetReloadToken((current) => current + 1);
-  }, []);
-
-  const mergeUpdatedAssets = useCallback((updatedAssets: AssetRecord[]) => {
-    const updatedAssetById = new Map(
-      updatedAssets.map((asset) => [asset.id, asset])
-    );
-
-    setAssets((currentAssets) => {
-      let didChange = false;
-      const nextAssets = currentAssets.map((asset) => {
-        const updatedAsset = updatedAssetById.get(asset.id);
-
-        if (!updatedAsset || updatedAsset === asset) {
-          return asset;
-        }
-
-        didChange = true;
-        return preservePresentation(asset, updatedAsset);
-      });
-
-      return didChange ? nextAssets : currentAssets;
-    });
-  }, []);
-
-  const updateAssetTags = useCallback((assetId: string, tags: TagRecord[]) => {
-    setAssets((currentAssets) =>
-      currentAssets.map((asset) =>
-        asset.id === assetId ? { ...asset, tags } : asset
-      )
-    );
-  }, []);
+    return () => controller.abort();
+  }, [tree, folderId, listQueryKey, reloadToken, getPage, markResultsPending]);
 
   const handleLoadMore = useCallback(async () => {
+    const state = stateRef.current;
+    const query = listQueryKey;
     if (
       !folderId ||
-      !canRequestMoreAssets({
-        folderId,
-        isLoadingMore,
-        isRequestInFlight: loadMoreInFlightRef.current,
-        loadedCount: assets.length,
-        totalCount: totalAssets
-      })
-    ) {
+      appendRef.current ||
+      isLoadingAssets ||
+      state.loadedQueryKey !== query ||
+      state.pendingQueryKey === query ||
+      state.assets.length >= state.totalAssets
+    )
       return;
-    }
-
-    const requestQueryKey = listQueryKey;
     const controller = new AbortController();
-    loadMoreInFlightRef.current = true;
-    loadMoreRequestRef.current = controller;
+    appendRef.current = controller;
     setIsLoadingMore(true);
     setAssetError(null);
-
+    const epoch = mutationEpochRef.current;
     try {
-      const response = await getAssets({
-        folderId,
-        offset: assets.length,
+      const appended = await readAssetAppend({
+        assets: state.assets,
+        revision: revisionRef.current,
+        refresh: acceptedEpochRef.current !== epoch,
         limit: ASSET_PAGE_LIMIT,
-        sort,
-        order: sortDirection,
-        type: mediaType,
-        recursive: true,
-        search,
-        tags: tagFilters,
-        score: scoreFilter,
-        seed: randomSeed,
+        getPage: (offset, limit, revision) => {
+          controller.signal.throwIfAborted();
+          if (
+            queryRef.current !== query ||
+            mutationEpochRef.current !== epoch ||
+            stateRef.current.pendingQueryKey === query
+          )
+            throw new DOMException("Obsolete asset page", "AbortError");
+          return getPage(offset, limit, controller.signal, revision);
+        },
         signal: controller.signal
       });
-
       if (
         controller.signal.aborted ||
-        loadMoreRequestRef.current !== controller ||
-        listQueryKeyRef.current !== requestQueryKey
-      ) {
+        queryRef.current !== query ||
+        mutationEpochRef.current !== epoch ||
+        appendRef.current !== controller ||
+        stateRef.current.pendingQueryKey === query
+      )
+        return;
+      if (!appended) {
+        markResultsPending();
         return;
       }
-
-      setAssets((currentAssets) => {
-        const existingIds = new Set(currentAssets.map((asset) => asset.id));
-        const nextAssets = response.items.filter(
-          (asset) => !existingIds.has(asset.id)
+      const { response, refreshed } = appended;
+      revisionRef.current = response.page.revision;
+      acceptedEpochRef.current = epoch;
+      setAssets((current) => {
+        const byId = new Map(
+          refreshed?.items.map((asset) => [asset.id, asset])
         );
-
-        return [...currentAssets, ...nextAssets];
+        return [
+          ...current.map((asset) => {
+            const updated = byId.get(asset.id);
+            return updated ? preservePresentation(asset, updated) : asset;
+          }),
+          ...response.items
+        ];
       });
       setTotalAssets(response.page.total);
     } catch (caught) {
-      if (
-        isAbortError(caught) ||
-        loadMoreRequestRef.current !== controller ||
-        listQueryKeyRef.current !== requestQueryKey
-      ) {
-        return;
-      }
-
-      const message =
-        caught instanceof ApiError
-          ? caught.code
-          : "Unable to load more assets.";
-      setAssetError(message);
+      if (controller.signal.aborted || queryRef.current !== query) return;
+      if (caught instanceof ApiError && caught.status === 409)
+        markResultsPending();
+      else setAssetError("Unable to load more assets. Try again.");
     } finally {
-      if (loadMoreRequestRef.current === controller) {
-        loadMoreRequestRef.current = null;
-        loadMoreInFlightRef.current = false;
+      if (appendRef.current === controller) {
+        appendRef.current = null;
         setIsLoadingMore(false);
       }
     }
-  }, [
-    assets.length,
-    folderId,
-    isLoadingMore,
-    listQueryKey,
-    mediaType,
-    scoreFilter,
-    randomSeed,
-    search,
-    sort,
-    sortDirection,
-    tagFilters,
-    totalAssets
-  ]);
-
+  }, [folderId, getPage, isLoadingAssets, listQueryKey, markResultsPending]);
   useEffect(
     () => () => {
-      loadMoreRequestRef.current?.abort();
-      loadMoreRequestRef.current = null;
-      loadMoreInFlightRef.current = false;
+      requestRef.current?.abort();
+      appendRef.current?.abort();
     },
     []
   );
-
   return {
     assetError,
     assets,
+    changedAssetIds: changedAssetIdsRef.current,
+    unavailableAssetIds,
+    outsideScopeAssetIds,
     handleLoadMore,
-    hasMoreAssets,
+    hasMoreAssets: assets.length < totalAssets,
     isLoadingAssets,
     isLoadingMore,
+    isResultsPending,
     listQueryKey,
     loadedQueryKey,
     loadMoreRef,
+    markResultsPending,
     mergeUpdatedAssets,
+    markAssetsUnavailable,
     reloadAssets,
+    removeAssets,
     setAssetError,
     totalAssets,
     updateAssetTags
   };
-}
-
-function isAbortError(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "name" in error &&
-    error.name === "AbortError"
-  );
 }

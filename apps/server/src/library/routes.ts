@@ -11,6 +11,7 @@ import {
   clearAssetManualAdjustment,
   folderIdFor,
   getAsset,
+  getAssetsByIds,
   getAssetTags,
   InvalidTagError,
   listAssets,
@@ -48,6 +49,7 @@ import { suggestAssetTags } from "./tag-suggestions.js";
 import type { LibraryWatcher } from "./watcher.js";
 import {
   AssetListQuery,
+  AssetDetailsBody,
   AssetParams,
   AssetTagSuggestionQuery,
   BatchScoreBody,
@@ -65,22 +67,30 @@ import { registerPresentationRoutes } from "./routes-presentation.js";
 import { registerPresentationMediaRoutes } from "./routes-presentation-media.js";
 import { registerImageDisplayRoutes } from "./routes-image-display.js";
 import { ImageDerivativeError } from "./image-cache.js";
+import type { FileOperationManager } from "./file-operations.js";
+import { getLibraryRevision } from "./repository-management.js";
+import { registerFileOperationRoutes } from "./routes-file-operations.js";
 
 export async function registerLibraryRoutes(
   app: FastifyInstance,
   config: AppConfig,
   db: AetherDatabase,
   scanner: LibraryScanner,
-  watcher: LibraryWatcher | null = null
+  watcher: LibraryWatcher | null = null,
+  fileOperations?: FileOperationManager
 ): Promise<void> {
+  if (fileOperations)
+    registerFileOperationRoutes(app, config, db, fileOperations);
   registerPresentationRoutes(app, config, db);
   registerPresentationMediaRoutes(app, config, db);
   registerImageDisplayRoutes(app, config, db);
   app.get("/api/tree", async () => {
+    await fileOperations?.refreshCapabilities();
     const folders = listFolders(db);
     const folderById = new Map(folders.map((folder) => [folder.id, folder]));
 
     return {
+      revision: getLibraryRevision(db),
       roots: config.mediaRoots.map((root) => {
         const folderId = folderIdFor(root.id, "");
         const rootFolder = folderById.get(folderId);
@@ -89,7 +99,15 @@ export async function registerLibraryRoutes(
           id: root.id,
           folderId,
           label: root.label,
-          assetCount: rootFolder?.assetCount ?? 0
+          assetCount: rootFolder?.assetCount ?? 0,
+          sourceVersion: rootFolder?.sourceVersion,
+          version: rootFolder?.sourceVersion,
+          writable: fileOperations?.canWrite(root.id) ?? false,
+          writeUnavailableReason:
+            fileOperations?.rootStatus(root.id).reason ?? null,
+          allowedActions: fileOperations?.canWrite(root.id)
+            ? ["create-folder", "add-media"]
+            : []
         };
       }),
       folders: folders
@@ -100,7 +118,13 @@ export async function registerLibraryRoutes(
           parentId: folder.parentId,
           label: folder.name,
           relativePath: folder.relativePath,
-          assetCount: folder.assetCount
+          assetCount: folder.assetCount,
+          sourceVersion: folder.sourceVersion,
+          version: folder.sourceVersion,
+          writable: fileOperations?.canWrite(folder.rootId) ?? false,
+          allowedActions: fileOperations?.canWrite(folder.rootId)
+            ? ["create-folder", "rename-folder", "move-folder", "add-media"]
+            : []
         }))
     };
   });
@@ -131,6 +155,12 @@ export async function registerLibraryRoutes(
     if (!result) {
       return reply.code(404).send({ error: "folder_not_found" });
     }
+    if (
+      query.data.expectedRevision &&
+      query.data.expectedRevision !== result.page.revision
+    ) {
+      return reply.code(409).send({ error: "snapshot_changed" });
+    }
 
     return {
       folderId: params.data.folderId,
@@ -160,6 +190,18 @@ export async function registerLibraryRoutes(
     }
 
     return asset;
+  });
+
+  app.post("/api/assets/batch/details", async (request, reply) => {
+    const body = AssetDetailsBody.safeParse(request.body);
+    if (!body.success)
+      return reply.code(400).send({ error: "invalid_request" });
+    return db
+      .transaction(() => ({
+        assets: getAssetsByIds(db, body.data.assetIds),
+        revision: getLibraryRevision(db)
+      }))
+      .deferred();
   });
 
   registerComparisonRoutes(app, db);
@@ -390,7 +432,11 @@ export async function registerLibraryRoutes(
         return reply.code(404).send({ error: "asset_not_indexed" });
       }
 
-      return result;
+      return {
+        ...result,
+        assets: getAssetsByIds(db, body.data.assetIds),
+        revision: getLibraryRevision(db)
+      };
     } catch (error) {
       if (error instanceof InvalidTagError) {
         return reply.code(400).send({ error: "invalid_tag" });

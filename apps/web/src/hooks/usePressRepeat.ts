@@ -24,6 +24,7 @@ export function usePressRepeat({
   onRepeat = onPress,
   onRepeatEnd
 }: UsePressRepeatOptions) {
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
   const disabledRef = useRef(disabled);
   const isPressingRef = useRef(false);
   const isRepeatingRef = useRef(false);
@@ -52,6 +53,8 @@ export function usePressRepeat({
     }
 
     isPressingRef.current = false;
+    buttonRef.current?.removeAttribute("data-pressing");
+    buttonRef.current = null;
     clearTimer();
 
     if (isRepeatingRef.current) {
@@ -89,6 +92,8 @@ export function usePressRepeat({
       }
 
       clearTimer();
+      buttonRef.current = event.currentTarget;
+      event.currentTarget.dataset.pressing = "true";
       isPressingRef.current = true;
       isRepeatingRef.current = false;
       suppressPointerClickRef.current = false;
@@ -134,10 +139,23 @@ export function usePressRepeat({
   useEffect(
     () => () => {
       isPressingRef.current = false;
+      buttonRef.current?.removeAttribute("data-pressing");
       clearTimer();
     },
     [clearTimer]
   );
+
+  useEffect(() => {
+    const onHidden = () => {
+      if (document.visibilityState === "hidden") stopPress();
+    };
+    document.addEventListener("visibilitychange", onHidden);
+    window.addEventListener("pagehide", stopPress);
+    return () => {
+      document.removeEventListener("visibilitychange", onHidden);
+      window.removeEventListener("pagehide", stopPress);
+    };
+  }, [stopPress]);
 
   return {
     onBlur: stopPress,

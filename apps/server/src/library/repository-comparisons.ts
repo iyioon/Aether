@@ -246,10 +246,6 @@ export function recordComparisonDecision(
     throw new ComparisonConflictError("invalid_pair");
   }
 
-  if (!assetsExist(db, [input.leftAssetId, input.rightAssetId])) {
-    return null;
-  }
-
   const [assetLowId, assetHighId] = canonicalPair(
     input.leftAssetId,
     input.rightAssetId
@@ -275,6 +271,9 @@ export function recordComparisonDecision(
       assetIds: [input.leftAssetId, input.rightAssetId],
       replacedDecision: receipt.previous_event_id !== null
     };
+  }
+  if (!assetsExist(db, [input.leftAssetId, input.rightAssetId])) {
+    return null;
   }
   let replacedDecision = false;
 
@@ -376,7 +375,10 @@ export function undoComparisonDecision(
     )
     .get(decisionEventId) as PreferenceEventRow | undefined;
 
-  if (!decision) {
+  if (
+    !decision ||
+    !assetsExist(db, [decision.asset_low_id, decision.asset_high_id])
+  ) {
     return null;
   }
 
@@ -521,7 +523,9 @@ function readComparisonCandidates(
 function readComparisonPreferences(db: AetherDatabase): PreferenceRow[] {
   return db
     .prepare(
-      "SELECT asset_low_id, asset_high_id, winner_id FROM pair_preferences"
+      `SELECT p.asset_low_id, p.asset_high_id, p.winner_id FROM pair_preferences p
+       JOIN assets low ON low.id = p.asset_low_id AND low.lifecycle = 'active'
+       JOIN assets high ON high.id = p.asset_high_id AND high.lifecycle = 'active'`
     )
     .all() as PreferenceRow[];
 }
@@ -545,7 +549,9 @@ function comparisonProgress(
 }
 
 function assetsExist(db: AetherDatabase, assetIds: string[]): boolean {
-  const query = db.prepare("SELECT id FROM assets WHERE id = ?");
+  const query = db.prepare(
+    "SELECT id FROM assets WHERE id = ? AND lifecycle = 'active'"
+  );
   return assetIds.every((assetId) => Boolean(query.get(assetId)));
 }
 

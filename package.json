@@ -25,6 +25,7 @@
     "data:rebuild": "node --import tsx apps/server/src/cli/data.ts rebuild",
     "data:restore": "node --import tsx apps/server/src/cli/data.ts restore",
     "data:wipe": "node --import tsx apps/server/src/cli/data.ts wipe",
+    "data:recover": "node --import tsx apps/server/src/cli/data.ts recover",
     "build": "npm run build --workspaces --if-present",
     "format": "prettier --write \"apps/**/*.{ts,tsx,css}\" \"tests/**/*.ts\" \"docs/**/*.md\" \".github/**/*.{md,yml,yaml}\" \"*.{ts,md,json,yml,yaml}\"",
     "format:check": "prettier --check \"apps/**/*.{ts,tsx,css}\" \"tests/**/*.ts\" \"docs/**/*.md\" \".github/**/*.{md,yml,yaml}\" \"*.{ts,md,json,yml,yaml}\"",

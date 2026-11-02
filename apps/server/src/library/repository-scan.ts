@@ -1,7 +1,7 @@
 import type { MediaRootConfig } from "../config/config.js";
 import type { AetherDatabase } from "../db/database.js";
 import { createPresentationSourceReconciler } from "./repository-presentation.js";
-import { folderIdFor } from "./repository-folders.js";
+import { folderIdFor, storedFolderIdFor } from "./repository-folders.js";
 import { recomputeAssetRankings } from "./repository-rankings.js";
 import type {
   ScannedAssetInput,
@@ -45,7 +45,7 @@ export function reconcileScannedLibrary(
     const existingAssets = db
       .prepare(
         `SELECT id, root_id, folder_id, relative_path, name
-         FROM assets`
+         FROM assets WHERE lifecycle = 'active'`
       )
       .all() as ExistingAssetLocation[];
     const existingById = new Map(
@@ -77,7 +77,7 @@ export function reconcileScannedLibrary(
     const findDestinationOccupant = db.prepare(
       `SELECT id
        FROM assets
-       WHERE root_id = ? AND relative_path = ?`
+       WHERE root_id = ? AND relative_path = ? AND lifecycle = 'active'`
     );
     const deleteSearchRow = db.prepare(
       "DELETE FROM asset_search WHERE asset_id = ?"
@@ -169,16 +169,18 @@ export function reconcileScannedLibrary(
       .prepare(
         `SELECT id
          FROM assets
-         WHERE indexed_at <> ?`
+         WHERE lifecycle = 'active' AND indexed_at <> ?`
       )
       .all(scanMarker) as Array<{ id: string }>;
     db.prepare(
       `DELETE FROM asset_search
        WHERE asset_id IN (
-         SELECT id FROM assets WHERE indexed_at <> ?
+         SELECT id FROM assets WHERE lifecycle = 'active' AND indexed_at <> ?
        )`
     ).run(scanMarker);
-    db.prepare("DELETE FROM assets WHERE indexed_at <> ?").run(scanMarker);
+    db.prepare(
+      "DELETE FROM assets WHERE lifecycle = 'active' AND indexed_at <> ?"
+    ).run(scanMarker);
     removedAssets += staleAssets.length;
     for (const asset of staleAssets) {
       removedAssetIds.add(asset.id);
@@ -200,8 +202,15 @@ export function reconcileScannedLibrary(
     const deleteRoot = db.prepare("DELETE FROM roots WHERE id = ?");
     for (const root of existingRoots) {
       if (!configuredRootIds.has(root.id)) {
-        deleteRootSearchRows.run(root.id);
-        deleteRoot.run(root.id);
+        const retained = db
+          .prepare(
+            "SELECT 1 FROM assets WHERE root_id = ? AND lifecycle = 'trashed' LIMIT 1"
+          )
+          .get(root.id);
+        if (!retained) {
+          deleteRootSearchRows.run(root.id);
+          deleteRoot.run(root.id);
+        }
       }
     }
 
@@ -284,19 +293,23 @@ function reconcileFolders(
 ): void {
   const upsert = db.prepare(
     `INSERT INTO folders
-      (id, root_id, parent_id, relative_path, name, asset_count, created_at, updated_at)
+      (id, root_id, parent_id, relative_path, name, asset_count, created_at, updated_at, fs_device_id, fs_inode)
      VALUES
-      (@id, @rootId, @parentId, @relativePath, @name, 0, @seenAt, @seenAt)
+      (@id, @rootId, @parentId, @relativePath, @name, 0, @seenAt, @seenAt, @fsDeviceId, @fsInode)
      ON CONFLICT(root_id, relative_path) DO UPDATE SET
        parent_id = excluded.parent_id,
        name = excluded.name,
+       fs_device_id = excluded.fs_device_id,
+       fs_inode = excluded.fs_inode,
        updated_at = excluded.updated_at`
   );
 
   for (const folder of folders) {
     upsert.run({
       ...folder,
-      id: folderIdFor(folder.rootId, folder.relativePath)
+      fsDeviceId: folder.fsDeviceId ?? null,
+      fsInode: folder.fsInode ?? null,
+      id: folder.id ?? storedFolderIdFor(db, folder.rootId, folder.relativePath)
     });
   }
 }
@@ -323,7 +336,7 @@ function syncAssetSearchRow(
 function repairMissingSearchRows(db: AetherDatabase): void {
   db.prepare(
     `DELETE FROM asset_search
-     WHERE asset_id NOT IN (SELECT id FROM assets)`
+     WHERE asset_id NOT IN (SELECT id FROM assets WHERE lifecycle = 'active')`
   ).run();
   db.prepare(
     `INSERT INTO asset_search
@@ -336,7 +349,7 @@ function repairMissingSearchRows(db: AetherDatabase): void {
        a.relative_path,
        aether_search_ngrams(a.name || ' ' || a.relative_path)
      FROM assets a
-     WHERE NOT EXISTS (
+     WHERE a.lifecycle = 'active' AND NOT EXISTS (
        SELECT 1 FROM asset_search s WHERE s.asset_id = a.id
      )`
   ).run();
@@ -347,11 +360,13 @@ function refreshTagUsageCounts(db: AetherDatabase): void {
     `UPDATE tags
      SET usage_count = (
        SELECT COUNT(*)
-       FROM asset_tags
-       WHERE asset_tags.tag_id = tags.id
+       FROM asset_tags JOIN assets ON assets.id = asset_tags.asset_id
+       WHERE asset_tags.tag_id = tags.id AND assets.lifecycle = 'active'
      )`
   ).run();
-  db.prepare("DELETE FROM tags WHERE usage_count = 0").run();
+  db.prepare(
+    "DELETE FROM tags WHERE NOT EXISTS (SELECT 1 FROM asset_tags WHERE tag_id = tags.id)"
+  ).run();
 }
 
 function refreshFolderAssetCounts(db: AetherDatabase): void {
@@ -360,7 +375,7 @@ function refreshFolderAssetCounts(db: AetherDatabase): void {
      SET asset_count = (
        SELECT COUNT(*)
        FROM assets
-       WHERE assets.folder_id = folders.id
+       WHERE assets.folder_id = folders.id AND assets.lifecycle = 'active'
      )`
   ).run();
 }

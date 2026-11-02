@@ -24,6 +24,10 @@ export default tseslint.config(
   },
   eslint.configs.recommended,
   {
+    files: ["apps/server/native/*.mjs"],
+    languageOptions: { globals: globals.node }
+  },
+  {
     files: ["apps/web/pwa/*.js", "apps/web/public/offline-retry.js"],
     languageOptions: {
       globals: {

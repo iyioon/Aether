@@ -176,6 +176,7 @@ export function PresentationEditorDialog({
   }
 
   async function save(values: PresentationValues, revision: number) {
+    if (asset.unavailable) throw new ApiError(404, "asset_not_found");
     const controller = new AbortController();
     saveReadController.current = controller;
     const requireActive = () => {
@@ -285,6 +286,7 @@ export function PresentationEditorDialog({
         {loaded ? (
           <loaded.Editor
             asset={loaded.asset}
+            unavailable={asset.unavailable}
             initialAspect={initialAspect}
             originalFit={originalFit}
             capabilities={loaded.capabilities}

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   Crop,
@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import {
   resetLibraryData,
+  ApiError,
   type LibraryDataResetOptions,
   type LibraryDataResetResult
 } from "../../api/client";
@@ -107,6 +108,15 @@ export function DataResetSettingsSection({
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [confirmation, setConfirmation] = useState("");
   const [isResetting, setIsResetting] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
+  const pendingRef = useRef(false);
+  const activeRef = useRef(true);
+  useEffect(() => {
+    activeRef.current = true;
+    return () => {
+      activeRef.current = false;
+    };
+  }, []);
   const selectedOptions = RESET_OPTIONS.filter(
     (option) => selection[option.key]
   );
@@ -117,36 +127,47 @@ export function DataResetSettingsSection({
   }
 
   function openConfirmation() {
+    setResetError(null);
     setConfirmation("");
     setIsConfirmOpen(true);
   }
 
   async function confirmReset() {
-    if (confirmation !== "RESET" || !hasSelection) {
+    if (confirmation !== "RESET" || !hasSelection || pendingRef.current) {
       return;
     }
 
+    pendingRef.current = true;
     setIsResetting(true);
+    setResetError(null);
     const resetOptions = { ...selection };
+    let resetResult: LibraryDataResetResult | undefined;
 
     try {
-      const resetResult = await resetLibraryData(resetOptions);
-      setSelection(EMPTY_SELECTION);
-      setConfirmation("");
-      setIsConfirmOpen(false);
-      onResetComplete(resetResult, resetOptions);
-      toast.success("Library data reset", {
-        description: resetResultSummary(resetResult),
-        id: "database-reset-status"
-      });
-    } catch {
-      toast.error("Database reset failed", {
-        description: "The selected library data could not be reset.",
-        id: "database-reset-status"
-      });
+      resetResult = await resetLibraryData(resetOptions);
+    } catch (caught) {
+      if (
+        activeRef.current &&
+        !(caught instanceof ApiError && caught.status === 401)
+      )
+        setResetError(
+          caught instanceof ApiError && caught.status < 500
+            ? "The selected data could not be reset. Review the selection and try again."
+            : "The reset could not be confirmed. Review the library before trying again."
+        );
     } finally {
-      setIsResetting(false);
+      pendingRef.current = false;
+      if (activeRef.current) setIsResetting(false);
     }
+    if (!resetResult || !activeRef.current) return;
+    setSelection(EMPTY_SELECTION);
+    setConfirmation("");
+    setIsConfirmOpen(false);
+    toast.success("Library data reset", {
+      description: resetResultSummary(resetResult),
+      id: "database-reset-status"
+    });
+    onResetComplete(resetResult, resetOptions);
   }
 
   return (
@@ -157,7 +178,7 @@ export function DataResetSettingsSection({
     >
       <Alert>
         <TriangleAlert />
-        <AlertTitle>Your media files are safe</AlertTitle>
+        <AlertTitle>Source files are kept</AlertTitle>
         <AlertDescription>
           Source files, indexed folders and server settings are kept. Generated
           media previews are rebuilt when needed.
@@ -223,10 +244,15 @@ export function DataResetSettingsSection({
       <AlertDialog
         open={isConfirmOpen}
         onOpenChange={(open) => {
-          if (!isResetting) setIsConfirmOpen(open);
+          if (!pendingRef.current) setIsConfirmOpen(open);
         }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent
+          className="management-confirmation"
+          onEscapeKeyDown={(event) => {
+            if (pendingRef.current) event.preventDefault();
+          }}
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>Reset selected library data?</AlertDialogTitle>
             <AlertDialogDescription>
@@ -245,9 +271,21 @@ export function DataResetSettingsSection({
               id="reset-confirmation"
               placeholder="RESET"
               value={confirmation}
+              disabled={isResetting}
+              aria-describedby={resetError ? "reset-error" : undefined}
               onChange={(event) => setConfirmation(event.target.value)}
             />
           </div>
+
+          {resetError ? (
+            <p
+              id="reset-error"
+              className="text-sm text-destructive"
+              role="alert"
+            >
+              {resetError}
+            </p>
+          ) : null}
 
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isResetting}>Cancel</AlertDialogCancel>

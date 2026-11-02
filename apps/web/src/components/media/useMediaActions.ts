@@ -1,5 +1,6 @@
+import { adjacentViewerId } from "./viewer-navigation";
 import { preservePresentation } from "./presentation-record";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   updateAssetScore,
   ApiError,
@@ -17,7 +18,10 @@ import { usePageLifecycle } from "../../hooks/usePageLifecycle";
 interface UseMediaActionsOptions {
   initialSelectedAssetId?: string | null;
   assets: AssetRecord[];
-  shouldReloadAfterScoreChange: boolean;
+  shouldReloadAfterScoreChange: (input: {
+    score?: number;
+    favorite?: boolean;
+  }) => boolean;
   onAssetError: (message: string | null) => void;
   onAssetsUpdated: (assets: AssetRecord[]) => void;
   onAssetTagsUpdated: (assetId: string, tags: TagRecord[]) => void;
@@ -42,6 +46,7 @@ export function useMediaActions({
   const [viewerAssetFallback, setViewerAssetFallback] =
     useState<AssetRecord | null>(null);
   const [viewerRefreshRevision, setViewerRefreshRevision] = useState(0);
+  const viewerOrderRef = useRef<string[]>([]);
   const validatedViewerRef = useRef<string | null>(null);
   const viewerMutationRevisionRef = useRef(0);
   usePageLifecycle({
@@ -52,6 +57,15 @@ export function useMediaActions({
   const [savingScoreAssetIds, setSavingScoreAssetIds] = useState<Set<string>>(
     () => new Set()
   );
+  const assetsRef = useRef(assets);
+  assetsRef.current = assets;
+  const activeRef = useRef(true);
+  useEffect(() => {
+    activeRef.current = true;
+    return () => {
+      activeRef.current = false;
+    };
+  }, []);
   const mutationCallbacksRef = useRef({
     onAssetError,
     onAssetsUpdated,
@@ -73,10 +87,12 @@ export function useMediaActions({
         return updatedAsset;
       },
       onAssetUpdated: (updatedAsset) => {
+        if (!activeRef.current) return;
         updateViewerAssetFallback(updatedAsset);
         mutationCallbacksRef.current.onAssetsUpdated([updatedAsset]);
       },
       onPendingChange: (assetId, isPending) => {
+        if (!activeRef.current) return;
         setSavingScoreAssetIds((current) => {
           const next = new Set(current);
 
@@ -89,14 +105,24 @@ export function useMediaActions({
           return next;
         });
       },
-      onPersistedChanges: () => {
+      onPersistedChanges: (input, assetId) => {
+        if (
+          !activeRef.current ||
+          !assetsRef.current.some((asset) => asset.id === assetId)
+        )
+          return;
         const callbacks = mutationCallbacksRef.current;
 
-        if (callbacks.shouldReloadAfterScoreChange) {
+        if (callbacks.shouldReloadAfterScoreChange(input)) {
           callbacks.onReloadAssets();
         }
       },
       onError: (caught) => {
+        if (
+          !activeRef.current ||
+          (caught instanceof ApiError && caught.status === 401)
+        )
+          return;
         mutationCallbacksRef.current.onAssetError(
           scoreActionErrorMessage(caught)
         );
@@ -117,6 +143,31 @@ export function useMediaActions({
       setAnnotationAssetId(null);
     }
   }, [annotationAsset, annotationAssetId, selectedAsset, selectedAssetId]);
+
+  const viewerSelectionRef = useRef({ selectedAssetId, annotationAssetId });
+  viewerSelectionRef.current = { selectedAssetId, annotationAssetId };
+  const handleAssetsUnavailable = useCallback((ids: string[]) => {
+    const unavailable = new Set(ids);
+    const { selectedAssetId: selectedId, annotationAssetId: annotationId } =
+      viewerSelectionRef.current;
+    if (annotationId && unavailable.has(annotationId))
+      setAnnotationAssetId(null);
+    if (!selectedId || !unavailable.has(selectedId)) return;
+    const current = assetsRef.current;
+    const available = current.filter(
+      (asset) => !asset.unavailable && !unavailable.has(asset.id)
+    );
+    const availableIds = available.map((asset) => asset.id);
+    const previousIds = current.some((asset) => asset.id === selectedId)
+      ? current.map((asset) => asset.id)
+      : viewerOrderRef.current;
+    const nextId =
+      adjacentViewerId(selectedId, 1, availableIds, previousIds) ??
+      adjacentViewerId(selectedId, -1, availableIds, previousIds);
+    const next = available.find((asset) => asset.id === nextId);
+    setViewerAssetFallback(next ?? null);
+    setSelectedAssetId(next?.id ?? null);
+  }, []);
 
   const hasSelectedAsset = selectedAsset !== null;
   useEffect(() => {
@@ -143,14 +194,19 @@ export function useMediaActions({
           error instanceof ApiError &&
           [400, 404].includes(error.status)
         )
-          setSelectedAssetId(null);
+          handleAssetsUnavailable([selectedAssetId]);
       });
     return () => {
       controller.abort();
       if (!completed && validatedViewerRef.current === validationKey)
         validatedViewerRef.current = null;
     };
-  }, [hasSelectedAsset, selectedAssetId, viewerRefreshRevision]);
+  }, [
+    handleAssetsUnavailable,
+    hasSelectedAsset,
+    selectedAssetId,
+    viewerRefreshRevision
+  ]);
 
   useEffect(() => {
     if (!selectedAssetId && !annotationAssetId) {
@@ -158,9 +214,20 @@ export function useMediaActions({
     }
   }, [annotationAssetId, selectedAssetId]);
 
+  if (selectedAssetId && assets.some((asset) => asset.id === selectedAssetId))
+    viewerOrderRef.current = assets.map((asset) => asset.id);
+  const viewerIds = assets.map((asset) => asset.id);
+  const nextViewerId = selectedAssetId
+    ? adjacentViewerId(selectedAssetId, 1, viewerIds, viewerOrderRef.current)
+    : null;
+  const previousViewerId = selectedAssetId
+    ? adjacentViewerId(selectedAssetId, -1, viewerIds, viewerOrderRef.current)
+    : null;
+
   function openAssetFullscreen(assetOrId: AssetRecord | string) {
     const assetId = typeof assetOrId === "string" ? assetOrId : assetOrId.id;
 
+    viewerOrderRef.current = assets.map((asset) => asset.id);
     setViewerAssetFallback(
       typeof assetOrId === "string"
         ? (assets.find((asset) => asset.id === assetOrId) ?? null)
@@ -175,15 +242,18 @@ export function useMediaActions({
       return;
     }
 
-    const currentIndex = assets.findIndex(
-      (asset) => asset.id === selectedAsset.id
-    );
-    const nextAsset = assets[currentIndex + direction];
+    const id = direction === 1 ? nextViewerId : previousViewerId;
+    const nextAsset = assets.find((asset) => asset.id === id);
 
     if (nextAsset) {
       setViewerAssetFallback(null);
       setSelectedAssetId(nextAsset.id);
     }
+  }
+
+  function handleAssetsUpdated(updatedAssets: AssetRecord[]) {
+    for (const asset of updatedAssets) updateViewerAssetFallback(asset);
+    onAssetsUpdated(updatedAssets);
   }
 
   function handleAssetUpdated(updatedAsset: AssetRecord) {
@@ -212,6 +282,7 @@ export function useMediaActions({
     asset: AssetRecord,
     input: { score?: number; favorite?: boolean }
   ) {
+    if (asset.unavailable) return;
     onAssetError(null);
     scoreMutationQueueRef.current?.enqueue(asset, input);
   }
@@ -219,8 +290,12 @@ export function useMediaActions({
   return {
     annotationAsset,
     annotationAssetId,
+    hasNextViewerAsset: nextViewerId !== null,
+    hasPreviousViewerAsset: previousViewerId !== null,
     handleAssetTagsUpdated,
     handleAssetUpdated,
+    handleAssetsUpdated,
+    handleAssetsUnavailable,
     openAssetFullscreen,
     saveAssetScore,
     savingScoreAssetIds,
@@ -243,6 +318,7 @@ function resolveViewerAsset(
 
   if (viewerAssetFallback?.id === assetId) {
     const listed = assets.find((asset) => asset.id === assetId);
+    if (listed?.unavailable) return listed;
     return listed
       ? preservePresentation(listed, viewerAssetFallback)
       : viewerAssetFallback;

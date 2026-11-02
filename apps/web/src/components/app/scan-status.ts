@@ -2,9 +2,13 @@ import type { ScanJob } from "../../api/client";
 import type { FolderScanState } from "../folders/folder-tree-types";
 
 export interface ScanStatusToast {
-  description: string;
+  description?: string;
   title: string;
   variant: "success" | "warning" | "error";
+}
+
+export interface ScanNotification extends ScanStatusToast {
+  id: string;
 }
 
 export function scanStateForJob(
@@ -31,7 +35,6 @@ export function scanToastForState(
   switch (state) {
     case "completed":
       return {
-        description: "Your library scan finished successfully.",
         title: "Scan complete",
         variant: "success"
       };

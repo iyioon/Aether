@@ -9,6 +9,31 @@ import {
   openDatabase
 } from "../src/db/database.js";
 
+function removeManagementSchema(db: Database.Database): void {
+  const triggers = db
+    .prepare("SELECT name FROM sqlite_schema WHERE type = 'trigger'")
+    .all() as Array<{ name: string }>;
+  for (const { name } of triggers) db.exec(`DROP TRIGGER "${name}"`);
+  db.exec(`
+    DROP INDEX idx_assets_lifecycle;
+    DROP TABLE file_operation_items;
+    DROP TABLE managed_uploads;
+    DROP TABLE upload_cancellations;
+    DROP TABLE file_operations;
+    DROP TABLE managed_root_ownership;
+    DROP TABLE media_loss_acknowledgements;
+    DROP TABLE trash_records;
+    DROP TABLE asset_manual_adjustments;
+    DROP TABLE library_state;
+    ALTER TABLE assets DROP COLUMN lifecycle;
+    ALTER TABLE assets DROP COLUMN source_revision;
+    ALTER TABLE folders DROP COLUMN source_revision;
+    ALTER TABLE folders DROP COLUMN fs_device_id;
+    ALTER TABLE folders DROP COLUMN fs_inode;
+    DELETE FROM schema_migrations WHERE version = 21;
+  `);
+}
+
 describe("database migrations", () => {
   it("upgrades version 17 without losing existing records and requires presentation storage", async () => {
     const configDir = await mkdtemp(
@@ -16,6 +41,7 @@ describe("database migrations", () => {
     );
     try {
       const initial = openDatabase(configDir);
+      removeManagementSchema(initial);
       initial
         .prepare(
           "INSERT INTO roots (id, label, real_path, created_at) VALUES ('root', 'Kept', '/media', '2026-10-22')"
@@ -55,6 +81,7 @@ describe("database migrations", () => {
     );
     try {
       const initial = openDatabase(configDir);
+      removeManagementSchema(initial);
       initial.exec(`
         INSERT INTO roots (id, label, real_path, created_at) VALUES ('root', 'Media', '/media', '2026-10-26');
         INSERT INTO assets (id, root_id, relative_path, name, extension, media_type, size_bytes, mtime_ms, indexed_at, status)
@@ -276,7 +303,7 @@ describe("database migrations", () => {
         );
       }
 
-      applyMigrations(db);
+      applyMigrations(db, 20);
 
       expect(
         db
@@ -440,8 +467,8 @@ describe("database migrations", () => {
         );
       }
 
-      applyMigrations(db);
-      applyMigrations(db);
+      applyMigrations(db, 20);
+      applyMigrations(db, 20);
 
       expect(
         db

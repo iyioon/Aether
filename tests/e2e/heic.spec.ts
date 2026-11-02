@@ -124,9 +124,16 @@ for (const phone of [false, true]) {
           return [...drawing.getImageData(0, 0, 1, 1).data];
         })
       ).toEqual([146, 184, 163, 255]);
+      await activate(
+        viewer.getByRole("button", {
+          name: `More options for ${name}`,
+          exact: true
+        }),
+        phone
+      );
       const downloadPending = page.waitForEvent("download");
       await activate(
-        viewer.getByRole("link", { name: `Download ${name}`, exact: true }),
+        page.getByRole("menuitem", { name: "Download", exact: true }),
         phone
       );
       const download = await downloadPending;
@@ -137,7 +144,14 @@ for (const phone of [false, true]) {
       await download.delete();
 
       await activate(
-        viewer.getByRole("button", { name: `Edit ${name}`, exact: true }),
+        viewer.getByRole("button", {
+          name: `More options for ${name}`,
+          exact: true
+        }),
+        phone
+      );
+      await activate(
+        page.getByRole("menuitem", { name: "Edit media", exact: true }),
         phone
       );
       const editor = page.getByRole("dialog", {

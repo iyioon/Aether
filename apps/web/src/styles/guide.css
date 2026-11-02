@@ -16,17 +16,10 @@
     calc(40px + env(safe-area-inset-bottom, 0px));
 }
 
-.guide-hero h1 {
+.guide-shell > h1 {
   font-size: 26px;
   font-weight: 650;
   letter-spacing: -0.035em;
-}
-
-.guide-hero > p {
-  margin-top: 6px;
-  color: var(--muted-foreground);
-  font-size: 14px;
-  line-height: 1.55;
 }
 
 .guide-tabs {
@@ -36,7 +29,7 @@
 
 .guide-tabs-list[data-slot="tabs-list"] {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   width: 100%;
   height: auto;
   padding: 4px;
@@ -44,191 +37,49 @@
 
 .guide-tabs-list [data-slot="tabs-trigger"] {
   min-width: 0;
-  min-height: 40px;
+  min-height: 44px;
   padding: 8px 6px;
   font-size: 13px;
+  white-space: normal;
 }
 
 .guide-tab-panel {
   min-width: 0;
+  max-width: 760px;
   padding-top: 24px;
 }
 
-.guide-section > header {
-  max-width: 700px;
-  margin-bottom: 20px;
-}
-
-.guide-section > header h2 {
-  font-size: 20px;
+.guide-tab-panel h2 {
+  margin-top: 28px;
+  margin-bottom: 10px;
+  font-size: 18px;
   font-weight: 650;
-  letter-spacing: -0.025em;
+  letter-spacing: -0.02em;
 }
 
-.guide-section > header p,
-.guide-section p {
+.guide-tab-panel h2:first-child {
+  margin-top: 0;
+}
+
+.guide-tab-panel p,
+.guide-tab-panel ol {
   color: var(--muted-foreground);
   font-size: 14px;
   line-height: 1.65;
 }
 
-.guide-section > header p {
-  margin-top: 6px;
-}
-
-.guide-section h3 {
-  font-size: 14px;
-  font-weight: 650;
-}
-
-.guide-step-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.guide-step-card {
-  position: relative;
-  min-width: 0;
-  gap: 0;
-  padding: 0;
-}
-
-.guide-step-card [data-slot="card-header"] {
-  padding: 20px 20px 10px;
-}
-
-.guide-step-card [data-slot="card-content"] {
-  padding: 0 20px 20px;
-}
-
-.guide-step-number {
-  position: absolute;
-  top: 22px;
-  right: 20px;
-  color: var(--muted-foreground);
-  font-family: var(--font-mono);
-  font-size: 12px;
-}
-
-.guide-icon {
-  display: grid;
-  width: 36px;
-  height: 36px;
-  flex-shrink: 0;
-  place-items: center;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  color: var(--foreground);
-  background: var(--muted);
-}
-
-.guide-icon svg {
-  width: 18px;
-  height: 18px;
-}
-
-.guide-step-card [data-slot="card-title"] {
+.guide-tab-panel p + p {
   margin-top: 10px;
-  font-size: 14px;
-  line-height: 1.4;
 }
 
-.guide-view-grid {
-  display: grid;
-  border-block: 1px solid var(--border);
+.guide-tab-panel ol {
+  margin: 0 0 12px;
+  padding-left: 22px;
+  list-style: decimal;
 }
 
-.guide-tool {
-  display: grid;
-  grid-template-columns: 36px minmax(0, 1fr);
-  gap: 14px;
-}
-
-.guide-tool p {
-  margin-top: 4px;
-}
-
-.guide-view-grid .guide-tool {
-  padding: 18px 0;
-}
-
-.guide-view-grid .guide-tool + .guide-tool {
-  border-top: 1px solid var(--border);
-}
-
-.guide-text-block {
-  margin-top: 24px;
-}
-
-.guide-text-block h3:not(:first-child) {
-  margin-top: 22px;
-}
-
-.guide-text-block p {
-  margin-top: 7px;
-}
-
-.guide-edit-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-}
-
-.guide-topic-card {
-  min-width: 0;
-  gap: 0;
-  padding: 0;
-}
-
-.guide-topic-card [data-slot="card-header"] {
-  padding: 20px 20px 12px;
-}
-
-.guide-topic-card [data-slot="card-title"] {
-  font-size: 15px;
-}
-
-.guide-topic-card [data-slot="card-content"] {
-  padding: 0 20px 20px;
-}
-
-.guide-topic-card p + p {
-  margin-top: 12px;
-}
-
-.guide-ranking-steps {
-  display: grid;
-  gap: 22px;
-  list-style: none;
-}
-
-.guide-ranking-steps li {
-  display: grid;
-  grid-template-columns: 30px minmax(0, 1fr);
-  gap: 14px;
-}
-
-.guide-ranking-steps li > span {
-  display: grid;
-  width: 30px;
-  height: 30px;
-  place-items: center;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--muted);
-  font-family: var(--font-mono);
-  font-size: 12px;
-}
-
-.guide-ranking-steps p {
-  margin-top: 5px;
-}
-
-.guide-tool-list {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 28px 36px;
+.guide-tab-panel li + li {
+  margin-top: 6px;
 }
 
 .guide-shortcut-list {
@@ -265,64 +116,18 @@
   line-height: 1.5;
 }
 
-.guide-privacy-note {
-  display: grid;
-  grid-template-columns: 24px minmax(0, 1fr);
-  gap: 12px;
-  margin-top: 24px;
-  padding: 18px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
-  background: var(--muted);
-}
-
-.guide-privacy-note p {
-  margin-top: 4px;
-}
-
-.guide-privacy-note > svg {
-  width: 20px;
-  height: 20px;
-  margin-top: 1px;
-  color: var(--muted-foreground);
-}
-
-@media (max-width: 760px) {
+@media (max-width: 767px),
+  (max-width: 1024px) and (hover: none) and (pointer: coarse) {
   .guide-shell {
     padding: 24px max(16px, env(safe-area-inset-right, 0px))
       calc(32px + env(safe-area-inset-bottom, 0px))
       max(16px, env(safe-area-inset-left, 0px));
   }
-
-  .guide-tabs-list[data-slot="tabs-list"] {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .guide-tabs-list [data-slot="tabs-trigger"] {
-    min-height: 44px;
-  }
-
-  .guide-step-grid,
-  .guide-edit-grid,
-  .guide-tool-list {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .guide-shortcut-list > div {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: 12px;
-  }
 }
 
-@container user-guide (max-width: 760px) {
+@container user-guide (max-width: 520px) {
   .guide-tabs-list[data-slot="tabs-list"] {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .guide-step-grid,
-  .guide-edit-grid,
-  .guide-tool-list {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .guide-shortcut-list > div {

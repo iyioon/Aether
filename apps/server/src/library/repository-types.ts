@@ -8,6 +8,7 @@ export interface FolderRecord {
   relativePath: string;
   name: string;
   assetCount: number;
+  sourceVersion?: string;
 }
 
 export interface AssetRecord {
@@ -30,6 +31,7 @@ export interface AssetRecord {
   favorite: boolean;
   tags: TagRecord[];
   presentation: MediaPresentation;
+  sourceVersion?: string;
 }
 
 export interface AssetRankingRecord {
@@ -51,6 +53,7 @@ export interface AssetPage {
     offset: number;
     limit: number;
     total: number;
+    revision?: string;
   };
 }
 
@@ -140,6 +143,9 @@ export interface AssetListOptions {
 }
 
 export interface UpsertFolderInput {
+  id?: string;
+  fsDeviceId?: string | null;
+  fsInode?: string | null;
   rootId: string;
   parentId: string | null;
   relativePath: string;
@@ -201,10 +207,12 @@ export interface FolderRow {
   relative_path: string;
   name: string;
   asset_count: number;
+  source_revision?: number;
 }
 
 export interface AssetRow {
   id: string;
+  source_revision?: number;
   root_id?: string;
   root_real_path?: string;
   relative_path?: string;

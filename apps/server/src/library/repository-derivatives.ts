@@ -14,7 +14,7 @@ export function removeObsoleteDerivativeRecords(
   return db.transaction(() => {
     const obsolete = `NOT EXISTS (
       SELECT 1 FROM assets a
-      WHERE a.id = derivatives.asset_id AND a.mtime_ms = derivatives.source_mtime_ms
+      WHERE a.id = derivatives.asset_id AND a.lifecycle = 'active' AND a.mtime_ms = derivatives.source_mtime_ms
     ) ${includeUnfinished ? "OR status != 'ready'" : ""}`;
     const rows = db
       .prepare(
@@ -52,7 +52,7 @@ export function getDerivative(
     .prepare(
       `SELECT id, asset_id, kind, width, height, path, source_mtime_ms, status, error
        FROM derivatives
-       WHERE id = ?`
+       WHERE id = ? AND EXISTS (SELECT 1 FROM assets a WHERE a.id = derivatives.asset_id AND a.lifecycle = 'active')`
     )
     .get(id) as DerivativeRow | undefined;
 
@@ -67,8 +67,9 @@ export function upsertDerivative(
     `
     INSERT INTO derivatives
       (id, asset_id, kind, width, height, path, source_mtime_ms, status, error, created_at)
-    VALUES
-      (@id, @assetId, @kind, @width, @height, @path, @sourceMtimeMs, @status, @error, @createdAt)
+    SELECT
+      @id, @assetId, @kind, @width, @height, @path, @sourceMtimeMs, @status, @error, @createdAt
+    WHERE EXISTS (SELECT 1 FROM assets WHERE id = @assetId AND lifecycle = 'active' AND mtime_ms = @sourceMtimeMs)
     ON CONFLICT(asset_id, kind, width, height) DO UPDATE SET
       id = excluded.id,
       path = excluded.path,
@@ -128,11 +129,9 @@ export function updateAssetDimensions(
   width: number | null,
   height: number | null
 ): void {
-  db.prepare("UPDATE assets SET width = ?, height = ? WHERE id = ?").run(
-    width,
-    height,
-    assetId
-  );
+  db.prepare(
+    "UPDATE assets SET width = ?, height = ? WHERE id = ? AND lifecycle = 'active'"
+  ).run(width, height, assetId);
 }
 
 export function updateAssetMediaMetadata(
@@ -145,7 +144,7 @@ export function updateAssetMediaMetadata(
          height = ?,
          duration_ms = ?,
          codec = ?
-     WHERE id = ?`
+     WHERE id = ? AND lifecycle = 'active'`
   ).run(
     input.width,
     input.height,

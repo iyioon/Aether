@@ -11,6 +11,7 @@ import {
   type WheelEvent as ReactWheelEvent
 } from "react";
 import { GalleryHorizontalEnd } from "lucide-react";
+import { Button } from "../ui/button";
 import type { AssetRecord } from "../../api/client";
 import type { MediaPlaybackCommands } from "../media/MediaPreview";
 import { useAutoLoadSentinel } from "../../hooks/useAutoLoadSentinel";
@@ -67,6 +68,9 @@ interface FeedPreviewProps {
   onFavoriteAsset: (asset: AssetRecord, favorite: boolean) => void;
   onScoreAsset: (asset: AssetRecord, score: number) => void;
   onEditAsset?: (asset: AssetRecord) => void;
+  hasQueryFilters?: boolean;
+  resultsPending?: boolean;
+  onAddMedia?: () => void;
 }
 
 export function FeedPreview({
@@ -89,7 +93,10 @@ export function FeedPreview({
   onOpenAsset,
   onFavoriteAsset,
   onScoreAsset,
-  onEditAsset
+  onEditAsset,
+  hasQueryFilters = false,
+  resultsPending = false,
+  onAddMedia
 }: FeedPreviewProps) {
   const feedRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<Array<HTMLElement | null>>([]);
@@ -706,8 +713,25 @@ export function FeedPreview({
     return (
       <section className="empty-library">
         <GalleryHorizontalEnd size={22} />
-        <strong>No media in this feed</strong>
-        <span>Adjust filters or run a scan after adding local media.</span>
+        <strong>
+          {resultsPending
+            ? "Results have changed"
+            : hasQueryFilters
+              ? "No media matches this search or filter"
+              : "No media in this folder"}
+        </strong>
+        <span>
+          {resultsPending
+            ? "Update results to show the current library."
+            : hasQueryFilters
+              ? "Adjust the search or filters to see more media."
+              : "Add media, or scan after copying files into this folder."}
+        </span>
+        {!resultsPending && !hasQueryFilters && onAddMedia ? (
+          <Button type="button" onClick={onAddMedia}>
+            Add media
+          </Button>
+        ) : null}
       </section>
     );
   }

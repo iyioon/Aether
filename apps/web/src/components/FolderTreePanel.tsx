@@ -17,6 +17,10 @@ import {
   ChevronUp,
   Folder,
   FolderOpen,
+  FolderInput,
+  MoreHorizontal,
+  Pencil,
+  Plus,
   RefreshCw
 } from "lucide-react";
 import type { LibraryWatchStatus, ScanProgress } from "../api/client";
@@ -67,6 +71,11 @@ interface FolderTreePanelProps {
   ) => void;
   onFolderSortChange: (sortMode: FolderSortMode) => void;
   onScan: () => void;
+  canCreateFolder?: boolean;
+  canManageFolder?: boolean;
+  onFolderAction?: (
+    action: "create-folder" | "rename-folder" | "move-folder"
+  ) => void;
   onSelectFolder: (folderId: string) => void;
   onToggleFolderExpansion: (folderId: string) => void;
 }
@@ -102,6 +111,9 @@ export function FolderTreePanel({
   onFolderKeyDown,
   onFolderSortChange,
   onScan,
+  canCreateFolder,
+  canManageFolder,
+  onFolderAction,
   onSelectFolder,
   onToggleFolderExpansion
 }: FolderTreePanelProps) {
@@ -243,6 +255,43 @@ export function FolderTreePanel({
           <span>Folders</span>
         </div>
         <div className="panel-actions" aria-label="Folder tree actions">
+          {onFolderAction ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  aria-label="Selected folder actions"
+                  size="icon-sm"
+                  variant="ghost"
+                >
+                  <MoreHorizontal />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  disabled={!canCreateFolder}
+                  onSelect={() => onFolderAction("create-folder")}
+                >
+                  <Plus />
+                  New folder
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={!canManageFolder}
+                  onSelect={() => onFolderAction("rename-folder")}
+                >
+                  <Pencil />
+                  Rename…
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={!canManageFolder}
+                  onSelect={() => onFolderAction("move-folder")}
+                >
+                  <FolderInput />
+                  Move to…
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
+
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button

@@ -7,7 +7,7 @@ Aether is a TypeScript workspace with two applications:
 - **apps/web**: React and Vite browser interface
 
 ```text
-read-only media folders
+media folders (read-only by default)
           |
           v
  scanner and identity matching
@@ -605,13 +605,72 @@ and [HTTP range requests](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guid
 
 Zero is the only unranked score. Positive scores are ranked.
 
+## File Management
+
+Named writable roots are an explicit capability; the default remains read-only.
+The Linux native helper receives pinned directory descriptors, rejects symlink
+and nested-device traversal, and publishes with `renameat2(RENAME_NOREPLACE)`.
+A volume probe runs before enabling writes. Unsupported platforms and filesystem
+features have no weaker mutation fallback.
+
+`file-operation-preview.ts` checks up to 100 move, restore or upload names against
+indexed locations and actual directory entries before admission. It validates
+source and parent identities, uses the worker's suffix rules and returns only
+IDs, names and relative destination labels. The preview creates no operation or
+reservation; publication rechecks every name without replacement.
+
+`file-operations.ts` runs one server-owned durable operation at a time. SQLite
+journals immutable request IDs and per-item intent, publication, metadata commit
+and retirement boundaries. Scans share `library-mutation-lock.ts`; unresolved
+operations prevent missing-file reconciliation. Large copies run outside SQL
+transactions. Verified source entries retire through private quarantine only
+after destination publication and the database location commit. Recovery retains
+ambiguous copies and reservations instead of replaying deletions blindly.
+Empty Trash snapshots retained IDs into per-item rows and processes bounded
+pages, preserving one durable receipt across cancellation and restart.
+
+Folders keep stored IDs when renamed or moved. The scanner resolves discovered
+locations against those IDs and assigns fresh IDs to recreated old paths. Media
+moves update paths, physical descriptors, search and subtree counts while retaining
+asset metadata. Lifecycle is separate from inspection status. Trash keeps the
+asset record at a reserved physical path, releases the active pathname and
+suspends comparison projections without discarding manual edits or history.
+Ordinary list/detail/media/annotation routes exclude inactive assets. A dedicated
+authenticated route serves a retained static Trash thumbnail.
+
+Library revisions cover metadata, indexing and file commits. Ordered list windows
+return records, counts and revision from one read snapshot. The browser rejects
+superseded mutation/query responses and mixed-revision pages. Scores and tags
+patch immediately while explicit Update results controls affected order/filter
+changes. Paging pauses until reconciliation. A page rejected after an unrelated
+revision change can retry after a consistent read confirms the exact loaded IDs
+and order, with bounded retries and query/mutation guards. Preview metadata can
+therefore update without interrupting ordinary scrolling. Scroll anchors,
+stable selection and viewer neighbors survive result replacement.
+Activity retains individual operation results. A bounded notification buffer
+coalesces results received while hidden into a foreground summary, preserving
+request/result deduplication and a route back to Activity.
+
+The maintained tus server and browser client handle resumable byte transport.
+Upload staging and metadata stay under the data directory. Authenticated routes
+check unsafe-method CSRF before consuming bytes, reserve disk budgets, bound
+chunks/streams and validate media before publication through the same runner.
+A worker hashes reselected browser file slices incrementally to verify the full
+retained prefix. Browser checkpoints contain only bounded opaque IDs.
+Cancellation records the original request ID before cleanup, preventing a late
+creation request from restarting a cancelled transfer. Staging creation, writes
+and finalization recheck that intent; owned bytes are cleaned after active claims
+drain.
+
 ## Data Directory
 
 **AETHER_DATA_DIR** contains the database, generated cache, internal backups,
 private settings, private native-tool temporary work under `tmp`, and a safety
 marker. Temporary process scopes are removed on exit; dead-process work is
 pruned under an exclusive runtime or maintenance lock. Docker mounts the same directory at
-**/data**. Source media remains on separate read-only mounts.
+**/data**. Source media remains on separate mounts, read-only by default.
+Explicit management operations keep pending originals and Trash on their media
+volumes; private upload staging is under the data directory.
 
 Application route handlers remain tracked until their asynchronous work settles,
 including after a client disconnects. Shutdown stops watching/scanning, drains
@@ -626,4 +685,5 @@ behavior.
 ## Deliberate Limits
 
 Aether does not include multi-user accounts, public sharing links, cloud sync,
-source-file editing, or automatic cloud analysis.
+rewriting source media contents, or automatic cloud analysis. File management
+and authenticated device uploads require named writable roots.

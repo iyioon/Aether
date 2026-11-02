@@ -10,6 +10,8 @@ import {
   sweepDerivativeCache
 } from "./derivative-cache.js";
 import { detectMediaType } from "./media-types.js";
+import { withLibraryMutationLock } from "./library-mutation-lock.js";
+import { listFolders, storedFolderIdFor } from "./repository-folders.js";
 import {
   folderIdFor,
   listStoredAssetIdentities,
@@ -274,6 +276,19 @@ export async function scanLibrary(
   signal?: AbortSignal,
   hooks?: ScanHooks
 ): Promise<ScanResult> {
+  return withLibraryMutationLock(db, () =>
+    scanLibraryUnlocked(db, roots, onProgress, cacheDir, signal, hooks)
+  );
+}
+
+async function scanLibraryUnlocked(
+  db: AetherDatabase,
+  roots: MediaRootConfig[],
+  onProgress?: (progress: ScanProgress) => void,
+  cacheDir?: string,
+  signal?: AbortSignal,
+  hooks?: ScanHooks
+): Promise<ScanResult> {
   throwIfScanAborted(signal);
   const startedAt = new Date().toISOString();
   const scanMarker = `${startedAt.slice(0, -1)}${randomBytes(4)
@@ -290,6 +305,27 @@ export async function scanLibrary(
     warnings: []
   };
   let reconciled = false;
+  const reservedWork = db
+    .prepare(
+      "SELECT 1 FROM file_operations WHERE status NOT IN ('completed', 'partial', 'cancelled', 'failed') LIMIT 1"
+    )
+    .get();
+  if (reservedWork) {
+    return {
+      outcome: "incomplete",
+      incompleteReason: "source_changed_or_unavailable",
+      warnings: [],
+      roots: roots.length,
+      folders: 0,
+      assets: 0,
+      skipped: 0,
+      errors: 1,
+      removedAssets: 0,
+      removedFolders: 0,
+      startedAt,
+      finishedAt: new Date().toISOString()
+    };
+  }
 
   onProgress?.(createScanProgress("discovering"));
   const discoveredRoots: DiscoveredRoot[] = [];
@@ -340,6 +376,12 @@ export async function scanLibrary(
   }
 
   const folders: UpsertFolderInput[] = [];
+  const folderIds = new Map(
+    listFolders(db).map((folder) => [
+      locationKey(folder.rootId, folder.relativePath),
+      folder.id
+    ])
+  );
   const observedAssets: ObservedAsset[] = [];
   for (const { root, directory } of discoveredRoots) {
     await collectDiscoveredDirectory({
@@ -352,6 +394,8 @@ export async function scanLibrary(
       assets: observedAssets,
       storedByConfiguredLocation,
       storedByRealLocation,
+      folderIds,
+      db,
       onEntryProcessed: reportEntryProcessed,
       signal
     });
@@ -388,6 +432,9 @@ export async function scanLibrary(
       );
       counters.removedAssets = removed.removedAssets;
       counters.removedFolders = removed.removedFolders;
+      db.prepare(
+        "UPDATE library_state SET writes_need_scan = 0 WHERE id = 1"
+      ).run();
       reconciled = true;
 
       if (removed.removedAssets > 0) {
@@ -427,6 +474,8 @@ export async function scanLibrary(
 }
 
 interface CollectDirectoryInput {
+  db: AetherDatabase;
+  folderIds: Map<string, string>;
   root: MediaRootConfig;
   directory: DiscoveredDirectory;
   folderId: string;
@@ -456,6 +505,7 @@ async function collectDiscoveredDirectory(
     onEntryProcessed,
     signal
   } = input;
+  const { db, folderIds } = input;
 
   throwIfScanAborted(signal);
   if (directory.readFailed) {
@@ -480,8 +530,15 @@ async function collectDiscoveredDirectory(
     }
 
     if (entry.kind === "directory") {
-      const childFolderId = folderIdFor(root.id, relativePath);
+      const childFolderId =
+        folderIds.get(locationKey(root.id, relativePath)) ??
+        storedFolderIdFor(db, root.id, relativePath);
+      folderIds.set(locationKey(root.id, relativePath), childFolderId);
       folders.push({
+        id: childFolderId,
+        fsDeviceId:
+          entry.child?.snapshot?.fileSystemIdentity.fsDeviceId ?? null,
+        fsInode: entry.child?.snapshot?.fileSystemIdentity.fsInode ?? null,
         rootId: root.id,
         parentId: folderId,
         relativePath,
@@ -491,6 +548,8 @@ async function collectDiscoveredDirectory(
       counters.folders += 1;
       onEntryProcessed?.(relativePath);
       await collectDiscoveredDirectory({
+        db,
+        folderIds,
         root,
         directory: entry.child ?? {
           entries: [],

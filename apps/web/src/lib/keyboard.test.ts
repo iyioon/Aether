@@ -57,4 +57,17 @@ describe("keyboard commands", () => {
     } as unknown as ParentNode;
     expect(hasOpenKeyboardLayer(root)).toBe(true);
   });
+  it("can omit one passive layer while keeping its open menus guarded", () => {
+    const activity = {} as Element;
+    const menu = {} as Element;
+    let layers = [activity];
+    const root = {
+      querySelector: () => layers[0] ?? null,
+      querySelectorAll: () => layers
+    } as unknown as ParentNode;
+    expect(hasOpenKeyboardLayer(root)).toBe(true);
+    expect(hasOpenKeyboardLayer(root, activity)).toBe(false);
+    layers = [activity, menu];
+    expect(hasOpenKeyboardLayer(root, activity)).toBe(true);
+  });
 });

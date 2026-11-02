@@ -2,7 +2,8 @@ import { Database, Palette, RefreshCw, ServerCog } from "lucide-react";
 import type {
   LibraryDataResetOptions,
   LibraryDataResetResult,
-  SettingsSummary
+  SettingsSummary,
+  TreeRoot
 } from "../../api/client";
 import { Button } from "../ui/button";
 import { isSettingsTab, type SettingsTab } from "../app-location-state";
@@ -29,6 +30,7 @@ interface SettingsPageProps {
   customAccent: string;
   isLoading: boolean;
   settings: SettingsSummary | null;
+  mediaRoots: TreeRoot[];
   settingsError: string | null;
   theme: AppearanceTheme;
   themeOptions: AppearanceThemeOption[];
@@ -50,6 +52,7 @@ export function SettingsPage({
   customAccent,
   isLoading,
   settings,
+  mediaRoots,
   settingsError,
   theme,
   themeOptions,
@@ -67,9 +70,6 @@ export function SettingsPage({
             <h1 className="text-2xl font-semibold tracking-tight text-foreground">
               Settings
             </h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Personalize Aether and inspect its server configuration.
-            </p>
           </div>
         </header>
 
@@ -142,7 +142,10 @@ export function SettingsPage({
 
             <div className="settings-grid">
               <SecuritySettingsSection settings={settings} />
-              <ServerStatusSettingsSection settings={settings} />
+              <ServerStatusSettingsSection
+                settings={settings}
+                mediaRoots={mediaRoots}
+              />
               <AiSettingsSection settings={settings} />
             </div>
 

@@ -20,6 +20,11 @@ import {
 import { acquireRuntimeLock } from "./runtime-lock.js";
 import { assertNoOtherTemporaryWork } from "./private-temporary-files.js";
 import {
+  assertNoFileManagementBlockers,
+  fileManagementBlockers,
+  type FileManagementBlockers
+} from "./file-management.js";
+import {
   hasPreservedRestoreState,
   removeRestoreArtifacts
 } from "./restore-recovery.js";
@@ -40,6 +45,7 @@ export interface DataDirectoryStatus {
   backups: DataDirectoryEntryStatus;
   temporary: DataDirectoryEntryStatus;
   interruptedRestore: boolean;
+  fileManagement: FileManagementBlockers;
 }
 
 export async function getDataDirectoryStatus(
@@ -61,7 +67,8 @@ export async function getDataDirectoryStatus(
     cache,
     backups,
     temporary,
-    interruptedRestore: initialized && (await hasPreservedRestoreState(paths))
+    interruptedRestore: initialized && (await hasPreservedRestoreState(paths)),
+    fileManagement: fileManagementBlockers(paths.configDir)
   };
 }
 
@@ -140,6 +147,39 @@ export async function wipeDataDirectory(
 }
 
 export async function withDataDirectoryMaintenanceLock<T>(
+  paths: AetherDataPaths,
+  workspaceRoot: string,
+  mediaRootPaths: string[],
+  operation: () => Promise<T>
+): Promise<T> {
+  return withSafeDataDirectoryLock(
+    paths,
+    workspaceRoot,
+    mediaRootPaths,
+    async () => {
+      assertNoFileManagementBlockers(paths.configDir);
+      return operation();
+    }
+  );
+}
+
+/** Recovery preserves the path and runtime guards while resolving the records
+ * that deliberately block ordinary maintenance. */
+export async function withDataDirectoryRecoveryLock<T>(
+  paths: AetherDataPaths,
+  workspaceRoot: string,
+  mediaRootPaths: string[],
+  operation: () => Promise<T>
+): Promise<T> {
+  return withSafeDataDirectoryLock(
+    paths,
+    workspaceRoot,
+    mediaRootPaths,
+    operation
+  );
+}
+
+async function withSafeDataDirectoryLock<T>(
   paths: AetherDataPaths,
   workspaceRoot: string,
   mediaRootPaths: string[],

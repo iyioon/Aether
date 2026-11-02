@@ -1,3 +1,4 @@
+import { parseGuideTopic, type GuideTopic } from "./guide/guide-topics";
 import {
   readAppNavigationState,
   updateAppNavigationState,
@@ -20,6 +21,7 @@ export interface AppLocationState {
   library: LibraryUrlState;
   navigation: AppNavigationState & {
     settingsTab: SettingsTab;
+    guideTopic?: GuideTopic;
     viewerAssetId: string | null;
   };
 }
@@ -41,7 +43,9 @@ export function resolveAppLocation(
   const explicitLibrary = hasExplicitLibraryStateQuery(search);
   if (
     !explicitLibrary &&
-    !["page", "workspace", "tab", "asset"].some((key) => params.has(key))
+    !["page", "workspace", "tab", "asset", "topic"].some((key) =>
+      params.has(key)
+    )
   )
     return stored;
   const page = params.get("page");
@@ -51,14 +55,22 @@ export function resolveAppLocation(
   return {
     library: explicitLibrary ? parseLibraryStateSearch(search) : stored.library,
     navigation: {
-      page: page === "settings" || page === "guide" ? page : "library",
+      page:
+        page === "settings" || page === "guide" || page === "trash"
+          ? page
+          : "library",
       comparisonWorkspace:
         workspace === "ranking" || workspace === "leaderboard"
           ? workspace
           : stored.navigation.comparisonWorkspace,
       settingsTab: isSettingsTab(tab) ? tab : stored.navigation.settingsTab,
+      guideTopic: params.has("topic")
+        ? parseGuideTopic(params.get("topic"))
+        : (stored.navigation.guideTopic ?? "browse"),
       viewerAssetId:
-        (!page || page === "library") && asset && asset.length <= 160
+        (!page || page === "library" || page === "guide") &&
+        asset &&
+        asset.length <= 160
           ? asset
           : null
     }
@@ -71,6 +83,7 @@ export function readStoredAppLocation(): AppLocationState {
     navigation: {
       ...readAppNavigationState(),
       settingsTab: "appearance",
+      guideTopic: "browse",
       viewerAssetId: null
     }
   };
@@ -92,7 +105,8 @@ export function readStoredAppLocation(): AppLocationState {
         library &&
         (nav.page === "library" ||
           nav.page === "settings" ||
-          nav.page === "guide") &&
+          nav.page === "guide" ||
+          nav.page === "trash") &&
         (nav.comparisonWorkspace === "ranking" ||
           nav.comparisonWorkspace === "leaderboard")
       ) {
@@ -104,8 +118,9 @@ export function readStoredAppLocation(): AppLocationState {
             settingsTab: isSettingsTab(nav.settingsTab)
               ? nav.settingsTab
               : "appearance",
+            guideTopic: parseGuideTopic(nav.guideTopic),
             viewerAssetId:
-              nav.page === "library" &&
+              (nav.page === "library" || nav.page === "guide") &&
               typeof nav.viewerAssetId === "string" &&
               nav.viewerAssetId.length <= 160
                 ? nav.viewerAssetId
@@ -150,6 +165,8 @@ export function writeAppLocationToUrl(
     params.set("workspace", state.navigation.comparisonWorkspace);
   if (state.navigation.page === "settings")
     params.set("tab", state.navigation.settingsTab);
+  if (state.navigation.page === "guide")
+    params.set("topic", state.navigation.guideTopic ?? "browse");
   if (state.navigation.viewerAssetId)
     params.set("asset", state.navigation.viewerAssetId);
   const query = params.toString();

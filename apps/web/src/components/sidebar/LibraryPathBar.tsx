@@ -37,6 +37,7 @@ interface LibraryPathBarProps {
   isFeedChromeHidden: boolean;
   isGuideOpen: boolean;
   isSettingsOpen: boolean;
+  isTrashOpen?: boolean;
   controls?: ReactNode;
   searchDraft: string;
   selectedFolderId: string | null;
@@ -74,6 +75,7 @@ export function LibraryPathBar({
   isFeedChromeHidden,
   isGuideOpen,
   isSettingsOpen,
+  isTrashOpen = false,
   controls,
   searchDraft,
   selectedFolderId,
@@ -146,7 +148,13 @@ export function LibraryPathBar({
     </div>
   );
 
-  if (isMobile && view === "feed" && !isSettingsOpen && !isGuideOpen) {
+  if (
+    isMobile &&
+    view === "feed" &&
+    !isSettingsOpen &&
+    !isGuideOpen &&
+    !isTrashOpen
+  ) {
     return (
       <div
         className="feed-view-controls"
@@ -166,7 +174,7 @@ export function LibraryPathBar({
         <Separator className="library-path-separator" orientation="vertical" />
         <Breadcrumb>
           <BreadcrumbList className="flex-nowrap overflow-hidden">
-            {isSettingsOpen || isGuideOpen ? (
+            {isSettingsOpen || isGuideOpen || isTrashOpen ? (
               <>
                 <BreadcrumbItem>
                   <BreadcrumbLink asChild>
@@ -178,7 +186,11 @@ export function LibraryPathBar({
                 <BreadcrumbSeparator />
                 <BreadcrumbItem>
                   <BreadcrumbPage>
-                    {isSettingsOpen ? "Settings" : "User guide"}
+                    {isSettingsOpen
+                      ? "Settings"
+                      : isTrashOpen
+                        ? "Trash"
+                        : "User guide"}
                   </BreadcrumbPage>
                 </BreadcrumbItem>
               </>
@@ -217,7 +229,7 @@ export function LibraryPathBar({
           </BreadcrumbList>
         </Breadcrumb>
       </div>
-      {!isSettingsOpen && !isGuideOpen ? (
+      {!isSettingsOpen && !isGuideOpen && !isTrashOpen ? (
         <div className="library-path-actions">
           <div className="topbar-search">
             <Search aria-hidden="true" />

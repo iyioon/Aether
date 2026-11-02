@@ -18,11 +18,13 @@ in any directory you change.
 
 Aether is a private, self-hosted gallery that indexes existing photo and video
 folders in place. It uses one shared password and server-side sessions. Public
-sharing, multi-user accounts, cloud sync, uploads, and source-file editing are
-outside the current product scope.
+sharing, multi-user accounts, cloud sync and rewriting source media contents are
+outside the current product scope. Authenticated device uploads and file
+management require explicitly enabled named writable roots.
 
-- Source media is read-only. Never modify it or use a real library for
-  destructive tests.
+- Source media is read-only by default. Writes use only the durable management
+  runner on explicitly enabled named roots. Scanners and media processors remain
+  read-only. Never use a real library for destructive tests.
 - Managed server state belongs under `AETHER_DATA_DIR`: database, generated
   cache, internal backups, private settings, and ownership marker. Keep real
   secrets and private media-root paths out of tracked files, examples, logs, and
@@ -55,7 +57,8 @@ directory unless written from the repository root.
 ## Environment And Commands
 
 Use Node.js 24, matching `.nvmrc`, Docker, and CI. The project uses npm
-workspaces, TypeScript, and ES modules. FFmpeg 5.1 or newer, matching ffprobe,
+workspaces, TypeScript, and ES modules. Linux builds/tests require a C compiler
+for the native file-management helper. FFmpeg 5.1 or newer, matching ffprobe,
 and the libx264/libx265 encoders are required for media processing and tests.
 HEIC processing requires updated libheif CLI tools with the libde265 decoder;
 HEIC tests also require `heif-enc` and the x265 plugin. See
@@ -157,6 +160,11 @@ use full repository-relative paths.
 - Reuse `components/ui` primitives and shared viewer, annotation, and curation
   controls. Feature CSS owns layout; shared appearance belongs in existing
   theme/foundation tokens. Use the shared keyboard and motion helpers.
+- Follow [Product copy and user documentation](docs/engineering.md#product-copy-and-user-documentation)
+  for UI labels, messages and guides. Keep instructions factual, concise and
+  scoped to the action; omit repeated subtitles and promotional assurances.
+- Follow the shared [notification rules](docs/engineering.md#notifications) for
+  event toasts, inline errors and Activity results.
 - Preserve accessible names, visible focus, keyboard-layer guards, destructive
   confirmation dialogs, and reduced-motion support. Do not add decorative glow
   effects or disable browser zoom.

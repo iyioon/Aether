@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowUp, Heart, Minus, Plus } from "lucide-react";
 import { usePressRepeat } from "../hooks/usePressRepeat";
 import { Button } from "./ui/button";
+import { Input } from "./ui/input";
 
 interface MediaScoreControlProps {
   disabled?: boolean;
@@ -10,6 +11,7 @@ interface MediaScoreControlProps {
   score: number;
   size?: "sm" | "md";
   onChange: (score: number) => void;
+  editor?: { value: string; mixed: boolean; onChange: (value: string) => void };
 }
 
 export function MediaScoreControl({
@@ -18,13 +20,15 @@ export function MediaScoreControl({
   orientation = "horizontal",
   score,
   size = "sm",
-  onChange
+  onChange,
+  editor
 }: MediaScoreControlProps) {
   const value = score;
   const isVertical = orientation === "vertical";
   const isMedium = size === "md";
   const [previewValue, setPreviewValue] = useState<number | undefined>();
   const previewValueRef = useRef<number | undefined>(undefined);
+  const scoreGroupRef = useRef<HTMLDivElement | null>(null);
   const wasDisabledRef = useRef(disabled);
   const displayedValue = previewValue ?? value;
 
@@ -59,6 +63,7 @@ export function MediaScoreControl({
   });
 
   useEffect(() => {
+    if (scoreGroupRef.current?.querySelector("[data-pressing]")) return;
     previewValueRef.current = undefined;
     setPreviewValue(undefined);
   }, [mediaName, score]);
@@ -72,8 +77,53 @@ export function MediaScoreControl({
     wasDisabledRef.current = disabled;
   }, [disabled]);
 
+  if (editor) {
+    const numeric = /^\d+$/.test(editor.value)
+      ? Number(editor.value)
+      : undefined;
+    const valid = numeric !== undefined && Number.isSafeInteger(numeric);
+    return (
+      <div
+        className="score-control batch-score-input"
+        role="group"
+        aria-label={`Score for ${mediaName}`}
+      >
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          disabled={disabled || !valid || numeric === 0}
+          aria-label={`Decrease score for ${mediaName}`}
+          onClick={() => valid && editor.onChange(String(numeric - 1))}
+        >
+          <Minus />
+        </Button>
+        <Input
+          id="batch-score"
+          aria-label="Score"
+          inputMode="numeric"
+          value={editor.value}
+          placeholder={editor.mixed ? "Mixed" : "0"}
+          disabled={disabled}
+          onChange={(event) => editor.onChange(event.target.value)}
+        />
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          disabled={disabled || !valid}
+          aria-label={`Increase score for ${mediaName}`}
+          onClick={() => valid && editor.onChange(String(numeric + 1))}
+        >
+          <Plus />
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div
+      ref={scoreGroupRef}
       aria-label={`Score for ${mediaName}`}
       className={
         isVertical
@@ -128,7 +178,7 @@ export function MediaScoreControl({
 
 interface MediaFavoriteButtonProps {
   disabled?: boolean;
-  favorite: boolean;
+  favorite: boolean | undefined;
   mediaName: string;
   overlay?: boolean;
   onChange: (favorite: boolean) => void;
@@ -152,11 +202,13 @@ export function MediaFavoriteButton({
       size={overlay ? "icon" : "icon-xs"}
       variant={overlay ? "outline" : "ghost"}
       aria-label={
-        favorite
-          ? `Remove ${mediaName} from favorites`
-          : `Add ${mediaName} to favorites`
+        favorite === undefined
+          ? `Favorite ${mediaName}. Mixed favorites`
+          : favorite
+            ? `Remove ${mediaName} from favorites`
+            : `Add ${mediaName} to favorites`
       }
-      aria-pressed={favorite}
+      aria-pressed={favorite ?? "mixed"}
       disabled={disabled}
       onClick={() => onChange(!favorite)}
     >

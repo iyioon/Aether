@@ -21,6 +21,7 @@ const stored: AppLocationState = {
     page: "settings",
     comparisonWorkspace: "ranking",
     settingsTab: "server",
+    guideTopic: "browse",
     viewerAssetId: null
   }
 };
@@ -163,5 +164,45 @@ describe("application resume and explicit locations", () => {
     location.search = "?view=feed";
     expect(readInitialAppLocation().library.view).toBe("feed");
     expect(() => clearAppResumeState()).not.toThrow();
+  });
+});
+
+describe("guide topics and Trash locations", () => {
+  it("lets explicit guide topics take precedence and rejects invalid topics", () => {
+    const guide = {
+      ...stored,
+      navigation: {
+        ...stored.navigation,
+        page: "guide" as const,
+        guideTopic: "manage" as const
+      }
+    };
+    expect(
+      resolveAppLocation("?page=guide&topic=files", guide).navigation.guideTopic
+    ).toBe("files");
+    expect(
+      resolveAppLocation("?page=guide&topic=unknown", guide).navigation
+        .guideTopic
+    ).toBe("browse");
+    expect(
+      resolveAppLocation("?launch=resume&topic=files", guide).navigation
+        .guideTopic
+    ).toBe("manage");
+    expect(resolveAppLocation("?page=guide", guide).navigation.guideTopic).toBe(
+      "manage"
+    );
+  });
+  it("keeps a viewer checkpoint while reading a guide and separates Trash from library filters", () => {
+    expect(
+      resolveAppLocation("?page=guide&topic=help&asset=asset-1", stored)
+        .navigation
+    ).toMatchObject({
+      page: "guide",
+      guideTopic: "help",
+      viewerAssetId: "asset-1"
+    });
+    const trash = resolveAppLocation("?page=trash", stored);
+    expect(trash.navigation.page).toBe("trash");
+    expect(trash.library).toEqual(stored.library);
   });
 });

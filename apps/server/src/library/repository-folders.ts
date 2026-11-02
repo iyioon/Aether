@@ -1,4 +1,5 @@
 import type { MediaRootConfig } from "../config/config.js";
+import { randomUUID } from "node:crypto";
 import type { AetherDatabase } from "../db/database.js";
 import { stableId } from "./ids.js";
 import { mapFolderRow } from "./repository-mappers.js";
@@ -11,6 +12,21 @@ import type {
 
 export function folderIdFor(rootId: string, relativePath: string): string {
   return stableId("folder", rootId, relativePath);
+}
+
+export function storedFolderIdFor(
+  db: AetherDatabase,
+  rootId: string,
+  relativePath: string
+): string {
+  const stored = db
+    .prepare("SELECT id FROM folders WHERE root_id = ? AND relative_path = ?")
+    .get(rootId, relativePath) as { id: string } | undefined;
+  if (stored) return stored.id;
+  const candidate = folderIdFor(rootId, relativePath);
+  return db.prepare("SELECT 1 FROM folders WHERE id = ?").get(candidate)
+    ? stableId("folder", rootId, relativePath, randomUUID())
+    : candidate;
 }
 
 export function syncConfiguredRoots(
@@ -72,7 +88,8 @@ export function upsertFolder(
   db: AetherDatabase,
   input: UpsertFolderInput
 ): string {
-  const id = folderIdFor(input.rootId, input.relativePath);
+  const id =
+    input.id ?? storedFolderIdFor(db, input.rootId, input.relativePath);
   db.prepare(
     `
     INSERT INTO folders
@@ -107,12 +124,14 @@ export function removeUnseenRootEntries(
        WHERE asset_id IN (
          SELECT id
          FROM assets
-         WHERE root_id = ? AND indexed_at <> ?
+         WHERE root_id = ? AND lifecycle = 'active' AND indexed_at <> ?
        )`
     ).run(rootId, seenAt);
 
     const removedAssets = db
-      .prepare("DELETE FROM assets WHERE root_id = ? AND indexed_at <> ?")
+      .prepare(
+        "DELETE FROM assets WHERE root_id = ? AND lifecycle = 'active' AND indexed_at <> ?"
+      )
       .run(rootId, seenAt).changes;
 
     const removedFolders = db
@@ -141,7 +160,7 @@ export function refreshFolderAssetCounts(
     SET asset_count = (
       SELECT COUNT(*)
       FROM assets
-      WHERE assets.folder_id = folders.id
+      WHERE assets.folder_id = folders.id AND assets.lifecycle = 'active'
     )
     WHERE root_id = ?
   `
@@ -151,7 +170,7 @@ export function refreshFolderAssetCounts(
 export function listFolders(db: AetherDatabase): FolderRecord[] {
   const rows = db
     .prepare(
-      `SELECT id, root_id, parent_id, relative_path, name, asset_count
+      `SELECT id, root_id, parent_id, relative_path, name, asset_count, source_revision
        FROM folders
        ORDER BY root_id, relative_path COLLATE NOCASE`
     )
@@ -160,13 +179,28 @@ export function listFolders(db: AetherDatabase): FolderRecord[] {
   return rows.map(mapFolderRow);
 }
 
+export function getFoldersByIds(
+  db: AetherDatabase,
+  folderIds: string[]
+): FolderRecord[] {
+  const ids = [...new Set(folderIds)].slice(0, 100);
+  if (!ids.length) return [];
+  const rows = db
+    .prepare(
+      `SELECT id, root_id, parent_id, relative_path, name, asset_count, source_revision FROM folders WHERE id IN (${ids.map(() => "?").join(",")})`
+    )
+    .all(...ids) as FolderRow[];
+  const byId = new Map(rows.map((row) => [row.id, mapFolderRow(row)]));
+  return ids.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : []));
+}
+
 export function getFolder(
   db: AetherDatabase,
   folderId: string
 ): FolderRecord | null {
   const row = db
     .prepare(
-      `SELECT id, root_id, parent_id, relative_path, name, asset_count
+      `SELECT id, root_id, parent_id, relative_path, name, asset_count, source_revision
        FROM folders
        WHERE id = ?`
     )

@@ -42,12 +42,18 @@ export function MediaAnnotationDrawer({
   const [isOpen, setIsOpen] = useState(true);
   const closeTimerRef = useRef<number | null>(null);
   const isClosingRef = useRef(false);
+  const busyRef = useRef(false);
+  const [isBusy, setIsBusy] = useState(false);
+  const handleBusyChange = useCallback((busy: boolean) => {
+    busyRef.current = busy;
+    setIsBusy(busy);
+  }, []);
   const onCloseRef = useRef(onClose);
 
   onCloseRef.current = onClose;
 
   const requestClose = useCallback(() => {
-    if (isClosingRef.current) {
+    if (isClosingRef.current || busyRef.current) {
       return;
     }
 
@@ -78,6 +84,13 @@ export function MediaAnnotationDrawer({
       }}
     >
       <SheetContent
+        showCloseButton={!isBusy}
+        onEscapeKeyDown={(event) => {
+          if (busyRef.current) event.preventDefault();
+        }}
+        onPointerDownOutside={(event) => {
+          if (busyRef.current) event.preventDefault();
+        }}
         className={[
           "media-info-sheet overflow-y-auto",
           isMobile
@@ -99,6 +112,7 @@ export function MediaAnnotationDrawer({
         </SheetHeader>
         <div className="px-4 pb-4">
           <AssetAnnotationPanel
+            onBusyChange={handleBusyChange}
             aiStatus={aiStatus}
             asset={asset}
             isScoreSaving={isScoreSaving}

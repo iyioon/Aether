@@ -44,6 +44,7 @@ export interface MediaPresentationEditorProps {
   originalFit?: "contain" | "cover";
   onPendingChange: (pending: boolean) => void;
   asset: AssetRecord;
+  unavailable?: boolean;
   capabilities: PresentationMediaCapabilities;
   onSave: (
     values: PresentationValues,
@@ -108,6 +109,7 @@ function saveError(error: unknown): PresentationEditorError {
 
 export function MediaPresentationEditor({
   asset,
+  unavailable = false,
   initialAspect = "Square",
   originalFit = "cover",
   onPendingChange,
@@ -171,7 +173,7 @@ export function MediaPresentationEditor({
       ? Math.max(0, Math.round(duration))
       : 0;
   const [startMs, endMs] = presentationRange(draft, durationMs);
-  const disabled = pending !== null;
+  const disabled = pending !== null || unavailable;
   const unsupportedTemporal =
     capabilities.timingUnavailable &&
     (draft.highlight !== null ||
@@ -342,7 +344,7 @@ export function MediaPresentationEditor({
               capabilities={capabilities}
               presentation={framedDraft}
               playheadMs={playheadMs}
-              isPlaying={isPlaying}
+              isPlaying={isPlaying && !unavailable}
               muted={effectiveMuted}
               videoRef={previewVideoRef}
               onTimeChange={setPlayheadMs}
@@ -440,11 +442,13 @@ export function MediaPresentationEditor({
         canReset={!disabled && canReset}
         canSave={canSave}
         message={
-          error?.conflict
-            ? error.message
-            : invalidFields.start || invalidFields.end
-              ? "Enter a valid time within the selected range."
-              : (validation ?? error?.message)
+          unavailable
+            ? "This media is no longer available. Close the editor to return to the library."
+            : error?.conflict
+              ? error.message
+              : invalidFields.start || invalidFields.end
+                ? "Enter a valid time within the selected range."
+                : (validation ?? error?.message)
         }
         onReload={
           error?.conflict && !error.sourceChanged && onReload

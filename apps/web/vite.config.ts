@@ -60,6 +60,9 @@ export default defineConfig({
       "@": path.resolve(import.meta.dirname, "./src")
     }
   },
+  optimizeDeps: {
+    include: ["tus-js-client", "@noble/hashes/sha2.js"]
+  },
   test: {
     exclude: [...configDefaults.exclude, "**/._*"]
   },

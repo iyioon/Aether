@@ -553,7 +553,26 @@ function downgradeDatabase(configDir: string, targetVersion: 13 | 14): void {
   const db = new Database(path.join(configDir, "aether.sqlite"));
   try {
     db.pragma("foreign_keys = OFF");
+    const triggers = db
+      .prepare("SELECT name FROM sqlite_schema WHERE type = 'trigger'")
+      .all() as Array<{ name: string }>;
+    for (const { name } of triggers) db.exec(`DROP TRIGGER "${name}"`);
     db.exec(`
+      DROP INDEX idx_assets_lifecycle;
+      DROP TABLE file_operation_items;
+      DROP TABLE managed_uploads;
+      DROP TABLE upload_cancellations;
+      DROP TABLE file_operations;
+      DROP TABLE managed_root_ownership;
+      DROP TABLE media_loss_acknowledgements;
+      DROP TABLE trash_records;
+      DROP TABLE asset_manual_adjustments;
+      DROP TABLE library_state;
+      ALTER TABLE assets DROP COLUMN lifecycle;
+      ALTER TABLE assets DROP COLUMN source_revision;
+      ALTER TABLE folders DROP COLUMN source_revision;
+      ALTER TABLE folders DROP COLUMN fs_device_id;
+      ALTER TABLE folders DROP COLUMN fs_inode;
       DROP INDEX IF EXISTS idx_assets_fs_identity_birth;
       DROP INDEX IF EXISTS idx_assets_fs_identity_ctime;
       ALTER TABLE assets DROP COLUMN fs_ctime_ns;

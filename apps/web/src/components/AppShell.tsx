@@ -11,11 +11,16 @@ import { toast } from "sonner";
 import {
   ApiError,
   getSettings,
+  getTrash,
   logout,
   type AssetRecord,
   type LibraryDataResetOptions,
+  type FileOperation,
+  type FileOperationInput,
   type SettingsSummary
 } from "../api/client";
+import { hasOpenKeyboardLayer } from "../lib/keyboard";
+import type { GuideTopic } from "./guide/guide-topics";
 import type { AppPage, ComparisonWorkspace } from "./app-navigation-state";
 import {
   clearAppResumeState,
@@ -29,8 +34,22 @@ import { clearRankingResumeState } from "./compare/ranking-resume-state";
 import { clearRandomOrderState } from "./assets/random-order-state";
 import { usePageLifecycle } from "../hooks/usePageLifecycle";
 import { useLibraryTree } from "./app/useLibraryTree";
-import { scanToastForState } from "./app/scan-status";
 import { useAssetList } from "./assets/useAssetList";
+import {
+  FileOperationDialog,
+  type ManagementTarget
+} from "./management/FileOperationDialog";
+import type {
+  IncomingMedia,
+  UploadProgress
+} from "./management/AddMediaDialog";
+import { useFileOperations } from "./management/useFileOperations";
+import {
+  assetIsWritable,
+  completedOperationItems,
+  folderIsWritable,
+  folderWithin
+} from "./management/management-model";
 import { BatchActionsBar } from "./batch/BatchActionsBar";
 import type { ViewMode } from "./library-state";
 import { useBatchSelection } from "./batch/useBatchSelection";
@@ -50,6 +69,7 @@ import { LibraryControlStrip } from "./toolbar/LibraryControlStrip";
 import { useLibraryControls } from "./toolbar/useLibraryControls";
 import { PresentationContext } from "./media/presentation-context";
 import { clearPresentationCapabilities } from "./media/usePresentationCapabilities";
+import { clearUploadCheckpoints } from "./management/upload-checkpoints";
 import { clearMediaImageCache } from "./media/media-image-cache";
 import { animationAtlasCache } from "./media/animation-atlas-cache";
 import { PresentationEditorDialog } from "./media/PresentationEditorDialog";
@@ -65,6 +85,16 @@ const loadGalleryGrid = () => import("./gallery/GalleryGrid");
 const loadMediaAnnotationDrawer = () => import("./media/MediaAnnotationDrawer");
 const loadMediaViewer = () => import("./media/MediaViewer");
 const loadSettingsPage = () => import("./settings/SettingsPage");
+const loadAddMediaDialog = () => import("./management/AddMediaDialog");
+const AddMediaDialog = lazy(() =>
+  loadAddMediaDialog().then(({ AddMediaDialog }) => ({
+    default: AddMediaDialog
+  }))
+);
+const loadTrashPage = () => import("./management/TrashPage");
+const TrashPage = lazy(() =>
+  loadTrashPage().then(({ TrashPage }) => ({ default: TrashPage }))
+);
 const loadUserGuidePage = () => import("./guide/UserGuidePage");
 
 function preloadGuide() {
@@ -146,6 +176,9 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
   const [settingsTab, setSettingsTab] = useState<SettingsTab>(
     initialLocation.navigation.settingsTab
   );
+  const [guideTopic, setGuideTopic] = useState<GuideTopic>(
+    initialLocation.navigation.guideTopic ?? "browse"
+  );
   const pushLocationRef = useRef(false);
   const [settingsSummary, setSettingsSummary] =
     useState<SettingsSummary | null>(null);
@@ -170,6 +203,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     isLoadingTree,
     refreshTree,
     scanProgress,
+    scanNotification,
     scanState,
     selectedFolderId,
     setSelectedFolderId,
@@ -178,15 +212,13 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
   } = useLibraryTree({ initialFolderId: initialLibraryState.folderId });
 
   useEffect(() => {
-    const notification = scanToastForState(scanState);
-
-    if (notification) {
-      toast[notification.variant](notification.title, {
-        description: notification.description,
-        id: "library-scan-status"
+    if (scanNotification) {
+      toast[scanNotification.variant](scanNotification.title, {
+        description: scanNotification.description,
+        id: `library-scan-${scanNotification.id}`
       });
     }
-  }, [scanState]);
+  }, [scanNotification]);
   const { handleMediaDimensionsKnown, measuredAspectRatios } =
     useMeasuredAspectRatios();
   const [editingAsset, setEditingAsset] = useState<AssetRecord | null>(null);
@@ -244,20 +276,33 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
   } = useGalleryMetadataFields(view);
   const currentViewRef = useRef(view);
   currentViewRef.current = view;
-  const shouldReloadAfterScoreChange =
-    scoreFilter !== "all" || sort === "score";
+  const shouldReloadAfterScoreChange = (input: {
+    score?: number;
+    favorite?: boolean;
+  }) =>
+    sort === "score" ||
+    (input.score !== undefined &&
+      (scoreFilter === "ranked" || scoreFilter === "unranked")) ||
+    (input.favorite !== undefined && scoreFilter === "favorites");
   const {
     assetError,
     assets,
+    changedAssetIds,
+    unavailableAssetIds,
+    outsideScopeAssetIds,
     handleLoadMore,
     hasMoreAssets,
     isLoadingAssets,
     isLoadingMore,
+    isResultsPending,
     listQueryKey,
     loadedQueryKey,
     loadMoreRef,
+    markResultsPending,
+    markAssetsUnavailable,
     mergeUpdatedAssets,
     reloadAssets,
+    removeAssets,
     setAssetError,
     updateAssetTags
   } = useAssetList({
@@ -289,7 +334,6 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     saveBatchScore,
     saveBatchTags,
     selectLoadedAssets,
-    selectedAssetCount,
     selectedAssetIds,
     setBatchTagDraft,
     setIsSelectionMode,
@@ -298,31 +342,18 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     assets,
     listQueryKey,
     onAssetsUpdated: mergeUpdatedAssets,
-    onReloadAssets: reloadAssets,
+    onReloadAssets: markResultsPending,
+    shouldReloadAfterTagChange: tagFilters.length > 0,
     shouldReloadAfterScoreChange
   });
 
   useEffect(() => {
-    if (batchError) {
-      toast.error("Selection update failed", {
-        description: batchError,
-        id: "batch-action-status"
-      });
-    } else if (batchStatus) {
+    if (batchStatus) {
       toast.success(batchStatus, {
         id: "batch-action-status"
       });
     }
-  }, [batchError, batchStatus]);
-
-  const allSelectedAssetsFavorite = useMemo(
-    () =>
-      selectedAssetCount > 0 &&
-      assets.every(
-        (asset) => !selectedAssetIds.has(asset.id) || asset.favorite
-      ),
-    [assets, selectedAssetCount, selectedAssetIds]
-  );
+  }, [batchStatus]);
 
   function mergeMediaActionAssets(updatedAssets: AssetRecord[]) {
     mergeUpdatedAssets(updatedAssets);
@@ -342,23 +373,23 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     }
   }
 
-  const handleMediaActionError = useCallback(
-    (message: string | null) => {
-      setAssetError(message);
-      if (message) {
-        toast.error("Media update failed", {
-          description: message,
-          id: "media-action-status"
-        });
-      }
-    },
-    [setAssetError]
-  );
+  const handleMediaActionError = useCallback((message: string | null) => {
+    if (message) {
+      toast.error("Media update failed", {
+        description: message,
+        id: "media-action-status"
+      });
+    }
+  }, []);
 
   const {
     annotationAsset,
     handleAssetTagsUpdated,
     handleAssetUpdated,
+    handleAssetsUnavailable,
+    handleAssetsUpdated,
+    hasNextViewerAsset,
+    hasPreviousViewerAsset,
     openAssetFullscreen,
     saveAssetScore,
     savingScoreAssetIds,
@@ -372,8 +403,11 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     assets,
     onAssetError: handleMediaActionError,
     onAssetsUpdated: mergeMediaActionAssets,
-    onAssetTagsUpdated: updateAssetTags,
-    onReloadAssets: reloadAssets,
+    onAssetTagsUpdated: (id, tags) => {
+      updateAssetTags(id, tags);
+      if (tagFilters.length > 0) markResultsPending();
+    },
+    onReloadAssets: markResultsPending,
     shouldReloadAfterScoreChange
   });
   const location = useMemo(
@@ -395,6 +429,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
         page: activePage,
         comparisonWorkspace,
         settingsTab,
+        guideTopic,
         viewerAssetId: selectedAssetId
       }
     }),
@@ -413,6 +448,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
       activePage,
       comparisonWorkspace,
       settingsTab,
+      guideTopic,
       selectedAssetId
     ]
   );
@@ -444,6 +480,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
       setActivePage(next.navigation.page);
       setComparisonWorkspace(next.navigation.comparisonWorkspace);
       setSettingsTab(next.navigation.settingsTab);
+      setGuideTopic(next.navigation.guideTopic ?? "browse");
       setSelectedFolderId(next.library.folderId);
       applyLibraryState(next.library);
       setSelectedAssetId(next.navigation.viewerAssetId);
@@ -458,14 +495,6 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     setSelectedAssetId,
     setSelectedFolderId
   ]);
-  const selectedAssetIndex = useMemo(
-    () =>
-      selectedAsset
-        ? assets.findIndex((asset) => asset.id === selectedAsset.id)
-        : -1,
-    [assets, selectedAsset]
-  );
-
   useEffect(() => {
     if (selectedAssetId) {
       activeMediaAnchorIdRef.current = selectedAssetId;
@@ -508,6 +537,247 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     onSelectFolder: selectFolder
   });
 
+  const [pendingMovedIds, setPendingMovedIds] = useState<string[]>([]);
+  const [managementTarget, setManagementTarget] =
+    useState<ManagementTarget | null>(null);
+  const [activityOpen, setActivityOpen] = useState(false);
+  const [addMediaOpen, setAddMediaOpen] = useState(false);
+  const [hasOpenedAddMedia, setHasOpenedAddMedia] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<UploadProgress[]>([]);
+  const [incomingMedia, setIncomingMedia] = useState<IncomingMedia | null>(
+    null
+  );
+  useEffect(() => {
+    if (activityOpen) setHasOpenedAddMedia(true);
+  }, [activityOpen]);
+  useEffect(() => {
+    const dragOver = (event: DragEvent) => {
+      if (event.dataTransfer?.types.includes("Files")) event.preventDefault();
+    };
+    const drop = (event: DragEvent) => {
+      if (!event.dataTransfer?.types.includes("Files")) return;
+      event.preventDefault();
+      const hasDirectory = Array.from(event.dataTransfer.items).some(
+        (item) => item.webkitGetAsEntry?.()?.isDirectory
+      );
+      setIncomingMedia({
+        id: Date.now(),
+        files: hasDirectory ? [] : Array.from(event.dataTransfer.files),
+        ...(hasDirectory
+          ? {
+              error:
+                "Choose individual files. Folder uploads are not supported."
+            }
+          : {})
+      });
+      setHasOpenedAddMedia(true);
+      setAddMediaOpen(true);
+    };
+    window.addEventListener("dragover", dragOver);
+    window.addEventListener("drop", drop);
+    return () => {
+      window.removeEventListener("dragover", dragOver);
+      window.removeEventListener("drop", drop);
+    };
+  }, []);
+  const managementQueryRef = useRef(listQueryKey);
+  managementQueryRef.current = listQueryKey;
+  const writableAssetIds = useMemo(
+    () =>
+      new Set(
+        assets
+          .filter((asset) => assetIsWritable(tree, asset))
+          .map((asset) => asset.id)
+      ),
+    [assets, tree]
+  );
+  const undoTrashRequestsRef = useRef(new Map<string, FileOperationInput>());
+  const managementSessionRef = useRef(0);
+  useEffect(
+    () => () => {
+      managementSessionRef.current += 1;
+    },
+    []
+  );
+  async function undoTrash(operation: FileOperation) {
+    const session = managementSessionRef.current;
+    try {
+      let input = undoTrashRequestsRef.current.get(operation.id);
+      if (!input) {
+        const result = await getTrash();
+        if (session !== managementSessionRef.current) return;
+        const wanted = new Set(
+          completedOperationItems(operation).map((item) => item.trashId)
+        );
+        const records = result.items.filter((item) => wanted.has(item.id));
+        if (records.length !== wanted.size) {
+          setActivityOpen(true);
+          return;
+        }
+        input = {
+          requestId: crypto.randomUUID(),
+          type: "restore",
+          items: records.map((item) => ({
+            trashId: item.id,
+            expectedVersion: item.sourceVersion
+          }))
+        };
+        undoTrashRequestsRef.current.set(operation.id, input);
+      }
+      await fileOperations.submit(input);
+    } catch (error) {
+      if (
+        session !== managementSessionRef.current ||
+        (error instanceof ApiError && error.status === 401)
+      )
+        return;
+      toast.error("Restore could not be confirmed", {
+        id: `undo-trash-${operation.id}`,
+        action: {
+          label: "Retry",
+          onClick: () => {
+            if (session === managementSessionRef.current)
+              void undoTrash(operation);
+          }
+        }
+      });
+    }
+  }
+  const fileOperations = useFileOperations(
+    (operation: FileOperation) => {
+      const completed = completedOperationItems(operation);
+      const updated = completed.flatMap((item) =>
+        item.asset ? [item.asset] : []
+      );
+      if (updated.length) handleAssetsUpdated(updated);
+      if (operation.type === "trash" || operation.type === "purge") {
+        const ids = completed.flatMap((item) =>
+          item.assetId ? [item.assetId] : []
+        );
+        handleAssetsUnavailable(ids);
+        markAssetsUnavailable(ids);
+      } else if (
+        ((operation.type === "add-media" || operation.type === "restore") &&
+          updated.some((asset) =>
+            folderWithin(tree, asset.folderId, selectedFolderId)
+          )) ||
+        (operation.type === "rename-media" &&
+          updated.some((asset) =>
+            assets.some((entry) => entry.id === asset.id)
+          ) &&
+          (sort === "filename" || sort === "date" || Boolean(search))) ||
+        (["move-media", "move-folder", "rename-folder"].includes(
+          operation.type
+        ) &&
+          Boolean(search))
+      ) {
+        markResultsPending();
+      }
+      const query = listQueryKey;
+      void refreshTree()
+        .then((nextTree) => {
+          if (managementQueryRef.current !== query) return;
+          if (operation.type === "move-media") {
+            setPendingMovedIds((current) => [
+              ...new Set([
+                ...current,
+                ...updated
+                  .filter(
+                    (asset) =>
+                      !folderWithin(nextTree, asset.folderId, selectedFolderId)
+                  )
+                  .map((asset) => asset.id)
+              ])
+            ]);
+          }
+        })
+        .catch(() =>
+          setAssetError(
+            "The operation completed. Update results to refresh the library."
+          )
+        );
+    },
+    () => setActivityOpen(true),
+    (operation) => void undoTrash(operation)
+  );
+  function manageAsset(
+    asset: AssetRecord,
+    type: "rename-media" | "move-media" | "trash"
+  ) {
+    setManagementTarget({ type, assets: [asset] });
+  }
+  const selectedFolderWritable = folderIsWritable(tree, selectedFolderId);
+  const selectedFolderIsRoot =
+    tree?.roots.some((root) => root.folderId === selectedFolderId) ?? true;
+
+  useEffect(() => {
+    const unavailable = unavailableAssetIds.filter((id) =>
+      assets.some((asset) => asset.id === id)
+    );
+    const ids = [
+      ...new Set([...unavailable, ...pendingMovedIds, ...outsideScopeAssetIds])
+    ].filter((id) => assets.some((asset) => asset.id === id));
+    if (!ids.length) return;
+    if (
+      editingAsset &&
+      unavailable.includes(editingAsset.id) &&
+      !editingAsset.unavailable
+    )
+      setEditingAsset({ ...editingAsset, unavailable: true });
+    handleAssetsUnavailable(unavailable);
+    let frame = 0;
+    const removeWhenReady = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        if (
+          isSelectionMode ||
+          isSavingBatch ||
+          editingAsset ||
+          managementTarget ||
+          savingScoreAssetIds.size ||
+          hasOpenKeyboardLayer(
+            document,
+            document.querySelector(
+              ".activity-sheet[data-modal='false'][data-state='open']"
+            )
+          ) ||
+          document.querySelector(".score-control [data-pressing]") ||
+          (document.activeElement instanceof Element &&
+            document.activeElement.closest(".score-control"))
+        )
+          return;
+        handleAssetsUnavailable(unavailable);
+        removeAssets(ids);
+        setPendingMovedIds((current) =>
+          current.filter((id) => !ids.includes(id))
+        );
+      });
+    };
+    removeWhenReady();
+    const observer = new MutationObserver(removeWhenReady);
+    observer.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener("pointerup", removeWhenReady);
+    window.addEventListener("focusout", removeWhenReady);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer.disconnect();
+      window.removeEventListener("pointerup", removeWhenReady);
+      window.removeEventListener("focusout", removeWhenReady);
+    };
+  }, [
+    assets,
+    unavailableAssetIds,
+    pendingMovedIds,
+    outsideScopeAssetIds,
+    isSelectionMode,
+    isSavingBatch,
+    editingAsset,
+    managementTarget,
+    savingScoreAssetIds,
+    handleAssetsUnavailable,
+    removeAssets
+  ]);
+
   function closeSelectionMode() {
     setIsSelectionMode(false);
     clearSelectedAssets();
@@ -527,6 +797,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     setActivePage("library");
     setSyncedMediaAnchorId(activeMediaAnchorIdRef.current);
     setView(nextView);
+    if (isResultsPending) reloadAssets();
     closeSelectionMode();
     setOptionsOpen(false);
     setAnnotationAssetId(null);
@@ -626,7 +897,6 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     closeSelectionMode();
     setOptionsOpen(false);
     setAnnotationAssetId(null);
-    setSelectedAssetId(null);
   }
 
   function backToLibrary() {
@@ -642,6 +912,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
       clearAppResumeState();
       clearPresentationCapabilities();
       clearMediaImageCache();
+      clearUploadCheckpoints();
       animationAtlasCache.clear();
     };
     try {
@@ -671,6 +942,19 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
         onHighlightsOnlyChange={setHighlightsOnly}
         isSelectionMode={isSelectionMode}
         loadedAssetCount={assets.length}
+        isResultsPending={isResultsPending}
+        canUpdateResults={
+          !isSelectionMode &&
+          savingScoreAssetIds.size === 0 &&
+          !isSavingBatch &&
+          !editingAsset &&
+          !annotationAsset
+        }
+        onUpdateResults={reloadAssets}
+        onAddMedia={() => {
+          setHasOpenedAddMedia(true);
+          setAddMediaOpen(true);
+        }}
         mediaType={mediaType}
         isOpen={isOptionsOpen}
         scoreFilter={scoreFilter}
@@ -698,12 +982,18 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     ) : null;
 
   const presentationPreferences = useMemo(
-    () => ({ highlightsOnly, isPlaybackPaused: editingAsset !== null }),
-    [highlightsOnly, editingAsset]
+    () => ({
+      highlightsOnly,
+      isPlaybackPaused: editingAsset !== null || managementTarget !== null
+    }),
+    [highlightsOnly, editingAsset, managementTarget]
   );
   useEffect(() => {
     setEditingAsset(null);
-  }, [activePage, view, selectedFolderId, selectedAssetId, listQueryKey]);
+  }, [activePage, view, selectedFolderId, listQueryKey]);
+  useEffect(() => {
+    setEditingAsset((current) => (current?.unavailable ? current : null));
+  }, [selectedAssetId]);
 
   return (
     <PresentationContext.Provider value={presentationPreferences}>
@@ -717,6 +1007,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
           isLoadingTree={isLoadingTree}
           isGuideOpen={activePage === "guide"}
           isSettingsOpen={activePage === "settings"}
+          isTrashOpen={activePage === "trash"}
           items={tree?.roots.length ? visibleFolderItems : []}
           scanProgress={scanProgress}
           scanState={scanState}
@@ -732,7 +1023,38 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
           onOpenSettings={openSettings}
           onPreloadGuide={preloadGuide}
           onPreloadSettings={preloadSettings}
-          onScan={() => void handleScan()}
+          onScan={() =>
+            void handleScan().then(() => {
+              if (isSelectionMode) markResultsPending();
+              else reloadAssets();
+            })
+          }
+          canCreateFolder={selectedFolderWritable}
+          canManageFolder={selectedFolderWritable && !selectedFolderIsRoot}
+          onFolderAction={(type) => {
+            if (selectedFolderId)
+              setManagementTarget({ type, folderId: selectedFolderId });
+          }}
+          activityCount={
+            fileOperations.operations.filter((operation) =>
+              ["queued", "running", "needs_attention"].includes(
+                operation.status
+              )
+            ).length +
+            uploadProgress.filter((upload) =>
+              ["queued", "uploading", "paused", "checking", "error"].includes(
+                upload.state
+              )
+            ).length
+          }
+          onOpenActivity={() => setActivityOpen(true)}
+          onOpenTrash={() => {
+            pushLocationRef.current = true;
+            setActivePage("trash");
+            closeSelectionMode();
+            setAnnotationAssetId(null);
+            setSelectedAssetId(null);
+          }}
           onSelectFolder={selectFolder}
           onToggleFolderExpansion={toggleFolderExpansion}
         />
@@ -742,6 +1064,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
             isFeedChromeHidden={isFeedChromeHidden && assets.length > 0}
             isGuideOpen={activePage === "guide"}
             isSettingsOpen={activePage === "settings"}
+            isTrashOpen={activePage === "trash"}
             searchDraft={searchDraft}
             selectedFolderId={selectedFolderId}
             tree={tree}
@@ -760,11 +1083,13 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
                 ? "view-settings"
                 : activePage === "guide"
                   ? "view-guide"
-                  : view === "feed"
-                    ? "view-feed"
-                    : view === "compare"
-                      ? "view-compare"
-                      : "view-gallery"
+                  : activePage === "trash"
+                    ? "view-trash"
+                    : view === "feed"
+                      ? "view-feed"
+                      : view === "compare"
+                        ? "view-compare"
+                        : "view-gallery"
             ]
               .filter(Boolean)
               .join(" ")}
@@ -779,6 +1104,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
                   customAccent={customAccent}
                   isLoading={isLoadingSettings}
                   settings={settingsSummary}
+                  mediaRoots={tree?.roots ?? []}
                   settingsError={settingsError}
                   onSetAccent={setAccent}
                   onSetCustomAccent={setCustomAccent}
@@ -821,30 +1147,52 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
                   themeOptions={themeOptions}
                 />
               ) : activePage === "guide" ? (
-                <UserGuidePage />
+                <UserGuidePage
+                  topic={guideTopic}
+                  onTopicChange={setGuideTopic}
+                />
+              ) : activePage === "trash" ? (
+                <TrashPage
+                  revision={fileOperations.operations[0]?.revision}
+                  onManage={setManagementTarget}
+                  onEmptyTrash={fileOperations.submitEmptyTrash}
+                />
               ) : (
                 <>
                   {isSelectionMode ? (
                     <BatchActionsBar
                       isOpen
                       loadedCount={assets.length}
-                      selectedCount={selectedAssetCount}
-                      allSelectedFavorite={allSelectedAssetsFavorite}
+                      selectedAssets={assets.filter((asset) =>
+                        selectedAssetIds.has(asset.id)
+                      )}
                       tagDraft={batchTagDraft}
                       tagSuggestions={batchTagSuggestions}
                       isSaving={isSavingBatch}
+                      error={batchError}
                       onClear={clearSelectedAssets}
                       onClose={closeSelectionMode}
-                      onApplyCuration={(input) => void saveBatchScore(input)}
+                      onApplyCuration={saveBatchScore}
+                      onApplyTags={saveBatchTags}
                       onTagDraftChange={setBatchTagDraft}
-                      onAddTag={() =>
-                        void saveBatchTags([batchTagDraft], "add")
-                      }
-                      onReplaceTags={() =>
-                        void saveBatchTags([batchTagDraft], "replace")
-                      }
                       onSelectLoaded={selectLoadedAssets}
-                      onClearTags={() => void saveBatchTags([], "replace")}
+                      onMove={() =>
+                        setManagementTarget({
+                          type: "move-media",
+                          assets: assets.filter((asset) =>
+                            selectedAssetIds.has(asset.id)
+                          )
+                        })
+                      }
+                      onTrash={() =>
+                        setManagementTarget({
+                          type: "trash",
+                          assets: assets.filter((asset) =>
+                            selectedAssetIds.has(asset.id)
+                          )
+                        })
+                      }
+                      onRename={(asset) => manageAsset(asset, "rename-media")}
                     />
                   ) : null}
 
@@ -855,6 +1203,17 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
                   {view === "gallery" ? (
                     <GalleryGrid
                       assets={assets}
+                      changedAssetIds={changedAssetIds}
+                      hasQueryFilters={Boolean(
+                        search ||
+                        tagFilters.length ||
+                        scoreFilter !== "all" ||
+                        mediaType !== "all"
+                      )}
+                      onAddMedia={() => {
+                        setHasOpenedAddMedia(true);
+                        setAddMediaOpen(true);
+                      }}
                       aspect={aspect}
                       metadataFields={galleryMetadataFields}
                       gridSize={gridSize}
@@ -863,6 +1222,15 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
                       isContentReady={loadedQueryKey === listQueryKey}
                       isSelectionMode={isSelectionMode}
                       hasMore={hasMoreAssets}
+                      resultsPending={isResultsPending}
+                      canUpdateResults={
+                        !isSelectionMode &&
+                        savingScoreAssetIds.size === 0 &&
+                        !isSavingBatch &&
+                        !editingAsset &&
+                        !annotationAsset
+                      }
+                      onUpdateResults={reloadAssets}
                       loadMoreRef={loadMoreRef}
                       measuredAspectRatios={measuredAspectRatios}
                       scrollContextKey={listQueryKey}
@@ -881,10 +1249,23 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
                       onSelectAsset={openAnchoredAsset}
                       onInfoAsset={(asset) => setAnnotationAssetId(asset.id)}
                       onEditAsset={setEditingAsset}
+                      onManageAsset={manageAsset}
+                      writableAssetIds={writableAssetIds}
                       onToggleSelection={toggleAssetSelection}
                     />
                   ) : view === "feed" ? (
                     <FeedPreview
+                      hasQueryFilters={Boolean(
+                        search ||
+                        tagFilters.length ||
+                        scoreFilter !== "all" ||
+                        mediaType !== "all"
+                      )}
+                      resultsPending={isResultsPending}
+                      onAddMedia={() => {
+                        setHasOpenedAddMedia(true);
+                        setAddMediaOpen(true);
+                      }}
                       metadataFields={galleryMetadataFields}
                       onEditAsset={setEditingAsset}
                       assets={assets}
@@ -939,7 +1320,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
           </main>
         </SidebarInset>
 
-        {selectedAsset ? (
+        {activePage === "library" && selectedAsset ? (
           <Suspense fallback={null}>
             <MediaViewer
               useSavedFraming={viewerUsesSavedFraming}
@@ -948,12 +1329,12 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
               applyPlaybackPreferences={view !== "compare"}
               onHighlightsOnlyChange={setHighlightsOnly}
               onEditAsset={setEditingAsset}
-              asset={selectedAsset}
-              hasNext={
-                selectedAssetIndex >= 0 &&
-                selectedAssetIndex < assets.length - 1
+              onManageAsset={
+                assetIsWritable(tree, selectedAsset) ? manageAsset : undefined
               }
-              hasPrevious={selectedAssetIndex > 0}
+              asset={selectedAsset}
+              hasNext={hasNextViewerAsset}
+              hasPrevious={hasPreviousViewerAsset}
               isInfoOpen={annotationAsset !== null}
               onClose={closeAnchoredAsset}
               onScoreChange={(score) =>
@@ -999,8 +1380,46 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
               handleAssetUpdated(updated);
               setComparisonAssetUpdate(updated);
               if (useSavedPlayback) setHighlightsOnly(true);
+              toast.success("Media edits saved", {
+                id: `presentation-save-${updated.id}:${updated.presentation?.revision}`
+              });
             }}
           />
+        ) : null}
+        {managementTarget ? (
+          <FileOperationDialog
+            key={`${managementTarget.type}:${managementTarget.folderId ?? managementTarget.assets?.map((asset) => asset.id).join("|")}`}
+            target={managementTarget}
+            tree={tree}
+            selectedFolderId={selectedFolderId}
+            onClose={() => setManagementTarget(null)}
+            onCreateFolder={fileOperations.submit}
+            onSubmit={async (input) => {
+              await fileOperations.submit(input);
+              setActivityOpen(true);
+            }}
+          />
+        ) : null}
+        {hasOpenedAddMedia ? (
+          <Suspense fallback={null}>
+            <AddMediaDialog
+              tree={tree}
+              open={addMediaOpen || activityOpen}
+              incomingMedia={incomingMedia}
+              operations={fileOperations.operations}
+              onRefresh={fileOperations.refresh}
+              onSubmit={fileOperations.submit}
+              onTransfers={setUploadProgress}
+              onBatchStarted={fileOperations.trackUploadBatch}
+              onUploadCancelled={fileOperations.settleUpload}
+              selectedFolderId={selectedFolderId}
+              onClose={() => {
+                setAddMediaOpen(false);
+                setActivityOpen(false);
+              }}
+              onOperation={fileOperations.accept}
+            />
+          </Suspense>
         ) : null}
       </SidebarProvider>
     </PresentationContext.Provider>

@@ -1,3 +1,5 @@
+import type { HttpStack } from "tus-js-client";
+
 export interface AuthState {
   authenticated: boolean;
   expiresAt: string | null;
@@ -8,15 +10,25 @@ export interface TreeRoot {
   folderId: string;
   label: string;
   assetCount: number;
+  writable?: boolean;
+  writeUnavailableReason?: string | null;
+  sourceVersion?: string;
+  version?: string;
+  allowedActions?: string[];
 }
 
 export interface TreeResponse {
+  revision?: string;
   roots: TreeRoot[];
   folders: Array<{
     id: string;
     rootId: string;
     parentId: string | null;
     relativePath: string;
+    sourceVersion?: string;
+    version?: string;
+    writable?: boolean;
+    allowedActions?: string[];
     label: string;
     assetCount: number;
   }>;
@@ -90,6 +102,8 @@ export interface AnimationManifest {
 }
 
 export interface AssetRecord {
+  unavailable?: boolean;
+  sourceVersion?: string;
   id: string;
   folderId: string | null;
   name: string;
@@ -144,6 +158,7 @@ export interface AssetListResponse {
     offset: number;
     limit: number;
     total: number;
+    revision?: string;
   };
   sort: SortMode;
   order: SortDirection;
@@ -161,6 +176,7 @@ export interface BatchScoreResponse {
 }
 
 export interface BatchTagsResponse {
+  assets: AssetRecord[];
   tags: TagRecord[];
   updated: number;
 }
@@ -392,6 +408,16 @@ export async function getAsset(
   });
 }
 
+export function getAssetDetails(
+  assetIds: string[],
+  signal?: AbortSignal
+): Promise<{ assets: AssetRecord[]; revision: string }> {
+  return request<{ assets: AssetRecord[]; revision: string }>(
+    "/api/assets/batch/details",
+    { method: "POST", body: JSON.stringify({ assetIds }), signal }
+  );
+}
+
 export async function getAssets(options: {
   folderId: string;
   offset?: number;
@@ -404,6 +430,7 @@ export async function getAssets(options: {
   tags?: string[];
   score?: ScoreFilter;
   seed?: number;
+  expectedRevision?: string;
   signal?: AbortSignal;
 }): Promise<AssetListResponse> {
   const sort = options.sort ?? "date";
@@ -418,6 +445,9 @@ export async function getAssets(options: {
     score: options.score ?? "all",
     seed: String(options.seed ?? 0)
   });
+
+  if (options.expectedRevision !== undefined)
+    params.set("expectedRevision", options.expectedRevision);
 
   for (const tag of options.tags ?? []) {
     params.append("tag", tag);
@@ -937,4 +967,322 @@ async function safeJson(
   } catch {
     return null;
   }
+}
+
+export type FileOperationType =
+  | "add-media"
+  | "create-folder"
+  | "rename-media"
+  | "rename-folder"
+  | "move-media"
+  | "move-folder"
+  | "trash"
+  | "restore"
+  | "purge"
+  | "empty-trash";
+export interface FileOperationItem {
+  name?: string;
+  assetId?: string;
+  folderId?: string;
+  trashId?: string;
+  status: string;
+  errorCode?: string;
+  asset?: AssetRecord;
+  folder?: Omit<TreeResponse["folders"][number], "label"> & {
+    name: string;
+    label?: string;
+  };
+}
+export interface FileOperation {
+  id: string;
+  type: FileOperationType;
+  status:
+    | "queued"
+    | "running"
+    | "completed"
+    | "partial"
+    | "failed"
+    | "cancelled"
+    | "needs_attention";
+  items: FileOperationItem[];
+  revision: string;
+  canCancel?: boolean;
+  progress?: { bytes: number; totalBytes: number };
+  summary?: {
+    total: number;
+    completed: number;
+    failed: number;
+    cancelled: number;
+    needsAttention?: number;
+  };
+  retryInput?: Omit<FileOperationInput, "requestId">;
+}
+export interface FileOperationInput {
+  requestId: string;
+  type: FileOperationType;
+  items: Array<{
+    assetId?: string;
+    folderId?: string;
+    trashId?: string;
+    expectedVersion: string;
+    conflict?: NameConflictChoice;
+  }>;
+  destinationFolderId?: string;
+  expectedParentVersion?: string;
+  expectedInventoryVersion?: string;
+  name?: string;
+  conflict?: NameConflictChoice;
+}
+export type NameConflictChoice = "skip" | "keep-both";
+export type FileOperationPreviewInput =
+  | {
+      type: "move-media" | "move-folder" | "restore";
+      items: FileOperationInput["items"];
+      destinationFolderId?: string;
+      expectedParentVersion?: string;
+      conflict?: NameConflictChoice;
+    }
+  | {
+      type: "add-media";
+      files: Array<{
+        clientId: string;
+        name: string;
+        conflict?: NameConflictChoice;
+      }>;
+      destinationFolderId: string;
+      expectedParentVersion: string;
+      conflict?: NameConflictChoice;
+    };
+export interface FileOperationPreviewItem {
+  key: string;
+  index: number;
+  name: string;
+  destinationFolderId: string;
+  destinationLabel: string;
+  expectedParentVersion: string;
+  hasConflict: boolean;
+  proposedName: string | null;
+  choice: NameConflictChoice;
+  noOp: boolean;
+}
+export interface FileOperationPreview {
+  revision: string;
+  items: FileOperationPreviewItem[];
+}
+export function previewFileOperation(
+  input: FileOperationPreviewInput,
+  signal?: AbortSignal
+): Promise<FileOperationPreview> {
+  return request<FileOperationPreview>("/api/file-operations/preview", {
+    method: "POST",
+    body: JSON.stringify(input),
+    signal
+  });
+}
+export function startFileOperation(
+  input: FileOperationInput
+): Promise<FileOperation> {
+  return request<FileOperation>("/api/file-operations", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+export function getFileOperations(
+  signal?: AbortSignal
+): Promise<{ items: FileOperation[] }> {
+  return request<{ items: FileOperation[] }>("/api/file-operations", {
+    signal
+  });
+}
+export function retryFileOperation(
+  operationId: string
+): Promise<FileOperation> {
+  return request<FileOperation>(
+    `/api/file-operations/${encodeURIComponent(operationId)}/retry`,
+    { method: "POST" }
+  );
+}
+export function getFileOperation(
+  id: string,
+  signal?: AbortSignal
+): Promise<FileOperation> {
+  return request<FileOperation>(
+    `/api/file-operations/${encodeURIComponent(id)}`,
+    { signal }
+  );
+}
+export function cancelFileOperation(id: string): Promise<FileOperation> {
+  return request<FileOperation>(
+    `/api/file-operations/${encodeURIComponent(id)}/cancel`,
+    { method: "POST" }
+  );
+}
+export interface FolderInventory {
+  sourceVersion: string;
+  inventoryVersion: string;
+  files: number;
+  folders: number;
+  totalBytes: number;
+}
+export function getFolderInventory(
+  folderId: string,
+  expectedVersion: string,
+  signal?: AbortSignal
+): Promise<FolderInventory> {
+  const params = new URLSearchParams({ expectedVersion });
+  return request<FolderInventory>(
+    `/api/folders/${encodeURIComponent(folderId)}/inventory?${params}`,
+    { signal }
+  );
+}
+export interface TrashRecord {
+  id: string;
+  assetId: string;
+  name: string;
+  originalRootId: string;
+  originalFolderId: string | null;
+  originalRelativePath: string;
+  sizeBytes: number;
+  deletedAt: string;
+  expiresAt: string;
+  sourceVersion: string;
+}
+export interface TrashResponse {
+  items: TrashRecord[];
+  retentionDays: number;
+  revision: string;
+  totalRetained: number;
+  page: { total: number; offset: number; limit: number };
+}
+export interface EmptyTrashInput {
+  requestId: string;
+  expectedRevision: string;
+  expectedCount: number;
+}
+export function emptyTrash(input: EmptyTrashInput): Promise<FileOperation> {
+  return request<FileOperation>("/api/trash/empty", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+export function getTrash(
+  signal?: AbortSignal,
+  options: { search?: string; offset?: number; limit?: number } = {}
+): Promise<TrashResponse> {
+  const params = new URLSearchParams({
+    search: options.search ?? "",
+    offset: String(options.offset ?? 0),
+    limit: String(options.limit ?? 100)
+  });
+  return request<TrashResponse>(`/api/trash?${params}`, { signal });
+}
+
+export interface UploadRecord {
+  id: string;
+  operationId?: string;
+  requestId?: string;
+  status: string;
+  errorCode?: string;
+  offset: number;
+  size: number;
+  name?: string;
+  folderId?: string;
+  expiresAt: string;
+}
+export interface UploadLimits {
+  maxUploadBytes: number;
+  maxStagingBytes: number;
+  chunkBytes: number;
+  maxBatchItems: number;
+}
+export interface UploadStatus {
+  items: UploadRecord[];
+  limits: UploadLimits;
+}
+export function getUploads(
+  signal?: AbortSignal,
+  requestId?: string
+): Promise<UploadStatus> {
+  return request<UploadStatus>(
+    `/api/uploads/status${requestId ? `?requestId=${encodeURIComponent(requestId)}` : ""}`,
+    { signal }
+  );
+}
+export function getUploadPrefix(
+  id: string,
+  signal?: AbortSignal
+): Promise<{ offset: number; sha256: string }> {
+  return request<{ offset: number; sha256: string }>(
+    `/api/uploads/${encodeURIComponent(id)}/prefix`,
+    { signal },
+    { timeoutMs: 300_000 }
+  );
+}
+export function cancelUpload(
+  requestId: string
+): Promise<{ status: "cancelled" }> {
+  return request<{ status: "cancelled" }>("/api/uploads/cancel", {
+    method: "POST",
+    body: JSON.stringify({ requestId })
+  });
+}
+
+export function createUploadHttpStack(expectedOffset?: number): HttpStack {
+  return {
+    getName: () => "AetherFetch",
+    createRequest(method, url) {
+      const target = new URL(url, window.location.origin);
+      if (
+        target.origin !== window.location.origin ||
+        !/^\/api\/uploads(?:\/[A-Za-z0-9-]+)?$/.test(target.pathname)
+      )
+        throw new Error("Invalid upload location.");
+      const controller = new AbortController();
+      const headers = new Headers();
+      return {
+        getMethod: () => method,
+        getURL: () => target.href,
+        setHeader: (name, value) => headers.set(name, value),
+        getHeader: (name) => headers.get(name) ?? undefined,
+        setProgressHandler: () => undefined,
+        getUnderlyingObject: () => null,
+        abort: async () => {
+          controller.abort();
+        },
+        async send(body) {
+          const csrf =
+            readCookie("__Host-aether_csrf") ?? readCookie("aether_csrf");
+          if (csrf && isUnsafeMethod(method)) headers.set("x-csrf-token", csrf);
+          const deadline = createRequestDeadline(controller.signal, 120_000);
+          try {
+            const response = await fetch(target, {
+              method,
+              headers,
+              body: body as BodyInit | null,
+              credentials: "include",
+              redirect: "error",
+              signal: deadline.signal
+            });
+            if (response.status === 401) notifyUnauthorized();
+            if (
+              method === "HEAD" &&
+              response.ok &&
+              expectedOffset !== undefined &&
+              Number(response.headers.get("Upload-Offset")) !== expectedOffset
+            )
+              throw new ApiError(409, "upload_changed");
+            const text = method === "HEAD" ? "" : await response.text();
+            return {
+              getStatus: () => response.status,
+              getHeader: (name) => response.headers.get(name) ?? undefined,
+              getBody: () => text,
+              getUnderlyingObject: () => null
+            };
+          } finally {
+            deadline.cleanup();
+          }
+        }
+      };
+    }
+  };
 }

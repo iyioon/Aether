@@ -45,7 +45,10 @@ test("opens Gallery actions with pointer and keyboard and preserves normal card 
   await expect(menu.getByRole("menuitem")).toHaveText([
     "Info",
     "Edit media",
-    "Download"
+    "Download",
+    "Rename…",
+    "Move to…",
+    "Move to Trash"
   ]);
   await expect(page.locator(".viewer-dialog")).toHaveCount(0);
   await page.keyboard.press("Escape");

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { Download, Info, Pencil } from "lucide-react";
+import { Download, FolderInput, Info, Pencil, Trash2 } from "lucide-react";
 import type { AssetRecord } from "../../api/client";
 import { isKeyboardActivationTarget } from "../../lib/keyboard";
 import { downloadUrl } from "../media/media-urls";
@@ -7,6 +7,7 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuSeparator,
   ContextMenuTrigger
 } from "../ui/context-menu";
 
@@ -15,13 +16,18 @@ export function GalleryCardActions({
   disabled,
   children,
   onInfo,
-  onEdit
+  onEdit,
+  onManage
 }: {
   asset: AssetRecord;
   disabled: boolean;
   children: ReactElement;
   onInfo: (asset: AssetRecord) => void;
   onEdit: (asset: AssetRecord) => void;
+  onManage?: (
+    asset: AssetRecord,
+    action: "rename-media" | "move-media" | "trash"
+  ) => void;
 }) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLSpanElement>(null);
@@ -169,6 +175,38 @@ export function GalleryCardActions({
             <Download aria-hidden="true" /> Download
           </a>
         </ContextMenuItem>
+        {onManage ? (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              onSelect={() => {
+                pendingActionRef.current = () =>
+                  onManage(asset, "rename-media");
+              }}
+            >
+              <Pencil aria-hidden="true" />
+              Rename…
+            </ContextMenuItem>
+            <ContextMenuItem
+              onSelect={() => {
+                pendingActionRef.current = () => onManage(asset, "move-media");
+              }}
+            >
+              <FolderInput aria-hidden="true" />
+              Move to…
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              className="text-destructive focus:text-destructive"
+              onSelect={() => {
+                pendingActionRef.current = () => onManage(asset, "trash");
+              }}
+            >
+              <Trash2 aria-hidden="true" />
+              Move to Trash
+            </ContextMenuItem>
+          </>
+        ) : null}
       </ContextMenuContent>
     </ContextMenu>
   );

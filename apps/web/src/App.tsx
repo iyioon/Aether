@@ -1,3 +1,4 @@
+import { toast } from "sonner";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, getMe, subscribeToUnauthorized } from "./api/client";
 import { AppShell } from "./components/AppShell";
@@ -38,7 +39,9 @@ function AuthenticatedApp({ appearance }: { appearance: AppearanceSettings }) {
   }, []);
 
   useEffect(() => {
-    if (authStatus !== "anonymous" || !logoutCleanup) return;
+    if (authStatus !== "anonymous") return;
+    toast.dismiss();
+    if (!logoutCleanup) return;
     // Child unmount effects flush their checkpoints before this effect runs.
     logoutCleanup.run();
     setLogoutCleanup(null);

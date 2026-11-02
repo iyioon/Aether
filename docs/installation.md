@@ -13,8 +13,9 @@ You need:
 - Updated libheif command-line tools and its HEVC decoder for HEIC photos
 - Docker and Docker Compose for the container setup
 
-Keep source media on a readable local or mounted filesystem. Aether never needs
-write access to those folders.
+Keep source media on a readable local or mounted filesystem. Browsing and
+scanning require only read access. File management requires explicitly enabled
+named writable roots and writable filesystem access.
 
 ## Video Tools
 
@@ -135,7 +136,8 @@ On Linux, the UID and GID values give the container the same access to
 two exports and use the defaults. Never solve a permission error with a
 world-writable data directory.
 
-Change the media mount when your library is elsewhere. Keep it read-only. Do
+Change the media mount when your library is elsewhere. Keep it read-only unless
+you enable the [file-management configuration](configuration.md#file-management). Do
 not change the port to a public bind address unless a firewall, VPN, or HTTPS
 reverse proxy protects it.
 

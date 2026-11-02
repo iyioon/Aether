@@ -77,6 +77,7 @@ export function resetLibraryData(
       db.prepare("DELETE FROM pair_preferences").run();
       db.prepare("DELETE FROM comparison_events").run();
       db.prepare("DELETE FROM asset_rankings").run();
+      db.prepare("DELETE FROM asset_manual_adjustments").run();
     } else if (options.scores) {
       db.prepare(
         `UPDATE asset_rankings
@@ -86,6 +87,7 @@ export function resetLibraryData(
     }
 
     if (options.scores) {
+      db.prepare("DELETE FROM asset_manual_adjustments").run();
       db.prepare(
         `UPDATE asset_annotations
          SET manual_score = 0, updated_at = ?

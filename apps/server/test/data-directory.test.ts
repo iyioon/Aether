@@ -9,6 +9,7 @@ import {
 } from "node:fs/promises";
 import { homedir, hostname, tmpdir } from "node:os";
 import path from "node:path";
+import { openDatabase } from "../src/db/database.js";
 import { describe, expect, it } from "vitest";
 import {
   assertSafeDataDirectoryTarget,
@@ -408,7 +409,8 @@ describe("Aether data directory", () => {
       paths.privateEnvPath,
       "AETHER_MEDIA_ROOTS=library=/media\n"
     );
-    await writeFile(path.join(paths.configDir, "aether.sqlite"), "database");
+    const database = openDatabase(paths.configDir);
+    database.close();
     await writeFile(path.join(paths.cacheDir, "thumbnail.webp"), "thumbnail");
     await mkdir(path.join(paths.backupDir, "aether-example"));
     await writeFile(
@@ -446,6 +448,32 @@ describe("Aether data directory", () => {
     await wipeDataDirectory(paths, workspace);
     await expect(access(paths.dataDir)).rejects.toThrow();
     await expect(access(workspace)).resolves.toBeUndefined();
+  });
+
+  it("preserves untracked upload bytes when database state is missing", async () => {
+    const workspace = await mkdtemp(
+      path.join(tmpdir(), "aether-upload-maintenance-")
+    );
+    const paths = resolveDataPaths({}, workspace);
+    try {
+      await initializeDataDirectory(paths);
+      const staging = path.join(paths.dataDir, "uploads");
+      await mkdir(staging, { mode: 0o700 });
+      const retained = path.join(staging, "unresolved-upload");
+      await writeFile(retained, "retained bytes");
+      expect((await getDataDirectoryStatus(paths)).fileManagement.uploads).toBe(
+        1
+      );
+      await expect(rebuildDataDirectory(paths, workspace)).rejects.toThrow(
+        "uploads"
+      );
+      await expect(wipeDataDirectory(paths, workspace)).rejects.toThrow(
+        "uploads"
+      );
+      expect(await readFile(retained, "utf8")).toBe("retained bytes");
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
+    }
   });
 
   it("never rebuilds or wipes an overlapping media root", async () => {

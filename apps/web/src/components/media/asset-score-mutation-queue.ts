@@ -16,7 +16,7 @@ interface AssetScoreMutationQueueOptions {
   onAssetUpdated: (asset: AssetRecord) => void;
   onError: (error: unknown) => void;
   onPendingChange: (assetId: string, isPending: boolean) => void;
-  onPersistedChanges: () => void;
+  onPersistedChanges: (update: AssetScoreUpdate, assetId: string) => void;
   persist: (assetId: string, update: AssetScoreUpdate) => Promise<AssetRecord>;
 }
 
@@ -64,6 +64,7 @@ export function createAssetScoreMutationQueue({
 
   async function drain(assetId: string, pending: PendingAssetScoreMutation) {
     let didPersistUpdate = false;
+    let persistedUpdate: AssetScoreUpdate = {};
 
     try {
       while (pending.queuedUpdate) {
@@ -71,6 +72,7 @@ export function createAssetScoreMutationQueue({
         pending.queuedUpdate = null;
         const updatedAsset = await persist(assetId, update);
         didPersistUpdate = true;
+        persistedUpdate = { ...persistedUpdate, ...update };
 
         pending.confirmedAsset = updatedAsset;
         pending.optimisticAsset = pending.queuedUpdate
@@ -81,13 +83,13 @@ export function createAssetScoreMutationQueue({
 
       pendingByAssetId.delete(assetId);
       onPendingChange(assetId, false);
-      onPersistedChanges();
+      onPersistedChanges(persistedUpdate, assetId);
     } catch (error) {
       pendingByAssetId.delete(assetId);
       onAssetUpdated(pending.confirmedAsset);
       onPendingChange(assetId, false);
       if (didPersistUpdate) {
-        onPersistedChanges();
+        onPersistedChanges(persistedUpdate, assetId);
       }
       onError(error);
     }

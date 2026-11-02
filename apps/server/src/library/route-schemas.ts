@@ -6,6 +6,7 @@ const TagListQuery = z.preprocess(
 );
 
 export const AssetListQuery = z.object({
+  expectedRevision: z.string().regex(/^\d+$/).max(32).optional(),
   offset: z.coerce.number().int().min(0).default(0),
   limit: z.coerce.number().int().min(1).max(250).default(80),
   seed: z.coerce.number().int().min(0).max(4_294_967_295).default(0),
@@ -141,6 +142,8 @@ export const TagsBody = z.object({
 });
 
 const BatchAssetIds = z.array(z.string().min(1).max(256)).min(1).max(500);
+
+export const AssetDetailsBody = z.object({ assetIds: BatchAssetIds });
 
 export const BatchScoreBody = z
   .object({

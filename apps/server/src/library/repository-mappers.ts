@@ -1,4 +1,5 @@
 import { mediaPresentation } from "./presentation.js";
+import { sourceVersion } from "./source-version.js";
 import type {
   AssetRecord,
   AssetRow,
@@ -17,13 +18,15 @@ export function mapFolderRow(row: FolderRow): FolderRecord {
     parentId: row.parent_id,
     relativePath: row.relative_path,
     name: row.name,
-    assetCount: row.asset_count
+    assetCount: row.asset_count,
+    sourceVersion: sourceVersion(row.id, row.source_revision ?? 1)
   };
 }
 
 export function mapAssetRow(row: AssetRow): AssetRecord {
   return {
     id: row.id,
+    sourceVersion: sourceVersion(row.id, row.source_revision ?? 1),
     folderId: row.folder_id,
     name: row.name,
     extension: row.extension,

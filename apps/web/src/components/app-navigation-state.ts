@@ -1,4 +1,4 @@
-export type AppPage = "library" | "guide" | "settings";
+export type AppPage = "library" | "guide" | "settings" | "trash";
 export type ComparisonWorkspace = "leaderboard" | "ranking";
 
 export interface AppNavigationState {
@@ -73,7 +73,12 @@ export function parseAppNavigationState(
 }
 
 function isAppPage(value: unknown): value is AppPage {
-  return value === "library" || value === "guide" || value === "settings";
+  return (
+    value === "library" ||
+    value === "guide" ||
+    value === "settings" ||
+    value === "trash"
+  );
 }
 
 function isComparisonWorkspace(value: unknown): value is ComparisonWorkspace {

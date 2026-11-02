@@ -26,6 +26,7 @@ import { BACKUP_MANIFEST_VERSION } from "./backup.js";
 import { withDataDirectoryMaintenanceLock } from "./data-directory.js";
 import { removeAbandonedTemporaryFiles } from "./private-temporary-files.js";
 import { removeRestoreArtifacts } from "./restore-recovery.js";
+import { validateTrashPayloads } from "./trash-validation.js";
 
 const MAX_MANIFEST_BYTES = 1024 * 1024;
 const SQLITE_FILE = "aether.sqlite";
@@ -126,7 +127,7 @@ export async function restoreDataDirectory(
         if (stagedDatabaseVersion !== LATEST_SCHEMA_VERSION) {
           throw new Error("Backup database migrations did not finish.");
         }
-        await clearStagedAuthentication(stagedDatabaseDir);
+        await clearStagedAuthentication(stagedDatabaseDir, mediaRootPaths);
         await validateAetherDatabase(stagedDatabasePath, {
           requireEmptyAuthentication: true
         });
@@ -241,14 +242,25 @@ async function migrateStagedAetherDatabase(
 }
 
 async function clearStagedAuthentication(
-  stagedDatabaseDir: string
+  stagedDatabaseDir: string,
+  mediaRootPaths: string[]
 ): Promise<void> {
   const db: AetherDatabase = openDatabase(stagedDatabaseDir);
 
   try {
+    await validateTrashPayloads(db, mediaRootPaths);
     const clearAuthentication = db.transaction(() => {
       db.prepare("DELETE FROM sessions").run();
       db.prepare("DELETE FROM login_attempts").run();
+      db.prepare(
+        "UPDATE file_operations SET status = 'cancelled', state_json = json_set(state_json, '$.invalidatedByRestore', json('true')), updated_at = ?"
+      ).run(new Date().toISOString());
+      db.prepare(
+        "UPDATE managed_uploads SET status = 'cancelled', state_json = json_remove(json_set(state_json, '$.status', 'cancelled', '$.cleanedUp', json('true')), '$.stagingIdentity'), updated_at = ?"
+      ).run(new Date().toISOString());
+      db.prepare(
+        "UPDATE library_state SET writes_need_scan = 1, revision = revision + 1 WHERE id = 1"
+      ).run();
     });
     clearAuthentication();
     if (!checkpointDatabase(db)) {

@@ -178,6 +178,12 @@ test("keeps the visible Gallery asset when foreground refresh changes ordering",
     )
     .toBeGreaterThan(800);
   const before = await savedAnchor();
+  const beforeScroll = await gallery.evaluate((node) => node.scrollTop);
+  const beforeOrder = await gallery
+    .locator("[data-asset-id]")
+    .evaluateAll((cards) =>
+      cards.map((card) => card.getAttribute("data-asset-id"))
+    );
   let refreshed = false;
   await page.route("**/api/folders/*/assets?*", async (route) => {
     const response = await route.fetch();
@@ -194,6 +200,23 @@ test("keeps the visible Gallery asset when foreground refresh changes ordering",
   );
   await expect.poll(() => refreshed).toBe(true);
   await expect(gallery).toHaveAttribute("aria-busy", "false");
+  await expect.poll(() => savedAnchor()).toBe(before);
+  await expect
+    .poll(() => gallery.evaluate((node) => node.scrollTop))
+    .toBe(beforeScroll);
+  expect(
+    await gallery
+      .locator("[data-asset-id]")
+      .evaluateAll((cards) =>
+        cards.map((card) => card.getAttribute("data-asset-id"))
+      )
+  ).toEqual(beforeOrder);
+  const update = page
+    .getByRole("region", { name: "Library controls" })
+    .getByRole("button", { name: "Update results", exact: true });
+  await expect(update).toBeEnabled();
+  await update.click();
+  await expect(update).toBeHidden();
   await expect.poll(() => savedAnchor()).toBe(before);
   await expect
     .poll(() => gallery.evaluate((node) => node.scrollTop))

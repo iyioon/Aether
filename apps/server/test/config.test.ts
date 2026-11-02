@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import argon2 from "argon2";
@@ -8,6 +8,71 @@ import { loadConfig } from "../src/config/config.js";
 import { stableId } from "../src/library/ids.js";
 
 describe("loadConfig", () => {
+  it("defaults to read-only and enables only named writable roots", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "aether-config-write-"));
+    await mkdir(path.join(cwd, "media"));
+    const base = {
+      AETHER_MEDIA_ROOTS: "library=./media",
+      AETHER_DATA_DIR: "./data"
+    };
+    expect((await loadConfig(base, cwd)).mediaRoots[0]?.writable).toBe(false);
+    expect(
+      (await loadConfig({ ...base, AETHER_WRITABLE_ROOTS: "library" }, cwd))
+        .mediaRoots[0]?.writable
+    ).toBe(true);
+    await expect(
+      loadConfig({ ...base, AETHER_WRITABLE_ROOTS: "missing" }, cwd)
+    ).rejects.toThrow("configured media root names");
+  });
+
+  it("rejects upload budgets above the supported publication limit", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "aether-config-upload-"));
+    const supportedBytes = 20 * 1024 ** 3;
+    const base = { AETHER_DATA_DIR: "./data" };
+    try {
+      expect((await loadConfig(base, cwd)).fileManagement?.maxUploadBytes).toBe(
+        supportedBytes
+      );
+      const lower = await loadConfig(
+        {
+          ...base,
+          AETHER_MAX_UPLOAD_BYTES: String(1024 ** 3),
+          AETHER_MAX_STAGING_BYTES: String(supportedBytes * 2)
+        },
+        cwd
+      );
+      expect(lower.fileManagement).toMatchObject({
+        maxUploadBytes: 1024 ** 3,
+        maxStagingBytes: supportedBytes * 2
+      });
+      await expect(
+        loadConfig(
+          {
+            ...base,
+            AETHER_MAX_UPLOAD_BYTES: String(supportedBytes + 1)
+          },
+          cwd
+        )
+      ).rejects.toThrow("20 GiB");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects writable roots overlapping an assigned parent or child", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "aether-config-write-"));
+    await mkdir(path.join(cwd, "media", "child"), { recursive: true });
+    await expect(
+      loadConfig(
+        {
+          AETHER_MEDIA_ROOTS: "parent=./media,child=./media/child",
+          AETHER_WRITABLE_ROOTS: "child",
+          AETHER_DATA_DIR: "./data"
+        },
+        cwd
+      )
+    ).rejects.toThrow("cannot overlap");
+  });
   it("canonicalizes configured media roots", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "aether-config-"));
     const mediaRoot = path.join(cwd, "media");

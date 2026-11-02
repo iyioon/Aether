@@ -4,8 +4,8 @@ Aether is a private, self-hosted gallery for photo and video folders you already
 own. It indexes media in place, then provides a browser interface for browsing,
 searching, tagging, scoring, comparing, and downloading it.
 
-Aether does not include a hosted upload service and does not modify source
-files. Optional tag suggestions send a resized preview only to the endpoint you
+Media roots are read-only by default. Explicitly enabled roots support folder
+creation, rename, moves, recoverable Trash and authenticated device uploads. Optional tag suggestions send a resized preview only to the endpoint you
 configure. Aether is intended for a home server or another trusted machine, not
 as a public media service.
 
@@ -13,6 +13,7 @@ as a public media service.
 
 - Gallery, vertical feed, fullscreen viewer, and pairwise comparison views.
 - Search, tags, favorites, scores, filters, and batch editing.
+- Optional file management, resumable uploads, Activity and 30-day Trash.
 - Authenticated image and video delivery with video seeking.
 - Cached thumbnails, posters, and browser-friendly video previews.
 - HEIC/HEIF photos in every view, with original-quality display and downloads.
@@ -28,6 +29,7 @@ as a public media service.
 
 - Node.js 24
 - npm
+- A C compiler for the Linux file-management helper (included in Docker builds)
 - FFmpeg 5.1 or newer, with matching ffprobe and libx264/libx265 encoders
 - Updated libheif command-line tools with an HEVC decoder for HEIC photos
   (included in Docker; see [native setup](docs/installation.md#heic-tools))
@@ -84,9 +86,11 @@ export AETHER_GID="$(id -g)"
 docker compose up --build -d
 ```
 
-The default Compose service listens only on `127.0.0.1:3030`. Its single
-`./aether-data:/data` mount contains all Aether-managed server data. Source
-media is mounted separately and read-only.
+The default Compose service listens only on `127.0.0.1:3030`. The
+`./aether-data:/data` mount contains the database, generated cache, upload staging,
+backups and private settings. Media is mounted separately and read-only by
+default. When file management is enabled, operation staging and Trash stay on
+the media volumes.
 
 The UID and GID settings let the container write to `./aether-data` without
 making it broadly writable. Docker Desktop users can usually omit them and use

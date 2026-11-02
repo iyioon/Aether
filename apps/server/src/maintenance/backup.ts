@@ -15,6 +15,8 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import Database from "better-sqlite3";
+import { validateTrashPayloads } from "./trash-validation.js";
+import { uploadStagingEntries } from "./file-management.js";
 
 export interface CreateBackupOptions {
   configDir: string;
@@ -115,15 +117,42 @@ export async function createConfigBackup({
 
   try {
     await requireRegularFile(sourceDatabasePath, "Aether database");
+    const fence = new Database(sourceDatabasePath, { fileMustExist: true });
+    fence.pragma("busy_timeout = 5000");
     const db = new Database(sourceDatabasePath, {
       fileMustExist: true,
       readonly: true
     });
 
     try {
+      fence.exec("BEGIN IMMEDIATE");
+      const managed = fence
+        .prepare(
+          "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'file_operations'"
+        )
+        .get();
+      if (managed) {
+        const operations = fence
+          .prepare(
+            "SELECT 1 FROM file_operations WHERE status NOT IN ('completed', 'partial', 'failed', 'cancelled') LIMIT 1"
+          )
+          .get();
+        const uploads = fence
+          .prepare(
+            "SELECT 1 FROM managed_uploads WHERE status NOT IN ('completed', 'published', 'failed', 'cancelled', 'expired') OR COALESCE(json_extract(state_json,'$.cleanedUp'),0) != 1 LIMIT 1"
+          )
+          .get();
+        if (operations || uploads || uploadStagingEntries(configDir))
+          throw new Error(
+            "Finish or cancel file operations and uploads before creating a database backup."
+          );
+        await validateTrashPayloads(fence);
+      }
       await db.backup(databasePath);
     } finally {
       db.close();
+      if (fence.inTransaction) fence.exec("ROLLBACK");
+      fence.close();
     }
     await chmod(databasePath, 0o600);
 

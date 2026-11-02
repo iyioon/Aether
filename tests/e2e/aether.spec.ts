@@ -76,26 +76,22 @@ test("supports login, scan, batch annotation, fullscreen, and feed", async ({
   const batchActions = page.locator('[aria-label="Selected media actions"]');
   await expect(batchActions).toContainText(/2\s*items selected/);
 
-  await batchActions.getByRole("checkbox", { name: "Change score" }).click();
   await batchActions
-    .getByRole("button", {
-      name: "Increase score for selected media. Current score: 0"
-    })
+    .getByRole("button", { name: "Edit details", exact: true })
     .click();
-  await batchActions
-    .getByRole("region", { name: "Score and favorite" })
-    .getByRole("button", { name: "Apply", exact: true })
-    .click();
+  const editor = page.getByRole("dialog", {
+    name: "Edit details",
+    exact: true
+  });
+  await editor.getByRole("textbox", { name: "Score", exact: true }).fill("1");
+  await editor.getByRole("button", { name: "Apply", exact: true }).click();
   await expect(page.getByText("2 items updated.")).toBeVisible();
-
-  await batchActions.getByRole("textbox", { name: "Tag name" }).fill("Trip");
-  await batchActions
-    .getByRole("form", { name: "Tag selected media" })
-    .getByRole("button", { name: "Apply", exact: true })
-    .click();
+  await editor.getByRole("tab", { name: "Tags", exact: true }).click();
+  await editor.getByRole("textbox", { name: "Tag name" }).fill("Trip");
+  await editor.getByRole("button", { name: "Apply", exact: true }).click();
   await expect(page.getByText("Trip added to 2 items.")).toBeVisible();
-
-  await batchActions.getByRole("button", { name: "Done selecting" }).click();
+  await editor.getByRole("button", { name: "Cancel", exact: true }).click();
+  await batchActions.getByRole("button", { name: "Done", exact: true }).click();
   await expect(batchActions).toHaveCount(0);
 
   await page.getByRole("button", { name: /^View options/ }).click();

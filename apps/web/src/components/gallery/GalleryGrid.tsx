@@ -8,6 +8,7 @@ import {
   useState,
   type CSSProperties,
   type MutableRefObject,
+  type FocusEvent as ReactFocusEvent,
   type UIEvent as ReactUIEvent
 } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -45,10 +46,16 @@ import { Card } from "../ui/card";
 
 interface GalleryGridProps {
   assets: AssetRecord[];
+  changedAssetIds?: ReadonlySet<string>;
+  hasQueryFilters?: boolean;
+  onAddMedia?: () => void;
   aspect: AspectMode;
   metadataFields: ReadonlySet<GalleryMetadataField>;
   gridSize: GridSize;
   hasMore: boolean;
+  resultsPending?: boolean;
+  canUpdateResults?: boolean;
+  onUpdateResults?: () => void;
   isLoading: boolean;
   isLoadingMore: boolean;
   isContentReady: boolean;
@@ -64,6 +71,11 @@ interface GalleryGridProps {
   onFavoriteAsset: (asset: AssetRecord, favorite: boolean) => void;
   onInfoAsset: (asset: AssetRecord) => void;
   onEditAsset: (asset: AssetRecord) => void;
+  onManageAsset?: (
+    asset: AssetRecord,
+    action: "rename-media" | "move-media" | "trash"
+  ) => void;
+  writableAssetIds?: ReadonlySet<string>;
   onMediaDimensionsKnown: (
     assetId: string,
     width: number,
@@ -85,6 +97,11 @@ interface GalleryAssetCardProps {
   onFavoriteAsset: (asset: AssetRecord, favorite: boolean) => void;
   onInfoAsset: (asset: AssetRecord) => void;
   onEditAsset: (asset: AssetRecord) => void;
+  onManageAsset?: (
+    asset: AssetRecord,
+    action: "rename-media" | "move-media" | "trash"
+  ) => void;
+  canManage: boolean;
   onMediaDimensionsKnown: (
     assetId: string,
     width: number,
@@ -97,10 +114,16 @@ interface GalleryAssetCardProps {
 
 export function GalleryGrid({
   assets,
+  changedAssetIds,
+  hasQueryFilters = false,
+  onAddMedia,
   aspect,
   metadataFields,
   gridSize,
   hasMore,
+  resultsPending = false,
+  canUpdateResults = true,
+  onUpdateResults,
   isLoading,
   isLoadingMore,
   isContentReady,
@@ -116,12 +139,19 @@ export function GalleryGrid({
   onFavoriteAsset,
   onInfoAsset,
   onEditAsset,
+  onManageAsset,
+  writableAssetIds,
   onMediaDimensionsKnown,
   onScoreAsset,
   onSelectAsset,
   onToggleSelection
 }: GalleryGridProps) {
   const scrollParentRef = useRef<HTMLDivElement | null>(null);
+  const focusedCardRef = useRef<{
+    node: HTMLElement;
+    id: string | null;
+    order: string[];
+  } | null>(null);
   const loadingLayerRef = useRef<HTMLDivElement | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
   const restoreFrameRef = useRef<number | null>(null);
@@ -132,6 +162,8 @@ export function GalleryGrid({
   const isRestoringRef = useRef(false);
   const contextKeyRef = useRef(scrollContextKey);
   const assetsRef = useRef(assets);
+  const changedAssetIdsRef = useRef(changedAssetIds);
+  changedAssetIdsRef.current = changedAssetIds;
   const columnCountRef = useRef(1);
   const lastReportedAnchorIdRef = useRef<string | null>(null);
   const observedSyncedAssetIdRef = useRef(syncedAssetId);
@@ -147,6 +179,7 @@ export function GalleryGrid({
     onFavoriteAsset,
     onInfoAsset,
     onEditAsset,
+    onManageAsset,
     onMediaDimensionsKnown,
     onScoreAsset,
     onSelectAsset,
@@ -159,11 +192,51 @@ export function GalleryGrid({
     onFavoriteAsset,
     onInfoAsset,
     onEditAsset,
+    onManageAsset,
     onMediaDimensionsKnown,
     onScoreAsset,
     onSelectAsset,
     onToggleSelection
   };
+  useLayoutEffect(() => {
+    const focused = focusedCardRef.current;
+    if (!focused || focused.node.isConnected) return;
+    focusedCardRef.current = null;
+    if (document.activeElement && document.activeElement !== document.body)
+      return;
+    const viewport = scrollParentRef.current;
+    if (!viewport) return;
+    const bounds = viewport.getBoundingClientRect();
+    const visible = new Map<string, HTMLButtonElement>();
+    for (const card of viewport.querySelectorAll<HTMLElement>(
+      "[data-asset-id]"
+    )) {
+      const rect = card.getBoundingClientRect();
+      const target = card.querySelector<HTMLButtonElement>(
+        ".tile-selection-surface:not(:disabled), .media-preview-button:not(:disabled)"
+      );
+      if (target && rect.bottom > bounds.top && rect.top < bounds.bottom)
+        visible.set(card.dataset.assetId!, target);
+    }
+    const index = focused.id ? focused.order.indexOf(focused.id) : -1;
+    const neighbor = [
+      ...focused.order.slice(index + 1),
+      ...focused.order.slice(0, Math.max(0, index)).reverse()
+    ].find((id) => visible.has(id));
+    const target =
+      (!focused.id
+        ? document.querySelector<HTMLButtonElement>(
+            ".control-menu-trigger:not(:disabled)"
+          )
+        : null) ??
+      (neighbor ? visible.get(neighbor) : undefined) ??
+      visible.values().next().value ??
+      document.querySelector<HTMLButtonElement>(
+        ".control-menu-trigger:not(:disabled)"
+      ) ??
+      viewport;
+    target.focus({ preventScroll: true });
+  });
   if (observedSyncedAssetIdRef.current !== syncedAssetId) {
     observedSyncedAssetIdRef.current = syncedAssetId;
     pendingSyncedAssetIdRef.current = syncedAssetId;
@@ -171,6 +244,19 @@ export function GalleryGrid({
   const [containerWidth, setContainerWidth] = useState(0);
   const [isScrollPositionReady, setIsScrollPositionReady] = useState(false);
   const [isScrollTopVisible, setIsScrollTopVisible] = useState(false);
+  const trackFocusedCard = useCallback(
+    (event: ReactFocusEvent<HTMLElement>) => {
+      const target = event.target;
+      if (!scrollParentRef.current?.contains(target)) return;
+      const card = target.closest<HTMLElement>("[data-asset-id]");
+      focusedCardRef.current = {
+        node: target,
+        id: card?.dataset.assetId ?? null,
+        order: assetsRef.current.map((asset) => asset.id)
+      };
+    },
+    []
+  );
   const handleFavoriteAsset = useCallback(
     (asset: AssetRecord, favorite: boolean) => {
       galleryActionsRef.current.onFavoriteAsset(asset, favorite);
@@ -183,6 +269,12 @@ export function GalleryGrid({
   const handleEditAsset = useCallback((asset: AssetRecord) => {
     galleryActionsRef.current.onEditAsset(asset);
   }, []);
+  const handleManageAsset = useCallback(
+    (asset: AssetRecord, action: "rename-media" | "move-media" | "trash") => {
+      galleryActionsRef.current.onManageAsset?.(asset, action);
+    },
+    []
+  );
   const handleMediaDimensionsKnown = useCallback(
     (assetId: string, width: number, height: number) => {
       galleryActionsRef.current.onMediaDimensionsKnown(assetId, width, height);
@@ -299,10 +391,16 @@ export function GalleryGrid({
     const scrollTop = scrollElement?.scrollTop ?? latestScrollTopRef.current;
     const virtualRows = rowVirtualizerRef.current.getVirtualItems();
     const anchorRow = findScrollAnchorItem(virtualRows, scrollTop);
-    const anchorIndex = anchorRow
-      ? anchorRow.index * columnCountRef.current
-      : 0;
+    let anchorIndex = anchorRow ? anchorRow.index * columnCountRef.current : 0;
     const currentAssets = assetsRef.current;
+    const rowEnd = Math.min(
+      currentAssets.length,
+      anchorIndex + columnCountRef.current
+    );
+    const unaffected = currentAssets
+      .slice(anchorIndex, rowEnd)
+      .findIndex((asset) => !changedAssetIdsRef.current?.has(asset.id));
+    if (unaffected >= 0) anchorIndex += unaffected;
     const anchorId = currentAssets[anchorIndex]?.id;
 
     if (anchorId && lastReportedAnchorIdRef.current !== anchorId) {
@@ -386,6 +484,28 @@ export function GalleryGrid({
         assetsRef.current.map((asset) => asset.id)
       )
     ) {
+      const stored = readSessionScrollPosition("library-content");
+      if (
+        stored?.contextKey === scrollContextKey &&
+        stored.anchorId &&
+        !assetsRef.current.some((asset) => asset.id === stored.anchorId)
+      ) {
+        const previousIndex = pendingRefresh.assetIds.indexOf(stored.anchorId);
+        const survivors = new Set(assetsRef.current.map((asset) => asset.id));
+        const next =
+          pendingRefresh.assetIds
+            .slice(previousIndex + 1)
+            .find((id) => survivors.has(id)) ??
+          pendingRefresh.assetIds
+            .slice(0, Math.max(0, previousIndex))
+            .reverse()
+            .find((id) => survivors.has(id));
+        if (next)
+          writeSessionScrollPosition("library-content", {
+            ...stored,
+            anchorId: next
+          });
+      }
       restoredContextRef.current = null;
     }
   }, [isContentReady, saveScrollPosition, scrollContextKey]);
@@ -919,6 +1039,7 @@ export function GalleryGrid({
           className="gallery-viewport"
           ref={scrollParentRef}
           aria-label="Gallery view"
+          onFocusCapture={trackFocusedCard}
           aria-busy="true"
           onScroll={handleScroll}
           tabIndex={-1}
@@ -939,15 +1060,40 @@ export function GalleryGrid({
           className="gallery-viewport"
           ref={scrollParentRef}
           aria-label="Gallery view"
+          onFocusCapture={trackFocusedCard}
           onScroll={handleScroll}
           tabIndex={-1}
         >
           <div className="empty-library gallery-empty-enter">
             <SlidersHorizontal size={22} />
-            <strong>No indexed media in this folder</strong>
+            <strong>
+              {resultsPending
+                ? "Results have changed"
+                : hasQueryFilters
+                  ? "No media matches this search or filter"
+                  : "No media in this folder"}
+            </strong>
             <span>
-              Run a scan after adding images or videos to the local media root.
+              {resultsPending
+                ? "Update results to show the current library."
+                : hasQueryFilters
+                  ? "Adjust the search or filters to see more media."
+                  : "Add media, or scan after copying files into this folder."}
             </span>
+            {resultsPending ? (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={!canUpdateResults}
+                onClick={onUpdateResults}
+              >
+                Update results
+              </Button>
+            ) : !hasQueryFilters && onAddMedia ? (
+              <Button type="button" onClick={onAddMedia}>
+                Add media
+              </Button>
+            ) : null}
           </div>
         </section>
       </div>
@@ -961,6 +1107,7 @@ export function GalleryGrid({
         ref={scrollParentRef}
         aria-label="Gallery view"
         aria-busy={isRefreshing || !isScrollPositionReady}
+        onFocusCapture={trackFocusedCard}
         onScroll={handleScroll}
         tabIndex={-1}
       >
@@ -1011,6 +1158,8 @@ export function GalleryGrid({
                     onFavoriteAsset={handleFavoriteAsset}
                     onInfoAsset={handleInfoAsset}
                     onEditAsset={handleEditAsset}
+                    onManageAsset={handleManageAsset}
+                    canManage={writableAssetIds?.has(asset.id) ?? false}
                     onMediaDimensionsKnown={handleMediaDimensionsKnown}
                     onScoreAsset={handleScoreAsset}
                     onSelectAsset={handleSelectAsset}
@@ -1021,15 +1170,19 @@ export function GalleryGrid({
             );
           })}
         </div>
-        {hasMore ? (
+        {hasMore || resultsPending ? (
           <div className="load-more-row" ref={loadMoreRef}>
             <Button
               type="button"
               variant="outline"
-              disabled={isLoadingMore}
-              onClick={onLoadMore}
+              disabled={isLoadingMore || (resultsPending && !canUpdateResults)}
+              onClick={resultsPending ? onUpdateResults : onLoadMore}
             >
-              {isLoadingMore ? "Loading" : "Load more"}
+              {resultsPending
+                ? "Update results"
+                : isLoadingMore
+                  ? "Loading"
+                  : "Load more"}
             </Button>
           </div>
         ) : null}
@@ -1062,6 +1215,8 @@ const GalleryAssetCard = memo(function GalleryAssetCard({
   onFavoriteAsset,
   onInfoAsset,
   onEditAsset,
+  onManageAsset,
+  canManage,
   onMediaDimensionsKnown,
   onScoreAsset,
   onSelectAsset,
@@ -1090,9 +1245,10 @@ const GalleryAssetCard = memo(function GalleryAssetCard({
   return (
     <GalleryCardActions
       asset={asset}
-      disabled={isSelectionMode}
+      disabled={isSelectionMode || asset.unavailable === true}
       onInfo={onInfoAsset}
       onEdit={onEditAsset}
+      onManage={canManage ? onManageAsset : undefined}
     >
       <Card
         className={[
@@ -1103,6 +1259,8 @@ const GalleryAssetCard = memo(function GalleryAssetCard({
           .filter(Boolean)
           .join(" ")}
         style={tileStyle}
+        data-asset-id={asset.id}
+        aria-disabled={asset.unavailable || undefined}
       >
         {isSelectionMode ? (
           <button
@@ -1110,8 +1268,13 @@ const GalleryAssetCard = memo(function GalleryAssetCard({
             type="button"
             aria-label={`${isSelected ? "Deselect" : "Select"} ${asset.name}`}
             aria-pressed={isSelected}
+            disabled={asset.unavailable}
             onClick={() => onToggleSelection(asset.id)}
-          />
+          >
+            <span className="tile-selection-check" aria-hidden="true">
+              {isSelected ? "✓" : ""}
+            </span>
+          </button>
         ) : null}
         <div
           className="media-preview-frame"
@@ -1121,7 +1284,7 @@ const GalleryAssetCard = memo(function GalleryAssetCard({
           <button
             className="media-preview-button"
             type="button"
-            disabled={isSelectionMode}
+            disabled={isSelectionMode || asset.unavailable}
             aria-label={`Open ${asset.name}`}
             onClick={() => onSelectAsset(asset.id)}
           >
@@ -1133,6 +1296,11 @@ const GalleryAssetCard = memo(function GalleryAssetCard({
             />
           </button>
         </div>
+        {asset.unavailable ? (
+          <p className="p-2 text-xs text-muted-foreground" role="status">
+            This media is no longer available.
+          </p>
+        ) : null}
         {hasCardInfo ? (
           <div className="tile-info">
             {hasTitle ? (
@@ -1150,7 +1318,9 @@ const GalleryAssetCard = memo(function GalleryAssetCard({
             {hasCuration ? (
               <GalleryCardCuration
                 asset={asset}
-                disabled={isSelectionMode || isSavingScore}
+                disabled={
+                  isSelectionMode || isSavingScore || asset.unavailable === true
+                }
                 hiddenTagCount={hiddenTagCount}
                 isBusy={isSavingScore}
                 showFavorite={showFavoriteControl}

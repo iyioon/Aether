@@ -9,6 +9,10 @@ import {
 } from "../maintenance/data-directory.js";
 import { restoreDataDirectory } from "../maintenance/restore.js";
 import {
+  acknowledgeLostMedia,
+  listLostMediaRecovery
+} from "../maintenance/lost-media.js";
+import {
   createPrivateTemporaryFiles,
   type PrivateTemporaryFiles
 } from "../maintenance/private-temporary-files.js";
@@ -60,6 +64,38 @@ try {
     console.log(
       `Aether data was restored from a version ${result.manifestVersion} backup. Database version: ${result.databaseVersion}. Cache restored: ${result.restoredCache ? "yes" : "no"}.`
     );
+  } else if (command === "recover" && args.includes("--list")) {
+    console.log(
+      JSON.stringify(
+        await listLostMediaRecovery({
+          paths,
+          workspaceRoot,
+          mediaRootPaths,
+          after: readOption(args, "--after") ?? undefined
+        }),
+        null,
+        2
+      )
+    );
+  } else if (command === "recover") {
+    requireConfirmation(
+      args,
+      "--confirm-lost-media",
+      "acknowledge permanently lost media"
+    );
+    const rootId = readOption(args, "--root-id");
+    if (!rootId)
+      throw new Error("Lost media recovery requires --root-id <id>.");
+    const result = await acknowledgeLostMedia({
+      paths,
+      workspaceRoot,
+      mediaRootPaths,
+      rootId,
+      trashIds: readOptions(args, "--trash-id"),
+      operationIds: readOptions(args, "--operation-id"),
+      confirmLostMedia: true
+    });
+    console.log(JSON.stringify(result, null, 2));
   } else {
     throw new Error(`Unknown data command: ${command}`);
   }
@@ -73,6 +109,12 @@ try {
 function readOption(commandArgs: string[], flag: string): string | null {
   const index = commandArgs.indexOf(flag);
   return index === -1 ? null : (commandArgs[index + 1] ?? null);
+}
+
+function readOptions(commandArgs: string[], flag: string): string[] {
+  return commandArgs.flatMap((argument, index) =>
+    argument === flag && commandArgs[index + 1] ? [commandArgs[index + 1]!] : []
+  );
 }
 
 function requireConfirmation(
@@ -98,7 +140,14 @@ Commands:
                                      Replace the database from a verified Aether backup.
                                      Restore its cache only when the backup includes it.
   data:wipe -- --confirm-wipe        Permanently remove the complete data directory.
+  data:recover -- --root-id <id> --trash-id <id> --confirm-lost-media
+                                     Acknowledge named records on a permanently lost drive.
+                                     Repeat --trash-id or --operation-id, up to 100 records.
+                                     This changes database records and never deletes files.
+  data:recover -- --list [--after <cursor>]
+                                     List up to 100 retained record IDs and root IDs.
+                                     Continue with nextCursor when present.
 
-Stop Aether before running rebuild, restore, or wipe.
+Stop Aether before running rebuild, restore, wipe, or recover.
 `);
 }

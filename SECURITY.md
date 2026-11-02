@@ -30,6 +30,7 @@ Use synthetic files wherever possible.
 
 Aether is meant for a home server or trusted network. Do not expose it directly
 to the public internet. Use a firewall, private VPN, or HTTPS reverse proxy; keep
-source media read-only; and protect the Aether data directory.
+source media read-only unless explicitly enabling named writable roots; and
+protect the Aether data directory.
 
 See [Security](docs/security.md) for the full deployment and privacy model.

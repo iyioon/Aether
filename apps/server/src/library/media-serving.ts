@@ -82,7 +82,7 @@ export async function resolveAssetFile(
          roots.real_path AS root_real_path
        FROM assets a
        JOIN roots ON roots.id = a.root_id
-       WHERE a.id = ?`
+       WHERE a.id = ? AND a.lifecycle = 'active'`
     )
     .get(assetId) as
     | {

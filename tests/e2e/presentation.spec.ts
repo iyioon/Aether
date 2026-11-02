@@ -250,6 +250,11 @@ for (const phone of [false, true]) {
       await expect(zoom).toHaveAttribute("aria-valuenow", "1.05");
       saveGate.release();
       await expect(editor).toHaveCount(0);
+      await expect(
+        page
+          .locator("[data-sonner-toast]")
+          .filter({ hasText: "Media edits saved" })
+      ).toHaveCount(1);
       expect(
         (await getAsset(page, photo.id)).presentation?.aspectFraming?.Square
       ).toMatchObject({
@@ -4395,12 +4400,13 @@ async function openGalleryEditor(page: Page, asset: AssetRecord) {
       .click();
   }
   const viewer = page.getByRole("dialog", { name: asset.name, exact: true });
-  await expect(
-    viewer.getByRole("link", { name: `Download ${asset.name}`, exact: true })
-  ).toBeVisible();
   await viewer
-    .getByRole("button", { name: `Edit ${asset.name}`, exact: true })
+    .getByRole("button", {
+      name: `More options for ${asset.name}`,
+      exact: true
+    })
     .click();
+  await page.getByRole("menuitem", { name: "Edit media", exact: true }).click();
 }
 async function resetSelected(page: Page, label: string) {
   await page.getByRole("checkbox", { name: new RegExp(label) }).check();
@@ -4420,6 +4426,11 @@ async function resetSelected(page: Page, label: string) {
     .click();
   expect((await done).ok()).toBe(true);
   await expect(page.getByRole("alertdialog")).toHaveCount(0);
+  await expect(
+    page
+      .locator("[data-sonner-toast]")
+      .filter({ hasText: "Library data reset" })
+  ).toHaveCount(1);
 }
 async function scan(page: Page) {
   const result = await page.request.post(`${origin}/api/admin/scan`, {

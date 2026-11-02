@@ -4,7 +4,7 @@ import { ApiError, login } from "../api/client";
 import { BrandMark } from "./BrandMark";
 import { Alert, AlertDescription } from "./ui/alert";
 import { Button } from "./ui/button";
-import { Card, CardContent, CardDescription, CardHeader } from "./ui/card";
+import { Card, CardContent, CardHeader } from "./ui/card";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 
@@ -62,9 +62,6 @@ export function LoginScreen({ notice, onAuthenticated }: LoginScreenProps) {
           <CardHeader>
             <BrandMark className="login-brand-logo" />
             <h1 className="leading-none font-semibold">Aether</h1>
-            <CardDescription>
-              Where memories gather, preserved beyond time.
-            </CardDescription>
           </CardHeader>
 
           <CardContent className="grid gap-5">

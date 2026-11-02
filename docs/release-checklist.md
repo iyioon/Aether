@@ -104,8 +104,7 @@ Never test rebuild or wipe against the only copy of a real library database.
   use the same reachable shell. Inspect phone portrait and short landscape.
 - In Gallery, verify that hovering a card shows no Edit or Download action;
   right-click, Shift+F10 or touch-hold the preview for Info/Edit/Download. Check
-  focus return, scroll cancellation, score/heart holds, download and selection mode. Feed and viewer use a pencil
-  for Edit; Comparison cards have no Edit icon. Open the fullscreen editor on
+  focus return, scroll cancellation, score/heart holds, download and selection mode. Feed uses a pencil and viewer More contains Edit media; Comparison cards have no Edit icon. Open the fullscreen editor on
   desktop, phone portrait and short landscape. Check that
   Cancel discards drafts, Save survives reload, Reset needs Save, and editing
   cannot vote, navigate, favorite or score accidentally.
@@ -190,6 +189,42 @@ Never test rebuild or wipe against the only copy of a real library database.
   return, and native fullscreen section bounds. Record real-device acceptance
   separately from browser emulation.
 
+## File Management Acceptance
+
+- Use disposable named roots on the same and different filesystems. Confirm the
+  default read-only configuration rejects writes and a writable mount alone does
+  not enable them. Unsupported platforms and volume probes remain read-only.
+- Create empty folders, rename media without changing extensions, rename/move
+  subtrees with sidecars and hidden files, and rescan. Preserve IDs, scores,
+  presentation and history; recreated old names receive new identities.
+- Exercise collision/Keep both, source/parent replacement, symlinks, special
+  entries, unsupported metadata, quota/disk-full, disconnected drives, partial
+  batches and server shutdown at durable boundaries. Never use a real library.
+- On desktop and phones, select cards, switch Score/Tags with unsaved drafts,
+  Apply only one tab and Cancel after another Apply succeeded. Repeated score
+  taps and holds stay stationary under score sorting and active filters.
+  Update results preserves anchors/focus and refetches a consistent paged window.
+- Move an open viewer item outside its query, and move the current folder.
+  Check breadcrumbs, neighbor navigation and restored depth. Remote changes must
+  disable unavailable items without interrupting a press, editor or selection.
+- Move to Trash, Undo, restore after the original folder moved, resolve occupied
+  locations, purge and Empty Trash with hidden search results. Check unavailable
+  drives, retention claims, static previews and no ordinary inactive media access.
+- Interrupt an upload, resume the acknowledged offset, reload and reselect the
+  same file. Reject changed prefixes. Verify byte hashes, auth/CSRF on every tus
+  method, bounded streams/chunks, disk reservations and verified staging cleanup.
+- On an actual iPhone Home Screen installation, test Photos and Files separately,
+  software keyboard and landscape sheets, VoiceOver, Home/return during transfer,
+  offline/sign-in recovery and retained-prefix reselection. Record device/OS
+  verification separately from Chrome emulation.
+- Check one toast per acknowledged operation/batch, inline form errors, quiet
+  score increments, Undo/Activity alternatives and no old-session notifications.
+- Back up and restore with retained Trash and matching filesystem payloads;
+  refuse mismatched/lost roots and unresolved transfers. Wipe/rebuild must refuse
+  recovery blockers and never remove source-root bytes.
+- Check all six guide topics, explicit topic links, restored viewer context,
+  keyboard tab navigation, 200% zoom, 320px phones and coarse-pointer landscape.
+
 ## HEIC Acceptance
 
 - Index genuine 8-bit and10-bit SDR HEIC/HEIF photos, including rotated photos,
@@ -204,7 +239,8 @@ Never test rebuild or wipe against the only copy of a real library database.
 ## Security
 
 - A strong password hash and unique session secret are set.
-- Source media is mounted read-only.
+- Source media is mounted read-only by default. Test explicit named writable
+  roots with disposable data; other roots must reject mutations.
 - The service binds to localhost unless direct LAN exposure is deliberate.
 - Trusted HTTPS supports regular Home Screen access; a VPN can restrict network access.
 - Secure cookies are enabled only after HTTPS works.

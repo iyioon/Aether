@@ -43,9 +43,11 @@ npm start               # run the built server and web app
 npm run verify          # all normal checks and builds
 npm run test:e2e        # Playwright browser tests
 npm run data:status     # inspect the local data directory
+npm run data:recover -- --list # inspect records blocking lost-volume recovery
 ```
 
-Use Node.js 24, matching `.nvmrc`, CI and Docker. The end-to-end suite starts
+Use Node.js 24, matching `.nvmrc`, CI and Docker. Linux builds and tests also
+require a C compiler for the descriptor-based file-management helper. The end-to-end suite starts
 isolated servers and recreates disposable files under **.e2e**, using one worker.
 It expects a local Chrome installation. Do not run competing browser suites or
 reuse a live server/data directory for these tests. FFmpeg 5.1 or newer and its
@@ -97,7 +99,8 @@ dependencies or fixtures to the runtime image.
 
 ## Working Rules
 
-- Keep source media read-only.
+- Keep source media read-only except for explicitly authorized file-management
+  operations through the durable runner. Use disposable writable roots in tests.
 - Resolve every source file through a configured media root.
 - Validate request input at the API boundary.
 - Pass subprocess arguments as arrays; never build a shell command from input.

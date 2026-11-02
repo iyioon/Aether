@@ -158,6 +158,12 @@ test("keeps gallery search and toolbar controls on one row on narrow phones", as
       await expect(
         phone.getByRole("region", { name: "Gallery view" })
       ).toBeVisible();
+      await expect(
+        phone.getByRole("region", { name: "Gallery view" })
+      ).toHaveAttribute("aria-busy", "false");
+      await expect(
+        phone.getByRole("button", { name: "Select media", exact: true })
+      ).toBeEnabled();
       const geometry = await phone.evaluate(() => ({
         width: innerWidth,
         search: (() => {
@@ -194,7 +200,7 @@ test("keeps gallery search and toolbar controls on one row on narrow phones", as
       }));
 
       expect(geometry.search.width).toBeGreaterThanOrEqual(100);
-      expect(geometry.targets).toHaveLength(3);
+      expect(geometry.targets).toHaveLength(4);
       for (const target of geometry.targets) {
         expect(target.left).toBeGreaterThanOrEqual(geometry.search.right);
         expect(
@@ -323,7 +329,7 @@ test("groups mobile Feed view options and navigation with media visibility", asy
     await panel.getByRole("radio", { name: "Videos", exact: true }).check();
     await panel.getByRole("button", { name: "Close view options" }).tap();
     await expect(
-      phone.getByText("No media in this feed", { exact: true })
+      phone.getByText("No media matches this search or filter", { exact: true })
     ).toBeVisible();
     await expect(options).toBeFocused();
     await options.tap();
@@ -378,7 +384,7 @@ test("groups mobile Feed view options and navigation with media visibility", asy
       .toBe("no-matching-feed-item");
     await phone.getByRole("button", { name: "Feed view", exact: true }).tap();
     await expect(
-      phone.getByText("No media in this feed", { exact: true })
+      phone.getByText("No media matches this search or filter", { exact: true })
     ).toBeVisible();
     await switcher
       .getByRole("button", { name: "Gallery view", exact: true })

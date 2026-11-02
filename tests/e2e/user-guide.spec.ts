@@ -1,12 +1,12 @@
 import { expect, test } from "@playwright/test";
 
 const topics = [
-  ["Get started", "Get started"],
-  ["Browsing", "Browse your library"],
-  ["Edit media", "Edit media"],
-  ["Ranking", "Rank media"],
-  ["Organizing", "Organize media"],
-  ["Keyboard", "Keyboard shortcuts"]
+  ["Browse", "Sign in and scan"],
+  ["Edit media", "Open the editor"],
+  ["Rank media", "Compare media"],
+  ["Manage media", "Edit details"],
+  ["Media files", "Read and write access"],
+  ["Help", "Loading, saving and transfers"]
 ] as const;
 
 test.beforeEach(async ({ page }) => {
@@ -18,7 +18,7 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByRole("heading", { name: "User guide" })).toBeVisible();
 });
 
-test("switches guide panels without anchors and supports keyboard tab navigation", async ({
+test("switches one guide panel at a time with keyboard navigation and topic links", async ({
   page
 }) => {
   const guide = page.locator(".guide-page");
@@ -26,80 +26,58 @@ test("switches guide panels without anchors and supports keyboard tab navigation
   await expect(tabs.getByRole("tab")).toHaveCount(topics.length);
   await expect(guide.getByRole("tabpanel")).toHaveCount(1);
   await expect(
-    guide.getByRole("heading", { name: "Scan your folders" })
+    guide.getByRole("heading", { name: "Sign in and scan" })
   ).toBeVisible();
-
-  const start = tabs.getByRole("tab", { name: "Get started", exact: true });
-  await start.focus();
+  const browse = tabs.getByRole("tab", { name: "Browse", exact: true });
+  await browse.focus();
   await page.keyboard.press("ArrowRight");
   await expect(
-    tabs.getByRole("tab", { name: "Browsing", exact: true })
+    tabs.getByRole("tab", { name: "Edit media", exact: true })
   ).toBeFocused();
-  await expect(guide.getByRole("tabpanel", { name: "Browsing" })).toBeVisible();
   await expect(
-    guide.getByRole("heading", { name: "Scan your folders" })
-  ).toHaveCount(0);
-  await expect(
-    guide.getByRole("heading", { name: "Browse your library" })
+    guide.getByRole("heading", { name: "Open the editor" })
   ).toBeVisible();
-
+  await expect(
+    guide.getByRole("heading", { name: "Sign in and scan" })
+  ).toHaveCount(0);
+  await expect(page).toHaveURL(/topic=edit/);
   await page.keyboard.press("End");
   await expect(
-    tabs.getByRole("tab", { name: "Keyboard", exact: true })
+    tabs.getByRole("tab", { name: "Help", exact: true })
   ).toBeFocused();
   await expect(
-    guide.getByRole("heading", { name: "Keyboard shortcuts" })
+    guide.getByRole("heading", { name: "Loading, saving and transfers" })
   ).toBeVisible();
   await page.keyboard.press("Home");
-  await expect(start).toBeFocused();
-  await expect(start).toHaveAttribute("aria-selected", "true");
-
-  await tabs.getByRole("tab", { name: "Edit media", exact: true }).click();
+  await expect(browse).toBeFocused();
+  await tabs.getByRole("tab", { name: "Media files", exact: true }).click();
+  await page.reload();
   await expect(
-    guide.getByRole("tabpanel", { name: "Edit media" })
+    guide.getByRole("heading", { name: "Read and write access" })
   ).toBeVisible();
+  await page.goto("/?page=guide&topic=invalid");
   await expect(
-    guide.getByRole("heading", { name: "Playback", exact: true })
+    guide.getByRole("heading", { name: "Sign in and scan" })
   ).toBeVisible();
-  await expect(
-    guide.getByRole("heading", { name: "Framing", exact: true })
-  ).toBeVisible();
-  await expect(guide.getByRole("tabpanel")).toHaveCount(1);
   expect(new URL(page.url()).hash).toBe("");
-  expect(
-    await page.locator(".library-main").evaluate((node) => node.scrollTop)
-  ).toBe(0);
-
-  await page.setViewportSize({ width: 800, height: 900 });
-  await expect
-    .poll(() =>
-      tabs
-        .getByRole("tab")
-        .evaluateAll((elements) =>
-          elements.every(
-            (element) => element.scrollWidth <= element.clientWidth
-          )
-        )
-    )
-    .toBe(true);
-  await expect
-    .poll(() =>
-      guide.evaluate((element) => element.scrollWidth <= element.clientWidth)
-    )
-    .toBe(true);
+  await expect(guide.getByText("Your originals stay unchanged")).toHaveCount(0);
 });
 
-test("keeps guide topics reachable and content within narrow phone screens", async ({
+test("keeps topics and procedures usable on narrow phones, landscape and zoom", async ({
   browser,
   page
 }) => {
   const storageState = await page.context().storageState();
-  const url = new URL("/?page=guide", page.url());
+  const url = new URL("/?page=guide&topic=browse", page.url());
   url.port = process.env.AETHER_E2E_API_PORT ?? "3130";
-  for (const width of [320, 393]) {
+  for (const [width, height] of [
+    [320, 852],
+    [393, 852],
+    [844, 390]
+  ]) {
     const context = await browser.newContext({
       storageState,
-      viewport: { width, height: 852 },
+      viewport: { width: width!, height: height! },
       isMobile: true,
       hasTouch: true,
       serviceWorkers: "block"
@@ -138,6 +116,17 @@ test("keeps guide topics reachable and content within narrow phone screens", asy
           expect(target.height).toBeGreaterThanOrEqual(44);
         }
       }
+      await phone.locator(".guide-shell").evaluate((element) => {
+        (element as HTMLElement).style.zoom = "2";
+      });
+      await expect(
+        guide.getByRole("heading", { name: "Loading, saving and transfers" })
+      ).toBeVisible();
+      expect(
+        await guide.evaluate(
+          (element) => element.scrollWidth <= element.clientWidth + 1
+        )
+      ).toBe(true);
     } finally {
       await context.close();
     }

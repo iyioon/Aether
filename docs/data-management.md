@@ -1,7 +1,8 @@
 # Data Management
 
-Aether keeps all server-managed state in one directory. The default is
-`./aether-data`.
+Aether keeps the database, generated cache, private settings and upload staging
+in its data directory, `./aether-data` by default. File-operation staging and
+Trash remain on their media volumes.
 
 This directory contains:
 
@@ -13,9 +14,11 @@ This directory contains:
 - a marker used to prevent maintenance commands from targeting the wrong folder
 - a runtime lock while the server is active
 - `tmp`, containing private per-process temporary work for native tools
+- private upload staging and durable operation/recovery records
 
-Source media stays in the folders listed in `AETHER_MEDIA_ROOTS`. It is not
-copied into the data directory, and Aether's reset commands do not delete it.
+Existing source media stays in the folders listed in `AETHER_MEDIA_ROOTS`.
+Indexing does not copy it into the data directory, and Aether's reset commands
+do not delete it.
 
 Presentation settings live in the database and are included in normal backups.
 Restore accepts earlier supported schemas and upgrades them when the server
@@ -26,6 +29,71 @@ Returning to an older application version requires restoring a compatible backup
 do not point it at the upgraded database. A full rebuild discards these edits along
 with other per-asset metadata. Selective resets are available in Settings and
 advance revisions to reject stale editor saves.
+
+## File Operations And Trash
+
+Source media normally stays in its configured root. Explicit moves, renames and
+Trash operations change those locations; presentation processors and scanners
+remain read-only. Device uploads are temporarily staged under `uploads` in the
+data directory. Cross-drive publication uses owned `.aether-staging` storage on
+the destination volume. Trash bytes stay under `.aether-trash` on their media
+root, with a default retention of 30 days.
+
+Operation receipts and ownership metadata live in SQLite. Accepted server work
+continues after a browser disconnect. Startup inspects unresolved boundaries;
+it never deletes an unverified last copy or adopts an unknown reserved directory.
+Review Needs attention in Activity before retrying. Keep roots and all recorded
+copies available during recovery. Do not recursively delete reserved storage or
+remove its records to unblock the application.
+
+`data:status` reports unresolved operations, retained upload stages and Trash.
+Rebuild, wipe and database restore refuse those blockers. Finish or cancel
+transfers, and restore or explicitly purge Trash, before destructive maintenance.
+A disconnected drive does not make its retained files safe to forget.
+
+Database backups exclude source files, pending original copies and Trash bytes.
+Back up the media volumes separately. Backup takes a writer fence at a recoverable
+boundary and refuses unresolved transfers. Retained Trash descriptors and digests
+are checked; a backup does not create a second copy of their bytes. Restoring a
+backup with Trash requires the matching media payloads and root identities.
+Historical file operations and upload sessions are not executed after restore;
+a complete scan is required before writes are enabled again.
+
+### Permanently Lost Media Volumes
+
+If a media volume is permanently lost, stop Aether before acknowledging its
+records. Check the blockers with `data:status`, then list their root, Trash and
+operation IDs:
+
+```bash
+npm run data:recover -- --list
+```
+
+The list contains up to 100 records. If it returns `nextCursor`, continue with
+`npm run data:recover -- --list --after NEXT_CURSOR`.
+
+Select only records whose media cannot be recovered:
+
+```bash
+npm run data:recover -- --root-id ROOT_ID --trash-id TRASH_ID --confirm-lost-media
+```
+
+Repeat `--trash-id` or `--operation-id` to select up to 100 records from that
+root. The command records the acknowledgement and releases only the selected
+metadata blockers. It does not recover or delete media files. It refuses a
+volume that is still available, uploads, transfers involving another root, and
+records whose ownership cannot be verified. For an Empty Trash job, name its
+operation ID and matching retained Trash IDs. Only pending items on the lost
+root are acknowledged. Finish or cancel uploads and claimed operations on other
+roots first. Acknowledgement cancels untouched queued work, including remaining
+Empty Trash items on available roots, so the required scan can run. Their files,
+Trash records and completed results remain; start a new action after the scan.
+Unspecified Trash records remain. Resolve access errors or reconnect recoverable
+drives instead.
+
+Run `data:status` again and remove the permanently lost root from configuration.
+Start Aether and complete a scan before enabling further file operations.
+Unselected records continue to block destructive maintenance.
 
 ## Check The Data Directory
 

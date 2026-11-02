@@ -7,6 +7,7 @@ export const FINAL_SCORE_SQL =
 
 export const ASSET_SELECT_COLUMNS = `
   a.id,
+  a.source_revision,
   a.folder_id,
   a.name,
   a.extension,
@@ -51,14 +52,14 @@ export function buildAssetFilterQuery(
     rootId: folder.rootId,
     folderId: options.folderId
   };
-  const filters = ["a.root_id = @rootId"];
+  const filters = ["a.root_id = @rootId", "a.lifecycle = 'active'"];
 
   if (options.recursive) {
     if (folder.relativePath !== "") {
       parameters.relativePath = folder.relativePath;
-      parameters.relativePrefix = `${folder.relativePath}/%`;
+      parameters.relativePrefix = `${folder.relativePath}/`;
       filters.push(
-        "(a.relative_path = @relativePath OR a.relative_path LIKE @relativePrefix)"
+        "(a.relative_path = @relativePath OR substr(a.relative_path, 1, length(@relativePrefix)) = @relativePrefix)"
       );
     }
   } else {

@@ -152,8 +152,12 @@ export function LeaderboardView({
       ) : error && entries.length === 0 ? null : entries.length === 0 ? (
         <LeaderboardEmptyState
           hasFolder={folderId !== null}
-          onPrepareRanking={onPrepareRanking}
-          onStartRanking={onStartRanking}
+          hasQueryFilters={Boolean(
+            search ||
+            tagFilters.length ||
+            scoreFilter !== "all" ||
+            mediaType !== "all"
+          )}
         />
       ) : (
         <>
@@ -290,33 +294,28 @@ function ScoreBadge({ asset }: { asset: AssetRecord }) {
 
 function LeaderboardEmptyState({
   hasFolder,
-  onPrepareRanking,
-  onStartRanking
+  hasQueryFilters
 }: {
   hasFolder: boolean;
-  onPrepareRanking: () => void;
-  onStartRanking: () => void;
+  hasQueryFilters: boolean;
 }) {
   return (
     <Card className="leaderboard-empty">
       <Trophy aria-hidden="true" />
-      <h2>{hasFolder ? "No media matches" : "Choose a folder"}</h2>
+      <h2>
+        {!hasFolder
+          ? "Choose a folder"
+          : hasQueryFilters
+            ? "No media matches this search or filter"
+            : "No media in this folder"}
+      </h2>
       <p>
         {hasFolder
-          ? "Adjust the active filters or start ranking media to build this leaderboard."
+          ? hasQueryFilters
+            ? "Adjust the search or filters to see more media. Ranking needs at least two items."
+            : "Add media from Gallery, or scan after copying files into this folder. Ranking needs at least two items."
           : "Select a folder to see its leaderboard and begin ranking."}
       </p>
-      {hasFolder ? (
-        <Button
-          onFocus={onPrepareRanking}
-          onPointerDown={onPrepareRanking}
-          onPointerEnter={onPrepareRanking}
-          onClick={onStartRanking}
-        >
-          <GitCompareArrows aria-hidden="true" />
-          Rank media
-        </Button>
-      ) : null}
     </Card>
   );
 }

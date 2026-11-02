@@ -18,6 +18,7 @@ interface AssetScoreBreakdownProps {
   asset: AssetRecord;
   isResetOpen: boolean;
   isSaving: boolean;
+  resetError?: string | null;
   onClearAdjustment: () => void;
   onReset: () => void;
   onResetOpenChange: (open: boolean) => void;
@@ -27,6 +28,7 @@ export function AssetScoreBreakdown({
   asset,
   isResetOpen,
   isSaving,
+  resetError,
   onClearAdjustment,
   onReset,
   onResetOpenChange
@@ -53,7 +55,12 @@ export function AssetScoreBreakdown({
       </p>
       {asset.ranking ? (
         <AlertDialog open={isResetOpen} onOpenChange={onResetOpenChange}>
-          <AlertDialogContent>
+          <AlertDialogContent
+            className="management-confirmation"
+            onEscapeKeyDown={(event) => {
+              if (isSaving) event.preventDefault();
+            }}
+          >
             <AlertDialogHeader>
               <AlertDialogTitle>
                 Reset comparisons for {asset.name}?
@@ -65,10 +72,22 @@ export function AssetScoreBreakdown({
                 place. This action cannot be undone.
               </AlertDialogDescription>
             </AlertDialogHeader>
+            {resetError ? (
+              <p className="text-sm text-destructive" role="alert">
+                {resetError}
+              </p>
+            ) : null}
             <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction variant="destructive" onClick={onReset}>
-                Reset comparisons
+              <AlertDialogCancel disabled={isSaving}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                variant="destructive"
+                disabled={isSaving}
+                onClick={(event) => {
+                  event.preventDefault();
+                  onReset();
+                }}
+              >
+                {isSaving ? "Resetting…" : "Reset comparisons"}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

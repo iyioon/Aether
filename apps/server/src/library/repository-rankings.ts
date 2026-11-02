@@ -17,9 +17,20 @@ export function recomputeAssetRankings(
   db: AetherDatabase,
   updatedAt: string
 ): void {
+  const managed = Boolean(
+    db
+      .prepare(
+        "SELECT 1 FROM pragma_table_info('assets') WHERE name = 'lifecycle'"
+      )
+      .get()
+  );
   const preferences = db
     .prepare(
-      "SELECT asset_low_id, asset_high_id, winner_id FROM pair_preferences"
+      managed
+        ? `SELECT p.asset_low_id, p.asset_high_id, p.winner_id FROM pair_preferences p
+        JOIN assets low ON low.id = p.asset_low_id AND low.lifecycle = 'active'
+        JOIN assets high ON high.id = p.asset_high_id AND high.lifecycle = 'active'`
+        : "SELECT asset_low_id, asset_high_id, winner_id FROM pair_preferences"
     )
     .all() as PreferenceRow[];
   const projections = fitRankingModel(
@@ -38,9 +49,17 @@ export function recomputeAssetRankings(
   const existingAdjustments = new Map(
     (
       db
-        .prepare("SELECT asset_id, manual_adjustment FROM asset_rankings")
-        .all() as Array<{ asset_id: string; manual_adjustment: number }>
-    ).map((row) => [row.asset_id, row.manual_adjustment])
+        .prepare(
+          managed
+            ? "SELECT asset_id, manual_adjustment, absolute_score FROM asset_manual_adjustments"
+            : "SELECT asset_id, manual_adjustment, NULL AS absolute_score FROM asset_rankings"
+        )
+        .all() as Array<{
+        asset_id: string;
+        manual_adjustment: number;
+        absolute_score: number | null;
+      }>
+    ).map((row) => [row.asset_id, row])
   );
   const storedManualScores = new Map(
     (
@@ -66,12 +85,16 @@ export function recomputeAssetRankings(
   for (const [assetId, projection] of projections) {
     const { comparisonCount, comparisonScore, skill } = projection;
     const storedManualScore = storedManualScores.get(assetId);
+    const retained = existingAdjustments.get(assetId);
     upsert.run({
       assetId,
       skill,
       comparisonScore,
       manualAdjustment:
-        existingAdjustments.get(assetId) ??
+        (retained?.absolute_score !== null &&
+        retained?.absolute_score !== undefined
+          ? retained.absolute_score - comparisonScore
+          : retained?.manual_adjustment) ??
         (storedManualScore === undefined
           ? 0
           : storedManualScore - comparisonScore),
@@ -80,12 +103,10 @@ export function recomputeAssetRankings(
     });
   }
 
-  db.prepare(
-    `DELETE FROM asset_rankings
-     WHERE asset_id NOT IN (
-       SELECT asset_low_id FROM pair_preferences
-       UNION
-       SELECT asset_high_id FROM pair_preferences
-     )`
-  ).run();
+  const stored = db
+    .prepare("SELECT asset_id FROM asset_rankings")
+    .all() as Array<{ asset_id: string }>;
+  const remove = db.prepare("DELETE FROM asset_rankings WHERE asset_id = ?");
+  for (const record of stored)
+    if (!projections.has(record.asset_id)) remove.run(record.asset_id);
 }

@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ApiError,
   updateAssetScoresBatch,
   updateAssetTagsBatch,
   type AssetRecord
@@ -15,7 +16,11 @@ import { useTagSuggestions } from "../tags/useTagSuggestions";
 interface UseBatchSelectionOptions {
   assets: AssetRecord[];
   listQueryKey: string;
-  shouldReloadAfterScoreChange: boolean;
+  shouldReloadAfterScoreChange: (input: {
+    score?: number;
+    favorite?: boolean;
+  }) => boolean;
+  shouldReloadAfterTagChange: boolean;
   onAssetsUpdated: (assets: AssetRecord[]) => void;
   onReloadAssets: () => void;
 }
@@ -24,9 +29,19 @@ export function useBatchSelection({
   assets,
   listQueryKey,
   shouldReloadAfterScoreChange,
+  shouldReloadAfterTagChange,
   onAssetsUpdated,
   onReloadAssets
 }: UseBatchSelectionOptions) {
+  const inFlightRef = useRef(false);
+  const contextRef = useRef(listQueryKey);
+  const activeRef = useRef(true);
+  useEffect(() => {
+    activeRef.current = true;
+    return () => {
+      activeRef.current = false;
+    };
+  }, []);
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(
     () => new Set()
   );
@@ -39,6 +54,7 @@ export function useBatchSelection({
     () => [...selectedAssetIds],
     [selectedAssetIds]
   );
+  contextRef.current = `${listQueryKey}:${selectedAssetIdList.slice().sort().join("|")}`;
   const selectedAssetCount = selectedAssetIdList.length;
   const batchTagSuggestions = useTagSuggestions({
     enabled: selectedAssetCount > 0,
@@ -73,6 +89,7 @@ export function useBatchSelection({
   }, [assets]);
 
   function toggleAssetSelection(assetId: string) {
+    if (inFlightRef.current) return;
     setBatchError(null);
     setBatchStatus(null);
     setSelectedAssetIds((current) => {
@@ -89,6 +106,7 @@ export function useBatchSelection({
   }
 
   function selectLoadedAssets() {
+    if (inFlightRef.current) return;
     setIsSelectionMode(true);
     setBatchError(null);
     setBatchStatus(null);
@@ -96,6 +114,7 @@ export function useBatchSelection({
   }
 
   function clearSelectedAssets() {
+    if (inFlightRef.current) return;
     setSelectedAssetIds(new Set());
     setBatchError(null);
     setBatchStatus(null);
@@ -107,26 +126,39 @@ export function useBatchSelection({
       selectedAssetIdList.length === 0 ||
       (input.score === undefined && input.favorite === undefined)
     ) {
-      return;
+      return false;
     }
-
+    if (inFlightRef.current) return false;
+    inFlightRef.current = true;
+    const context = contextRef.current;
+    const ids = [...selectedAssetIdList];
     setIsSavingBatch(true);
     setBatchError(null);
     setBatchStatus(null);
 
     try {
-      const response = await updateAssetScoresBatch(selectedAssetIdList, input);
+      const response = await updateAssetScoresBatch(ids, input);
+      if (!activeRef.current) return false;
       onAssetsUpdated(response.assets);
+      if (contextRef.current !== context) return false;
       setBatchStatus(batchScoreStatus(response.updated));
 
-      if (shouldReloadAfterScoreChange) {
+      if (shouldReloadAfterScoreChange(input)) {
         onReloadAssets();
       }
+      return true;
     } catch (caught) {
-      setBatchError(
-        batchActionErrorMessage(caught, "Unable to update selection.")
-      );
+      if (
+        activeRef.current &&
+        contextRef.current === context &&
+        !(caught instanceof ApiError && caught.status === 401)
+      )
+        setBatchError(
+          batchActionErrorMessage(caught, "Unable to update selection.")
+        );
+      return false;
     } finally {
+      inFlightRef.current = false;
       setIsSavingBatch(false);
     }
   }
@@ -138,24 +170,40 @@ export function useBatchSelection({
       selectedAssetIdList.length === 0 ||
       (mode === "add" && tags.length === 0)
     ) {
-      return;
+      return false;
     }
-
+    if (inFlightRef.current) return false;
+    inFlightRef.current = true;
+    const context = contextRef.current;
+    const ids = [...selectedAssetIdList];
     setIsSavingBatch(true);
     setBatchError(null);
     setBatchStatus(null);
 
     try {
-      const response = await updateAssetTagsBatch(selectedAssetIdList, {
+      const response = await updateAssetTagsBatch(ids, {
         tags,
         mode
       });
+      if (!activeRef.current) return false;
+      onAssetsUpdated(response.assets);
+      if (contextRef.current !== context) return false;
       setBatchTagDraft("");
       setBatchStatus(batchTagStatus(tags, mode, response.updated));
-      onReloadAssets();
+      if (shouldReloadAfterTagChange) onReloadAssets();
+      return true;
     } catch (caught) {
-      setBatchError(batchActionErrorMessage(caught, "Unable to update tags."));
+      if (
+        activeRef.current &&
+        contextRef.current === context &&
+        !(caught instanceof ApiError && caught.status === 401)
+      )
+        setBatchError(
+          batchActionErrorMessage(caught, "Unable to update tags.")
+        );
+      return false;
     } finally {
+      inFlightRef.current = false;
       setIsSavingBatch(false);
     }
   }

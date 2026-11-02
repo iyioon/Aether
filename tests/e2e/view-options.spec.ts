@@ -17,7 +17,7 @@ test("applies and restores sort, filters, and gallery layout from one panel", as
   const panel = page.getByRole("dialog", { name: "View options", exact: true });
   await expect(
     page.getByRole("region", { name: "Library controls" }).getByRole("button")
-  ).toHaveCount(2);
+  ).toHaveCount(3);
   await trigger.focus();
   await page.keyboard.press("Enter");
   await expect(panel).toBeVisible();

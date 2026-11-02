@@ -6,6 +6,13 @@ Notable changes to Aether are recorded here.
 
 ### Added
 
+- Opt-in named writable roots, durable folder creation, media/folder rename and
+  moves, recoverable Trash, restore, permanent deletion and Activity. Linux
+  publication uses a descriptor-based native helper and retains ambiguous
+  operations for recovery. Other platforms remain read-only.
+- Authenticated resumable device uploads with private staging, retained-prefix
+  verification, media inspection and bounded transfer/disk budgets.
+
 - Rounded accent segments within Feed, viewer and editor seek tracks mark
   highlights, including animated media, with precise screen-reader descriptions.
   Playback markers are hidden while looping the highlight.
@@ -21,10 +28,20 @@ Notable changes to Aether are recorded here.
 - Slim loading bars above media in Gallery, Feed, Compare and the viewer,
   including while saved Bounce playback is being prepared.
 - Gallery context actions for Info, Edit media and Download with right-click,
-  keyboard or touch hold. Edit and Download also remain in the viewer toolbar.
+  keyboard or touch hold. The viewer's More menu also includes Edit media and
+  Download.
 - Offline interface recovery, while private media and metadata remain online.
 
 ### Changed
+
+- Separate Score and Tags in Edit details, retain independent drafts and apply
+  only the active tab. Keep repeated score edits stationary until Update results
+  reapplies affected sorting and filters. Keep paging available when preview
+  metadata changes without changing the result order.
+- Use shared save notifications and foreground summaries for background
+  operations.
+- Reorganize the user guide around tasks and media handling, with restored topics
+  and explicit read/write, generated-copy, Trash and backup behavior.
 
 - Reuse prepared Bounce video and timing metadata without repeating source-frame
   analysis, prioritize active Feed playback over bounded next-item preparation,

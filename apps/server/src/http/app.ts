@@ -36,6 +36,8 @@ import { sweepDerivativeCache } from "../library/derivative-cache.js";
 import { registerLibraryRoutes } from "../library/routes.js";
 import { LibraryScanner } from "../library/scanner.js";
 import { LibraryWatcher } from "../library/watcher.js";
+import { FileOperationManager } from "../library/file-operations.js";
+import { registerUploadRoutes } from "../library/uploads.js";
 import { isPathInside } from "../security/path-safety.js";
 
 interface BuildAppOptions {
@@ -100,6 +102,7 @@ export async function buildApp({
   });
   const activeHandlers = new Set<Promise<void>>();
   let drainingHandlers = false;
+  let fileOperations: FileOperationManager | undefined;
   app.addHook("onRoute", (route) => {
     const handler = route.handler;
     route.handler = async function (request, reply) {
@@ -202,6 +205,14 @@ export async function buildApp({
 
         if (!verifyCsrfToken(db, session.id, csrfToken)) {
           return reply.code(403).send({ error: "csrf_required" });
+        }
+        if (
+          fileOperations?.busy &&
+          request.url !== "/api/assets/batch/details" &&
+          (request.url.startsWith("/api/assets/") ||
+            request.url.startsWith("/api/admin/database/reset"))
+        ) {
+          return reply.code(409).send({ error: "library_busy" });
         }
       }
     });
@@ -309,6 +320,8 @@ export async function buildApp({
     }
 
     const scanner = new LibraryScanner(db, config.mediaRoots, config.cacheDir);
+    fileOperations = new FileOperationManager(config, db);
+    await fileOperations.initialize();
     const watcher = config.watchEnabled
       ? new LibraryWatcher({
           roots: config.mediaRoots,
@@ -325,6 +338,9 @@ export async function buildApp({
       // Disconnected requests can leave their async handlers running after
       // Fastify closes the response. Keep SQLite and private work available.
       await Promise.allSettled(activeHandlers);
+      // A fully received upload can still enqueue its publication while its
+      // accepted handler drains. Close admission only after those handlers finish.
+      await fileOperations!.close();
       checkpointDatabase(db);
     });
 
@@ -336,7 +352,15 @@ export async function buildApp({
       }
     }
 
-    await registerLibraryRoutes(app, config, db, scanner, watcher);
+    await registerLibraryRoutes(
+      app,
+      config,
+      db,
+      scanner,
+      watcher,
+      fileOperations
+    );
+    await registerUploadRoutes(app, config, db, fileOperations);
     await registerStaticWeb(app, config);
 
     return app;

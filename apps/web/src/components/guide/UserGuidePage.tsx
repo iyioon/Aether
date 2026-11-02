@@ -1,48 +1,6 @@
-import {
-  ArrowDownUp,
-  ArrowUp,
-  FolderSync,
-  GalleryHorizontalEnd,
-  GitCompareArrows,
-  Grid3X3,
-  Heart,
-  Search,
-  ShieldCheck,
-  Tag
-} from "lucide-react";
-import type { ReactNode } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
+import { useRef, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
-
-const topics = [
-  ["start", "Get started"],
-  ["browse", "Browsing"],
-  ["edit", "Edit media"],
-  ["ranking", "Ranking"],
-  ["organize", "Organizing"],
-  ["keyboard", "Keyboard"]
-] as const;
-
-const gettingStartedSteps = [
-  {
-    icon: FolderSync,
-    title: "Scan your folders",
-    description:
-      "Select the refresh button beside Folders to find new or changed media. Your original files stay where they are."
-  },
-  {
-    icon: Search,
-    title: "Find media",
-    description:
-      "Choose a folder or search by name and path. Open View options to filter by type, score, favorites or tags."
-  },
-  {
-    icon: Heart,
-    title: "Organize your picks",
-    description:
-      "Add favorites, scores and tags from an item's details. Select several Gallery cards to update them together."
-  }
-] as const;
+import { guideTopics, parseGuideTopic, type GuideTopic } from "./guide-topics";
 
 const shortcuts = [
   ["/", "Focus search"],
@@ -56,377 +14,368 @@ const shortcuts = [
   ["Space in Feed or viewer", "Play or pause"],
   ["M in viewer", "Mute or unmute"],
   ["I in viewer", "Open Info"],
-  ["Arrows in Framing", "Adjust position 12px; Shift adjusts 1px (Fill)"],
+  ["Arrows in Framing", "Move 12px; Shift moves 1px (Fill)"],
   ["- / = in Framing", "Zoom 5%; Shift adjusts 1% (Fill)"],
   ["Arrows on editor timelines", "Adjust 100ms; Shift adjusts 1ms"],
-  ["Page / Home / End on editor timelines", "Adjust 1s / jump to limits"],
+  ["Page / Home / End on timelines", "Adjust 1s / jump to limits"],
   ["Shift + F10 on a card", "Open card actions"],
   ["Esc", "Close the current panel or viewer"]
 ] as const;
 
-export function UserGuidePage() {
+export function UserGuidePage({
+  topic,
+  onTopicChange
+}: {
+  topic?: GuideTopic;
+  onTopicChange?: (topic: GuideTopic) => void;
+}) {
+  const [localTopic, setLocalTopic] = useState<GuideTopic>("browse");
+  const root = useRef<HTMLElement>(null);
+  const changeTopic = (value: string) => {
+    const next = parseGuideTopic(value);
+    setLocalTopic(next);
+    onTopicChange?.(next);
+    const scroll = root.current?.closest(".library-main");
+    if (scroll) scroll.scrollTop = 0;
+  };
   return (
-    <section className="guide-page" aria-labelledby="guide-title">
+    <section ref={root} className="guide-page" aria-labelledby="guide-title">
       <div className="guide-shell">
-        <header className="guide-hero">
-          <h1 id="guide-title">User guide</h1>
-          <p>Browse and organize the photos and videos in your folders.</p>
-        </header>
-
-        <Tabs className="guide-tabs" defaultValue="start">
+        <h1 id="guide-title">User guide</h1>
+        <Tabs
+          className="guide-tabs"
+          value={topic ?? localTopic}
+          onValueChange={changeTopic}
+        >
           <TabsList className="guide-tabs-list" aria-label="Guide topics">
-            {topics.map(([value, label]) => (
+            {guideTopics.map(([value, label]) => (
               <TabsTrigger key={value} value={value}>
                 {label}
               </TabsTrigger>
             ))}
           </TabsList>
-
-          <TabsContent className="guide-tab-panel" value="start">
-            <GuideSection title="Get started">
-              <div className="guide-step-grid">
-                {gettingStartedSteps.map((step, index) => (
-                  <Card className="guide-step-card" key={step.title}>
-                    <CardHeader>
-                      <span className="guide-icon" aria-hidden="true">
-                        <step.icon />
-                      </span>
-                      <span className="guide-step-number">{index + 1}</span>
-                      <CardTitle>
-                        <h3>{step.title}</h3>
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <p>{step.description}</p>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-              <aside className="guide-privacy-note">
-                <ShieldCheck aria-hidden="true" />
-                <div>
-                  <h3>Your originals stay unchanged</h3>
-                  <p>
-                    Aether saves your edits and organization separately. It does
-                    not move, rename or change source files. Downloads always
-                    give you the original file. HEIC photos use a
-                    full-resolution browser copy with their orientation and
-                    color profile; downloads keep the HEIC original.
-                  </p>
-                </div>
-              </aside>
-            </GuideSection>
-          </TabsContent>
-
           <TabsContent className="guide-tab-panel" value="browse">
-            <GuideSection
-              title="Browse your library"
-              description="Switch views at the top right. Your folder, search and filters carry across views."
-            >
-              <div className="guide-view-grid">
-                <GuideTool icon={Grid3X3} title="Gallery">
-                  Browse a grid and select several items for batch changes.
-                  Click an item to open the viewer. Right-click a card or
-                  long-press its preview for Info, Edit media and Download.
-                </GuideTool>
-                <GuideTool icon={GalleryHorizontalEnd} title="Feed">
-                  Browse one item at a time in a portrait frame. Swipe up or
-                  down on phones, or scroll on desktop. Tap the media to hide or
-                  show the buttons, details and playback controls together.
-                </GuideTool>
-                <GuideTool icon={GitCompareArrows} title="Compare">
-                  Check the leaderboard or select Rank media to compare pairs.
-                  Choose the item you prefer, skip a pair or undo your last
-                  choice.
-                </GuideTool>
-              </div>
-              <div className="guide-text-block">
-                <h3>View options</h3>
-                <p>
-                  Use the sliders button for Filters, Sort and Layout. Compare
-                  has Filters and Layout. Gallery and Compare remember their own
-                  media layout and card info. Feed always uses Portrait; its
-                  card info starts hidden. Clear filters keeps your search, sort
-                  and layout.
-                </p>
-                <h3>The media viewer</h3>
-                <p>
-                  Click or tap the media to hide or show the controls; they also
-                  hide after a short pause. Info opens details without stopping
-                  playback. View options contains Play highlights only and Use
-                  saved framing. Saved framing starts off and is remembered in
-                  this browser when you change it.
-                </p>
-                <p>
-                  A slim bar at the top of the media shows loading or
-                  preparation. The preview stays visible until the full photo or
-                  first playback frame is ready. Highlights show their selected
-                  start while loading. If loading fails, use Retry on the media;
-                  an available preview stays visible. If the server is busy,
-                  wait briefly before retrying. The bar also appears during
-                  video buffering, keeping the current frame visible.
-                </p>
-                <p>
-                  On iPhone, Safari's Share menu → Add to Home Screen opens
-                  Aether as a web app. It resumes your place when you return.
-                  Native video fullscreen uses the iPhone's playback controls.
-                </p>
-              </div>
-            </GuideSection>
+            <h2>Sign in and scan</h2>
+            <ol>
+              <li>Sign in with the server’s shared password.</li>
+              <li>
+                Use the refresh button beside Folders to scan for new or changed
+                media.
+              </li>
+              <li>Choose a folder, or search by name and path.</li>
+            </ol>
+            <h2>Choose a view</h2>
+            <p>
+              Gallery shows a grid. Select a card to open the viewer.
+              Right-click a card or long-press its preview for actions;
+              selection and the viewer’s More menu provide the same file
+              commands.
+            </p>
+            <p>
+              Feed shows one item at a time. Swipe up or down on phones, or
+              scroll on desktop. Compare shows the leaderboard and Rank media.
+            </p>
+            <h2>Filter and sort</h2>
+            <p>
+              Open View options for Filters, Sort and Layout. Compare has
+              Filters and Layout. Clear filters keeps search, sort and layout.
+              Gallery and Compare remember their own layouts; Feed uses
+              Portrait.
+            </p>
+            <p>
+              Saved score, favorite or tag changes appear immediately. If they
+              affect the current sorting or filters, cards stay in place until
+              you choose Update results or change the view. Update results also
+              continues loading when the result order has changed.
+            </p>
+            <h2>Use the viewer</h2>
+            <p>
+              Tap the media to hide or show controls. Info opens details without
+              stopping playback. More contains Edit media, Download and
+              available file actions. View options includes Play highlights only
+              and Use saved framing.
+            </p>
+            <p>
+              The preview remains visible while the full photo or video
+              prepares. A slim bar shows loading or buffering. Use Retry if
+              loading fails.
+            </p>
+            <h2>Use Aether on iPhone</h2>
+            <p>
+              In Safari, choose Share → Add to Home Screen. Aether resumes your
+              place when you return. Native video fullscreen uses the iPhone’s
+              playback controls.
+            </p>
           </TabsContent>
-
           <TabsContent className="guide-tab-panel" value="edit">
-            <GuideSection
-              title="Edit media"
-              description="Open Edit media from a Gallery card's menu, the viewer toolbar or the pencil below the Feed heart."
-            >
-              <div className="guide-edit-grid">
-                <Card className="guide-topic-card">
-                  <CardHeader>
-                    <CardTitle>
-                      <h3>Playback</h3>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p>
-                      For videos and animated images, drag the highlight handles
-                      or enter Start and End times. Seek in the preview and use
-                      Start here or End here to mark the current frame.
-                    </p>
-                    <p>
-                      On the preview timeline or a highlight handle, arrows
-                      adjust by 100 ms; Shift adjusts by 1 ms. Page keys adjust
-                      by one second, and Home/End jump to the control's limits.
-                      Keyboard adjustments pause and seek the preview.
-                    </p>
-                    <p>
-                      Video previews play sound when you press Play. Use the
-                      speaker button to mute or unmute in either tab. Bounce
-                      previews and saved Bounce videos are silent.
-                    </p>
-                    <p>
-                      Choose a speed and loop mode. Repeat plays forward; Bounce
-                      plays forward and then backward, without sound. Supported
-                      videos use a high-quality copy of a section up to 30
-                      seconds at the original dimensions, prepared on first
-                      playback. Later visits reuse it. MOV screen recordings
-                      with full-range color can also use Bounce. Some formats,
-                      including HDR video, need Repeat. Large files may exceed
-                      processing limits.
-                    </p>
-                    <p>
-                      Bounce compresses the playback copy. Your originals and
-                      downloads stay unchanged. Large dimensions or high frame
-                      rates can still need a faster connection and device.
-                    </p>
-                    <p>
-                      Turn on Play highlights only in View options to loop the
-                      saved section. It is available in Gallery, Feed, Compare
-                      and the viewer. Compare always plays forward at 1×. An
-                      accent segment in the seek bar marks the highlight during
-                      full playback. The editor's preview bar follows your draft
-                      in both tabs.
-                    </p>
-                  </CardContent>
-                </Card>
-                <Card className="guide-topic-card">
-                  <CardHeader>
-                    <CardTitle>
-                      <h3>Framing</h3>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p>
-                      Choose Original, Square, Portrait or Landscape. Each
-                      layout keeps its own position and zoom. Fit shows the
-                      whole item. Fill covers the frame; drag to position and
-                      pinch or use Zoom to enlarge it.
-                    </p>
-                    <p>
-                      In Framing, arrows adjust the framing position by 12
-                      pixels without focusing the preview; Shift adjusts one
-                      pixel. Use -/= to zoom out/in by 5%, or Shift (_/+) for
-                      1%. Focused text fields, sliders, tabs and menus keep
-                      their own keys. Fit disables movement and zoom.
-                    </p>
-                    <p>
-                      Switch layouts to adjust each one, then Save once to keep
-                      all changes. Feed uses your Portrait frame. Gallery and
-                      Compare use the layout selected in View options.
-                    </p>
-                    <p>
-                      The viewer shows the complete original by default. Turn on
-                      Use saved framing in its View options to use the frame for
-                      the view you opened it from.
-                    </p>
-                  </CardContent>
-                </Card>
-              </div>
-              <div className="guide-text-block">
-                <h3>Save and reset</h3>
-                <p>
-                  The preview keeps playing when you switch between Playback and
-                  Framing. Seeking pauses on the chosen frame. Save keeps your
-                  changes; Cancel discards them. Reset in the editor also needs
-                  Save. To reset many items, use Settings → Database and choose
-                  playback or framing.
-                </p>
-                <p>
-                  Save closes the editor after confirmation. If saving fails,
-                  the message appears beside Save and your draft stays open.
-                  Retry checks for a completed save first. If another window
-                  saved first, reload its settings and preview before saving
-                  again. Correct any invalid times shown beside Save before
-                  retrying.
-                </p>
-                <p>
-                  Saving a new Bounce section or changing its range turns on
-                  Play highlights only to show the result. Framing and speed
-                  edits keep your view preference. First playback may need time
-                  to prepare.
-                </p>
-              </div>
-            </GuideSection>
+            <h2>Open the editor</h2>
+            <ol>
+              <li>Open a card’s menu or the viewer’s More menu.</li>
+              <li>Choose Edit media.</li>
+              <li>
+                Adjust Playback or Framing, then choose Save. Cancel discards
+                unsaved changes.
+              </li>
+            </ol>
+            <h2>Set highlights and playback</h2>
+            <p>
+              For video and animated images, drag the highlight handles or enter
+              Start and End. Seek in the preview and choose Start here or End
+              here to mark the current frame. Timeline arrows adjust 100ms;
+              Shift adjusts 1ms. Page keys adjust one second; Home and End jump
+              to the control’s limits.
+            </p>
+            <p>
+              Choose speed and loop mode. Repeat plays forward. Bounce plays
+              forward and backward without sound. Supported videos use a
+              compressed playback copy of a section up to 30 seconds at the
+              original dimensions. HDR and some other formats require Repeat;
+              large files can exceed processing limits.
+            </p>
+            <p>
+              Bounce and framing do not rewrite source bytes. Download returns
+              the source file. Use Play highlights only in View options to play
+              the saved section. Compare plays forward at 1×.
+            </p>
+            <h2>Adjust framing</h2>
+            <p>
+              Choose Original, Square, Portrait or Landscape. Each layout keeps
+              its own position and zoom. Fit shows the whole item. Fill covers
+              the frame; drag to position and pinch or use Zoom to enlarge it.
+              Arrow keys move 12px, or 1px with Shift. Use -/= to zoom 5%, or 1%
+              with Shift.
+            </p>
+            <p>
+              Switch layouts and save once to keep all changes. Feed uses
+              Portrait. Gallery and Compare use their selected layouts. The
+              viewer shows the complete source unless Use saved framing is
+              enabled.
+            </p>
+            <h2>Save or reset</h2>
+            <p>
+              The preview keeps playing when tabs change. Seeking pauses at the
+              chosen frame. Reset needs Save. Settings → Database can reset
+              playback or framing for the library.
+            </p>
+            <p>
+              Save closes the editor when complete. A failed save keeps your
+              draft and shows a message beside Save. If another window saved
+              first, reload its settings before saving again. Changing a Bounce
+              section turns on Play highlights only; framing and speed edits
+              keep that preference.
+            </p>
           </TabsContent>
-
           <TabsContent className="guide-tab-panel" value="ranking">
-            <GuideSection title="Rank media">
-              <ol className="guide-ranking-steps">
-                <li>
-                  <span>1</span>
-                  <div>
-                    <h3>Open Compare</h3>
-                    <p>
-                      The leaderboard shows your current order. Select Rank
-                      media to start comparing items from the active folder,
-                      search and filters.
-                    </p>
-                  </div>
-                </li>
-                <li>
-                  <span>2</span>
-                  <div>
-                    <h3>Choose your preference</h3>
-                    <p>
-                      Select the left or right item. Skip when you have no
-                      preference. Undo reverses the last choice.
-                    </p>
-                  </div>
-                </li>
-                <li>
-                  <span>3</span>
-                  <div>
-                    <h3>Return to the leaderboard</h3>
-                    <p>
-                      Aether updates the order from your choices. Choosing the
-                      same pair again replaces your earlier preference.
-                    </p>
-                  </div>
-                </li>
-              </ol>
-              <div className="guide-text-block">
-                <h3>Scores and progress</h3>
-                <p>
-                  Zero means unranked; a positive score means ranked. You can
-                  also adjust scores by hand. Info shows the comparison score,
-                  your adjustment and the final score separately.
-                </p>
-                <p>
-                  Compared counts items used in at least one current pair.
-                  Active pairs counts distinct pairs with a saved choice.
-                  Neither means that every item is ranked.
-                </p>
-              </div>
-            </GuideSection>
+            <h2>Compare media</h2>
+            <ol>
+              <li>Open Compare, then choose Rank media.</li>
+              <li>
+                Choose the left or right item. Skip when you have no preference.
+              </li>
+              <li>
+                Use Undo to reverse the last choice. Return to the leaderboard
+                to see the order.
+              </li>
+            </ol>
+            <p>
+              The active folder, search and filters determine the comparison
+              pool. Choosing the same pair again replaces the earlier
+              preference.
+            </p>
+            <h2>Read scores and progress</h2>
+            <p>
+              Zero means unranked; a positive score means ranked. Info shows the
+              comparison score, manual adjustment and final score separately.
+              Manual adjustments remain when comparisons change.
+            </p>
+            <p>
+              Compared counts items used in at least one current pair. Active
+              pairs counts distinct pairs with a saved choice. Neither means
+              every item is ranked.
+            </p>
           </TabsContent>
-
-          <TabsContent className="guide-tab-panel" value="organize">
-            <GuideSection title="Organize media">
-              <div className="guide-tool-list">
-                <GuideTool icon={ArrowUp} title="Scores">
-                  Raise or lower scores from the viewer or Info. Sorting by
-                  score places higher scores first. Manual adjustments remain
-                  when comparisons change.
-                </GuideTool>
-                <GuideTool icon={Heart} title="Favorites">
-                  Select the heart to mark a favorite. Use the favorites filter
-                  to find these items regardless of score.
-                </GuideTool>
-                <GuideTool icon={Tag} title="Tags">
-                  Add labels in Info, such as a place or event. Tags help you
-                  find related media across folders. Suggestions are optional;
-                  only tags you choose are saved.
-                </GuideTool>
-                <GuideTool icon={ArrowDownUp} title="Batch changes">
-                  Choose Select media in Gallery, select your cards and apply
-                  scores, favorites or tags together. Done selecting returns to
-                  browsing.
-                </GuideTool>
-              </div>
-            </GuideSection>
+          <TabsContent className="guide-tab-panel" value="manage">
+            <h2>Edit details</h2>
+            <ol>
+              <li>
+                Choose Select media in Gallery and select cards. Select loaded
+                includes only currently loaded items.
+              </li>
+              <li>Choose Edit details.</li>
+              <li>
+                Use Score for score and favorites, or Tags for labels. Choose
+                Apply to save the active tab.
+              </li>
+            </ol>
+            <p>
+              Mixed means selected items have different values. Enter a score to
+              replace them; an untouched score is kept. Zero means unranked.
+              Switching tabs keeps both drafts. Cancel closes the editor and
+              discards unsaved drafts; earlier applied changes remain. Done
+              returns to browsing.
+            </p>
+            <p>
+              Tags can be added to existing tags or replace them. Clear tags
+              requires confirmation and Apply. Suggestions are optional; only
+              tags you choose are saved.
+            </p>
+            <h2>Create or rename a folder</h2>
+            <ol>
+              <li>Open the selected folder’s actions.</li>
+              <li>Choose New folder or Rename.</li>
+              <li>Enter the name and choose Create folder or Rename.</li>
+            </ol>
+            <p>
+              New folder creates a child of the selected folder. Assigned roots
+              cannot be renamed or moved. Renaming a folder includes its
+              contents.
+            </p>
+            <h2>Rename or move media</h2>
+            <ol>
+              <li>
+                Open a card’s menu or the viewer’s More menu. For several items,
+                select Gallery cards.
+              </li>
+              <li>Choose Rename or Move to.</li>
+              <li>
+                For a rename, enter a name and choose Rename. The media
+                extension stays fixed. For a move, open the destination folder
+                and choose Move here.
+              </li>
+            </ol>
+            <p>
+              Use a folder’s actions to move the entire folder, including
+              unindexed files and empty subfolders. Check Activity for progress
+              or unsuccessful items. Completed moves keep scores, tags and
+              comparison history.
+            </p>
+            <p>
+              If Name conflicts appears, choose Skip or Keep both for each item
+              and review the proposed names before confirming again. Apply to
+              remaining conflicts repeats the choice for later items. Skipped
+              items are left in place; existing files and folders are not
+              replaced or merged. Add media and Restore use the same review.
+              Names are checked again when the action runs.
+            </p>
+            <h2>Add media</h2>
+            <ol>
+              <li>
+                Choose Add media and select files, or drop files into Gallery on
+                desktop.
+              </li>
+              <li>Review the files and choose a writable destination.</li>
+              <li>Choose Add files. Check progress in Activity.</li>
+            </ol>
+            <p>
+              Closing Activity does not cancel accepted work. Unsubmitted files
+              stay in the current tab until discarded; after a reload, select
+              them again. Transfers can pause offline or when the app leaves the
+              foreground. Return to resume. After a reload, select the same file
+              when requested. An upload is complete when it has been added to
+              the library.
+            </p>
+            <h2>Move to Trash and restore</h2>
+            <ol>
+              <li>Select media and choose Move to Trash.</li>
+              <li>
+                Confirm the action. Use Undo after completion, or open Trash and
+                select Restore.
+              </li>
+            </ol>
+            <p>
+              Trash retains files for 30 days by default and still uses disk
+              space. Restore uses the original folder when available; otherwise
+              choose another destination. Delete permanently and Empty Trash
+              cannot be undone. Empty Trash includes items hidden by its search.
+            </p>
+            <h2>Check Activity</h2>
+            <p>
+              Activity keeps progress, completed work and items needing
+              attention. Resolve a reported problem, then use Check again. A
+              batch can partly succeed. Cancel remaining stops safely
+              cancellable file operations. Retry only unsuccessful items.
+              Checking status means the result is still unknown; wait for a
+              confirmed result before starting the same action again.
+            </p>
           </TabsContent>
-
-          <TabsContent className="guide-tab-panel" value="keyboard">
-            <GuideSection
-              title="Keyboard shortcuts"
-              description="Focused text fields, controls and menus keep their own keys."
-            >
-              <dl className="guide-shortcut-list">
-                {shortcuts.map(([keys, action]) => (
-                  <div key={keys}>
-                    <dt>
-                      <kbd>{keys}</kbd>
-                    </dt>
-                    <dd>{action}</dd>
-                  </div>
-                ))}
-              </dl>
-            </GuideSection>
+          <TabsContent className="guide-tab-panel" value="files">
+            <h2>Read and write access</h2>
+            <p>
+              Media roots are read-only by default. The server operator must
+              enable writes for named roots and provide writable filesystem
+              access. Browser permissions cannot enable server writes. All
+              signed-in devices share the configured access. Settings → Server
+              shows each root’s current access.
+            </p>
+            <p>
+              Scanning reads files and updates the index. Scores, favorites,
+              tags, comparison history, playback and framing are stored
+              separately from source files. File commands create, rename or move
+              folders and media; Move to Trash relocates a file, and permanent
+              deletion removes its retained copy.
+            </p>
+            <h2>Source files and generated copies</h2>
+            <p>
+              Aether creates thumbnails and playback copies for display. HEIC
+              photos use a full-resolution PNG with orientation, transparency
+              and color profile. Download returns the source file. Some HDR,
+              color formats and very large files cannot be displayed.
+            </p>
+            <p>
+              Adding media copies the bytes supplied by the device picker. The
+              device’s copy is kept. A phone may supply a converted file; Aether
+              cannot choose a different camera original. Live Photo pairs are
+              separate files.
+            </p>
+            <h2>Storage and backups</h2>
+            <p>
+              Generated copies and library metadata use the server’s data
+              directory. Trash remains on its media drive. Aether database
+              backups exclude source media and files in Trash; back up those
+              files separately. A disconnected drive remains unavailable until
+              reconnected.
+            </p>
+          </TabsContent>
+          <TabsContent className="guide-tab-panel" value="help">
+            <h2>Loading, saving and transfers</h2>
+            <p>
+              For a loading failure, use Retry on the media. If the server is
+              busy, wait briefly before retrying. If HEIC display is
+              unavailable, ask the operator to check the decoder tools; Download
+              still returns the HEIC source.
+            </p>
+            <p>
+              Save errors remain beside the field or action with the draft
+              intact. Activity keeps transfer failures and recovery actions. A
+              successful save followed by a refresh failure does not need
+              another save; use Update results to retry the refresh.
+            </p>
+            <p>
+              Sign in again if the session expires. Reconnect an unavailable
+              drive before retrying work on it. File actions require a writable
+              root; unsupported filesystem features can prevent a move.
+            </p>
+            <h2>Reset library data</h2>
+            <p>
+              In Settings → Database, choose which scores, favorites, tags,
+              comparisons, playback or framing to reset. Review the confirmation
+              before applying. These resets do not delete source files.
+            </p>
+            <h2>Keyboard shortcuts</h2>
+            <p>Focused fields, menus and dialogs keep their own keys.</p>
+            <dl className="guide-shortcut-list">
+              {shortcuts.map(([keys, action]) => (
+                <div key={keys}>
+                  <dt>
+                    <kbd>{keys}</kbd>
+                  </dt>
+                  <dd>{action}</dd>
+                </div>
+              ))}
+            </dl>
           </TabsContent>
         </Tabs>
       </div>
     </section>
-  );
-}
-
-function GuideSection({
-  children,
-  description,
-  title
-}: {
-  children: ReactNode;
-  description?: string;
-  title: string;
-}) {
-  return (
-    <section className="guide-section">
-      <header>
-        <h2>{title}</h2>
-        {description ? <p>{description}</p> : null}
-      </header>
-      {children}
-    </section>
-  );
-}
-
-function GuideTool({
-  children,
-  icon: Icon,
-  title
-}: {
-  children: ReactNode;
-  icon: typeof ArrowUp;
-  title: string;
-}) {
-  return (
-    <article className="guide-tool">
-      <span className="guide-icon" aria-hidden="true">
-        <Icon />
-      </span>
-      <div>
-        <h3>{title}</h3>
-        <p>{children}</p>
-      </div>
-    </article>
   );
 }

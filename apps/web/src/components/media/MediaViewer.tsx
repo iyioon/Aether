@@ -14,6 +14,9 @@ import {
   ChevronLeft,
   ChevronRight,
   Download,
+  FolderInput,
+  MoreHorizontal,
+  Trash2,
   Info,
   Pencil,
   X
@@ -29,6 +32,13 @@ import {
 } from "../../lib/keyboard";
 import { panelExitDurationMs } from "../../lib/motion";
 import { Button } from "../ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from "../ui/dropdown-menu";
 import { Dialog, DialogClose, DialogContent, DialogTitle } from "../ui/dialog";
 import { isMediaImageReady, markMediaImageReady } from "./media-image-cache";
 import {
@@ -85,6 +95,10 @@ interface MediaViewerProps {
   onNext: () => void;
   onPrevious: () => void;
   onEditAsset?: (asset: AssetRecord) => void;
+  onManageAsset?: (
+    asset: AssetRecord,
+    action: "rename-media" | "move-media" | "trash"
+  ) => void;
   onHighlightsOnlyChange: (value: boolean) => void;
 }
 
@@ -132,6 +146,7 @@ export function MediaViewer({
   onNext,
   onPrevious,
   onEditAsset,
+  onManageAsset,
   onHighlightsOnlyChange
 }: MediaViewerProps) {
   const { highlightsOnly: savedHighlightsOnly, isPlaybackPaused } =
@@ -1121,6 +1136,12 @@ export function MediaViewer({
         showCloseButton={false}
         aria-describedby={undefined}
         aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight Space M I Escape"
+        onInteractOutside={(event) => {
+          const target = event.detail.originalEvent.target;
+          if (target instanceof Element && target.closest(".activity-sheet")) {
+            event.preventDefault();
+          }
+        }}
         onEscapeKeyDown={(event) => {
           if (optionsOpenRef.current) {
             event.preventDefault();
@@ -1165,34 +1186,63 @@ export function MediaViewer({
           className="viewer-actions viewer-chrome"
           aria-label="Viewer controls"
         >
-          <Button
-            className="media-overlay-button"
-            size="icon"
-            variant="outline"
-            asChild
+          <DropdownMenu
+            onOpenChange={(open) => {
+              optionsOpenRef.current = open;
+              if (open) revealControls();
+              else hideControlsLater();
+            }}
           >
-            <a
-              href={downloadUrl(asset.id)}
-              aria-label={`Download ${asset.name}`}
-            >
-              <Download />
-            </a>
-          </Button>
-          {onEditAsset ? (
-            <Button
-              className="media-overlay-button"
-              size="icon"
-              type="button"
-              variant="outline"
-              aria-label={`Edit ${asset.name}`}
-              onClick={() => {
-                revealControls();
-                onEditAsset(asset);
-              }}
-            >
-              <Pencil />
-            </Button>
-          ) : null}
+            <DropdownMenuTrigger asChild>
+              <Button
+                className="media-overlay-button"
+                size="icon"
+                type="button"
+                variant="outline"
+                aria-label={`More options for ${asset.name}`}
+              >
+                <MoreHorizontal />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {onEditAsset ? (
+                <DropdownMenuItem onSelect={() => onEditAsset(asset)}>
+                  <Pencil />
+                  Edit media
+                </DropdownMenuItem>
+              ) : null}
+              <DropdownMenuItem asChild>
+                <a href={downloadUrl(asset.id)} download>
+                  <Download />
+                  Download
+                </a>
+              </DropdownMenuItem>
+              {onManageAsset ? (
+                <>
+                  <DropdownMenuItem
+                    onSelect={() => onManageAsset(asset, "rename-media")}
+                  >
+                    <Pencil />
+                    Rename…
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => onManageAsset(asset, "move-media")}
+                  >
+                    <FolderInput />
+                    Move to…
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onSelect={() => onManageAsset(asset, "trash")}
+                  >
+                    <Trash2 />
+                    Move to Trash
+                  </DropdownMenuItem>
+                </>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
           <ViewerViewOptions
             container={viewerDialogRef.current}
             open={optionsOpen}

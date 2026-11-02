@@ -65,6 +65,71 @@ AETHER_MEDIA_ROOTS=documents=/mnt/archive/exam\,papers
 
 Root names may contain letters, numbers, periods, underscores, and hyphens.
 
+## File Management
+
+All media roots remain read-only unless named in `AETHER_WRITABLE_ROOTS`:
+
+```bash
+AETHER_MEDIA_ROOTS=photos=/mnt/photos,videos=/mnt/videos
+AETHER_WRITABLE_ROOTS=photos
+```
+
+Both source and destination must be writable for a move. Root names must be
+configured explicitly; overlapping roots are rejected when either is writable.
+All signed-in devices share this access. Assigned roots cannot themselves be
+renamed or moved.
+
+Writes currently require Linux, procfs and a volume that passes the native
+no-replacement publication probe. Other platforms retain read-only browsing.
+Build the helper with `npm run build -w @aether/server` before enabling writes
+in a native development install. A C compiler is required. Docker builds include
+it. The worker rejects symlinks, nested mounts, hard links, special files,
+extended attributes/ACLs and unsupported ownership or permission metadata rather
+than silently omitting them. Case-only renames are not guaranteed on filesystems
+with case-insensitive name collisions.
+
+Default Docker media mounts stay read-only. To enable the `library` root, create
+an explicit Compose override, for example:
+
+```yaml
+services:
+  aether:
+    environment:
+      AETHER_WRITABLE_ROOTS: library
+    volumes:
+      - ./media:/media:rw
+```
+
+Keep the container root filesystem read-only, its unprivileged user and capability
+restrictions. The container UID/GID must own or have appropriate access to the
+media entries. Do not make media or private data world-writable.
+
+| Variable                      | Default                | Purpose                                                |
+| ----------------------------- | ---------------------- | ------------------------------------------------------ |
+| `AETHER_WRITABLE_ROOTS`       | empty                  | Comma-separated stable root names allowed to write.    |
+| `AETHER_MAX_UPLOAD_BYTES`     | `21474836480` (20 GiB) | Per-file byte limit; values above 20 GiB are rejected. |
+| `AETHER_MAX_STAGING_BYTES`    | `21474836480` (20 GiB) | Aggregate retained upload reservation.                 |
+| `AETHER_MIN_FREE_BYTES`       | `2147483648` (2 GiB)   | Free space retained on involved volumes.               |
+| `AETHER_TRASH_RETENTION_DAYS` | `30`                   | Trash retention, from 1 to 365 days.                   |
+
+Uploads use two transfer streams and 16 MiB chunks, with at most 100 items in a
+review batch. Inactive incomplete uploads expire after 24 hours. Cancelled request
+IDs remain blocked for seven days. Folder manifests
+are bounded to 10,000 entries, 64 levels and 20 GiB. One filesystem mutation runs
+at a time. Host processes can still consume disk space; errors retain recovery
+records and verified copies.
+
+A reverse proxy must allow 16 MiB request bodies and streaming `PATCH` requests.
+Disable request buffering for `/api/uploads`; forward session cookies, CSRF and
+tus headers. The ordinary JSON body limit remains 1 MiB. Uploads require the same
+session and unsafe-method CSRF checks as other mutations; upload URLs are not
+authorization. Transfers can pause when a phone leaves the foreground.
+
+Reserved `.aether-staging` and `.aether-trash` directories belong to recorded
+root identities. Do not rename, populate or delete them manually. Unknown
+contents, replaced drives or unresolved operations disable writes until reviewed.
+See [Data management](data-management.md#file-operations-and-trash).
+
 ## Sign-In And Sessions
 
 | Variable                       | Default                                  | Purpose                                                      |

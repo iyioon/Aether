@@ -5,7 +5,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent
 } from "react";
-import { BookOpen, LogOut, Settings } from "lucide-react";
+import { Activity, BookOpen, LogOut, Settings, Trash2 } from "lucide-react";
 import type { LibraryWatchStatus, ScanProgress } from "../../api/client";
 import { BrandMark } from "../BrandMark";
 import { FolderTreePanel } from "../FolderTreePanel";
@@ -36,6 +36,7 @@ interface LibrarySidebarProps {
   isLoadingTree: boolean;
   isGuideOpen: boolean;
   isSettingsOpen: boolean;
+  isTrashOpen?: boolean;
   items: FolderTreeItem[];
   scanProgress: ScanProgress | null;
   scanState: FolderScanState;
@@ -51,10 +52,18 @@ interface LibrarySidebarProps {
   onFolderSortChange: (sortMode: FolderSortMode) => void;
   onLogout: () => void;
   onOpenGuide: () => void;
+  onOpenActivity: () => void;
+  activityCount?: number;
+  onOpenTrash: () => void;
   onOpenSettings: () => void;
   onPreloadGuide: () => void;
   onPreloadSettings: () => void;
   onScan: () => void;
+  canCreateFolder?: boolean;
+  canManageFolder?: boolean;
+  onFolderAction?: (
+    action: "create-folder" | "rename-folder" | "move-folder"
+  ) => void;
   onSelectFolder: (folderId: string) => void;
   onToggleFolderExpansion: (folderId: string) => void;
 }
@@ -73,6 +82,7 @@ export function LibrarySidebar({
   isLoadingTree,
   isGuideOpen,
   isSettingsOpen,
+  isTrashOpen,
   items,
   scanProgress,
   scanState,
@@ -85,10 +95,16 @@ export function LibrarySidebar({
   onFolderSortChange,
   onLogout,
   onOpenGuide,
+  onOpenActivity,
+  activityCount = 0,
+  onOpenTrash,
   onOpenSettings,
   onPreloadGuide,
   onPreloadSettings,
   onScan,
+  canCreateFolder,
+  canManageFolder,
+  onFolderAction,
   onSelectFolder,
   onToggleFolderExpansion
 }: LibrarySidebarProps) {
@@ -146,6 +162,12 @@ export function LibrarySidebar({
             onFolderKeyDown={onFolderKeyDown}
             onFolderSortChange={onFolderSortChange}
             onScan={onScan}
+            canCreateFolder={canCreateFolder}
+            canManageFolder={canManageFolder}
+            onFolderAction={(action) => {
+              setOpenMobile(false);
+              onFolderAction?.(action);
+            }}
             onSelectFolder={selectFolder}
             onToggleFolderExpansion={onToggleFolderExpansion}
           />
@@ -154,6 +176,39 @@ export function LibrarySidebar({
 
       <SidebarFooter className="p-3">
         <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              className="sidebar-footer-action"
+              isActive={isTrashOpen}
+              onClick={() => {
+                onOpenTrash();
+                setOpenMobile(false);
+              }}
+            >
+              <Trash2 />
+              <span>Trash</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              className="sidebar-footer-action"
+              onClick={() => {
+                onOpenActivity();
+                setOpenMobile(false);
+              }}
+            >
+              <Activity />
+              <span>Activity</span>
+              {activityCount ? (
+                <span
+                  className="ml-auto text-xs tabular-nums"
+                  aria-label={`${activityCount} active or paused operations`}
+                >
+                  {activityCount}
+                </span>
+              ) : null}
+            </SidebarMenuButton>
+          </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton
               className="sidebar-footer-action"

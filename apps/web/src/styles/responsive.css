@@ -262,7 +262,7 @@
   }
 
   .library-main.has-selection .gallery-viewport {
-    padding-bottom: min(52dvh, 440px);
+    padding-bottom: 132px;
   }
 
   .batch-actions-header {
@@ -488,6 +488,10 @@
 }
 
 @container library-workspace (max-width: 480px) {
+  .library-view-menu-trigger {
+    flex-basis: 44px;
+    width: 44px;
+  }
   .library-path-actions > .library-view-separator,
   .library-path-actions > .library-view-switcher {
     display: none;

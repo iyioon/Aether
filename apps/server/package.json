@@ -26,7 +26,7 @@
     "@fastify/rate-limit": "^10.3.0",
     "@tus/file-store": "^2.1.1",
     "@tus/server": "^2.4.6",
-    "argon2": "^0.44.0",
+    "argon2": "^0.45.1",
     "better-sqlite3": "^13.0.3",
     "fastify": "^5.12.7",
     "sharp": "^0.35.5",

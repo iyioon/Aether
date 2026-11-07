@@ -57,7 +57,7 @@ directory unless written from the repository root.
 ## Environment And Commands
 
 Use Node.js 24, matching `.nvmrc`, Docker, and CI. The project uses npm
-workspaces, TypeScript, and ES modules. Linux builds/tests require a C compiler
+workspaces, TypeScript, and ES modules. Linux and macOS builds/tests require a C compiler
 for the native file-management helper. FFmpeg 5.1 or newer, matching ffprobe,
 and the libx264/libx265 encoders are required for media processing and tests.
 HEIC processing requires updated libheif CLI tools with the libde265 decoder;

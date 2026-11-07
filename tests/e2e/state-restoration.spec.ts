@@ -1,3 +1,4 @@
+import { chooseAccountAction } from "./account-menu";
 import { expect, test, type Page } from "@playwright/test";
 import type {
   AssetListResponse,
@@ -242,7 +243,7 @@ test("retains the ordered ranking pair and Undo through reload, Settings, a fres
   await expect(
     page.getByRole("button", { name: "Undo last choice" })
   ).toBeEnabled();
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await chooseAccountAction(page, "Settings");
   await page.getByRole("tab", { name: "Server", exact: true }).click();
   await page.reload();
   await expect(
@@ -275,7 +276,7 @@ test("uses explicit links and browser history consistently and resumes old Home 
   await loginAndScan(page);
   await startRanking(page);
   const folder = new URL(page.url()).searchParams.get("folder")!;
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await chooseAccountAction(page, "Settings");
   await page.goto(
     `/?folder=${encodeURIComponent(folder)}&view=compare&workspace=ranking`
   );
@@ -430,7 +431,7 @@ test("restores the leaderboard anchor through Settings, reload and a fresh page"
     )
     .toBeCloseTo(targetScrollTop, 0);
   await page.getByRole("button", { name: "Toggle Sidebar" }).click();
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await chooseAccountAction(page, "Settings");
   expect(
     await page.evaluate(
       () =>

@@ -1,19 +1,5 @@
-import {
-  cloneElement,
-  useEffect,
-  useRef,
-  useState,
-  type ReactElement,
-  type ReactNode
-} from "react";
-import {
-  Download,
-  FolderInput,
-  Info,
-  MoreHorizontal,
-  Pencil,
-  Trash2
-} from "lucide-react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
+import { Download, FolderInput, Info, Pencil, Trash2 } from "lucide-react";
 import type { AssetRecord } from "../../api/client";
 import { isKeyboardActivationTarget } from "../../lib/keyboard";
 import { downloadUrl } from "../media/media-urls";
@@ -24,14 +10,6 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger
 } from "../ui/context-menu";
-import { Button } from "../ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger
-} from "../ui/dropdown-menu";
 
 export function GalleryCardActions({
   asset,
@@ -52,9 +30,7 @@ export function GalleryCardActions({
   ) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false);
   const triggerRef = useRef<HTMLSpanElement>(null);
-  const moreTriggerRef = useRef<HTMLButtonElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
   const pendingActionRef = useRef<(() => void) | null>(null);
   const touchPointerRef = useRef<number | null>(null);
@@ -71,101 +47,6 @@ export function GalleryCardActions({
     pendingActionRef.current = null;
     action?.();
   }
-
-  function actions(kind: "context" | "dropdown") {
-    const Item = kind === "context" ? ContextMenuItem : DropdownMenuItem;
-    const Separator =
-      kind === "context" ? ContextMenuSeparator : DropdownMenuSeparator;
-    return (
-      <>
-        <Item
-          onSelect={() => {
-            pendingActionRef.current = () => onInfo(asset);
-          }}
-        >
-          <Info aria-hidden="true" /> Info
-        </Item>
-        <Item
-          onSelect={() => {
-            pendingActionRef.current = () => onEdit(asset);
-          }}
-        >
-          <Pencil aria-hidden="true" /> Edit media
-        </Item>
-        <Item asChild>
-          <a href={downloadUrl(asset.id)} download>
-            <Download aria-hidden="true" /> Download
-          </a>
-        </Item>
-        {onManage ? (
-          <>
-            <Separator />
-            <Item
-              onSelect={() => {
-                pendingActionRef.current = () =>
-                  onManage(asset, "rename-media");
-              }}
-            >
-              <Pencil aria-hidden="true" /> Rename…
-            </Item>
-            <Item
-              onSelect={() => {
-                pendingActionRef.current = () => onManage(asset, "move-media");
-              }}
-            >
-              <FolderInput aria-hidden="true" /> Move to…
-            </Item>
-            <Separator />
-            <Item
-              className="text-destructive focus:text-destructive"
-              onSelect={() => {
-                pendingActionRef.current = () => onManage(asset, "trash");
-              }}
-            >
-              <Trash2 aria-hidden="true" /> Move to Trash
-            </Item>
-          </>
-        ) : null}
-      </>
-    );
-  }
-
-  const card = children as ReactElement<{ children?: ReactNode }>;
-  const moreOptions = !disabled ? (
-    <DropdownMenu
-      open={moreOpen}
-      onOpenChange={(next) => {
-        if (next) {
-          pendingActionRef.current = null;
-          restoreFocusRef.current = moreTriggerRef.current;
-        }
-        setMoreOpen(next);
-      }}
-    >
-      <DropdownMenuTrigger asChild>
-        <Button
-          ref={moreTriggerRef}
-          className="gallery-card-options media-overlay-button"
-          type="button"
-          variant="outline"
-          size="icon-sm"
-          aria-label={`More options for ${asset.name}`}
-          onClick={(event) => event.stopPropagation()}
-        >
-          <MoreHorizontal aria-hidden="true" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        className="gallery-card-menu"
-        align="end"
-        collisionPadding={12}
-        aria-label={`Options for ${asset.name}`}
-        onCloseAutoFocus={finishAction}
-      >
-        {actions("dropdown")}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  ) : null;
 
   return (
     <ContextMenu
@@ -269,7 +150,7 @@ export function GalleryCardActions({
           );
         }}
       >
-        {cloneElement(card, undefined, card.props.children, moreOptions)}
+        {children}
       </ContextMenuTrigger>
       <ContextMenuContent
         className="gallery-card-menu"
@@ -277,7 +158,54 @@ export function GalleryCardActions({
         collisionPadding={12}
         onCloseAutoFocus={finishAction}
       >
-        {actions("context")}
+        <ContextMenuItem
+          onSelect={() => {
+            pendingActionRef.current = () => onInfo(asset);
+          }}
+        >
+          <Info aria-hidden="true" /> Info
+        </ContextMenuItem>
+        <ContextMenuItem
+          onSelect={() => {
+            pendingActionRef.current = () => onEdit(asset);
+          }}
+        >
+          <Pencil aria-hidden="true" /> Edit media
+        </ContextMenuItem>
+        <ContextMenuItem asChild>
+          <a href={downloadUrl(asset.id)} download>
+            <Download aria-hidden="true" /> Download
+          </a>
+        </ContextMenuItem>
+        {onManage ? (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              onSelect={() => {
+                pendingActionRef.current = () =>
+                  onManage(asset, "rename-media");
+              }}
+            >
+              <Pencil aria-hidden="true" /> Rename…
+            </ContextMenuItem>
+            <ContextMenuItem
+              onSelect={() => {
+                pendingActionRef.current = () => onManage(asset, "move-media");
+              }}
+            >
+              <FolderInput aria-hidden="true" /> Move to…
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              className="text-destructive focus:text-destructive"
+              onSelect={() => {
+                pendingActionRef.current = () => onManage(asset, "trash");
+              }}
+            >
+              <Trash2 aria-hidden="true" /> Move to Trash
+            </ContextMenuItem>
+          </>
+        ) : null}
       </ContextMenuContent>
     </ContextMenu>
   );

@@ -1,7 +1,7 @@
 # Media Management Plan
 
-Status: Implementation and automated acceptance complete; device acceptance pending.\
-Reviewed: 2026-11-02.
+Status: Implementation complete; native macOS and device acceptance pending.\
+Reviewed: 2026-11-07.
 
 ## Outcome And Scope
 
@@ -33,8 +33,11 @@ public uploads and device photo-library synchronization.
 | F4    | Add media                           | Verified on Linux     | Secure resumable uploads publish complete files and index them through the shared operation path.                                                            |
 | F5    | Release acceptance                  | Device checks pending | Desktop, actual iPhone PWA, container, security, failure, cleanup and documentation checks pass.                                                             |
 
-The initial mutation implementation supports Linux with procfs and a successful
-per-volume no-replacement probe. Other platforms retain read-only browsing.
+The mutation implementation supports Linux and macOS through descriptor-based
+native operations and a successful per-volume no-replacement probe. Other
+platforms retain read-only browsing and metadata editing. Linux acceptance is
+recorded below; native macOS and external-volume acceptance remain separate
+release checks.
 Filesystem proofs cover actual cross-device copies, whole-tree metadata,
 collisions, source/parent replacement, quarantine and recovery. The maintained
 tus adapter passes authenticated creation, offsets, resume-prefix verification,
@@ -66,14 +69,14 @@ Keep management separate from View options, which continues to control filtering
 sorting and presentation. Extend the existing interface rather than adding a
 file-manager mode or controls over every thumbnail.
 
-| Surface         | Presentation and actions                                                                                                                                                                                                                                                                                 |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Gallery toolbar | Keep search and controls on one row. Add media sits beside Select and View options; on narrow screens it can be a named icon button. Keep an Add media action in the empty-library state.                                                                                                                |
-| Gallery card    | Extend the existing right-click/long-press menu with Rename…, Move to… and Move to Trash. Keep Info, Edit media and Download. Do not restore hover buttons.                                                                                                                                              |
-| Selection       | Replace the large persistent batch editor with a compact strip: count, Move to…, Edit details, Trash and Done. Edit details separates Score and Tags into tabs with bottom-right Cancel and Apply actions. Selection checkboxes appear only in selection mode; Select loaded retains its explicit scope. |
-| Media viewer    | Introduce More for Edit media, Download, Rename…, Move to… and Move to Trash; retain View options, Info and Close directly. Keep controls visible while a menu or action is open. Feed uses these viewer actions; its rail and comparison voting cards gain no management icons.                         |
-| Folder tree     | Keep navigation and expansion behavior. Provide New folder, Rename… and Move to… in the relevant folder menu, with a visible actions button for the selected folder. Assigned roots allow child creation but cannot be renamed or moved; folder deletion is excluded.                                    |
-| Sidebar         | Add Trash beside the library destinations and Activity as the single entry for transfers and operation results. Trash is a page, not another Gallery/Feed/Compare layout.                                                                                                                                |
+| Surface         | Presentation and actions                                                                                                                                                                                                                                                                                                                                                                  |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Gallery toolbar | Keep search and controls on one row. Place view switching at the far right after a vertical separator. Show Add media only in Gallery, beside Select and View options; use a named icon button on narrow screens. Keep Add media in the Gallery empty state.                                                                                                                              |
+| Gallery card    | Extend the existing right-click/long-press menu with Rename…, Move to… and Move to Trash. Keep Info, Edit media and Download. Do not restore hover buttons.                                                                                                                                                                                                                               |
+| Selection       | Replace the large persistent batch editor with a compact strip: count, Move to…, Edit details, Trash and Done. Edit details separates Score and Tags into tabs with bottom-right Cancel and Apply actions. Selection checkboxes appear only in selection mode; Select loaded retains its explicit scope.                                                                                  |
+| Media viewer    | Introduce More for Edit media, Download, Rename…, Move to… and Move to Trash; retain View options, Info and Close directly. Keep controls visible while a menu or action is open. Feed uses these viewer actions; its rail and comparison voting cards gain no management icons.                                                                                                          |
+| Folder tree     | Keep navigation and expansion behavior. Provide New folder, Rename… and Move to… in the relevant folder menu, with a visible actions button for the selected folder. Assigned roots allow child creation but cannot be renamed or moved; folder deletion is excluded.                                                                                                                     |
+| Sidebar         | Use one Account card at the bottom of the sidebar. Its menu contains Trash, Activity, User guide, Settings and Sign out, following [shadcn’s sidebar account menu](https://github.com/shadcn-ui/ui/blob/main/apps/v4/registry/new-york-v4/blocks/sidebar-07/components/nav-user.tsx). Show a count on Account for running work or items needing attention. Trash remains a separate page. |
 
 Long press is a shortcut, not the only way to manage an item: Gallery selection,
 the viewer's visible More button and selected-folder actions expose the same

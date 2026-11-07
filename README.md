@@ -29,7 +29,7 @@ as a public media service.
 
 - Node.js 24
 - npm
-- A C compiler for the Linux file-management helper (included in Docker builds)
+- A C compiler for local Linux/macOS builds and development (included in Docker builds)
 - FFmpeg 5.1 or newer, with matching ffprobe and libx264/libx265 encoders
 - Updated libheif command-line tools with an HEVC decoder for HEIC photos
   (included in Docker; see [native setup](docs/installation.md#heic-tools))

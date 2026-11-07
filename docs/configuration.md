@@ -79,14 +79,27 @@ configured explicitly; overlapping roots are rejected when either is writable.
 All signed-in devices share this access. Assigned roots cannot themselves be
 renamed or moved.
 
-Writes currently require Linux, procfs and a volume that passes the native
-no-replacement publication probe. Other platforms retain read-only browsing.
-Build the helper with `npm run build -w @aether/server` before enabling writes
-in a native development install. A C compiler is required. Docker builds include
-it. The worker rejects symlinks, nested mounts, hard links, special files,
-extended attributes/ACLs and unsupported ownership or permission metadata rather
-than silently omitting them. Case-only renames are not guaranteed on filesystems
-with case-insensitive name collisions.
+Writes require Linux or macOS, the compiled native components and a volume that
+passes the no-replacement publication and private-directory checks. Other
+platforms retain read-only browsing and metadata editing. Development startup
+builds the native components; production installs use `npm run build`. A C
+compiler is required, including Xcode Command Line Tools on macOS. Docker builds
+include the tools.
+
+The worker rejects symlinks, nested mounts, hard links and special files. Linux
+also rejects extended attributes and ACLs. On macOS, copies preserve and verify
+extended attributes, resource forks, ACLs, ownership, flags and timestamps before
+retiring the source. Unsupported metadata or permissions fail without discarding
+the original. Filesystem metadata is limited to 64 MiB per entry and counts
+toward folder-copy limits and disk reservations. Compressed files cannot be copied
+between volumes. Immutable, append-only and unavailable placeholder files are
+unsupported.
+
+An external drive must enforce private directory permissions and support the
+publication and durability checks. A writable Finder volume alone does not
+establish those capabilities. Case-only renames on case-insensitive macOS volumes
+preserve the existing item. A different entry with the requested name remains a
+conflict.
 
 Default Docker media mounts stay read-only. To enable the `library` root, create
 an explicit Compose override, for example:

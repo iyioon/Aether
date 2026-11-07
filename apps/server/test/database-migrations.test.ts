@@ -35,6 +35,26 @@ function removeManagementSchema(db: Database.Database): void {
 }
 
 describe("database migrations", () => {
+  it("restores durable WAL settings whenever the database is opened", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "aether-durability-"));
+    try {
+      for (let connection = 0; connection < 2; connection++) {
+        const db = openDatabase(directory);
+        try {
+          expect(db.pragma("journal_mode", { simple: true })).toBe("wal");
+          expect(db.pragma("synchronous", { simple: true })).toBe(2);
+          expect(db.pragma("fullfsync", { simple: true })).toBe(1);
+          db.pragma("synchronous = OFF");
+          db.pragma("fullfsync = OFF");
+        } finally {
+          db.close();
+        }
+      }
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("upgrades version 17 without losing existing records and requires presentation storage", async () => {
     const configDir = await mkdtemp(
       path.join(tmpdir(), "aether-presentation-upgrade-")

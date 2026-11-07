@@ -8,6 +8,7 @@ for a long-running home server.
 You need:
 
 - Node.js 24 and npm for local use
+- A C compiler for local Linux and macOS development and builds
 - FFmpeg 5.1 or newer, with matching ffprobe and libx264/libx265 encoders, for
   media metadata and processing
 - Updated libheif command-line tools and its HEVC decoder for HEIC photos
@@ -16,6 +17,12 @@ You need:
 Keep source media on a readable local or mounted filesystem. Browsing and
 scanning require only read access. File management requires explicitly enabled
 named writable roots and writable filesystem access.
+
+On macOS, install Apple's command-line development tools before building:
+
+```bash
+xcode-select --install
+```
 
 ## Video Tools
 
@@ -229,6 +236,8 @@ API from starting even while Vite runs.
 
 For removable media, reconnect the volume and check its configured path.
 `AETHER_WRITABLE_ROOTS` contains root names from `AETHER_MEDIA_ROOTS`, not paths.
-Native macOS and Windows installations support read-only media browsing and
-metadata editing; file uploads and filesystem changes require a supported Linux
-runtime. An empty `AETHER_WRITABLE_ROOTS` keeps file management disabled.
+Native Linux and macOS installations support file uploads and filesystem changes
+on volumes that pass the capability checks. Development startup builds the native
+components; production installs must run `npm run build` before restarting.
+Windows retains read-only media browsing and metadata editing. An empty
+`AETHER_WRITABLE_ROOTS` keeps file management disabled on every platform.

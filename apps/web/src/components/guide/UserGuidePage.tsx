@@ -66,14 +66,20 @@ export function UserGuidePage({
             </ol>
             <h2>Choose a view</h2>
             <p>
-              Gallery shows a grid. Select a card to open the viewer. Use a
-              card’s More options menu, right-click, or long-press its preview
-              for actions; selection and the viewer’s More menu provide the same
-              file commands.
+              Use the view buttons beside search, or open Change view in a
+              narrow window. Gallery shows a grid. Select a card to open the
+              viewer. Right-click or long-press its preview for actions;
+              selection and the viewer’s More menu provide the same file
+              commands.
             </p>
             <p>
               Feed shows one item at a time. Swipe up or down on phones, or
               scroll on desktop. Compare shows the leaderboard and Rank media.
+            </p>
+            <p>
+              The Account menu at the bottom of the sidebar contains Trash,
+              Activity, User guide, Settings and Sign out. Its count shows
+              operations in progress or needing attention.
             </p>
             <h2>Filter and sort</h2>
             <p>
@@ -111,7 +117,8 @@ export function UserGuidePage({
             <h2>Open the editor</h2>
             <ol>
               <li>
-                Open a card’s More options menu or the viewer’s More menu.
+                Right-click or long-press a Gallery preview, or open the
+                viewer’s More menu.
               </li>
               <li>Choose Edit media.</li>
               <li>
@@ -236,8 +243,8 @@ export function UserGuidePage({
             <h2>Rename or move media</h2>
             <ol>
               <li>
-                Open a card’s More options menu or the viewer’s More menu. For
-                several items, select Gallery cards.
+                Right-click or long-press a Gallery preview, or open the
+                viewer’s More menu. For several items, select Gallery cards.
               </li>
               <li>Choose Rename or Move to.</li>
               <li>
@@ -263,8 +270,8 @@ export function UserGuidePage({
             <h2>Add media</h2>
             <ol>
               <li>
-                Open Add media and select Choose files, or drop files into
-                Gallery on desktop.
+                In Gallery, open Add media and select Choose files, or drop
+                files into the grid on desktop.
               </li>
               <li>Review the files and choose a writable destination.</li>
               <li>
@@ -280,8 +287,8 @@ export function UserGuidePage({
             <ol>
               <li>Select media and choose Move to Trash.</li>
               <li>
-                Confirm the action. Use Undo after completion, or open Trash and
-                select Restore.
+                Confirm the action. Use Undo after completion, or open Account →
+                Trash and select Restore.
               </li>
             </ol>
             <p>
@@ -292,9 +299,10 @@ export function UserGuidePage({
             </p>
             <h2>Check Activity</h2>
             <p>
-              Open Activity in the sidebar for upload progress, completed work
-              and items needing attention. Each operation identifies its media
-              or folder. Closing Activity does not cancel accepted work.
+              Open Account → Activity in the sidebar for upload progress,
+              completed work and items needing attention. Each operation
+              identifies its media or folder. Closing Activity does not cancel
+              accepted work.
             </p>
             <p>
               Uploads can pause offline or when the app leaves the foreground.

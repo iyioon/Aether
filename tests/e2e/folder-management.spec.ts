@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { chooseAccountAction } from "./account-menu";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -104,12 +105,7 @@ async function submitDialog(page: Page, button: Locator) {
 }
 
 async function openTrash(page: Page) {
-  const button = page.getByRole("button", { name: "Trash", exact: true });
-  if (!(await button.isVisible()))
-    await page
-      .getByRole("button", { name: "Toggle Sidebar", exact: true })
-      .click();
-  await button.click();
+  await chooseAccountAction(page, "Trash");
   await expect(
     page.getByRole("heading", { name: "Trash", exact: true })
   ).toBeVisible();

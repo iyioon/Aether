@@ -1,3 +1,4 @@
+import { chooseAccountAction } from "./account-menu";
 import { expect, test, type Page } from "@playwright/test";
 
 test.beforeEach(async ({ page }) => {
@@ -156,7 +157,7 @@ test("keeps view options scoped to the current view and dismisses nested control
   await expect(
     panel.getByRole("radiogroup", { name: "Media filters" })
   ).toBeVisible();
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await chooseAccountAction(page, "Settings");
   await expect(panel).toHaveCount(0);
   await page.getByRole("button", { name: "Library", exact: true }).click();
   await expect(trigger).toHaveAttribute("aria-expanded", "false");

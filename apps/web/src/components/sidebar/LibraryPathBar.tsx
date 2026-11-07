@@ -247,8 +247,31 @@ export function LibraryPathBar({
           </Breadcrumb>
         </div>
         {isLibraryOpen ? (
+          <div className="library-path-status">{status}</div>
+        ) : null}
+      </div>
+      {isLibraryOpen ? (
+        <div className="library-path-actions">
+          <div className="topbar-search">
+            <Search aria-hidden="true" />
+            <Input
+              className="h-9 pl-9"
+              aria-label="Search"
+              aria-keyshortcuts="/"
+              placeholder="Search"
+              aria-description="Search names and paths in this folder and its subfolders"
+              ref={searchInputRef}
+              type="search"
+              value={searchDraft}
+              onChange={(event) => onSearchDraftChange(event.target.value)}
+            />
+          </div>
+          {controls}
           <div className="library-path-view-actions">
-            {status}
+            <Separator
+              className="library-view-separator"
+              orientation="vertical"
+            />
             {viewSwitcher}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -289,25 +312,6 @@ export function LibraryPathBar({
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
-        ) : null}
-      </div>
-      {isLibraryOpen ? (
-        <div className="library-path-actions">
-          <div className="topbar-search">
-            <Search aria-hidden="true" />
-            <Input
-              className="h-9 pl-9"
-              aria-label="Search"
-              aria-keyshortcuts="/"
-              placeholder="Search"
-              aria-description="Search names and paths in this folder and its subfolders"
-              ref={searchInputRef}
-              type="search"
-              value={searchDraft}
-              onChange={(event) => onSearchDraftChange(event.target.value)}
-            />
-          </div>
-          {controls}
         </div>
       ) : null}
     </header>

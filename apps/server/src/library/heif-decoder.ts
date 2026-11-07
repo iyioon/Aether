@@ -3,6 +3,7 @@ import path from "node:path";
 import sharp from "sharp";
 import { ImageDerivativeError } from "./image-cache.js";
 import { runMediaCommand } from "./video-processing.js";
+import { descriptorPath } from "../security/descriptor-filesystem.js";
 
 export const HEIF_MAX_DECODED_BYTES = 512 * 1024 * 1024;
 export interface HeifImageInfo {
@@ -16,18 +17,30 @@ export interface HeifImageInfo {
 }
 
 export async function inspectHeifImage(
-  sourcePath: string
+  sourcePath: string,
+  sourceDescriptor?: number
 ): Promise<HeifImageInfo> {
   try {
     const source = await stat(sourcePath);
     if (!source.isFile() || source.size > 256 * 1024 * 1024)
       throw new ImageDerivativeError("heic_limit_exceeded", 422);
-    const info = await runMediaCommand("heif-info", [sourcePath], 10_000);
+    const inputPath =
+      sourceDescriptor === undefined ? sourcePath : descriptorPath({ fd: 3 });
+    const info = await runMediaCommand(
+      "heif-info",
+      [inputPath],
+      10_000,
+      undefined,
+      undefined,
+      sourceDescriptor
+    );
     const dump = await runMediaCommand(
       "heif-info",
-      ["-d", sourcePath],
+      ["-d", inputPath],
       10_000,
-      1024 * 1024
+      1024 * 1024,
+      undefined,
+      sourceDescriptor
     );
     return parseHeifInfo(info.stdout, dump.stdout);
   } catch (error) {

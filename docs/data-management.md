@@ -42,6 +42,8 @@ root, with a default retention of 30 days.
 Operation receipts and ownership metadata live in SQLite. Accepted server work
 continues after a browser disconnect. Startup inspects unresolved boundaries;
 it never deletes an unverified last copy or adopts an unknown reserved directory.
+Journal commits use full synchronization, including macOS device-cache flushes,
+before filesystem changes proceed.
 Review Needs attention in Activity before retrying. Keep roots and all recorded
 copies available during recovery. Do not recursively delete reserved storage or
 remove its records to unblock the application.

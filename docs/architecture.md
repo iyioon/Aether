@@ -78,6 +78,9 @@ SQLite stores:
 Source files are not copied into SQLite. Changes that affect several records use
 a transaction so a partial update is not left behind.
 
+Connections use WAL with `synchronous=FULL` and `fullfsync=ON`, so macOS requests
+device-cache flushes for operation journals as well as managed file writes.
+
 Search uses SQLite FTS5. A small CJK substring index supports partial filename
 search for Korean and similar writing systems.
 
@@ -160,10 +163,12 @@ reads and uses records returned by the server after a change. Scroll position
 and appearance choices are browser-local conveniences, not part of the library
 database.
 
-`LibraryPathBar` separates folder/view navigation from the library search and
-creation/filter/selection toolbar. `LibraryResultStatus` owns the pending-result
+`LibraryPathBar` keeps folder navigation and result status above the library
+search and action row. View switching ends the search row behind a vertical
+separator; Add media is available in Gallery. `LibraryResultStatus` owns the pending-result
 control in the navigation row, keeping search and viewport geometry stable.
-Short touch sidebars scroll their navigation and retain a bounded folder area.
+Folder navigation scrolls above the sidebar’s Account menu, which groups Trash,
+Activity, User guide, Settings and Sign out.
 
 `LibraryViewOptions` groups the existing library controls behind one toolbar
 button, using the shared shadcn Popover on desktop and Sheet at the mobile
@@ -571,9 +576,10 @@ capability/atlas caches are cleared on sign-out.
 
 Gallery actions use the shared Radix ContextMenu primitive, matching existing
 menu tokens and the [Radix desktop/touch interaction](https://www.radix-ui.com/primitives/docs/components/context-menu).
-Cards also expose the same actions through a More options dropdown. Viewer
-menus portal inside its fullscreen container; opening a separate editing or
-file-action panel first exits browser fullscreen. Programmatic panels restore
+Cards open this menu by right-click, touch hold or a keyboard context-menu
+command. The viewer’s More menu groups editing, downloads and available file
+actions. Viewer menus portal inside its fullscreen container; opening a separate
+editing or file-action panel first exits browser fullscreen. Programmatic panels restore
 focus to the invoking control after closing, while respecting active dialogs.
 Keyboard context-menu keys, focus restoration, scroll cancellation and trailing
 touch clicks are guarded. Curation holds do not trigger a menu. Viewer chrome
@@ -621,10 +627,17 @@ Zero is the only unranked score. Positive scores are ranked.
 ## File Management
 
 Named writable roots are an explicit capability; the default remains read-only.
-The Linux native helper receives pinned directory descriptors, rejects symlink
-and nested-device traversal, and publishes with `renameat2(RENAME_NOREPLACE)`.
-A volume probe runs before enabling writes. Unsupported platforms and filesystem
-features have no weaker mutation fallback.
+The shared asynchronous Node-API adapter opens, lists, creates and removes entries
+relative to pinned directory descriptors. The native helper rejects symlink and
+nested-device traversal, and publishes with `renameat2(RENAME_NOREPLACE)` on Linux
+or `renameatx_np(RENAME_EXCL)` on macOS. A volume probe runs before enabling writes.
+Unsupported platforms and filesystem features have no weaker mutation fallback.
+macOS metadata copies use descriptor-based `fcopyfile` and verify resource forks,
+extended attributes, ACLs and file attributes before source retirement; metadata
+bytes count toward manifest limits and reservations. A metadata digest accompanies
+the byte digest through copy verification and recovery. File flushes include
+`F_FULLFSYNC` on macOS. Upload inspectors inherit a pinned input descriptor rather
+than resolving a parent-process descriptor path.
 
 `file-operation-preview.ts` checks up to 100 move, restore or upload names against
 indexed locations and actual directory entries before admission. It validates
@@ -643,8 +656,10 @@ Empty Trash snapshots retained IDs into per-item rows and processes bounded
 pages, preserving one durable receipt across cancellation and restart.
 
 Folders keep stored IDs when renamed or moved. The scanner resolves discovered
-locations against those IDs and assigns fresh IDs to recreated old paths. Media
-moves update paths, physical descriptors, search and subtree counts while retaining
+locations against those IDs and assigns fresh IDs to recreated old paths. Recovery
+checks the actual directory-entry spelling to distinguish an unpublished
+case-only rename from an acknowledged filesystem move on case-insensitive volumes.
+Media moves update paths, physical descriptors, search and subtree counts while retaining
 asset metadata. Lifecycle is separate from inspection status. Trash keeps the
 asset record at a reserved physical path, releases the active pathname and
 suspends comparison projections without discarding manual edits or history.
@@ -668,7 +683,7 @@ Add media is a separate application page for destination and file review, with
 one task heading and persistent actions. Its unsubmitted browser files stay in
 memory when the user returns to the library; they are not stored in navigation
 checkpoints. Add files returns to the library and opens Activity. The sidebar's
-Activity panel contains accepted uploads, progress, recovery controls and recent
+Account menu opens Activity, which contains accepted uploads, progress, recovery controls and recent
 operation results. Activity keeps its heading and close control outside the scrolling results.
 Operation summaries identify their items; upload reselection stays inside the
 affected transfer. The upload controller remains mounted across page changes,

@@ -1,3 +1,4 @@
+import { chooseAccountAction } from "./account-menu";
 import { expect, test, type Page, type Route } from "@playwright/test";
 import type {
   ComparisonDecisionResponse,
@@ -389,7 +390,7 @@ test("discards a delayed batch after Settings and a folder change, including a t
   });
   await openRanking(page, folderId);
   await expect.poll(() => Boolean(held)).toBe(true);
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await chooseAccountAction(page, "Settings");
   await expect(
     page.getByRole("heading", { name: "Settings", exact: true })
   ).toBeVisible();

@@ -90,6 +90,7 @@ export async function acknowledgeLostMedia(
         db.pragma("foreign_keys = ON");
         db.pragma("busy_timeout = 5000");
         db.pragma("synchronous = FULL");
+        db.pragma("fullfsync = ON");
         validateLatestAetherSchema(db);
         if (fileManagementBlockers(options.paths.configDir).uploads)
           throw new Error(

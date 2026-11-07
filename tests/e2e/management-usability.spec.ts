@@ -5,6 +5,7 @@ import {
   type Page,
   type Route
 } from "@playwright/test";
+import { chooseAccountAction } from "./account-menu";
 import type {
   AssetRecord,
   FileOperation,
@@ -244,10 +245,7 @@ test("returns Activity focus to Feed when compact controls are hidden", async ({
 });
 
 async function openActivity(page: Page) {
-  const trigger = page.getByRole("button", { name: "Activity", exact: true });
-  if (!(await trigger.isVisible()))
-    await page.getByRole("button", { name: "Toggle Sidebar" }).click();
-  await trigger.click();
+  await chooseAccountAction(page, "Activity");
   const activity = page.getByRole("dialog", { name: "Activity", exact: true });
   await expect(activity).toBeVisible();
   return activity;

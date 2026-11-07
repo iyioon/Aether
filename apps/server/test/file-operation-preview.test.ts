@@ -39,7 +39,7 @@ import type {
 import type { FileOperationReceipt } from "../src/library/file-operations.js";
 
 // Real disposable volumes and the production routes; every name probe is read-only.
-describe.skipIf(process.platform !== "linux")(
+describe.skipIf(!["linux", "darwin"].includes(process.platform))(
   "file operation conflict preview",
   () => {
     let directory: string;

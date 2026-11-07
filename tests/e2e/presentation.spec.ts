@@ -1,3 +1,4 @@
+import { chooseAccountAction } from "./account-menu";
 import { execFile } from "node:child_process";
 import { copyFile, mkdir, rm, utimes } from "node:fs/promises";
 import path from "node:path";
@@ -1998,7 +1999,7 @@ test("controls an edited animation and selectively resets playback and framing w
     await expect(controls).toBeVisible();
     expect(await page.locator("button button").count()).toBe(0);
 
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await chooseAccountAction(page, "Settings");
     await page.getByRole("tab", { name: "Database", exact: true }).click();
     await resetSelected(page, "Highlights and playback");
     expect((await getAsset(page, animation.id)).presentation).toMatchObject({

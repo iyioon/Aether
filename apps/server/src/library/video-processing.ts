@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { rewindDescriptor } from "../security/descriptor-filesystem.js";
 
 interface CommandResult {
   stdout: string;
@@ -25,7 +26,8 @@ export async function runMediaCommand(
   args: string[],
   timeoutMs: number,
   maxStdoutBytes = MAX_PROCESS_OUTPUT_BYTES,
-  consumeStdout?: (chunk: Buffer) => void
+  consumeStdout?: (chunk: Buffer) => void,
+  inputDescriptor?: number
 ): Promise<CommandResult> {
   if (
     !Number.isSafeInteger(maxStdoutBytes) ||
@@ -33,9 +35,21 @@ export async function runMediaCommand(
     maxStdoutBytes > MAX_EXTENDED_STDOUT_BYTES
   )
     throw new MediaProcessingError("Invalid media command output limit.");
+  if (
+    inputDescriptor !== undefined &&
+    (!Number.isSafeInteger(inputDescriptor) || inputDescriptor < 0)
+  )
+    throw new MediaProcessingError("Invalid media input descriptor.");
+  // Darwin's /dev/fd aliases duplicate the open description and share its
+  // cursor. Each decoder receives the complete file from its first byte.
+  if (inputDescriptor !== undefined)
+    await rewindDescriptor({ fd: inputDescriptor });
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
-      stdio: ["ignore", "pipe", "pipe"]
+      stdio:
+        inputDescriptor === undefined
+          ? ["ignore", "pipe", "pipe"]
+          : ["ignore", "pipe", "pipe", inputDescriptor]
     });
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
@@ -51,7 +65,7 @@ export async function runMediaCommand(
       child.kill("SIGKILL");
     }, timeoutMs);
 
-    child.stdout.on("data", (chunk: Buffer) => {
+    child.stdout!.on("data", (chunk: Buffer) => {
       if (consumeStdout) {
         if (consumerFailure) return;
         try {
@@ -75,7 +89,7 @@ export async function runMediaCommand(
       }
     });
 
-    child.stderr.on("data", (chunk: Buffer) => {
+    child.stderr!.on("data", (chunk: Buffer) => {
       stderrBytes += chunk.byteLength;
 
       if (stderrBytes <= MAX_PROCESS_OUTPUT_BYTES) {

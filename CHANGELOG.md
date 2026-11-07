@@ -6,6 +6,7 @@ Notable changes to Aether are recorded here.
 
 ### Fixed
 
+- Enable full-device SQLite journal synchronization for macOS file operations.
 - Identify startup failures with privacy-safe stages and recovery instructions.
 - Preserve exact filesystem identity when opening Linux upload staging on
   volumes with large inode numbers.
@@ -13,9 +14,9 @@ Notable changes to Aether are recorded here.
 ### Added
 
 - Opt-in named writable roots, durable folder creation, media/folder rename and
-  moves, recoverable Trash, restore, permanent deletion and Activity. Linux
-  publication uses a descriptor-based native helper and retains ambiguous
-  operations for recovery. Other platforms remain read-only.
+  moves, recoverable Trash, restore, permanent deletion and Activity. Linux and
+  macOS use descriptor-based native operations and retain ambiguous operations
+  for recovery. Other platforms remain read-only.
 - Authenticated resumable device uploads with private staging, retained-prefix
   verification, media inspection and bounded transfer/disk budgets.
 
@@ -40,10 +41,12 @@ Notable changes to Aether are recorded here.
 
 ### Changed
 
-- Keep search and library actions together, with view switching and result
-  updates in navigation. Preserve folder access on short touch screens.
-- Add visible Gallery menus, explicit batch tag actions and multiple staged
-  tags. Keep score and tag errors beside their controls.
+- Place the view switcher at the end of the search row with a separator, and show
+  Add media only in Gallery. Keep result updates in the navigation row.
+- Group Trash, Activity, User guide, Settings and Sign out in the sidebar Account
+  menu. Remove Gallery card ellipsis buttons while retaining context actions.
+- Add explicit batch tag actions and multiple staged tags. Keep score and tag
+  errors beside their controls.
 - Identify Activity operations, retain its header while scrolling, and place
   upload reselection beside each transfer. Improve name validation and phone
   Trash selection, filenames and recovery actions.

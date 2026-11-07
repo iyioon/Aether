@@ -46,8 +46,12 @@ npm run data:status     # inspect the local data directory
 npm run data:recover -- --list # inspect records blocking lost-volume recovery
 ```
 
-Use Node.js 24, matching `.nvmrc`, CI and Docker. Linux builds and tests also
-require a C compiler for the descriptor-based file-management helper. The end-to-end suite starts
+Use Node.js 24, matching `.nvmrc`, CI and Docker. Linux and macOS builds and tests
+also require a C compiler for descriptor-based file management. On macOS, install
+the Xcode Command Line Tools with `xcode-select --install`. The development server
+builds the native components before starting; rebuild after changing native code.
+The official `node-api-headers` development dependency supplies the build headers;
+it is not needed in the production runtime. The end-to-end suite starts
 isolated servers and recreates disposable files under **.e2e**, using one worker.
 It expects a local Chrome installation. Do not run competing browser suites or
 reuse a live server/data directory for these tests. FFmpeg 5.1 or newer and its

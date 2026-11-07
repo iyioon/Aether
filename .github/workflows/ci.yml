@@ -11,6 +11,35 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  native-macos:
+    runs-on: macos-15
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Use Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install media tools
+        run: brew install ffmpeg libheif
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify native macOS support
+        run: npm run verify
+
+      - name: Install browser
+        run: npx --no-install playwright install chrome
+
+      - name: Verify management and navigation flows
+        run: npm run test:e2e -- tests/e2e/media-management.spec.ts tests/e2e/folder-management.spec.ts tests/e2e/gallery-actions.spec.ts tests/e2e/mobile-layout.spec.ts tests/e2e/navigation.spec.ts tests/e2e/user-guide.spec.ts
+
   verify:
     runs-on: ubuntu-26.04
     timeout-minutes: 45

@@ -7,6 +7,7 @@ import {
 import { createHash } from "node:crypto";
 import { chmod, rename, unlink } from "node:fs/promises";
 import path from "node:path";
+import { descriptorPath } from "../security/descriptor-filesystem.js";
 import type { FastifyReply } from "fastify";
 import type { AppConfig } from "../config/config.js";
 import type { AetherDatabase } from "../db/database.js";
@@ -454,7 +455,8 @@ export async function sendVideoPreview({
 }
 
 export async function probeVideoMetadata(
-  file: ResolvedAssetFile
+  file: ResolvedAssetFile,
+  sourceDescriptor?: number
 ): Promise<VideoMetadata> {
   if (file.asset.mediaType !== "video") {
     throw new UnsupportedVideoPosterError("Only video metadata is available.");
@@ -472,9 +474,14 @@ export async function probeVideoMetadata(
       "stream=width,height,codec_name:format=duration",
       "-of",
       "json",
-      file.sourcePath
+      sourceDescriptor === undefined
+        ? file.sourcePath
+        : descriptorPath({ fd: 3 })
     ],
-    PROBE_TIMEOUT_MS
+    PROBE_TIMEOUT_MS,
+    undefined,
+    undefined,
+    sourceDescriptor
   );
   const payload = JSON.parse(result.stdout) as ProbePayload;
   const stream = payload.streams?.[0];

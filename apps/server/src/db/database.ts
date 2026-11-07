@@ -1102,6 +1102,10 @@ export function openDatabase(configDir: string): AetherDatabase {
     db.pragma("secure_delete = ON");
     db.pragma("temp_store = MEMORY");
     db.pragma("journal_mode = WAL");
+    // Operation intent must reach durable storage before managed files change.
+    // SQLite uses F_FULLFSYNC on macOS when this flag is enabled.
+    db.pragma("synchronous = FULL");
+    db.pragma("fullfsync = ON");
     db.pragma("journal_size_limit = 0");
     db.pragma("busy_timeout = 5000");
     applyMigrations(db);

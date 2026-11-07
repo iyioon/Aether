@@ -17,7 +17,7 @@
   .folder-scan-button,
   .favorite-button svg,
   .tree-row,
-  .sidebar-footer-action,
+  .sidebar-account-trigger,
   .tree-disclosure,
   .tree-folder-icon,
   .tree-count,
@@ -102,6 +102,10 @@
   }
 
   [data-slot="sidebar-menu-button"] {
+    min-height: 44px;
+  }
+
+  .sidebar-account-menu [data-slot="dropdown-menu-item"] {
     min-height: 44px;
   }
 
@@ -480,14 +484,14 @@
     max-width: none;
   }
 
-  .library-path-view-actions .results-update-slot > button {
+  .library-path-status .results-update-slot > button {
     width: 36px;
     min-width: 36px;
     height: 36px;
     padding: 0;
   }
 
-  .library-path-view-actions .results-update-slot > button > span {
+  .library-path-status .results-update-slot > button > span {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -513,7 +517,7 @@
 /* Match the shared compact breakpoint even with a wide landscape viewport. */
 @media (max-width: 767px),
   (max-width: 1024px) and (hover: none) and (pointer: coarse) {
-  .library-path-view-actions .results-update-slot > button {
+  .library-path-status .results-update-slot > button {
     width: 44px;
     min-width: 44px;
     height: 44px;

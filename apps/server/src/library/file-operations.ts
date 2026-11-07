@@ -1245,7 +1245,10 @@ export class FileOperationManager {
         destination = await this.chooseDestination(
           destination,
           item.input.conflict ?? request.conflict,
-          folder
+          folder,
+          request.type === "rename-media" || request.type === "rename-folder"
+            ? { location: item.source, identity: expected }
+            : undefined
         );
       }
       item.destination = destination;
@@ -1264,11 +1267,30 @@ export class FileOperationManager {
       const alreadyPublished = await this.optionalInspect(
         this.location(destination)
       );
-      if (
+      const matchesPublished =
         !item.crossDevice &&
         alreadyPublished &&
-        sameEntry(alreadyPublished, expected)
-      ) {
+        sameEntry(alreadyPublished, expected);
+      // A case-insensitive volume may resolve both spellings before a rename.
+      // The exact directory entry distinguishes that alias from a publication
+      // whose acknowledgement was lost. Never infer this from letter casing.
+      const renameAlias =
+        matchesPublished &&
+        (request.type === "rename-media" || request.type === "rename-folder") &&
+        siblingLocations(source, destination);
+      const sourceStillNamed =
+        renameAlias &&
+        (await this.filesystem.hasExactEntryName(this.location(source)));
+      if (renameAlias) {
+        const destinationNamed = await this.filesystem.hasExactEntryName(
+          this.location(destination)
+        );
+        if (sourceStillNamed === destinationNamed)
+          throw new FileManagementError(
+            sourceStillNamed ? "destination_exists" : "source_changed"
+          );
+      }
+      if (matchesPublished && !sourceStillNamed) {
         const actual = await this.filesystem.inventory(
           this.location(destination)
         );
@@ -1277,7 +1299,7 @@ export class FileOperationManager {
         item.published = alreadyPublished;
         item.publishedManifest = actual;
       } else {
-        if (alreadyPublished)
+        if (alreadyPublished && !sourceStillNamed)
           throw new FileManagementError("destination_exists");
         const current = await this.filesystem.inventory(this.location(source));
         if (!sameExactManifest(item.manifest!, current))
@@ -1748,8 +1770,24 @@ export class FileOperationManager {
       destination &&
       (item.published ?? item.expected) &&
       sameObject(destination, (item.published ?? item.expected)!)
-    )
-      return; // Publication may have committed; recover it rather than discard it.
+    ) {
+      if (
+        (request.type === "rename-media" || request.type === "rename-folder") &&
+        item.source &&
+        item.destination &&
+        siblingLocations(item.source, item.destination)
+      ) {
+        const sourceNamed = await this.filesystem.hasExactEntryName(
+          this.location(item.source)
+        );
+        const destinationNamed = await this.filesystem.hasExactEntryName(
+          this.location(item.destination)
+        );
+        if (!sourceNamed && destinationNamed) return;
+        if (!sourceNamed || destinationNamed)
+          throw new FileManagementError("source_changed");
+      } else return; // Publication may have committed; recover it rather than discard it.
+    }
     if (request.type !== "create-folder") {
       const source =
         request.type === "add-media"
@@ -1851,13 +1889,23 @@ export class FileOperationManager {
   private async chooseDestination(
     location: Location,
     conflict: FileOperationRequest["conflict"],
-    folder: boolean
+    folder: boolean,
+    renameSource?: { location: Location; identity: FileOperationIdentity }
   ): Promise<Location> {
     const indexedExists = createManagedDestinationProbe(this.db);
     const exists = async (candidate: Location) =>
       indexedExists(candidate.rootId, candidate.relativePath) ||
       (await this.filesystem.entryExists(this.location(candidate)));
     if (!(await exists(location))) return location;
+    if (
+      renameSource &&
+      siblingLocations(renameSource.location, location) &&
+      !indexedExists(location.rootId, location.relativePath)
+    ) {
+      const alias = await this.optionalInspect(this.location(location));
+      if (alias && sameExactEntry(alias, renameSource.identity))
+        return location;
+    }
     if (conflict !== "keep-both")
       throw new FileManagementError("destination_exists");
     for (let suffix = 2; suffix <= 1000; suffix++) {
@@ -2025,6 +2073,14 @@ function inventoryVersion(manifest: FileOperationManifest): string {
   return createHash("sha256").update(JSON.stringify(manifest)).digest("hex");
 }
 
+function siblingLocations(left: Location, right: Location): boolean {
+  return (
+    left.rootId === right.rootId &&
+    path.posix.dirname(left.relativePath) ===
+      path.posix.dirname(right.relativePath)
+  );
+}
+
 function sameEntry(
   left: FileOperationIdentity,
   right: FileOperationIdentity
@@ -2034,6 +2090,7 @@ function sameEntry(
     left.ino === right.ino &&
     left.kind === right.kind &&
     left.mode === right.mode &&
+    left.metadataSha256 === right.metadataSha256 &&
     left.mtimeNs === right.mtimeNs &&
     (left.kind === "directory" ||
       (left.size === right.size && left.mtimeNs === right.mtimeNs))
@@ -2137,6 +2194,7 @@ function sameManifestContents(
         entry.sha256 === other.sha256 &&
         entry.identity.kind === other.identity.kind &&
         entry.identity.mode === other.identity.mode &&
+        entry.identity.metadataSha256 === other.identity.metadataSha256 &&
         entry.identity.mtimeNs === other.identity.mtimeNs &&
         (entry.identity.kind === "directory" ||
           entry.identity.size === other.identity.size)

@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { constants } from "node:fs";
 import {
   mkdtemp,
   mkdir,
@@ -8,7 +9,6 @@ import {
   symlink,
   writeFile,
   open,
-  readlink,
   lstat,
   type FileHandle
 } from "node:fs/promises";
@@ -31,13 +31,15 @@ import {
   uploadVolumeReservations
 } from "../src/library/repository-uploads.js";
 import { fileManagementBlockers } from "../src/maintenance/file-management.js";
+import * as descriptorFilesystem from "../src/security/descriptor-filesystem.js";
+import { runMediaCommand } from "../src/library/video-processing.js";
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:fs/promises")>();
   return { ...original, lstat: vi.fn(original.lstat) };
 });
 
-describe.skipIf(process.platform !== "linux")(
+describe.skipIf(!["linux", "darwin"].includes(process.platform))(
   "authenticated resumable uploads",
   () => {
     let directory: string;
@@ -117,6 +119,7 @@ describe.skipIf(process.platform !== "linux")(
           await vi.importActual<typeof import("node:fs/promises")>(
             "node:fs/promises"
           );
+        const actualStaging = await originalLstat(staging, { bigint: true });
         const probe = await open(staging, "r");
         const prototype = Object.getPrototypeOf(probe) as FileHandle;
         await probe.close();
@@ -133,7 +136,10 @@ describe.skipIf(process.platform !== "linux")(
           .spyOn(prototype, "stat")
           .mockImplementation(async function (this: FileHandle, options) {
             const info = await originalStat.call(this, options);
-            if ((await readlink(`/proc/self/fd/${this.fd}`)) === staging) {
+            if (
+              String(info.dev) === String(actualStaging.dev) &&
+              String(info.ino) === String(actualStaging.ino)
+            ) {
               const openedInode = changed ? inode + 2n : inode;
               info.ino =
                 typeof info.ino === "bigint"
@@ -292,6 +298,95 @@ describe.skipIf(process.platform !== "linux")(
       ).toHaveLength(0);
     });
 
+    it.each([
+      { name: "uploaded.mp4", mediaType: "video" },
+      { name: "uploaded.heic", mediaType: "image" }
+    ])(
+      "validates and publishes $name through an inherited source descriptor",
+      async ({ name, mediaType }) => {
+        const filename = path.join(directory, name);
+        if (mediaType === "video") {
+          await runMediaCommand(
+            "ffmpeg",
+            [
+              "-v",
+              "error",
+              "-f",
+              "lavfi",
+              "-i",
+              "color=c=blue:s=32x24:r=5",
+              "-t",
+              "0.4",
+              "-c:v",
+              "libx264",
+              "-pix_fmt",
+              "yuv420p",
+              filename
+            ],
+            10_000
+          );
+        } else {
+          const source = path.join(directory, "fixture.png");
+          await sharp({
+            create: {
+              width: 64,
+              height: 48,
+              channels: 3,
+              background: "#84a09a"
+            }
+          })
+            .png()
+            .toFile(source);
+          await runMediaCommand(
+            "heif-enc",
+            [
+              "-L",
+              "-p",
+              "x265:pools=none",
+              "-p",
+              "x265:frame-threads=1",
+              "-o",
+              filename,
+              source
+            ],
+            15_000
+          );
+        }
+        const bytes = await readFile(filename);
+        const created = await create(name, bytes.length);
+        expect(created.statusCode).toBe(201);
+        const uploaded = await patch(created.headers.location!, 0, bytes);
+        expect(uploaded.statusCode).toBe(204);
+        const operationId = uploaded.headers["upload-operation-id"];
+        await expect
+          .poll(
+            async () =>
+              (
+                await app.inject({
+                  url: `/api/file-operations/${operationId}`,
+                  headers
+                })
+              ).json<{ status: string }>().status,
+            { timeout: 15_000, interval: 100 }
+          )
+          .toBe("completed");
+        expect(await readFile(path.join(directory, "media", name))).toEqual(
+          bytes
+        );
+        expect(
+          db
+            .prepare(
+              "SELECT media_type, content_sha256 FROM assets WHERE name = ?"
+            )
+            .get(name)
+        ).toMatchObject({
+          media_type: mediaType,
+          content_sha256: createHash("sha256").update(bytes).digest("hex")
+        });
+      },
+      30_000
+    );
+
     it("terminates an incomplete transfer without touching media", async () => {
       const created = await create();
       expect(created.statusCode).toBe(201);
@@ -394,29 +489,27 @@ describe.skipIf(process.platform !== "linux")(
     });
 
     it("preserves cancellation during stage creation and cleans it after the creation claim drains", async () => {
-      const probePath = path.join(directory, "sync-probe");
-      const probe = await open(probePath, "wx");
-      const prototype = Object.getPrototypeOf(probe) as FileHandle;
-      await probe.close();
-      await rm(probePath);
-      const original = prototype.sync;
+      const original = descriptorFilesystem.openRelative;
       let unblock!: () => void;
       const blockedUntil = new Promise<void>((resolve) => {
         unblock = resolve;
       });
       let blocked = false;
       const spy = vi
-        .spyOn(prototype, "sync")
-        .mockImplementation(async function (this: FileHandle) {
-          const filename = await readlink(`/proc/self/fd/${this.fd}`);
-          if (
-            !blocked &&
-            path.dirname(filename) === path.join(config.dataDir, "uploads")
-          ) {
-            blocked = true;
-            await blockedUntil;
+        .spyOn(descriptorFilesystem, "openRelative")
+        .mockImplementation(async (...args) => {
+          const handle = await original(...args);
+          if (args[2] & constants.O_CREAT) {
+            const sync = handle.sync.bind(handle);
+            handle.sync = async () => {
+              if (!blocked) {
+                blocked = true;
+                await blockedUntil;
+              }
+              await sync();
+            };
           }
-          await original.call(this);
+          return handle;
         });
       try {
         const requestId = randomUUID();

@@ -194,6 +194,11 @@ Never test rebuild or wipe against the only copy of a real library database.
 - Use disposable named roots on the same and different filesystems. Confirm the
   default read-only configuration rejects writes and a writable mount alone does
   not enable them. Unsupported platforms and volume probes remain read-only.
+- Run the native filesystem, durable-operation, name-preview and upload suites
+  on Linux and a real macOS host. On macOS, use disposable APFS media and an
+  external volume; record its filesystem and verify permissions, extended
+  attributes, case collisions, disconnection and restart recovery. A Linux run
+  or a mocked platform value does not establish native macOS acceptance.
 - Create empty folders, rename media without changing extensions, rename/move
   subtrees with sidecars and hidden files, and rescan. Preserve IDs, scores,
   presentation and history; recreated old names receive new identities.

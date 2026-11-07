@@ -6,6 +6,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  realpath,
   rename,
   rm,
   stat,
@@ -29,7 +30,7 @@ const helper = path.join(
 const crossDeviceAvailable =
   statSync(repositoryRoot).dev !== statSync(tmpdir()).dev;
 
-describe.skipIf(process.platform !== "linux")(
+describe.skipIf(!["linux", "darwin"].includes(process.platform))(
   "verified file-operation filesystem",
   () => {
     let directory: string;
@@ -46,7 +47,9 @@ describe.skipIf(process.platform !== "linux")(
     });
 
     beforeEach(async () => {
-      directory = await mkdtemp(path.join(tmpdir(), "aether-file-operations-"));
+      directory = await realpath(
+        await mkdtemp(path.join(tmpdir(), "aether-file-operations-"))
+      );
       root = path.join(directory, "source");
       destinationRoot = path.join(directory, "destination");
       await mkdir(root);
@@ -118,6 +121,28 @@ describe.skipIf(process.platform !== "linux")(
       });
     });
 
+    it.skipIf(process.platform !== "darwin")(
+      "renames case-only names without replacing another file on case-insensitive volumes",
+      async (context) => {
+        await writeFile(path.join(root, "Photo.jpg"), "original");
+        const alias = await stat(path.join(root, "photo.jpg")).catch(
+          () => null
+        );
+        if (!alias) context.skip();
+        const before = await filesystem.inspect(locations("Photo.jpg"));
+        const after = await filesystem.rename(
+          locations("Photo.jpg"),
+          locations("photo.jpg"),
+          before
+        );
+        expect(after.ino).toBe(before.ino);
+        expect(
+          (await filesystem.inventory(locations(""))).entries.map(
+            (entry) => entry.relativePath
+          )
+        ).toEqual(["", "photo.jpg"]);
+      }
+    );
     it("never replaces a destination even when multiple publications race", async () => {
       const files = await Promise.all(
         Array.from({ length: 8 }, async (_, index) => {
@@ -378,25 +403,104 @@ describe.skipIf(process.platform !== "linux")(
         ).rejects.toMatchObject({ code: "operation_limit" });
     });
 
-    it("rejects extended attributes rather than silently dropping them", async () => {
-      const filePath = path.join(root, "photo.jpg");
-      await writeFile(filePath, "original");
-      execFileSync("python3", [
-        "-c",
-        "import os,sys; os.setxattr(sys.argv[1], 'user.aether-proof', b'keep')",
-        filePath
-      ]);
-      await expect(
-        filesystem.inspect(locations("photo.jpg"))
-      ).rejects.toMatchObject({ code: "unsupported_filesystem" });
-      expect(await readFile(filePath, "utf8")).toBe("original");
-    });
+    it.skipIf(process.platform !== "linux")(
+      "rejects extended attributes rather than silently dropping them",
+      async () => {
+        const filePath = path.join(root, "photo.jpg");
+        await writeFile(filePath, "original");
+        execFileSync("python3", [
+          "-c",
+          "import os,sys; os.setxattr(sys.argv[1], 'user.aether-proof', b'keep')",
+          filePath
+        ]);
+        await expect(
+          filesystem.inspect(locations("photo.jpg"))
+        ).rejects.toMatchObject({ code: "unsupported_filesystem" });
+        expect(await readFile(filePath, "utf8")).toBe("original");
+      }
+    );
+
+    it.skipIf(process.platform !== "darwin")(
+      "preserves Finder attributes, resource forks, ACLs and creation time across a verified copy",
+      async () => {
+        const source = path.join(root, "photo.jpg");
+        const staged = path.join(
+          destinationRoot,
+          ".aether-staging/operation/photo.jpg"
+        );
+        await writeFile(source, "original image", { mode: 0o640 });
+        execFileSync("xattr", ["-w", "user.aether-proof", "keep", source]);
+        execFileSync("xattr", [
+          "-w",
+          "com.apple.ResourceFork",
+          "resource fork",
+          source
+        ]);
+        const user = execFileSync("id", ["-un"], { encoding: "utf8" }).trim();
+        execFileSync("chmod", [
+          "+a",
+          `user:${user} allow read,readattr,readextattr,readsecurity`,
+          source
+        ]);
+        const before = await stat(source, { bigint: true });
+        const identity = await filesystem.inspect(locations("photo.jpg"));
+        expect(identity.metadataBytes).toBeGreaterThan(0);
+        const copied = await filesystem.copy(
+          locations("photo.jpg"),
+          destinations(".aether-staging/operation/photo.jpg"),
+          identity
+        );
+        expect(copied.manifest.totalBytes).toBe(
+          Number(identity.size) + (identity.metadataBytes ?? 0)
+        );
+        for (const attribute of ["user.aether-proof", "com.apple.ResourceFork"])
+          expect(execFileSync("xattr", ["-p", attribute, staged])).toEqual(
+            execFileSync("xattr", ["-p", attribute, source])
+          );
+        expect((await stat(staged, { bigint: true })).birthtimeNs).toBe(
+          before.birthtimeNs
+        );
+        expect(await readFile(staged, "utf8")).toBe("original image");
+      }
+    );
+
+    it.skipIf(process.platform !== "darwin")(
+      "detects same-size metadata tampering after the native copy verification",
+      async () => {
+        const original = path.join(root, "photo.jpg");
+        await writeFile(original, "original image");
+        execFileSync("xattr", ["-w", "user.aether-proof", "keep", original]);
+        const expected = await filesystem.inspect(locations("photo.jpg"));
+        const wrapped = await wrapper([
+          'if [ "$1" = metadata ]; then',
+          `  ${quote(helper)} "$@"`,
+          "  xattr -w user.aether-proof edit /dev/fd/4",
+          "  exit 0",
+          "fi"
+        ]);
+        await expect(
+          wrapped.copy(
+            locations("photo.jpg"),
+            destinations(".aether-staging/operation/photo.jpg"),
+            expected
+          )
+        ).rejects.toMatchObject({ code: "needs_review" });
+        expect(
+          execFileSync("xattr", ["-p", "user.aether-proof", original], {
+            encoding: "utf8"
+          }).trim()
+        ).toBe("keep");
+        await expect(
+          stat(path.join(destinationRoot, "photo.jpg"))
+        ).rejects.toMatchObject({ code: "ENOENT" });
+      }
+    );
 
     it("retains partial stages and originals when copied bytes fail verification", async () => {
       await writeFile(path.join(root, "photo.jpg"), "original");
       const expected = await filesystem.inspect(locations("photo.jpg"));
       const wrapped = await wrapper([
-        'if [ "$1" = metadata ]; then printf damaged > /proc/self/fd/4; fi'
+        `if [ "$1" = metadata ]; then printf damaged > ${process.platform === "darwin" ? "/dev/fd/4" : "/proc/self/fd/4"}; fi`
       ]);
       await expect(
         wrapped.copy(

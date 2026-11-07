@@ -135,15 +135,19 @@ test("uses a working drawer on wide touch landscape screens", async ({
       await expect(firstFolder).toBeInViewport();
       const folderBounds = await firstFolder.boundingBox();
       expect(folderBounds!.height).toBeGreaterThanOrEqual(44);
-      await expect(
-        drawer.getByRole("button", { name: "Sign out", exact: true })
-      ).toBeVisible();
-      await drawer
-        .getByRole("button", { name: "Sign out", exact: true })
-        .scrollIntoViewIfNeeded();
-      await expect(
-        drawer.getByRole("button", { name: "Sign out", exact: true })
-      ).toBeInViewport();
+      const account = drawer.getByRole("button", {
+        name: "Account",
+        exact: true
+      });
+      await expect(account).toBeInViewport();
+      await account.click();
+      const signOut = phone.getByRole("menuitem", {
+        name: "Sign out",
+        exact: true
+      });
+      await expect(signOut).toBeInViewport();
+      await phone.keyboard.press("Escape");
+      await expect(account).toBeFocused();
       await phone.keyboard.press("Escape");
       await expect(drawer).toBeHidden();
     } finally {
@@ -217,8 +221,8 @@ test("keeps gallery search and toolbar controls on one row on narrow phones", as
           })
       }));
 
-      expect(geometry.search.width).toBeGreaterThanOrEqual(140);
-      expect(geometry.targets).toHaveLength(3);
+      expect(geometry.search.width).toBeGreaterThanOrEqual(80);
+      expect(geometry.targets).toHaveLength(4);
       for (const target of geometry.targets) {
         expect(target.left).toBeGreaterThanOrEqual(geometry.search.right);
         expect(
@@ -235,8 +239,15 @@ test("keeps gallery search and toolbar controls on one row on narrow phones", as
       });
       const searchBounds = await search.boundingBox();
       const viewBounds = await viewMenu.boundingBox();
-      expect(viewBounds!.y + viewBounds!.height).toBeLessThanOrEqual(
-        searchBounds!.y
+      expect(
+        Math.abs(
+          viewBounds!.y +
+            viewBounds!.height / 2 -
+            (searchBounds!.y + searchBounds!.height / 2)
+        )
+      ).toBeLessThanOrEqual(1);
+      expect(viewBounds!.x).toBeGreaterThanOrEqual(
+        searchBounds!.x + searchBounds!.width
       );
       await phone.keyboard.press("/");
       await expect(search).toBeFocused();

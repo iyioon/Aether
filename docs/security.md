@@ -25,12 +25,17 @@ send secrets or absolute server paths to the browser.
 
 File management is opt-in by named root. A move needs source and destination
 capabilities; authenticated devices share them. Browsers supply IDs, opaque
-versions and validated names, never authority over absolute paths. Linux writes
-use pinned, nofollow descriptors and no-replacement publication; unsupported
+versions and validated names, never authority over absolute paths. Linux and
+macOS writes use pinned, nofollow descriptors and no-replacement publication; unsupported
 platforms/features remain read-only. Aether does not claim protection against an
 administrator or hostile process with the same filesystem ownership changing
 private storage. Unexpected changes retain recovery records instead of removing
 unknown files.
+
+Native child-entry operations run relative to pinned descriptors. Upload media
+inspectors inherit the validated input descriptor. macOS metadata copies are
+bounded and verified before source retirement; unsupported attributes or volume
+semantics fail without a weaker path-based fallback.
 
 Name previews require the same authentication and unsafe-method CSRF checks,
 validate source and destination versions, and return no absolute paths. A preview

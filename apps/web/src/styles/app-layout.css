@@ -22,22 +22,66 @@
   touch-action: none;
 }
 
-.sidebar-footer-action {
-  border: 1px solid transparent;
+.sidebar-account-trigger {
+  border: 1px solid var(--sidebar-border);
   transition:
     color var(--aether-motion-fast) ease,
     background-color var(--aether-motion-fast) ease,
     border-color var(--aether-motion-fast) ease;
 }
 
-.sidebar-footer-action[data-active="true"] {
+.sidebar-account-trigger:is([data-active="true"], [data-state="open"]) {
   border-color: var(--aether-active-border);
   background: var(--aether-active-background);
 }
 
-.sidebar-footer-action[data-active="true"]:hover {
+.sidebar-account-trigger:is([data-active="true"], [data-state="open"]):hover {
   border-color: var(--aether-active-border-hover);
   background: var(--aether-active-background-hover);
+}
+
+.sidebar-account-icon {
+  display: grid;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 1px solid var(--sidebar-border);
+  border-radius: var(--radius);
+  background: var(--background);
+}
+
+.sidebar-account-icon > svg {
+  width: 18px;
+  height: 18px;
+}
+
+.sidebar-activity-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding-inline: 5px;
+  border-radius: var(--radius);
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.sidebar-account-menu {
+  width: max(14rem, var(--radix-dropdown-menu-trigger-width));
+  max-width: calc(100vw - 24px);
+}
+
+.sidebar-account-menu [data-slot="dropdown-menu-item"] {
+  min-height: 36px;
+}
+
+.sidebar-account-menu [aria-current="page"] {
+  background: var(--accent);
+  color: var(--accent-foreground);
 }
 
 .library-inset {
@@ -78,6 +122,7 @@
 
 .library-path-navigation,
 .library-path-heading,
+.library-path-status,
 .library-path-view-actions,
 .library-result-status,
 .library-path-actions,
@@ -95,6 +140,10 @@
 .library-path-view-actions {
   flex: 0 0 auto;
   gap: 8px;
+}
+
+.library-path-status {
+  flex: 0 0 auto;
 }
 
 .library-path-navigation {
@@ -161,6 +210,10 @@
 .library-path-separator {
   height: 18px;
   margin-right: 4px;
+}
+
+.library-view-separator {
+  height: 24px;
 }
 
 .library-view-switcher {

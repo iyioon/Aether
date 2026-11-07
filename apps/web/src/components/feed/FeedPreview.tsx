@@ -11,7 +11,6 @@ import {
   type WheelEvent as ReactWheelEvent
 } from "react";
 import { GalleryHorizontalEnd } from "lucide-react";
-import { Button } from "../ui/button";
 import type { AssetRecord } from "../../api/client";
 import type { MediaPlaybackCommands } from "../media/MediaPreview";
 import { useAutoLoadSentinel } from "../../hooks/useAutoLoadSentinel";
@@ -70,7 +69,6 @@ interface FeedPreviewProps {
   onEditAsset?: (asset: AssetRecord) => void;
   hasQueryFilters?: boolean;
   resultsPending?: boolean;
-  onAddMedia?: () => void;
 }
 
 export function FeedPreview({
@@ -95,8 +93,7 @@ export function FeedPreview({
   onScoreAsset,
   onEditAsset,
   hasQueryFilters = false,
-  resultsPending = false,
-  onAddMedia
+  resultsPending = false
 }: FeedPreviewProps) {
   const feedRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<Array<HTMLElement | null>>([]);
@@ -725,13 +722,8 @@ export function FeedPreview({
             ? "Update results to show the current library."
             : hasQueryFilters
               ? "Adjust the search or filters to see more media."
-              : "Add media, or scan after copying files into this folder."}
+              : "Add media in Gallery, or scan after copying files into this folder."}
         </span>
-        {!resultsPending && !hasQueryFilters && onAddMedia ? (
-          <Button type="button" onClick={onAddMedia}>
-            Add media
-          </Button>
-        ) : null}
       </section>
     );
   }

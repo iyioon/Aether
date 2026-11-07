@@ -4,6 +4,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   rename,
   rm,
   stat,
@@ -18,7 +19,8 @@ import {
   FileOperationFilesystemError,
   FileOperationsFilesystem,
   type FileOperationIdentity,
-  type FileOperationLocation
+  type FileOperationLocation,
+  type FileOperationLimits
 } from "../src/library/file-operations-filesystem.js";
 import {
   FileOperationManager,
@@ -51,7 +53,7 @@ import { scanLibrary } from "../src/library/scanner.js";
 const repositoryRoot = path.resolve(import.meta.dirname, "../../..");
 const hasCrossDevice = statSync(repositoryRoot).dev !== statSync(tmpdir()).dev;
 
-describe.skipIf(process.platform !== "linux")(
+describe.skipIf(!["linux", "darwin"].includes(process.platform))(
   "durable file operations",
   { timeout: 15_000 },
   () => {
@@ -68,6 +70,35 @@ describe.skipIf(process.platform !== "linux")(
     let tripId: string;
     let targetFolderId: string;
     let crossFolderId: string;
+
+    // Exercise alias lookup on a case-sensitive host too. Publication still
+    // uses the actual native no-replacement rename against disposable files.
+    class AliasLookupFilesystem extends FileOperationsFilesystem {
+      private async resolveAlias(location: FileOperationLocation) {
+        if (await super.entryExists(location)) return location;
+        const parent = path.posix.dirname(location.relativePath);
+        const name = path.posix.basename(location.relativePath);
+        const names = await readdir(path.join(location.rootPath, parent));
+        const existing = names.find(
+          (entry) => entry.toLowerCase() === name.toLowerCase()
+        );
+        return existing
+          ? { ...location, relativePath: path.posix.join(parent, existing) }
+          : location;
+      }
+      override async entryExists(location: FileOperationLocation) {
+        return super.entryExists(await this.resolveAlias(location));
+      }
+      override async inspect(location: FileOperationLocation) {
+        return super.inspect(await this.resolveAlias(location));
+      }
+      override async inventory(
+        location: FileOperationLocation,
+        limits?: FileOperationLimits
+      ) {
+        return super.inventory(await this.resolveAlias(location), limits);
+      }
+    }
 
     beforeEach(async () => {
       directory = await mkdtemp(path.join(tmpdir(), "aether-managed-files-"));
@@ -227,6 +258,158 @@ describe.skipIf(process.platform !== "linux")(
       });
       await scanLibrary(db, config.mediaRoots);
       expect(getManagedAsset(db, photoId)?.relativePath).toBe("Summer.jpg");
+    });
+
+    it.each(["media", "folder"] as const)(
+      "changes a %s name's case when the destination resolves to the source",
+      async (kind) => {
+        await manager.close();
+        const filesystem = new AliasLookupFilesystem();
+        const renameEntry = vi.spyOn(filesystem, "rename");
+        manager = new FileOperationManager(config, db, filesystem);
+        await manager.initialize();
+        updateAssetScore(db, {
+          assetId: photoId,
+          score: 71,
+          favorite: true,
+          updatedAt: new Date().toISOString()
+        });
+        setAssetTags(db, photoId, ["Travel"]);
+        const operation =
+          kind === "media"
+            ? request("rename-media", {
+                items: [assetItem(photoId)],
+                name: "PHOTO"
+              })
+            : request("rename-folder", {
+                items: [folderItem(tripId)],
+                name: "TRIP"
+              });
+        const result = await run(operation);
+        expect(result.status).toBe("completed");
+        expect(renameEntry).toHaveBeenCalledTimes(1);
+        const names = await readdir(sourceRoot.realPath);
+        expect(names).toContain(kind === "media" ? "PHOTO.jpg" : "TRIP");
+        expect(names).not.toContain(kind === "media" ? "photo.jpg" : "trip");
+        expect((await scanLibrary(db, config.mediaRoots)).outcome).toBe(
+          "completed"
+        );
+        if (kind === "media") {
+          expect(getManagedAsset(db, photoId)?.relativePath).toBe("PHOTO.jpg");
+          expect(getAsset(db, photoId)).toMatchObject({
+            id: photoId,
+            score: 71,
+            favorite: true,
+            tags: [expect.objectContaining({ displayName: "Travel" })]
+          });
+        } else {
+          expect(getManagedFolder(db, tripId)?.relativePath).toBe("TRIP");
+          expect(getManagedAsset(db, nestedId)?.relativePath).toBe(
+            "TRIP/nested/nested.jpg"
+          );
+          expect(
+            await readFile(
+              path.join(sourceRoot.realPath, "TRIP/.sidecar"),
+              "utf8"
+            )
+          ).toBe("unindexed sidecar");
+        }
+      }
+    );
+
+    it.each(["media", "folder"] as const)(
+      "recovers a case-only %s rename after losing publication acknowledgement",
+      async (kind) => {
+        await manager.close();
+        class LostAliasRename extends AliasLookupFilesystem {
+          override async rename(
+            ...args: Parameters<FileOperationsFilesystem["rename"]>
+          ): Promise<FileOperationIdentity> {
+            await super.rename(...args);
+            throw new Error("lost acknowledgement");
+          }
+        }
+        manager = new FileOperationManager(config, db, new LostAliasRename());
+        await manager.initialize();
+        const operation =
+          kind === "media"
+            ? request("rename-media", {
+                items: [assetItem(photoId)],
+                name: "PHOTO"
+              })
+            : request("rename-folder", {
+                items: [folderItem(tripId)],
+                name: "TRIP"
+              });
+        expect((await run(operation)).status).toBe("needs_attention");
+        await manager.close();
+        const filesystem = new FileOperationsFilesystem();
+        const renameEntry = vi.spyOn(filesystem, "rename");
+        manager = new FileOperationManager(config, db, filesystem);
+        await manager.initialize();
+        expect(manager.get(operation.requestId)?.status).toBe("completed");
+        expect(renameEntry).not.toHaveBeenCalled();
+        expect(await readdir(sourceRoot.realPath)).toContain(
+          kind === "media" ? "PHOTO.jpg" : "TRIP"
+        );
+        expect(
+          kind === "media"
+            ? getManagedAsset(db, photoId)?.relativePath
+            : getManagedFolder(db, tripId)?.relativePath
+        ).toBe(kind === "media" ? "PHOTO.jpg" : "TRIP");
+      }
+    );
+
+    it("keeps a different file when a renamed destination resolves to its alias", async () => {
+      await writeFile(
+        path.join(sourceRoot.realPath, "Taken.jpg"),
+        "existing destination"
+      );
+      await manager.close();
+      manager = new FileOperationManager(
+        config,
+        db,
+        new AliasLookupFilesystem()
+      );
+      await manager.initialize();
+      const result = await run(
+        request("rename-media", { items: [assetItem(photoId)], name: "TAKEN" })
+      );
+      expect(result).toMatchObject({
+        status: "failed",
+        items: [{ errorCode: "destination_exists" }]
+      });
+      expect(
+        await readFile(path.join(sourceRoot.realPath, "Taken.jpg"), "utf8")
+      ).toBe("existing destination");
+      expect(
+        await readFile(path.join(sourceRoot.realPath, "photo.jpg"), "utf8")
+      ).toBe("original photo");
+      expect(getManagedAsset(db, photoId)?.name).toBe("photo.jpg");
+    });
+
+    it("cancels an unpublished case-only rename without mistaking its alias for a publication", async () => {
+      await manager.close();
+      class InterruptedAliasRename extends AliasLookupFilesystem {
+        override async rename(): Promise<FileOperationIdentity> {
+          throw new Error("interrupted before publication");
+        }
+      }
+      const filesystem = new InterruptedAliasRename();
+      const renameEntry = vi.spyOn(filesystem, "rename");
+      manager = new FileOperationManager(config, db, filesystem);
+      await manager.initialize();
+      const operation = request("rename-media", {
+        items: [assetItem(photoId)],
+        name: "PHOTO"
+      });
+      expect((await run(operation)).status).toBe("needs_attention");
+      expect(manager.cancel(operation.requestId)?.status).toBe("queued");
+      expect((await finished(operation.requestId)).status).toBe("cancelled");
+      expect(renameEntry).toHaveBeenCalledTimes(1);
+      expect(await readdir(sourceRoot.realPath)).toContain("photo.jpg");
+      expect(await readdir(sourceRoot.realPath)).not.toContain("PHOTO.jpg");
+      expect(getManagedAsset(db, photoId)?.relativePath).toBe("photo.jpg");
     });
 
     it("hydrates current receipt metadata and omits assets that have since entered Trash", async () => {

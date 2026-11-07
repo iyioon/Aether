@@ -1,3 +1,4 @@
+import { chooseAccountAction } from "./account-menu";
 import { expect, test, type Page } from "@playwright/test";
 import { rm } from "node:fs/promises";
 import path from "node:path";
@@ -93,12 +94,7 @@ async function closeActivity(page: Page) {
   await expect(activity).toBeHidden();
 }
 async function openActivity(page: Page) {
-  const button = page.getByRole("button", { name: /^Activity(?:\s|$)/ });
-  if (!(await button.isVisible()))
-    await page
-      .getByRole("button", { name: "Toggle Sidebar", exact: true })
-      .click();
-  await button.click();
+  await chooseAccountAction(page, "Activity");
   const activity = page.getByRole("dialog", { name: "Activity", exact: true });
   await expect(activity).toBeVisible();
   return activity;
@@ -529,7 +525,7 @@ test("creates folders and adds, renames, moves, restores and permanently deletes
       page.getByRole("button", { name: `Open ${renamedName}`, exact: true })
     ).toHaveCount(0);
     await closeActivity(page);
-    await page.getByRole("button", { name: "Trash", exact: true }).click();
+    await chooseAccountAction(page, "Trash");
     await expect(
       page.getByRole("heading", { name: renamedName, exact: true })
     ).toBeVisible();
@@ -880,7 +876,7 @@ test("abandons a pending upload name check when leaving Add media", async ({
     await expect(
       addMedia.getByRole("button", { name: "Back to library", exact: true })
     ).toBeDisabled();
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await chooseAccountAction(page, "Settings");
     const settings = page.getByRole("region", {
       name: "Settings",
       exact: true
@@ -1377,11 +1373,18 @@ for (const layout of ["desktop", "phone", "landscape"] as const) {
       await actions.getByRole("button", { name: "Done", exact: true }).click();
       const card = page.locator(`[data-asset-id="${original.id}"]`);
       if (!phone) await card.hover();
-      const more = card.getByRole("button", {
-        name: "More options for family-photo.png",
+      await expect(
+        card.getByRole("button", {
+          name: "More options for family-photo.png",
+          exact: true
+        })
+      ).toHaveCount(0);
+      const open = card.getByRole("button", {
+        name: "Open family-photo.png",
         exact: true
       });
-      await more.click();
+      await open.focus();
+      await open.press("Shift+F10");
       await expect(
         page.getByRole("menuitem", { name: "Info", exact: true })
       ).toBeVisible();
@@ -1389,8 +1392,8 @@ for (const layout of ["desktop", "phone", "landscape"] as const) {
         page.getByRole("menuitem", { name: "Rename…", exact: true })
       ).toHaveCount(0);
       await page.keyboard.press("Escape");
-      await expect(more).toBeFocused();
-      await more.press("Enter");
+      await expect(open).toBeFocused();
+      await open.press("Shift+F10");
       await page.getByRole("menuitem", { name: "Info", exact: true }).click();
       const info = page.getByRole("dialog", {
         name: "family-photo.png",
@@ -1430,8 +1433,8 @@ for (const layout of ["desktop", "phone", "landscape"] as const) {
       }
       await info.getByRole("button", { name: "Close", exact: true }).click();
       await expect(info).toBeHidden();
-      await expect(more).toBeFocused();
-      await more.press("Enter");
+      await expect(open).toBeFocused();
+      await open.press("Shift+F10");
       await page
         .getByRole("menuitem", { name: "Edit media", exact: true })
         .click();
@@ -1443,7 +1446,7 @@ for (const layout of ["desktop", "phone", "landscape"] as const) {
         .getByRole("button", { name: "Cancel", exact: true })
         .click();
       await expect(presentation).toBeHidden();
-      await expect(more).toBeFocused();
+      await expect(open).toBeFocused();
     } finally {
       if (original)
         await page.request.put(`/api/assets/${original.id}/tags`, {

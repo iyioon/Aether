@@ -119,6 +119,8 @@ export async function createConfigBackup({
     await requireRegularFile(sourceDatabasePath, "Aether database");
     const fence = new Database(sourceDatabasePath, { fileMustExist: true });
     fence.pragma("busy_timeout = 5000");
+    fence.pragma("synchronous = FULL");
+    fence.pragma("fullfsync = ON");
     const db = new Database(sourceDatabasePath, {
       fileMustExist: true,
       readonly: true

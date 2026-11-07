@@ -5,7 +5,15 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent
 } from "react";
-import { Activity, BookOpen, LogOut, Settings, Trash2 } from "lucide-react";
+import {
+  Activity,
+  BookOpen,
+  ChevronsUpDown,
+  LogOut,
+  Settings,
+  Trash2,
+  UserRound
+} from "lucide-react";
 import type { LibraryWatchStatus, ScanProgress } from "../../api/client";
 import { BrandMark } from "../BrandMark";
 import { FolderTreePanel } from "../FolderTreePanel";
@@ -14,6 +22,14 @@ import type {
   FolderSortMode,
   FolderTreeItem
 } from "../folders/folder-tree-types";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from "../ui/dropdown-menu";
 import {
   Sidebar,
   SidebarContent,
@@ -110,7 +126,9 @@ export function LibrarySidebar({
   onSelectFolder,
   onToggleFolderExpansion
 }: LibrarySidebarProps) {
-  const { setOpenMobile } = useSidebar();
+  const { isMobile, setOpenMobile } = useSidebar();
+  const accountTriggerRef = useRef<HTMLButtonElement>(null);
+  const pendingAccountActionRef = useRef<(() => void) | null>(null);
 
   const selectFolder = useCallback(
     (folderId: string) => {
@@ -119,16 +137,6 @@ export function LibrarySidebar({
     },
     [onSelectFolder, setOpenMobile]
   );
-
-  function openSettings() {
-    onOpenSettings();
-    setOpenMobile(false);
-  }
-
-  function openGuide() {
-    onOpenGuide();
-    setOpenMobile(false);
-  }
 
   return (
     <Sidebar collapsible="offcanvas" id="library-sidebar">
@@ -176,79 +184,130 @@ export function LibrarySidebar({
       <SidebarFooter className="p-3">
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton
-              className="sidebar-footer-action"
-              isActive={isTrashOpen}
-              onClick={() => {
-                onOpenTrash();
-                setOpenMobile(false);
+            <DropdownMenu
+              onOpenChange={(open) => {
+                if (open) pendingAccountActionRef.current = null;
               }}
             >
-              <Trash2 />
-              <span>Trash</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              className="sidebar-footer-action"
-              isActive={isActivityOpen}
-              aria-label="Activity"
-              aria-description={
-                activityCount
-                  ? `${activityCount} operations in progress or needing attention`
-                  : undefined
-              }
-              aria-expanded={isActivityOpen}
-              aria-haspopup="dialog"
-              onClick={() => {
-                onOpenActivity();
-                setOpenMobile(false);
-              }}
-            >
-              <Activity />
-              <span>Activity</span>
-              {activityCount ? (
-                <span
-                  className="ml-auto text-xs tabular-nums"
-                  aria-hidden="true"
+              <DropdownMenuTrigger asChild>
+                <SidebarMenuButton
+                  ref={accountTriggerRef}
+                  className="sidebar-account-trigger"
+                  size="lg"
+                  isActive={
+                    isTrashOpen ||
+                    isActivityOpen ||
+                    isGuideOpen ||
+                    isSettingsOpen
+                  }
+                  aria-label="Account"
+                  aria-description={
+                    activityCount
+                      ? `${activityCount} operations in progress or needing attention`
+                      : undefined
+                  }
                 >
-                  {activityCount}
-                </span>
-              ) : null}
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              className="sidebar-footer-action"
-              isActive={isGuideOpen}
-              onClick={openGuide}
-              onFocus={onPreloadGuide}
-              onPointerEnter={onPreloadGuide}
-            >
-              <BookOpen />
-              <span>User guide</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              className="sidebar-footer-action"
-              isActive={isSettingsOpen}
-              onClick={openSettings}
-              onFocus={onPreloadSettings}
-              onPointerEnter={onPreloadSettings}
-            >
-              <Settings />
-              <span>Settings</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              className="sidebar-footer-action"
-              onClick={onLogout}
-            >
-              <LogOut />
-              <span>Sign out</span>
-            </SidebarMenuButton>
+                  <span className="sidebar-account-icon" aria-hidden="true">
+                    <UserRound />
+                  </span>
+                  <span className="min-w-0 flex-1 truncate font-medium">
+                    Account
+                  </span>
+                  {activityCount ? (
+                    <span className="sidebar-activity-count" aria-hidden="true">
+                      {activityCount}
+                    </span>
+                  ) : null}
+                  <ChevronsUpDown aria-hidden="true" />
+                </SidebarMenuButton>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                className="sidebar-account-menu"
+                side={isMobile ? "top" : "right"}
+                align="end"
+                sideOffset={8}
+                collisionPadding={12}
+                aria-label="Account"
+                onCloseAutoFocus={(event) => {
+                  const action = pendingAccountActionRef.current;
+                  pendingAccountActionRef.current = null;
+                  if (!action) return;
+                  event.preventDefault();
+                  accountTriggerRef.current?.focus({ preventScroll: true });
+                  setOpenMobile(false);
+                  action();
+                }}
+              >
+                <DropdownMenuGroup aria-label="Library">
+                  <DropdownMenuItem
+                    aria-current={isTrashOpen ? "page" : undefined}
+                    onSelect={() => {
+                      pendingAccountActionRef.current = onOpenTrash;
+                    }}
+                  >
+                    <Trash2 aria-hidden="true" />
+                    Trash
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    aria-label="Activity"
+                    aria-description={
+                      activityCount
+                        ? `${activityCount} operations in progress or needing attention`
+                        : undefined
+                    }
+                    aria-haspopup="dialog"
+                    onSelect={() => {
+                      pendingAccountActionRef.current = onOpenActivity;
+                    }}
+                  >
+                    <Activity aria-hidden="true" />
+                    Activity
+                    {activityCount ? (
+                      <span
+                        className="sidebar-activity-count ml-auto"
+                        aria-hidden="true"
+                      >
+                        {activityCount}
+                      </span>
+                    ) : null}
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
+                <DropdownMenuSeparator />
+                <DropdownMenuGroup aria-label="Help and settings">
+                  <DropdownMenuItem
+                    aria-current={isGuideOpen ? "page" : undefined}
+                    onSelect={() => {
+                      pendingAccountActionRef.current = onOpenGuide;
+                    }}
+                    onFocus={onPreloadGuide}
+                    onPointerEnter={onPreloadGuide}
+                  >
+                    <BookOpen aria-hidden="true" />
+                    User guide
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    aria-current={isSettingsOpen ? "page" : undefined}
+                    onSelect={() => {
+                      pendingAccountActionRef.current = onOpenSettings;
+                    }}
+                    onFocus={onPreloadSettings}
+                    onPointerEnter={onPreloadSettings}
+                  >
+                    <Settings aria-hidden="true" />
+                    Settings
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onSelect={() => {
+                    pendingAccountActionRef.current = onLogout;
+                  }}
+                >
+                  <LogOut aria-hidden="true" />
+                  Sign out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>

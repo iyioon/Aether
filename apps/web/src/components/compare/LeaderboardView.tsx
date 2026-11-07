@@ -313,7 +313,7 @@ function LeaderboardEmptyState({
         {hasFolder
           ? hasQueryFilters
             ? "Adjust the search or filters to see more media. Ranking needs at least two items."
-            : "Add media, or scan after copying files into this folder. Ranking needs at least two items."
+            : "Add media in Gallery, or scan after copying files into this folder. Ranking needs at least two items."
           : "Select a folder to see its leaderboard and begin ranking."}
       </p>
     </Card>

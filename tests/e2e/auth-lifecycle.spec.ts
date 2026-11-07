@@ -1,3 +1,4 @@
+import { chooseAccountAction } from "./account-menu";
 import { expect, test, type Request } from "@playwright/test";
 
 const localCheckpointKeys = [
@@ -72,7 +73,7 @@ test("ignores a delayed successful foreground auth check after explicit logout a
     },
     { localKeys: localCheckpointKeys, sessionKeys: sessionCheckpointKeys }
   );
-  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await chooseAccountAction(page, "Sign out");
   await expect(page.getByLabel("Password", { exact: true })).toBeVisible();
   hasSignedOut = true;
 

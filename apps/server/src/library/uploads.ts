@@ -1,15 +1,7 @@
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
-import { constants } from "node:fs";
+import { constants, type BigIntStats } from "node:fs";
 import { Readable } from "node:stream";
-import {
-  lstat,
-  mkdir,
-  open,
-  readdir,
-  statfs,
-  unlink,
-  type FileHandle
-} from "node:fs/promises";
+import { lstat, mkdir, open, statfs, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
 import { FileStore } from "@tus/file-store";
@@ -43,6 +35,17 @@ import {
   type ManagedUpload
 } from "./repository-uploads.js";
 import { probeVideoMetadata } from "./video-derivatives.js";
+import {
+  descriptorPath,
+  descriptorFilesystemAvailable,
+  assertPrivateDirectory,
+  directoryNames,
+  lstatRelative,
+  openRelative,
+  removeRelative,
+  rewindDescriptor,
+  type DescriptorHandle
+} from "../security/descriptor-filesystem.js";
 
 const CHUNK_BYTES = 16 * 1024 ** 2;
 const INACTIVITY_MS = 24 * 3600_000;
@@ -122,10 +125,9 @@ class BoundedFileStore extends FileStore {
       "checksum"
     ];
   }
-  entry(id: string): string {
+  private validateId(id: string): void {
     if (!UploadParams.safeParse({ uploadId: id }).success)
       throw transportError(404, "upload_not_found");
-    return `/proc/self/fd/${this.parent.fd}/${id}`;
   }
   private async assertParent(): Promise<void> {
     const expected = await this.parent.stat({ bigint: true });
@@ -138,13 +140,15 @@ class BoundedFileStore extends FileStore {
     )
       throw transportError(409, "upload_staging_changed");
   }
-  async openUpload(id: string): Promise<FileHandle> {
+  async openUpload(id: string): Promise<DescriptorHandle> {
+    this.validateId(id);
     const upload = getManagedUpload(this.db, id);
     if (!upload || !upload.stagingIdentity || upload.cleanedUp)
       throw transportError(404, "upload_not_found");
     await this.assertParent();
-    const handle = await open(
-      this.entry(id),
+    const handle = await openRelative(
+      this.parent,
+      id,
       constants.O_RDWR | constants.O_NOFOLLOW | constants.O_NONBLOCK
     );
     try {
@@ -181,7 +185,7 @@ class BoundedFileStore extends FileStore {
   }
   override async create(upload: Upload): Promise<Upload> {
     let claimed = false;
-    let handle: FileHandle | undefined;
+    let handle: DescriptorHandle | undefined;
     try {
       this.claim(upload.id);
       claimed = true;
@@ -191,8 +195,10 @@ class BoundedFileStore extends FileStore {
         throw transportError(409, "upload_cancelled");
       if (admitted.stagingIdentity)
         throw transportError(409, "upload_creation_conflict");
-      handle = await open(
-        this.entry(upload.id),
+      this.validateId(upload.id);
+      handle = await openRelative(
+        this.parent,
+        upload.id,
         constants.O_CREAT |
           constants.O_EXCL |
           constants.O_WRONLY |
@@ -261,7 +267,7 @@ class BoundedFileStore extends FileStore {
     offset: number
   ): Promise<number> {
     this.claim(id);
-    let handle: FileHandle | undefined;
+    let handle: DescriptorHandle | undefined;
     try {
       await this.beforeWrite(id);
       handle = await this.openUpload(id);
@@ -349,7 +355,7 @@ export async function registerUploadRoutes(
   db: AetherDatabase,
   operations: FileOperationManager
 ): Promise<void> {
-  if (process.platform !== "linux") {
+  if (!descriptorFilesystemAvailable()) {
     app.get("/api/uploads/status", async () => ({
       items: [],
       limits: {
@@ -368,7 +374,13 @@ export async function registerUploadRoutes(
     return;
   }
   const directory = path.join(config.dataDir, "uploads");
-  await mkdir(directory, { recursive: true, mode: 0o700 });
+  let created = false;
+  try {
+    await mkdir(directory, { mode: 0o700 });
+    created = true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  }
   const info = await lstat(directory, { bigint: true });
   const uid = process.getuid?.();
   if (
@@ -383,10 +395,15 @@ export async function registerUploadRoutes(
     directory,
     constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW
   );
-  const openedParent = await parent.stat({ bigint: true });
-  if (openedParent.dev !== info.dev || openedParent.ino !== info.ino) {
+  let openedParent: BigIntStats;
+  try {
+    openedParent = await parent.stat({ bigint: true });
+    if (openedParent.dev !== info.dev || openedParent.ino !== info.ino)
+      throw new Error("Upload staging changed during startup.");
+    await assertPrivateDirectory(parent, created);
+  } catch (error) {
     await parent.close();
-    throw new Error("Upload staging changed during startup.");
+    throw error;
   }
   const maxUploadBytes =
     config.fileManagement?.maxUploadBytes ?? 20 * 1024 ** 3;
@@ -443,11 +460,11 @@ export async function registerUploadRoutes(
       ["receiving", "validating", "publishing"].includes(upload.status)
     )
       return;
-    let handle: FileHandle | undefined;
+    let handle: DescriptorHandle | undefined;
     try {
       if (!upload.stagingIdentity) {
         try {
-          await lstat(store.entry(id));
+          await lstatRelative(parent, id);
           throw transportError(409, "upload_changed");
         } catch (error) {
           if (!missing(error)) throw error;
@@ -459,7 +476,7 @@ export async function registerUploadRoutes(
           if (!missing(error)) throw error;
         }
         if (handle) {
-          const current = await lstat(store.entry(id), { bigint: true });
+          const current = await lstatRelative(parent, id);
           if (
             current.dev.toString() !== upload.stagingIdentity.dev ||
             current.ino.toString() !== upload.stagingIdentity.ino ||
@@ -467,7 +484,7 @@ export async function registerUploadRoutes(
             current.nlink !== 1n
           )
             throw transportError(409, "upload_changed");
-          await unlink(store.entry(id));
+          await removeRelative(parent, id, false, upload.stagingIdentity);
           await parent.sync();
         }
       }
@@ -782,7 +799,7 @@ export async function registerUploadRoutes(
       .catch(() => undefined);
     return job;
   };
-  for (const name of await readdir(`/proc/self/fd/${parent.fd}`)) {
+  for (const name of await directoryNames(parent)) {
     const upload = getManagedUpload(db, name);
     if (!upload?.stagingIdentity || upload.cleanedUp) stagingUnsafe = true;
   }
@@ -865,7 +882,7 @@ export async function registerUploadRoutes(
     const upload = getManagedUpload(db, params.data.uploadId);
     if (!upload || upload.status !== "receiving")
       return reply.code(404).send({ error: "upload_not_found" });
-    let handle: FileHandle | undefined;
+    let handle: DescriptorHandle | undefined;
     let claimed = false;
     try {
       store.claim(upload.id);
@@ -1002,11 +1019,11 @@ export async function registerUploadRoutes(
   });
 }
 async function validateUploadedMedia(
-  handle: FileHandle,
+  handle: DescriptorHandle,
   name: string,
   expectedSize: number
 ): Promise<void> {
-  const filename = `/proc/${process.pid}/fd/${handle.fd}`;
+  const filename = descriptorPath(handle);
   const stat = await handle.stat();
   if (!stat.isFile() || stat.nlink !== 1 || stat.size !== expectedSize)
     throw new FileManagementError("upload_changed");
@@ -1015,8 +1032,9 @@ async function validateUploadedMedia(
   const type = detectMediaType(path.extname(name).toLowerCase());
   if (!type) throw new FileManagementError("unsupported_media");
   if (type.mediaType === "image") {
-    if (/\.hei[cf]$/i.test(name)) await inspectHeifImage(filename);
+    if (/\.hei[cf]$/i.test(name)) await inspectHeifImage(filename, handle.fd);
     else {
+      await rewindDescriptor(handle);
       const metadata = await sharp(filename, {
         limitInputPixels: 268_402_689
       }).metadata();
@@ -1052,23 +1070,26 @@ async function validateUploadedMedia(
       magic === "000001b3"
     ))
       throw new FileManagementError("unsupported_media");
-    const metadata = await probeVideoMetadata({
-      sourcePath: filename,
-      sizeBytes: expectedSize,
-      mtimeMs: stat.mtimeMs,
-      asset: {
-        id: "upload",
-        name,
-        mediaType: "video",
-        mimeType: type.mimeType,
-        indexedMtimeMs: stat.mtimeMs,
-        indexedSizeBytes: expectedSize,
-        width: null,
-        height: null,
-        durationMs: null,
-        codec: null
-      }
-    });
+    const metadata = await probeVideoMetadata(
+      {
+        sourcePath: filename,
+        sizeBytes: expectedSize,
+        mtimeMs: stat.mtimeMs,
+        asset: {
+          id: "upload",
+          name,
+          mediaType: "video",
+          mimeType: type.mimeType,
+          indexedMtimeMs: stat.mtimeMs,
+          indexedSizeBytes: expectedSize,
+          width: null,
+          height: null,
+          durationMs: null,
+          codec: null
+        }
+      },
+      handle.fd
+    );
     if (!metadata.width || !metadata.height || !metadata.codec)
       throw new FileManagementError("unsupported_media");
   }

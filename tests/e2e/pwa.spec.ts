@@ -1,3 +1,4 @@
+import { chooseAccountAction } from "./account-menu";
 import { expect, test } from "@playwright/test";
 
 test("keeps standalone status-bar shading within the top safe area on app and offline pages", async ({
@@ -93,7 +94,7 @@ test("reopens the production shell offline without caching private API data", as
       .getByLabel("Password", { exact: true })
       .fill("aether-e2e-password");
     await page.getByRole("button", { name: "Enter", exact: true }).click();
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await chooseAccountAction(page, "Settings");
     await page.getByRole("tab", { name: "Server", exact: true }).click();
     await page.evaluate(async () => {
       await navigator.serviceWorker.ready;

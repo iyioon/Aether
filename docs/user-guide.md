@@ -1,6 +1,7 @@
 # User Guide
 
-Open **User guide** in the sidebar. Its topics match the sections below.
+Open **Account → User guide** at the bottom of the sidebar. Its topics match the
+sections below.
 
 ## Browse
 
@@ -15,12 +16,17 @@ items carrying all of them.
 
 ### Choose a view
 
+Use the view buttons beside search, or open **Change view** in a narrow window.
+
 - **Gallery** shows a grid. Open a card to use the viewer. Right-click or
   long-press its preview for actions. Scrolling cancels a touch hold; score
   holds keep their usual behavior.
 - **Feed** shows one item at a time in Portrait. Swipe up or down on phones,
   or scroll on desktop. Tap the media to hide or show controls.
 - **Compare** shows the leaderboard. Choose **Rank media** to compare pairs.
+
+The sidebar’s **Account** menu contains Trash, Activity, User guide, Settings and
+Sign out. A count on Account shows operations in progress or needing attention.
 
 Open **View options** for Filters, Sort and Layout. Compare has Filters and
 Layout. **Clear filters** keeps search, sort and layout. Gallery and Ranking
@@ -69,7 +75,7 @@ close. Phone controls use safe areas; iOS may still reserve status-bar space.
 
 ### Open and save
 
-1. Open a card’s **More options** menu or the viewer’s **More** menu.
+1. Right-click or long-press a Gallery preview, or open the viewer’s **More** menu.
 2. Choose **Edit media**.
 3. Adjust Playback or Framing, then choose **Save**.
 
@@ -170,8 +176,8 @@ renamed or moved. A folder rename includes its contents.
 
 ### Rename or move media
 
-1. Open a card’s **More options** menu or the viewer’s **More** menu. Select Gallery cards for
-   several items.
+1. Right-click or long-press a Gallery preview, or open the viewer’s **More** menu.
+   Select Gallery cards for several items.
 2. Choose **Rename** or **Move to**.
 3. For a rename, enter a name and choose **Rename**. The media extension stays
    fixed. For a move, open the destination folder and choose **Move here**.
@@ -192,7 +198,8 @@ results and recovery; retry only unsuccessful items.
 
 ### Add media
 
-1. Open **Add media** and select **Choose files**, or drop files into Gallery on desktop.
+1. In Gallery, open **Add media** and select **Choose files**, or drop files into
+   the grid on desktop.
 2. Review the files, limits and writable destination.
 3. Choose **Add files**. The library reopens with progress in **Activity**.
 
@@ -203,7 +210,8 @@ not supported.
 ### Use Trash
 
 1. Select media and choose **Move to Trash**.
-2. Confirm. After completion, choose **Undo**, or open Trash and select **Restore**.
+2. Confirm. After completion, choose **Undo**, or open **Account → Trash** and
+   select **Restore**.
 
 Trash retains files for 30 days by default and still uses disk space. The Trash
 page shows the server's retention period. Restore uses the
@@ -216,8 +224,9 @@ unavailable; it is not an empty Trash.
 
 ### Check Activity
 
-Open **Activity** in the sidebar for upload progress, completed work and items
-needing attention. Each operation identifies its media or folder. Closing Activity does not cancel accepted work.
+Open **Account → Activity** in the sidebar for upload progress, completed work and
+items needing attention. Each operation identifies its media or folder. Closing
+Activity does not cancel accepted work.
 
 Uploads can pause offline or when the app leaves the foreground. Return to
 resume. After a reload, choose **Resume** and select the same file beside its transfer; Aether checks the

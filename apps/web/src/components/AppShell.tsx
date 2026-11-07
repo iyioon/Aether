@@ -1366,7 +1366,6 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
                         mediaType !== "all"
                       )}
                       resultsPending={isResultsPending}
-                      onAddMedia={openAddMedia}
                       metadataFields={galleryMetadataFields}
                       onEditAsset={setEditingAsset}
                       assets={assets}

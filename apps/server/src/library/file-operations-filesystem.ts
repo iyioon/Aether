@@ -1,20 +1,21 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import {
-  mkdir,
-  lstat,
-  open,
-  opendir,
-  realpath,
-  rmdir,
-  unlink,
-  type FileHandle
-} from "node:fs/promises";
+import { open, realpath } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { UnsafePathError } from "../security/path-safety.js";
+import {
+  assertPrivateDirectory,
+  descriptorFilesystemAvailable,
+  directoryNames as readDirectoryNames,
+  lstatRelative,
+  mkdirRelative,
+  openRelative,
+  removeRelative,
+  type DescriptorHandle
+} from "../security/descriptor-filesystem.js";
 
 export interface FileOperationLocation {
   rootPath: string;
@@ -29,6 +30,16 @@ const Identity = z.object({
   mtimeNs: z.string().regex(/^-?\d+$/),
   ctimeNs: z.string().regex(/^-?\d+$/),
   mode: z.number().int().min(0).max(0o7777),
+  metadataSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
+  metadataBytes: z
+    .number()
+    .int()
+    .min(0)
+    .max(64 * 1024 ** 2)
+    .optional(),
   kind: z.enum(["file", "directory"])
 });
 
@@ -75,13 +86,13 @@ export class FileOperationFilesystemError extends Error {
 }
 
 interface PinnedParent {
-  handles: FileHandle[];
-  parent: FileHandle;
+  handles: DescriptorHandle[];
+  parent: DescriptorHandle;
   leaf: string;
   rootDevice: bigint;
 }
 
-/** Linux mutations use pinned directory descriptors and renameat2, never
+/** Managed mutations use pinned directory descriptors and atomic no-replace publication, never
  * exists-then-rename. Journal intent before calling mutating methods. */
 export class FileOperationsFilesystem {
   private readonly rootIdentities = new Map<
@@ -127,11 +138,33 @@ export class FileOperationsFilesystem {
       if (!pinned.leaf) return true;
       let exists = true;
       try {
-        await lstat(entryPath(pinned.parent, pinned.leaf));
+        await lstatRelative(pinned.parent, pinned.leaf);
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
         exists = false;
       }
+      await this.verifyParent(location, pinned);
+      return exists;
+    });
+  }
+
+  /** Case-preserving filesystems may resolve two spellings to the same object.
+   * Recovery needs the actual entry's case, not an alias lookup. Darwin may
+   * return a canonically equivalent Unicode spelling for the same filename. */
+  async hasExactEntryName(location: FileOperationLocation): Promise<boolean> {
+    return this.withParent(location, async (pinned) => {
+      const exists =
+        !pinned.leaf ||
+        (
+          await directoryNames(
+            pinned.parent,
+            DEFAULT_FILE_OPERATION_LIMITS.maxEntries
+          )
+        ).some((name) =>
+          process.platform === "darwin"
+            ? name.normalize("NFC") === pinned.leaf.normalize("NFC")
+            : name === pinned.leaf
+        );
       await this.verifyParent(location, pinned);
       return exists;
     });
@@ -143,7 +176,23 @@ export class FileOperationsFilesystem {
     return this.withParent(location, async (pinned) => {
       if (!pinned.leaf) throw new UnsafePathError();
       await this.check(pinned.parent);
-      await mkdir(entryPath(pinned.parent, pinned.leaf), { mode: 0o700 });
+      await mkdirRelative(pinned.parent, pinned.leaf);
+      const parts = segments(location.relativePath);
+      if (
+        parts.length <= 2 &&
+        [".aether-staging", ".aether-trash"].includes(parts[0]!)
+      ) {
+        const created = await openRelative(
+          pinned.parent,
+          pinned.leaf,
+          constants.O_RDONLY | constants.O_DIRECTORY
+        );
+        try {
+          await assertPrivateDirectory(created, true);
+        } finally {
+          await created.close();
+        }
+      }
       await pinned.parent.sync();
       await this.verifyParent(location, pinned);
       return this.inspect(location);
@@ -303,20 +352,25 @@ export class FileOperationsFilesystem {
         const current = await this.inspect(location);
         if (!purgeIdentityMatches(current, entry.identity))
           throw new FileOperationFilesystemError("source_changed");
-        if (entry.identity.kind === "directory")
-          await rmdir(entryPath(pinned.parent, pinned.leaf));
-        else await unlink(entryPath(pinned.parent, pinned.leaf));
+        await removeRelative(
+          pinned.parent,
+          pinned.leaf,
+          entry.identity.kind === "directory",
+          entry.identity
+        );
         await pinned.parent.sync();
       });
     }
   }
 
-  private async check(handle: FileHandle): Promise<FileOperationIdentity> {
+  private async check(
+    handle: DescriptorHandle
+  ): Promise<FileOperationIdentity> {
     return this.native(["check"], [handle]);
   }
 
   private async walk(
-    handle: FileHandle,
+    handle: DescriptorHandle,
     device: bigint,
     relativePath: string,
     manifest: FileOperationManifest,
@@ -330,8 +384,10 @@ export class FileOperationsFilesystem {
     const identity = await this.check(handle);
     if (BigInt(identity.dev) !== device)
       throw new FileOperationFilesystemError("unsafe_entry");
-    if (identity.kind === "file") {
-      const bytes = Number(identity.size);
+    {
+      const bytes =
+        (identity.kind === "file" ? Number(identity.size) : 0) +
+        (identity.metadataBytes ?? 0);
       if (
         !Number.isSafeInteger(bytes) ||
         manifest.totalBytes + bytes > limits.maxBytes
@@ -374,9 +430,9 @@ export class FileOperationsFilesystem {
   }
 
   private async copyEntry(
-    source: FileHandle,
+    source: DescriptorHandle,
     sourceDevice: bigint,
-    parent: FileHandle,
+    parent: DescriptorHandle,
     name: string,
     relativePath: string,
     manifest: FileOperationManifest,
@@ -393,10 +449,10 @@ export class FileOperationsFilesystem {
       BigInt(current.dev) !== sourceDevice
     )
       throw new FileOperationFilesystemError("source_changed");
-    const targetPath = entryPath(parent, name);
-    if (current.kind === "directory") await mkdir(targetPath, { mode: 0o700 });
-    const destination = await open(
-      targetPath,
+    if (current.kind === "directory") await mkdirRelative(parent, name);
+    const destination = await openRelative(
+      parent,
+      name,
       current.kind === "directory"
         ? constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW
         : constants.O_RDWR |
@@ -472,6 +528,7 @@ export class FileOperationsFilesystem {
       if (!identitiesEqual(current, await this.check(source)))
         throw new FileOperationFilesystemError("source_changed");
       await this.native(["metadata"], [source, destination]);
+      onBytesCopied?.(current.metadataBytes ?? 0);
     } finally {
       await destination.close();
     }
@@ -479,21 +536,25 @@ export class FileOperationsFilesystem {
 
   private async withEntry<T>(
     location: FileOperationLocation,
-    use: (handle: FileHandle, device: bigint) => Promise<T>
+    use: (handle: DescriptorHandle, device: bigint) => Promise<T>
   ): Promise<T> {
     return this.withParent(location, async (pinned) => {
       const handle = pinned.leaf
         ? await openChild(pinned.parent, pinned.leaf)
-        : await open(
-            descriptorPath(pinned.parent),
-            constants.O_RDONLY | constants.O_DIRECTORY
-          );
+        : pinned.parent;
       try {
         if ((await handle.stat({ bigint: true })).dev !== pinned.rootDevice)
           throw new FileOperationFilesystemError("unsafe_entry");
+        const parts = segments(location.relativePath);
+        if (
+          parts.length &&
+          parts.length <= 2 &&
+          [".aether-staging", ".aether-trash"].includes(parts[0]!)
+        )
+          await assertPrivateDirectory(handle);
         return await use(handle, pinned.rootDevice);
       } finally {
-        await handle.close();
+        if (handle !== pinned.parent) await handle.close();
       }
     });
   }
@@ -502,7 +563,7 @@ export class FileOperationsFilesystem {
     location: FileOperationLocation,
     use: (pinned: PinnedParent) => Promise<T>
   ): Promise<T> {
-    if (process.platform !== "linux")
+    if (!descriptorFilesystemAvailable())
       throw new FileOperationFilesystemError("unsupported_filesystem");
     const parts = segments(location.relativePath);
     if (
@@ -510,7 +571,7 @@ export class FileOperationsFilesystem {
       (await realpath(location.rootPath)) !== path.resolve(location.rootPath)
     )
       throw new UnsafePathError();
-    const handles: FileHandle[] = [];
+    const handles: DescriptorHandle[] = [];
     try {
       const root = await open(
         location.rootPath,
@@ -532,10 +593,11 @@ export class FileOperationsFilesystem {
       )
         throw new FileOperationFilesystemError("source_changed");
       this.rootIdentities.set(location.rootPath, rootIdentity);
-      let parent = root;
+      let parent: DescriptorHandle = root;
       for (const [index, part] of parts.slice(0, -1).entries()) {
-        const next = await open(
-          entryPath(parent, part),
+        const next = await openRelative(
+          parent,
+          part,
           constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW
         );
         handles.push(next);
@@ -549,6 +611,11 @@ export class FileOperationsFilesystem {
             (nextInfo.mode & 0o777n) !== 0o700n)
         )
           throw new FileOperationFilesystemError("unsafe_entry");
+        if (
+          [".aether-staging", ".aether-trash"].includes(parts[0]!) &&
+          index < 2
+        )
+          await assertPrivateDirectory(next);
         parent = next;
       }
       return await use({
@@ -576,7 +643,7 @@ export class FileOperationsFilesystem {
 
   private async native(
     args: string[],
-    handles: FileHandle[]
+    handles: DescriptorHandle[]
   ): Promise<FileOperationIdentity> {
     return new Promise((resolve, reject) => {
       const child = spawn(this.nativeHelperPath, args, {
@@ -667,23 +734,12 @@ function validateLimits(limits: FileOperationLimits): void {
     throw new FileOperationFilesystemError("operation_limit");
 }
 
-function descriptorPath(handle: FileHandle): string {
-  return `/proc/self/fd/${handle.fd}`;
-}
-
-function entryPath(parent: FileHandle, name: string): string {
-  segments(name);
-  return `${descriptorPath(parent)}/${name}`;
-}
-
 async function openChild(
-  parent: FileHandle,
+  parent: DescriptorHandle,
   name: string
-): Promise<FileHandle> {
-  return open(
-    entryPath(parent, name),
-    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
-  );
+): Promise<DescriptorHandle> {
+  segments(name);
+  return openRelative(parent, name, constants.O_RDONLY | constants.O_NONBLOCK);
 }
 
 function identityToken(identity: FileOperationIdentity): string {
@@ -703,7 +759,8 @@ function identitiesEqual(
   return (
     identityToken(left) === identityToken(right) &&
     left.kind === right.kind &&
-    left.mode === right.mode
+    left.mode === right.mode &&
+    left.metadataSha256 === right.metadataSha256
   );
 }
 
@@ -716,12 +773,13 @@ function purgeIdentityMatches(
     ? left.kind === "directory" &&
         left.dev === right.dev &&
         left.ino === right.ino &&
-        left.mode === right.mode
+        left.mode === right.mode &&
+        left.metadataSha256 === right.metadataSha256
     : identitiesEqual(left, right);
 }
 
 async function digest(
-  handle: FileHandle,
+  handle: DescriptorHandle,
   expectedBytes: number
 ): Promise<string> {
   const hash = createHash("sha256");
@@ -744,17 +802,16 @@ async function digest(
 }
 
 async function directoryNames(
-  handle: FileHandle,
+  handle: DescriptorHandle,
   limit: number
 ): Promise<string[]> {
-  const directory = await opendir(descriptorPath(handle));
-  const names: string[] = [];
-  for await (const entry of directory) {
-    if (names.length >= limit)
+  try {
+    return await readDirectoryNames(handle, limit);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "E2BIG")
       throw new FileOperationFilesystemError("operation_limit");
-    names.push(entry.name);
+    throw error;
   }
-  return names.sort();
 }
 
 function manifestsEqual(
@@ -779,6 +836,9 @@ function copiedContentsEqual(
         entry.sha256 === copied.sha256 &&
         entry.identity.kind === copied.identity.kind &&
         entry.identity.mode === copied.identity.mode &&
+        entry.identity.metadataSha256 === copied.identity.metadataSha256 &&
+        (entry.identity.metadataBytes ?? 0) ===
+          (copied.identity.metadataBytes ?? 0) &&
         entry.identity.mtimeNs === copied.identity.mtimeNs &&
         (entry.identity.kind === "directory" ||
           entry.identity.size === copied.identity.size)

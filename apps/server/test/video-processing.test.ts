@@ -1,4 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { mkdtemp, open, rm, unlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { descriptorPath } from "../src/security/descriptor-filesystem.js";
 import {
   runMediaCommand,
   withVideoProcessingSlot
@@ -101,4 +105,52 @@ describe("bounded media processing", () => {
       runMediaCommand(process.execPath, [], 2000, 2 * 1024 * 1024)
     ).rejects.toThrow("Invalid media command output limit");
   });
+
+  it.skipIf(!["linux", "darwin"].includes(process.platform))(
+    "passes a pinned file to a child after its original pathname is replaced",
+    async () => {
+      const directory = await mkdtemp(path.join(tmpdir(), "aether-media-fd-"));
+      const filename = path.join(directory, "source");
+      await writeFile(filename, "verified source");
+      const handle = await open(filename, "r");
+      try {
+        await unlink(filename);
+        await writeFile(filename, "replacement");
+        await handle.read(Buffer.alloc(3), 0, 3, null);
+        const result = await runMediaCommand(
+          process.execPath,
+          [
+            "-e",
+            "process.stdout.write(require('node:fs').readFileSync(process.argv[1]))",
+            descriptorPath({ fd: 3 })
+          ],
+          2000,
+          undefined,
+          undefined,
+          handle.fd
+        );
+        expect(result.stdout).toBe("verified source");
+        expect((await handle.stat()).isFile()).toBe(true);
+      } finally {
+        await handle.close();
+        await rm(directory, { recursive: true, force: true });
+      }
+    }
+  );
+
+  it.each([-1, 0.5, Number.NaN, Number.POSITIVE_INFINITY])(
+    "rejects an invalid inherited descriptor (%s)",
+    async (descriptor) => {
+      await expect(
+        runMediaCommand(
+          process.execPath,
+          [],
+          2000,
+          undefined,
+          undefined,
+          descriptor
+        )
+      ).rejects.toThrow("Invalid media input descriptor");
+    }
+  );
 });

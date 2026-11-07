@@ -23,22 +23,24 @@ export function LibraryControlStrip({
   const { view } = options;
   return (
     <section className="control-strip" aria-label="Library controls">
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            className="control-menu-trigger control-add-trigger"
-            type="button"
-            size="icon"
-            variant="default"
-            aria-label="Add media"
-            onClick={onAddMedia}
-          >
-            <Plus />
-            <span className="control-action-label">Add media</span>
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="bottom">Add media</TooltipContent>
-      </Tooltip>
+      {view === "gallery" ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              className="control-menu-trigger control-add-trigger"
+              type="button"
+              size="icon"
+              variant="default"
+              aria-label="Add media"
+              onClick={onAddMedia}
+            >
+              <Plus />
+              <span className="control-action-label">Add media</span>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">Add media</TooltipContent>
+        </Tooltip>
+      ) : null}
       <LibraryViewOptions {...options} />
 
       {view !== "compare" ? (

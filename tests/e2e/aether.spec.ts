@@ -1,3 +1,4 @@
+import { chooseAccountAction } from "./account-menu";
 import { expect, test } from "@playwright/test";
 
 const password = "aether-e2e-password";
@@ -25,7 +26,7 @@ test("supports login, scan, batch annotation, fullscreen, and feed", async ({
   await expect(
     page.getByRole("treeitem", { name: "Trips, 2 items" })
   ).toBeVisible();
-  await page.getByRole("button", { name: "Settings" }).click();
+  await chooseAccountAction(page, "Settings");
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
   await page.getByRole("radio", { name: "Mist" }).click();
   await expect(page.locator("html")).toHaveAttribute("data-accent", "mist");
@@ -248,7 +249,7 @@ test("recovers from server and session interruptions and restores navigation", a
     timeout: 15_000
   });
 
-  await page.getByRole("button", { name: "Settings" }).click();
+  await chooseAccountAction(page, "Settings");
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
   await page.reload();
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();

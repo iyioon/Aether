@@ -447,3 +447,68 @@ test("loads Add media destinations after a failed initial folder request", async
   expect(requests.writes).toEqual([]);
   expect(requests.unhandled).toEqual([]);
 });
+
+for (const layout of ["desktop", "phone", "landscape"] as const) {
+  test(`keeps read-only Add media recoverable on ${layout}`, async ({
+    browser
+  }) => {
+    const context = await browser.newContext({
+      baseURL: productionBaseURL,
+      viewport:
+        layout === "phone"
+          ? { width: 320, height: 760 }
+          : layout === "landscape"
+            ? { width: 812, height: 375 }
+            : { width: 1440, height: 980 },
+      isMobile: layout !== "desktop",
+      hasTouch: layout !== "desktop",
+      serviceWorkers: "block"
+    });
+    try {
+      const page = await context.newPage();
+      const requests = await mockApi(page, {
+        onTree: async (route) => {
+          await route.fulfill({
+            json: {
+              ...tree,
+              roots: tree.roots.map((root) => ({ ...root, writable: false }))
+            }
+          });
+        }
+      });
+      await page.goto("/?page=add-media&folder=photos-root");
+      const addMedia = page.getByRole("region", {
+        name: "Add media",
+        exact: true
+      });
+      await expect(
+        addMedia.getByText(/No folders are available for uploads/)
+      ).toBeVisible();
+      const addFiles = addMedia.getByRole("button", {
+        name: "Add files",
+        exact: true
+      });
+      await expect(addFiles).toBeDisabled();
+      await addMedia.getByLabel("Choose media", { exact: true }).setInputFiles({
+        name: "holiday.jpg",
+        mimeType: "image/jpeg",
+        buffer: Buffer.from([1, 2, 3])
+      });
+      await expect(addFiles).toBeDisabled();
+      const cancel = addMedia
+        .locator(".add-media-footer")
+        .getByRole("button", { name: "Cancel", exact: true });
+      await expectReachable(cancel);
+      await cancel.click();
+      await expect(addMedia).toBeHidden();
+      await expect(page).toHaveURL(/page=library/);
+      await expect(
+        page.getByRole("region", { name: "Gallery view", exact: true })
+      ).toBeVisible();
+      expect(requests.writes).toEqual([]);
+      expect(requests.unhandled).toEqual([]);
+    } finally {
+      await context.close();
+    }
+  });
+}

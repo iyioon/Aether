@@ -13,7 +13,7 @@ export type { UploadProgress } from "./useMediaUploads";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Folder, Upload } from "lucide-react";
 import { createUuid } from "../../lib/uuid";
 import { Progress } from "../ui/progress";
 import { ActivityContents, ActivityPanel } from "./ActivitySheet";
@@ -96,6 +96,8 @@ export function AddMediaPage({
   const [destinationDraft, setDestinationDraft] = useState(destination);
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [retryingFolders, setRetryingFolders] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
+  const [draggingFiles, setDraggingFiles] = useState(false);
   const destinationInitializedRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const resumeInputRef = useRef<HTMLInputElement>(null);
@@ -124,7 +126,8 @@ export function AddMediaPage({
   ]);
   useEffect(() => {
     if (open) headingRef.current?.focus({ preventScroll: true });
-  }, [open, browsingDestination]);
+    else setDraggingFiles(false);
+  }, [open, browsingDestination, reviewing]);
   const incomingIdRef = useRef<number | null>(null);
   const submittedDraftRef = useRef<string | null>(null);
   const submittingRef = useRef(false);
@@ -141,7 +144,6 @@ export function AddMediaPage({
       setReviewing(false);
     }
   }, [open, clearConflictReview]);
-  const [reviewing, setReviewing] = useState(false);
   const [reviewResult, setReviewResult] = useState<string | null>(null);
   const uploads = useMediaUploads({
     tree,
@@ -169,6 +171,7 @@ export function AddMediaPage({
         return;
       }
       setError(null);
+      setDraggingFiles(false);
       setReviewResult(null);
       setReviewing(false);
       clearConflictReview();
@@ -190,6 +193,16 @@ export function AddMediaPage({
   const batchError =
     draft.length && limits ? uploadBatchError(draftFiles, limits) : null;
   const invalidFiles = draftFiles.some((file) => uploadFileError(file, limits));
+  function cancel() {
+    previewGenerationRef.current += 1;
+    clearConflictReview();
+    setDraft([]);
+    setError(null);
+    setReviewResult(null);
+    setReviewing(false);
+    setDraggingFiles(false);
+    onClose();
+  }
   async function addFiles() {
     if (
       !pageOpenRef.current ||
@@ -283,22 +296,17 @@ export function AddMediaPage({
     <>
       <section className="add-media-page" aria-label="Add media" hidden={!open}>
         <div className="add-media-shell">
-          <header className="add-media-header">
-            <h1
-              ref={headingRef}
-              tabIndex={-1}
-              className="text-2xl font-semibold tracking-tight outline-none"
-            >
-              {browsingDestination ? "Choose destination" : "Add media"}
-            </h1>
-            <Button
-              variant="ghost"
-              disabled={creatingFolder || conflictReview.busy}
-              onClick={onClose}
-            >
-              <ArrowLeft /> Back to library
-            </Button>
-          </header>
+          <h1
+            ref={headingRef}
+            tabIndex={-1}
+            className={
+              browsingDestination
+                ? "text-lg font-semibold outline-none"
+                : "sr-only outline-none"
+            }
+          >
+            {browsingDestination ? "Choose destination" : "Add media"}
+          </h1>
           <div className="add-media-body">
             {browsingDestination ? (
               <FolderDestinationPicker
@@ -309,18 +317,36 @@ export function AddMediaPage({
                 onCreateFolder={onSubmit}
               />
             ) : reviewing && conflictReview.value ? (
-              <ConflictReview
-                action="add"
-                preview={conflictReview.value}
-                busy={conflictReview.busy}
-                error={conflictReview.error}
-                onChange={conflictReview.choose}
-                onRetry={conflictReview.retry}
-              />
+              <>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="self-start"
+                  disabled={conflictReview.busy}
+                  onClick={() => {
+                    setReviewing(false);
+                    conflictReview.clear();
+                  }}
+                >
+                  <ArrowLeft aria-hidden="true" /> Back to files
+                </Button>
+                <ConflictReview
+                  action="add"
+                  preview={conflictReview.value}
+                  busy={conflictReview.busy}
+                  error={conflictReview.error}
+                  onChange={conflictReview.choose}
+                  onRetry={conflictReview.retry}
+                />
+              </>
             ) : (
               <>
                 <div className="add-media-destination">
-                  <div className="min-w-0">
+                  <Folder
+                    className="shrink-0 text-muted-foreground size-5"
+                    aria-hidden="true"
+                  />
+                  <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium">Destination</p>
                     <p className="break-words text-sm text-muted-foreground">
                       {destinationFolder
@@ -340,7 +366,7 @@ export function AddMediaPage({
                       setBrowsingDestination(true);
                     }}
                   >
-                    Change
+                    {destinationFolder ? "Change" : "Choose folder"}
                   </Button>
                 </div>
                 {!tree && !isLoadingFolders && !retryingFolders ? (
@@ -367,17 +393,41 @@ export function AddMediaPage({
                     operator to enable a destination.
                   </p>
                 ) : null}
-                <div className="add-media-choose">
+                <div
+                  className="add-media-choose"
+                  data-has-files={draft.length > 0}
+                  data-dragging={draggingFiles || undefined}
+                  onDragOver={(event) => {
+                    if (!event.dataTransfer.types.includes("Files")) return;
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "copy";
+                    setDraggingFiles(true);
+                  }}
+                  onDragLeave={(event) => {
+                    if (
+                      !event.currentTarget.contains(
+                        event.relatedTarget as Node | null
+                      )
+                    )
+                      setDraggingFiles(false);
+                  }}
+                  onDrop={() => setDraggingFiles(false)}
+                >
                   <Button
                     type="button"
                     variant="outline"
+                    className="add-media-dropzone"
+                    aria-describedby="add-media-limits"
+                    disabled={conflictReview.busy}
                     onClick={() => fileInputRef.current?.click()}
                   >
-                    Choose files
+                    <Upload aria-hidden="true" className="size-5" />
+                    <span>
+                      {draft.length
+                        ? "Choose more files"
+                        : "Choose files or drop photos and videos"}
+                    </span>
                   </Button>
-                  <p className="text-sm text-muted-foreground">
-                    or drop photos and videos here
-                  </p>
                   <Input
                     id="add-media-files"
                     className="sr-only"
@@ -394,26 +444,35 @@ export function AddMediaPage({
                     }}
                   />
                   {limits ? (
-                    <p className="text-xs text-muted-foreground">
+                    <p
+                      id="add-media-limits"
+                      className="text-xs text-muted-foreground"
+                    >
                       Up to {limits.maxBatchItems} files ·{" "}
                       {formatBytes(limits.maxUploadBytes)} per file
                     </p>
                   ) : uploads.error ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() =>
-                        void refresh().catch(() =>
-                          setError(
-                            "Upload limits could not be loaded. Try again."
+                    <div id="add-media-limits">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() =>
+                          void refresh().catch(() =>
+                            setError(
+                              "Upload limits could not be loaded. Try again."
+                            )
                           )
-                        )
-                      }
-                    >
-                      Retry loading upload limits
-                    </Button>
+                        }
+                      >
+                        Retry loading upload limits
+                      </Button>
+                    </div>
                   ) : (
-                    <p className="text-xs text-muted-foreground" role="status">
+                    <p
+                      id="add-media-limits"
+                      className="text-xs text-muted-foreground"
+                      role="status"
+                    >
                       Loading upload limits…
                     </p>
                   )}
@@ -479,7 +538,7 @@ export function AddMediaPage({
                 {error ?? uploads.error ?? conflictReview.error}
               </p>
             ) : null}
-            <div className="flex justify-end gap-2">
+            <div className="add-media-actions">
               {browsingDestination ? (
                 <>
                   <Button
@@ -504,15 +563,8 @@ export function AddMediaPage({
                 </>
               ) : reviewing ? (
                 <>
-                  <Button
-                    variant="outline"
-                    disabled={conflictReview.busy}
-                    onClick={() => {
-                      setReviewing(false);
-                      conflictReview.clear();
-                    }}
-                  >
-                    Back
+                  <Button variant="outline" onClick={cancel}>
+                    Cancel
                   </Button>
                   <Button
                     disabled={
@@ -530,18 +582,9 @@ export function AddMediaPage({
                 </>
               ) : (
                 <>
-                  {draft.length ? (
-                    <Button
-                      variant="outline"
-                      disabled={conflictReview.busy}
-                      onClick={() => {
-                        setDraft([]);
-                        setError(null);
-                      }}
-                    >
-                      Discard
-                    </Button>
-                  ) : null}
+                  <Button variant="outline" onClick={cancel}>
+                    Cancel
+                  </Button>
                   <Button
                     disabled={Boolean(
                       !draft.length ||

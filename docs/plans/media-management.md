@@ -403,17 +403,25 @@ Allow removing files and adding more before submission. Show the actual configur
 limits and actionable validation near affected rows; reject folder drops with
 an explanation rather than silently ignoring their contents.
 
-Keep Add media as a page in the application shell, with one heading, a scrollable
-review and persistent actions. Keep the growing upload list in Activity. This follows
-[Carbon's uploader guidance](https://carbondesignsystem.com/components/file-uploader/usage/)
-on multi-file lists, progress and file-specific errors, including avoiding a
-modal for multiple files. Transfer starts only after Add files; success requires
-server acknowledgement of publication and indexing. Add files returns to the
-library and opens Activity. Returning to the library before submission preserves
-the review within the current tab; Discard releases it. A reload requires
-selecting those unsubmitted files again. After acceptance, closing Activity leaves
-work intact. Navigation must not unmount transfers. Use the same name-conflict
-choices as Move; never overwrite
+Keep Add media as a page in the application shell, with a visually hidden task
+heading for orientation, a compact destination row and a file-picker/drop area.
+After selection, use a compact Choose more files control above the file summary
+and list. Use one scrolling body and a persistent footer, with Cancel immediately
+left of the primary Add files action. Cancel clears the unsubmitted selection
+and returns to the library. Ordinary library or history navigation retains the draft
+in memory within the current tab; a reload requires selecting the files again.
+Cancel in the destination picker only abandons that folder change. Back to files
+in conflict review returns to the selection, while Cancel closes the task.
+
+Keep the growing transfer list in Activity. Follow
+[Carbon's uploader guidance](https://www.carbondesignsystem.com/building-blocks/core/components/file-uploader/guidelines)
+for multi-file lists, action hierarchy and file-specific errors. Keep a native
+file-picker button alongside drag-and-drop, following
+[WAI's dragging alternatives](https://www.w3.org/WAI/WCAG22/Understanding/dragging-movements.html).
+Transfer starts only after Add files; success requires server acknowledgement
+of publication and indexing. Add files returns to the library and opens Activity.
+After acceptance, closing Activity leaves work intact. Navigation must not
+unmount transfers. Use the same name-conflict choices as Move; never overwrite
 an existing file or treat a skipped upload as Added.
 
 Copy the bytes supplied by the device picker without modifying or deleting the

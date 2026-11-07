@@ -6,6 +6,8 @@ Notable changes to Aether are recorded here.
 
 ### Fixed
 
+- Complete same-volume moves to Trash when native rename updates filesystem
+  metadata, avoiding false name conflicts and stale Gallery records.
 - Enable full-device SQLite journal synchronization for macOS file operations.
 - Identify startup failures with privacy-safe stages and recovery instructions.
 - Preserve exact filesystem identity when opening Linux upload staging on
@@ -53,8 +55,10 @@ Notable changes to Aether are recorded here.
 - Keep viewer menus and editing panels reachable from fullscreen, and restore
   focus to their invoking controls when closed.
 
-- Separate Add media into a page for destination and file review. Keep uploads,
-  progress and operation results in Activity, with one heading per surface.
+- Simplify Add media with a compact file review and a persistent footer placing
+  Cancel beside Add files. Cancel clears the unsubmitted selection; ordinary
+  navigation retains it in the current tab. Keep uploads, progress and operation
+  results in Activity.
 - Separate Score and Tags in Edit details, retain independent drafts and apply
   only the active tab. Keep repeated score edits stationary until Update results
   reapplies affected sorting and filters. Keep paging available when preview

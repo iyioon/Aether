@@ -412,14 +412,6 @@
   margin-inline: auto;
   gap: 20px;
 }
-.add-media-header {
-  display: flex;
-  flex-shrink: 0;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
 .add-media-body {
   display: flex;
   flex: 1;
@@ -428,6 +420,7 @@
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+  padding: 4px;
   gap: 20px;
 }
 .add-media-destination {
@@ -440,31 +433,48 @@
 .add-media-choose {
   display: grid;
   flex-shrink: 0;
-  justify-items: start;
-  gap: 12px;
-  padding: 20px;
-  border: 1px dashed var(--border);
-  border-radius: var(--radius);
+  gap: 10px;
+  text-align: center;
 }
-.add-media-choose input {
-  max-width: 100%;
+.add-media-dropzone {
+  width: 100%;
+  height: auto;
+  min-height: 164px;
+  flex-direction: column;
+  gap: 12px;
+  padding: 24px;
+  border-style: dashed;
+  box-shadow: none;
+  white-space: normal;
+}
+.add-media-choose[data-dragging] .add-media-dropzone {
+  border-color: var(--primary);
+  background: var(--accent);
+}
+.add-media-choose[data-has-files="true"] {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  text-align: right;
+}
+.add-media-choose[data-has-files="true"] .add-media-dropzone {
+  width: auto;
+  min-height: 36px;
+  flex-direction: row;
+  gap: 8px;
+  padding: 8px 12px;
+  border-style: solid;
 }
 .add-media-review {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-height: 120px;
+  display: grid;
   gap: 12px;
 }
 .add-media-files {
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
   border-block: 1px solid var(--border);
 }
 .add-media-file {
   display: flex;
-  align-items: start;
+  align-items: center;
   gap: 12px;
   padding: 12px 0;
 }
@@ -478,14 +488,25 @@
   padding-top: 16px;
   border-top: 1px solid var(--border);
 }
+.add-media-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
 @media (max-width: 767px),
   (max-width: 1024px) and (hover: none) and (pointer: coarse) {
   .add-media-shell,
   .add-media-body {
     gap: 16px;
   }
-  .add-media-choose {
-    padding: 16px;
+  .add-media-choose[data-has-files="true"] {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+    text-align: left;
+  }
+  .add-media-choose[data-has-files="true"] .add-media-dropzone {
+    min-height: 44px;
+    justify-self: start;
   }
   .add-media-footer {
     padding-bottom: env(safe-area-inset-bottom);

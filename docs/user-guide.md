@@ -200,12 +200,13 @@ results and recovery; retry only unsuccessful items.
 
 1. In Gallery, open **Add media** and select **Choose files**, or drop files into
    the grid on desktop.
-2. Review the files, limits and writable destination.
+2. Review the files, limits and writable destination. Use **Choose more files**
+   to extend the selection.
 3. Choose **Add files**. The library reopens with progress in **Activity**.
 
-Returning to the library keeps unsubmitted files in the current tab;
-**Discard** clears them. Select them again after a reload. Folder uploads are
-not supported.
+**Cancel** clears the unsubmitted selection and returns to the library. Leaving
+through library navigation or browser history keeps the selection in the current
+tab until a reload. Folder uploads are not supported.
 
 ### Use Trash
 
@@ -238,6 +239,10 @@ operation. **Cancel remaining** stops safely cancellable file operations;
 completed items require a reverse operation. A batch can partly succeed.
 Checking status means the outcome is still unknown; wait for a confirmed result
 before starting the same action again.
+
+If **Move to Trash** was interrupted, keep the media drive connected and use
+**Check again** in **Activity**. Leave Aether's managed folders untouched while
+it checks the retained file.
 
 ## Media Files
 

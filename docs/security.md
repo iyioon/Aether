@@ -37,6 +37,12 @@ inspectors inherit the validated input descriptor. macOS metadata copies are
 bounded and verified before source retirement; unsupported attributes or volume
 semantics fail without a weaker path-based fallback.
 
+Same-volume rename recovery can refresh the moved entry's metadata snapshot only
+after verifying its original device and inode, complete bytes, kind, mode, file size,
+modification time and removal of the original name. Child entries retain strict
+identity and metadata checks. This does not rewrite metadata or relax copy,
+source-retirement or purge verification.
+
 Name previews require the same authentication and unsafe-method CSRF checks,
 validate source and destination versions, and return no absolute paths. A preview
 does not authorize a later write or reserve a filename.

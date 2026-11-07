@@ -1,5 +1,7 @@
 import { rm, mkdir, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
+import { z } from "zod";
 import { hashPassword } from "../../apps/server/src/auth/password.js";
 import { loadConfig } from "../../apps/server/src/config/config.js";
 import { openDatabase } from "../../apps/server/src/db/database.js";
@@ -10,6 +12,16 @@ import {
 import { createPrivateTemporaryFiles } from "../../apps/server/src/maintenance/private-temporary-files.js";
 import { acquireRuntimeLock } from "../../apps/server/src/maintenance/runtime-lock.js";
 import { closeServerRuntime } from "../../apps/server/src/maintenance/server-runtime.js";
+import { FileOperationsFilesystem } from "../../apps/server/src/library/file-operations-filesystem.js";
+import { withLibraryMutationLock } from "../../apps/server/src/library/library-mutation-lock.js";
+import { FileOperationBody } from "../../apps/server/src/library/file-operation-model.js";
+import {
+  createManagedOperation,
+  getManagedAsset,
+  getManagedRootOwnership,
+  updateManagedOperation
+} from "../../apps/server/src/library/repository-management.js";
+import { captureTrashThumbnail } from "../../apps/server/src/library/trash-thumbnails.js";
 
 process.umask(0o077);
 
@@ -58,6 +70,110 @@ const config = await loadConfig(
 const db = openDatabase(config.configDir);
 const { buildApp } = await import("../../apps/server/src/http/app.js");
 const app = await buildApp({ config, db, logger: false });
+
+// This route exists only in the disposable browser-test server. App-level
+// session and CSRF hooks still apply; the fixture cannot target arbitrary media.
+app.post("/api/e2e/trash-publication", async (request, reply) => {
+  const body = z
+    .object({ assetId: z.string().min(1).max(256) })
+    .strict()
+    .safeParse(request.body);
+  if (!body.success) return reply.code(400).send({ error: "invalid_request" });
+  return withLibraryMutationLock(db, async () => {
+    const asset = getManagedAsset(db, body.data.assetId);
+    if (
+      !asset ||
+      asset.lifecycle !== "active" ||
+      asset.rootRealPath !== mediaDir ||
+      !["trash-recovery-desktop.png", "trash-recovery-phone.png"].includes(
+        asset.relativePath
+      )
+    )
+      return reply.code(400).send({ error: "invalid_fixture" });
+    if (
+      db
+        .prepare(
+          "SELECT 1 FROM file_operations WHERE status NOT IN ('completed', 'partial', 'cancelled', 'failed') LIMIT 1"
+        )
+        .get()
+    )
+      return reply.code(409).send({ error: "library_busy" });
+    const ownership = getManagedRootOwnership(db, asset.rootId);
+    if (!ownership) return reply.code(409).send({ error: "read_only" });
+    const filesystem = new FileOperationsFilesystem();
+    const location = (relativePath: string) => ({
+      rootPath: mediaDir,
+      relativePath,
+      expectedRoot: { dev: ownership.deviceId, ino: ownership.inode }
+    });
+    const operation = FileOperationBody.parse({
+      requestId: randomUUID(),
+      type: "trash",
+      items: [{ assetId: asset.id, expectedVersion: asset.sourceVersion }]
+    });
+    const source = location(asset.relativePath);
+    const before = await filesystem.inventory(source);
+    const originalIdentity = before.entries[0]!.identity;
+    const destinationPath = `.aether-trash/${operation.requestId}/0`;
+    await filesystem.createDirectory(
+      location(`.aether-trash/${operation.requestId}`)
+    );
+    const trashId = `${operation.requestId}-0`;
+    await captureTrashThumbnail(config, db, asset.id, trashId);
+    await filesystem.rename(
+      source,
+      location(destinationPath),
+      originalIdentity
+    );
+    const publishedManifest = await filesystem.inventory(
+      location(destinationPath)
+    );
+    const published = publishedManifest.entries[0]!.identity;
+    // APFS can change the moved entry's metadata during native rename. Retain
+    // real destination identities and bytes, with the older metadata snapshot
+    // in the prepared journal to reproduce that state on every test platform.
+    const expected = {
+      ...originalIdentity,
+      metadataSha256:
+        published.metadataSha256 === "0".repeat(64)
+          ? "1".repeat(64)
+          : "0".repeat(64),
+      metadataBytes: (originalIdentity.metadataBytes ?? 0) + 1
+    };
+    const stateJson = JSON.stringify({
+      cancelRequested: false,
+      items: [
+        {
+          input: operation.items[0],
+          status: "needs_attention",
+          phase: "prepared",
+          source: { rootId: asset.rootId, relativePath: asset.relativePath },
+          destination: { rootId: asset.rootId, relativePath: destinationPath },
+          expected,
+          manifest: {
+            entries: [{ ...before.entries[0], identity: expected }],
+            totalBytes: before.totalBytes + 1
+          },
+          published,
+          publishedManifest,
+          sourceAssetId: asset.id,
+          trashId,
+          errorCode: "destination_exists"
+        }
+      ]
+    });
+    createManagedOperation(db, {
+      id: operation.requestId,
+      requestJson: JSON.stringify(operation),
+      stateJson
+    });
+    updateManagedOperation(db, operation.requestId, {
+      status: "needs_attention",
+      stateJson
+    });
+    return { operationId: operation.requestId };
+  });
+});
 
 await app.listen({ host, port });
 

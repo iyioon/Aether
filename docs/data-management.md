@@ -48,6 +48,13 @@ Review Needs attention in Activity before retrying. Keep roots and all recorded
 copies available during recovery. Do not recursively delete reserved storage or
 remove its records to unblock the application.
 
+An interrupted same-volume move can finish at startup or through **Check again**
+when the retained original matches the journal and only its filesystem metadata
+changed during rename. This includes **Move to Trash** operations left pending
+by an earlier version. Keep the drive connected and Aether's managed folders
+untouched; these operations do not require manually moving files or rebuilding
+the library.
+
 `data:status` reports unresolved operations, retained upload stages and Trash.
 Rebuild, wipe and database restore refuse those blockers. Finish or cancel
 transfers, and restore or explicitly purge Trash, before destructive maintenance.

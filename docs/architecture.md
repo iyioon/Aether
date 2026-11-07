@@ -652,6 +652,13 @@ operations prevent missing-file reconciliation. Large copies run outside SQL
 transactions. Verified source entries retire through private quarantine only
 after destination publication and the database location commit. Recovery retains
 ambiguous copies and reservations instead of replaying deletions blindly.
+Same-volume rename publication verifies the original device and inode, kind,
+mode, file size, modification time and complete file digests at the destination. The
+original entry must be absent, with exact-name checks for case-only renames.
+Native rename can update the moved entry's filesystem metadata; its metadata
+digest and byte count are refreshed from the retained destination, while child
+entries remain strictly verified. Cross-volume copies, source retirement and
+purge retain their existing metadata checks.
 Empty Trash snapshots retained IDs into per-item rows and processes bounded
 pages, preserving one durable receipt across cancellation and restart.
 
@@ -680,8 +687,9 @@ coalesces results received while hidden into a foreground summary, preserving
 request/result deduplication and a route back to Activity.
 
 Add media is a separate application page for destination and file review, with
-one task heading and persistent actions. Its unsubmitted browser files stay in
-memory when the user returns to the library; they are not stored in navigation
+a visually hidden task heading, one scrolling body and persistent actions.
+Cancel clears the unsubmitted selection and returns to the library; ordinary library
+or history navigation keeps it in memory. Files are not stored in navigation
 checkpoints. Add files returns to the library and opens Activity. The sidebar's
 Account menu opens Activity, which contains accepted uploads, progress, recovery controls and recent
 operation results. Activity keeps its heading and close control outside the scrolling results.

@@ -241,7 +241,13 @@ export function ActivityContents({
                     item.folder?.label ??
                     item.folder?.name ??
                     `Item ${index + 1}`}
-                  : {managementError({ code: item.errorCode })}
+                  :{" "}
+                  {managementError(
+                    { code: item.errorCode },
+                    operation.status === "needs_attention"
+                      ? "recovery"
+                      : undefined
+                  )}
                 </p>
               ))}
             {conflictRetryInstruction(operation) ? (

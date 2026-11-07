@@ -1270,7 +1270,7 @@ export class FileOperationManager {
       const matchesPublished =
         !item.crossDevice &&
         alreadyPublished &&
-        sameEntry(alreadyPublished, expected);
+        sameRenamedEntry(alreadyPublished, expected);
       // A case-insensitive volume may resolve both spellings before a rename.
       // The exact directory entry distinguishes that alias from a publication
       // whose acknowledgement was lost. Never infer this from letter casing.
@@ -1279,8 +1279,10 @@ export class FileOperationManager {
         (request.type === "rename-media" || request.type === "rename-folder") &&
         siblingLocations(source, destination);
       const sourceStillNamed =
-        renameAlias &&
-        (await this.filesystem.hasExactEntryName(this.location(source)));
+        matchesPublished &&
+        (renameAlias
+          ? await this.filesystem.hasExactEntryName(this.location(source))
+          : Boolean(await this.optionalInspect(this.location(source))));
       if (renameAlias) {
         const destinationNamed = await this.filesystem.hasExactEntryName(
           this.location(destination)
@@ -1290,17 +1292,23 @@ export class FileOperationManager {
             sourceStillNamed ? "destination_exists" : "source_changed"
           );
       }
+      if (matchesPublished && sourceStillNamed && !renameAlias)
+        throw new FileManagementError("source_changed");
       if (matchesPublished && !sourceStillNamed) {
         const actual = await this.filesystem.inventory(
           this.location(destination)
         );
-        if (!sameMovedManifest(item.manifest!, actual))
+        if (!sameRenamedManifest(item.manifest!, actual))
           throw new FileManagementError("source_changed");
         item.published = alreadyPublished;
         item.publishedManifest = actual;
       } else {
         if (alreadyPublished && !sourceStillNamed)
-          throw new FileManagementError("destination_exists");
+          throw new FileManagementError(
+            sameObject(alreadyPublished, expected)
+              ? "source_changed"
+              : "destination_exists"
+          );
         const current = await this.filesystem.inventory(this.location(source));
         if (!sameExactManifest(item.manifest!, current))
           throw new FileManagementError("source_changed");
@@ -1382,8 +1390,9 @@ export class FileOperationManager {
         item.publishedManifest ??= await this.filesystem.inventory(
           this.location(destination)
         );
-        if (!sameMovedManifest(item.manifest!, item.publishedManifest))
+        if (!sameRenamedManifest(item.manifest!, item.publishedManifest))
           throw new FileManagementError("source_changed");
+        item.published = item.publishedManifest.entries[0]!.identity;
         item.phase = "published";
         persist();
       }
@@ -2086,14 +2095,21 @@ function sameEntry(
   right: FileOperationIdentity
 ): boolean {
   return (
+    sameRenamedEntry(left, right) &&
+    left.metadataSha256 === right.metadataSha256
+  );
+}
+function sameRenamedEntry(
+  left: FileOperationIdentity,
+  right: FileOperationIdentity
+): boolean {
+  return (
     left.dev === right.dev &&
     left.ino === right.ino &&
     left.kind === right.kind &&
     left.mode === right.mode &&
-    left.metadataSha256 === right.metadataSha256 &&
     left.mtimeNs === right.mtimeNs &&
-    (left.kind === "directory" ||
-      (left.size === right.size && left.mtimeNs === right.mtimeNs))
+    (left.kind === "directory" || left.size === right.size)
   );
 }
 function sameObject(
@@ -2148,6 +2164,30 @@ function sameMovedManifest(
         (entry.relativePath
           ? sameExactEntry(entry.identity, other.identity)
           : sameEntry(entry.identity, other.identity))
+      );
+    })
+  );
+}
+/** A native rename retains the inode and bytes, but the filesystem can adjust
+ * the moved entry's attributes. Refresh that entry's metadata after verifying
+ * publication; copied entries and every child keep their exact metadata guards. */
+function sameRenamedManifest(
+  left: FileOperationManifest,
+  right: FileOperationManifest
+): boolean {
+  return (
+    left.totalBytes - (left.entries[0]?.identity.metadataBytes ?? 0) ===
+      right.totalBytes - (right.entries[0]?.identity.metadataBytes ?? 0) &&
+    left.entries.length === right.entries.length &&
+    left.entries.every((entry, index) => {
+      const other = right.entries[index];
+      return (
+        other &&
+        entry.relativePath === other.relativePath &&
+        entry.sha256 === other.sha256 &&
+        (entry.relativePath
+          ? sameExactEntry(entry.identity, other.identity)
+          : sameRenamedEntry(entry.identity, other.identity))
       );
     })
   );

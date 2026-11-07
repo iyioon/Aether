@@ -136,11 +136,21 @@ export function folderWithin(
   }
   return false;
 }
-export function managementError(error: unknown): string {
+export function managementError(error: unknown, context?: "recovery"): string {
   const code =
     error && typeof error === "object" && "code" in error
       ? String(error.code)
       : "";
+  if (context === "recovery") {
+    if (code === "source_changed" || code === "stale_source")
+      return "The affected file changed while this operation was running.";
+    if (code === "folder_changed")
+      return "The affected folder changed while this operation was running.";
+    if (code === "destination_changed")
+      return "The destination changed while this operation was running.";
+    if (code === "destination_exists" || code === "name_conflict")
+      return "Another item occupies this operation’s destination.";
+  }
   const messages: Record<string, string> = {
     source_changed:
       "This item changed. Update the library before trying again.",

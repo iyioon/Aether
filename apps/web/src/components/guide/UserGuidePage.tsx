@@ -273,14 +273,18 @@ export function UserGuidePage({
                 In Gallery, open Add media and select Choose files, or drop
                 files into the grid on desktop.
               </li>
-              <li>Review the files and choose a writable destination.</li>
+              <li>
+                Review the files, limits and writable destination. Use Choose
+                more files to extend the selection.
+              </li>
               <li>
                 Choose Add files. The library reopens with progress in Activity.
               </li>
             </ol>
             <p>
-              Returning to the library keeps unsubmitted files in the current
-              tab; Discard clears them. Select them again after a reload. Folder
+              Cancel clears the unsubmitted selection and returns to the
+              library. Leaving through library navigation or browser history
+              keeps the selection in the current tab until a reload. Folder
               uploads are not supported.
             </p>
             <h2>Move to Trash and restore</h2>
@@ -317,6 +321,11 @@ export function UserGuidePage({
               operations. Retry only unsuccessful items. Checking status means
               the result is still unknown; wait for a confirmed result before
               starting the same action again.
+            </p>
+            <p>
+              If Move to Trash was interrupted, keep the media drive connected
+              and use Check again in Activity. Leave Aether's managed folders
+              untouched while it checks the retained file.
             </p>
           </TabsContent>
           <TabsContent className="guide-tab-panel" value="files">

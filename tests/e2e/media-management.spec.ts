@@ -444,9 +444,7 @@ test("creates folders and adds, renames, moves, restores and permanently deletes
         (item: { name: string }) => item.name === originalName
       )
     ).toBe(false);
-    await upload
-      .getByRole("button", { name: "Back to library", exact: true })
-      .click();
+    await page.getByRole("button", { name: "Library", exact: true }).click();
     await expect(upload).toBeHidden();
     await page
       .getByRole("region", { name: "Library controls" })
@@ -792,9 +790,7 @@ test("reviews desktop drops before submission and rejects folder drops", async (
   await addMedia.screenshot({
     path: testInfo.outputPath("add-media-review.png")
   });
-  await addMedia
-    .getByRole("button", { name: "Back to library", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Library", exact: true }).click();
   await page
     .getByRole("region", { name: "Library controls" })
     .getByRole("button", { name: "Add media", exact: true })
@@ -802,6 +798,45 @@ test("reviews desktop drops before submission and rejects folder drops", async (
   await expect(review).toContainText("review-photo.png");
   await addMedia
     .getByRole("button", { name: "Remove review-photo.png", exact: true })
+    .click();
+  await expect(review).toHaveCount(0);
+  const dropzone = addMedia.locator(".add-media-choose");
+  await dropzone.evaluate((element) => {
+    const files = new DataTransfer();
+    files.items.add(
+      new File([new Uint8Array([1, 2, 3])], "local-drop.png", {
+        type: "image/png"
+      })
+    );
+    element.dispatchEvent(
+      new DragEvent("dragover", {
+        dataTransfer: files,
+        bubbles: true,
+        cancelable: true
+      })
+    );
+  });
+  await expect(dropzone).toHaveAttribute("data-dragging", "true");
+  await dropzone.evaluate((element) => {
+    const files = new DataTransfer();
+    files.items.add(
+      new File([new Uint8Array([1, 2, 3])], "local-drop.png", {
+        type: "image/png"
+      })
+    );
+    element.dispatchEvent(
+      new DragEvent("drop", {
+        dataTransfer: files,
+        bubbles: true,
+        cancelable: true
+      })
+    );
+  });
+  await expect(review.getByRole("listitem")).toHaveCount(1);
+  await expect(review).toContainText("local-drop.png");
+  await expect(dropzone).not.toHaveAttribute("data-dragging", "true");
+  await addMedia
+    .getByRole("button", { name: "Remove local-drop.png", exact: true })
     .click();
   await expect(review).toHaveCount(0);
   await page.evaluate(() => {
@@ -874,7 +909,10 @@ test("abandons a pending upload name check when leaving Add media", async ({
       .click();
     await expect.poll(() => previewReady).toBe(true);
     await expect(
-      addMedia.getByRole("button", { name: "Back to library", exact: true })
+      addMedia.getByRole("button", { name: "Cancel", exact: true })
+    ).toBeEnabled();
+    await expect(
+      addMedia.getByRole("button", { name: "Choose more files", exact: true })
     ).toBeDisabled();
     await chooseAccountAction(page, "Settings");
     const settings = page.getByRole("region", {
@@ -913,6 +951,78 @@ test("abandons a pending upload name check when leaving Add media", async ({
     await expect(
       addMedia.getByRole("list", { name: "Files to add" })
     ).toContainText(name);
+    expect(admissions).toBe(0);
+  } finally {
+    release();
+    await page.unroute(previewUrl);
+  }
+});
+
+test("cancels a pending upload name check without admitting a late result", async ({
+  page
+}) => {
+  await signInAndScan(page);
+  let release: () => void = () => undefined;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let previewReady = false;
+  let previewReleased = false;
+  let admissions = 0;
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.url().endsWith("/api/uploads"))
+      admissions += 1;
+  });
+  const previewUrl = "**/api/file-operations/preview";
+  await page.route(previewUrl, async (route) => {
+    const response = await route.fetch();
+    expect(response.status()).toBe(200);
+    previewReady = true;
+    await held;
+    await route.fulfill({ response }).catch(() => undefined);
+    previewReleased = true;
+  });
+  try {
+    const addButton = page
+      .getByRole("region", { name: "Library controls" })
+      .getByRole("button", { name: "Add media", exact: true });
+    await addButton.click();
+    const addMedia = page.getByRole("region", {
+      name: "Add media",
+      exact: true
+    });
+    await addMedia.getByLabel("Choose media", { exact: true }).setInputFiles({
+      name: `cancelled-draft-${Date.now()}.png`,
+      mimeType: "image/png",
+      buffer: Buffer.from([1, 2, 3])
+    });
+    await addMedia
+      .getByRole("button", { name: "Add files", exact: true })
+      .click();
+    await expect.poll(() => previewReady).toBe(true);
+    const cancel = addMedia.getByRole("button", {
+      name: "Cancel",
+      exact: true
+    });
+    await expect(cancel).toBeEnabled();
+    await cancel.click();
+    await expect(addMedia).toBeHidden();
+    await expect(addButton).toBeFocused();
+    release();
+    await expect.poll(() => previewReleased).toBe(true);
+    await expect(
+      page.getByRole("dialog", { name: "Activity", exact: true })
+    ).toBeHidden();
+    await expect(
+      page.getByRole("region", { name: "Gallery view", exact: true })
+    ).toBeVisible();
+    await addButton.click();
+    await expect(
+      addMedia.getByRole("list", { name: "Files to add" })
+    ).toHaveCount(0);
+    await expect(
+      addMedia.getByRole("button", { name: "Add files", exact: true })
+    ).toBeDisabled();
     expect(admissions).toBe(0);
   } finally {
     release();
@@ -972,19 +1082,21 @@ test("initializes the upload destination after an early file selection while the
   }
 });
 
-for (const phone of [false, true]) {
-  test(`separates Add media from Activity and keeps a long review usable on ${phone ? "phone" : "desktop"}`, async ({
+for (const layout of ["desktop", "phone", "landscape"] as const) {
+  const compact = layout !== "desktop";
+  test(`keeps Add media focused and cancellation explicit on ${layout}`, async ({
     browser
   }, testInfo) => {
     const context = await browser.newContext({
-      baseURL: `http://127.0.0.1:${process.env.AETHER_E2E_API_PORT ?? 3130}`,
-      ...(phone
-        ? {
-            viewport: { width: 320, height: 760 },
-            isMobile: true,
-            hasTouch: true
-          }
-        : { viewport: { width: 1440, height: 980 } })
+      baseURL: productionBaseURL,
+      viewport:
+        layout === "phone"
+          ? { width: 320, height: 760 }
+          : layout === "landscape"
+            ? { width: 812, height: 375 }
+            : { width: 1440, height: 980 },
+      isMobile: compact,
+      hasTouch: compact
     });
     try {
       await context.addInitScript(() => {
@@ -993,7 +1105,17 @@ for (const phone of [false, true]) {
       const page = await context.newPage();
       await signInAndScan(page);
       const errors: string[] = [];
+      let submissions = 0;
       page.on("pageerror", (error) => errors.push(error.message));
+      page.on("request", (request) => {
+        if (
+          request.method() === "POST" &&
+          ["/api/uploads", "/api/file-operations/preview"].includes(
+            new URL(request.url()).pathname
+          )
+        )
+          submissions += 1;
+      });
       const activity = await openActivity(page);
       await expect(
         activity.getByLabel("Choose media", { exact: true })
@@ -1013,17 +1135,45 @@ for (const phone of [false, true]) {
       });
       await expect(addMedia).toBeVisible();
       await expect(page.getByRole("dialog")).toHaveCount(0);
-      await expect(addMedia.getByRole("heading")).toHaveCount(1);
+      const heading = addMedia.getByRole("heading", {
+        name: "Add media",
+        exact: true,
+        level: 1
+      });
+      await expect(heading).toBeFocused();
+      await expect(heading).toHaveClass(/sr-only/);
+      const headingBounds = (await heading.boundingBox())!;
+      expect(headingBounds.width).toBeLessThanOrEqual(1);
+      expect(headingBounds.height).toBeLessThanOrEqual(1);
       await expect(
-        addMedia.getByRole("heading", {
-          name: "Add media",
-          exact: true,
-          level: 1
-        })
-      ).toBeFocused();
+        addMedia.getByRole("button", { name: "Back to library", exact: true })
+      ).toHaveCount(0);
+      await expect(
+        addMedia.getByRole("button", { name: "Discard", exact: true })
+      ).toHaveCount(0);
       await expect(
         addMedia.getByRole("region", { name: "Uploads", exact: true })
       ).toHaveCount(0);
+      const footer = addMedia.locator(".add-media-footer");
+      const cancel = footer.getByRole("button", {
+        name: "Cancel",
+        exact: true
+      });
+      const addFiles = footer.getByRole("button", {
+        name: "Add files",
+        exact: true
+      });
+      await expect(cancel).toBeEnabled();
+      await expect(addFiles).toBeDisabled();
+      await expect(
+        addMedia.getByRole("button", {
+          name: "Choose files or drop photos and videos",
+          exact: true
+        })
+      ).toBeInViewport();
+      await addMedia.screenshot({
+        path: testInfo.outputPath(`add-media-empty-${layout}.png`)
+      });
       await addMedia.getByLabel("Choose media", { exact: true }).setInputFiles([
         {
           name: "review-photo.png",
@@ -1044,6 +1194,28 @@ for (const phone of [false, true]) {
       await expect(addMedia.getByRole("status")).toContainText(
         "40 files selected"
       );
+      await expect(
+        addMedia.getByRole("button", { name: "Choose more files", exact: true })
+      ).toBeVisible();
+      if (compact) {
+        for (const control of [
+          addMedia.getByRole("button", {
+            name: "Choose more files",
+            exact: true
+          }),
+          addMedia.getByRole("button", { name: "Change", exact: true }),
+          addMedia.getByRole("button", {
+            name: "Remove review-photo.png",
+            exact: true
+          })
+        ]) {
+          await control.scrollIntoViewIfNeeded();
+          await expect(control).toBeInViewport();
+          const bounds = (await control.boundingBox())!;
+          expect(bounds.width).toBeGreaterThanOrEqual(44);
+          expect(bounds.height).toBeGreaterThanOrEqual(44);
+        }
+      }
       await addMedia
         .getByRole("button", { name: "Change", exact: true })
         .click();
@@ -1054,70 +1226,77 @@ for (const phone of [false, true]) {
           exact: true
         })
       ).toBeVisible();
-      await addMedia
-        .getByRole("button", { name: "Use folder", exact: true })
-        .click();
-      await expect(
-        addMedia.getByRole("list", { name: "Files to add" })
-      ).toContainText("review-photo.png");
+      await footer.getByRole("button", { name: "Cancel", exact: true }).click();
       const review = addMedia.getByRole("list", { name: "Files to add" });
       await expect(review.getByRole("listitem")).toHaveCount(40);
+      await addMedia
+        .getByRole("button", { name: "Change", exact: true })
+        .click();
+      await footer
+        .getByRole("button", { name: "Use folder", exact: true })
+        .click();
+      await expect(review).toContainText("review-photo.png");
+      await expect(review.getByRole("listitem")).toHaveCount(40);
+      await expect(addFiles).toBeEnabled();
+      const cancelBefore = (await cancel.boundingBox())!;
+      const addBefore = (await addFiles.boundingBox())!;
+      expect(cancelBefore.x + cancelBefore.width).toBeLessThanOrEqual(
+        addBefore.x
+      );
+      expect(Math.abs(cancelBefore.y - addBefore.y)).toBeLessThanOrEqual(1);
+      await addMedia.screenshot({
+        path: testInfo.outputPath(`add-media-selected-${layout}.png`)
+      });
+      const body = addMedia.locator(".add-media-body");
+      await body.evaluate((element) => {
+        element.scrollTop = element.scrollHeight;
+      });
       await expect
-        .poll(() =>
-          review.evaluate((element) => {
-            let current: Element | null = element;
-            while (current) {
-              const style = getComputedStyle(current);
-              if (
-                ["auto", "scroll"].includes(style.overflowY) &&
-                current.scrollHeight > current.clientHeight
-              )
-                return true;
-              current = current.parentElement;
-            }
-            return false;
-          })
-        )
-        .toBe(true);
-      for (const control of [
-        addMedia.getByRole("button", { name: "Back to library", exact: true }),
-        addMedia.getByRole("button", { name: "Change", exact: true }),
-        addMedia.getByRole("button", { name: "Discard", exact: true }),
-        addMedia.getByRole("button", { name: "Add files", exact: true })
-      ]) {
+        .poll(() => body.evaluate((element) => element.scrollTop))
+        .toBeGreaterThan(0);
+      await expect(review.getByRole("listitem").last()).toBeInViewport();
+      expect(await cancel.boundingBox()).toEqual(cancelBefore);
+      expect(await addFiles.boundingBox()).toEqual(addBefore);
+      for (const control of [cancel, addFiles]) {
         await expect(control).toBeInViewport();
-        const bounds = await control.boundingBox();
-        if (phone) {
-          expect(bounds!.width).toBeGreaterThanOrEqual(44);
-          expect(bounds!.height).toBeGreaterThanOrEqual(44);
+        expect(
+          await control.evaluate((element) => {
+            const bounds = element.getBoundingClientRect();
+            const target = document.elementFromPoint(
+              bounds.x + bounds.width / 2,
+              bounds.y + bounds.height / 2
+            );
+            return target === element || element.contains(target);
+          })
+        ).toBe(true);
+        if (compact) {
+          const bounds = (await control.boundingBox())!;
+          expect(bounds.width).toBeGreaterThanOrEqual(44);
+          expect(bounds.height).toBeGreaterThanOrEqual(44);
         }
       }
       await addMedia.screenshot({
-        path: testInfo.outputPath(
-          `add-media-review-${phone ? "phone" : "desktop"}.png`
-        )
+        path: testInfo.outputPath(`add-media-review-${layout}.png`)
       });
       expect(
         await page.evaluate(
           () => document.documentElement.scrollWidth <= window.innerWidth
         )
       ).toBe(true);
-      await addMedia
-        .getByRole("button", { name: "Back to library", exact: true })
-        .click();
+      // Navigation preserves a draft; Cancel explicitly discards it.
+      await page.getByRole("button", { name: "Library", exact: true }).click();
       await expect(addMedia).toBeHidden();
-      await expect(addButton).toBeFocused();
       await addButton.click();
       await expect(review.getByRole("listitem")).toHaveCount(40);
-      await addMedia
-        .getByRole("button", { name: "Discard", exact: true })
-        .click();
-      await expect(review).toHaveCount(0);
-      await addMedia
-        .getByRole("button", { name: "Back to library", exact: true })
-        .click();
+      await cancel.click();
+      await expect(addMedia).toBeHidden();
       await expect(addButton).toBeFocused();
       await expect(page).toHaveURL(/page=library/);
+      await addButton.click();
+      await expect(review).toHaveCount(0);
+      await expect(addFiles).toBeDisabled();
+      await cancel.click();
+      await expect(addButton).toBeFocused();
       await page.reload();
       await expect(
         page.getByRole("region", { name: "Gallery view" })
@@ -1131,12 +1310,13 @@ for (const phone of [false, true]) {
         buffer: Buffer.from([1, 2, 3])
       });
       await expect(review).toContainText("history-draft.png");
-      await addMedia
-        .getByRole("button", { name: "Back to library", exact: true })
-        .click();
-      await expect(addButton).toBeFocused();
+      await page.getByRole("button", { name: "Library", exact: true }).click();
       await addButton.click();
       await expect(review).toContainText("history-draft.png");
+      await cancel.click();
+      await addButton.click();
+      await expect(review).toHaveCount(0);
+      expect(submissions).toBe(0);
       expect(errors).toEqual([]);
     } finally {
       await context.close();
@@ -1246,7 +1426,9 @@ for (const layout of ["desktop", "phone", "landscape"] as const) {
           }
         })
       );
-      await page.reload();
+      await page.goto(
+        `/?folder=${root.folderId}&view=gallery&q=family-photo.png`
+      );
       await page
         .getByRole("button", { name: "Select media", exact: true })
         .click();

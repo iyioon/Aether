@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readFile,
@@ -8,6 +9,7 @@ import {
   rename,
   rm,
   stat,
+  utimes,
   writeFile
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -97,6 +99,60 @@ describe.skipIf(!["linux", "darwin"].includes(process.platform))(
         limits?: FileOperationLimits
       ) {
         return super.inventory(await this.resolveAlias(location), limits);
+      }
+    }
+
+    // Model inode metadata changed by a Darwin rename while exercising real
+    // native publication, byte hashing and path checks on every test host.
+    class RenameMetadataFilesystem extends FileOperationsFilesystem {
+      constructor(
+        private readonly inode: string,
+        private generation = 0
+      ) {
+        super();
+      }
+      private withMetadata(identity: FileOperationIdentity) {
+        return identity.ino === this.inode
+          ? {
+              ...identity,
+              metadataSha256: this.generation.toString(16).padStart(64, "0"),
+              metadataBytes: 32 + this.generation
+            }
+          : identity;
+      }
+      override async inspect(location: FileOperationLocation) {
+        return this.withMetadata(await super.inspect(location));
+      }
+      override async inventory(
+        location: FileOperationLocation,
+        limits?: FileOperationLimits
+      ) {
+        const manifest = await super.inventory(location, limits);
+        const entries = manifest.entries.map((entry) => ({
+          ...entry,
+          identity: this.withMetadata(entry.identity)
+        }));
+        return {
+          entries,
+          totalBytes:
+            manifest.totalBytes +
+            entries.reduce(
+              (bytes, entry, index) =>
+                bytes +
+                (entry.identity.metadataBytes ?? 0) -
+                (manifest.entries[index]!.identity.metadataBytes ?? 0),
+              0
+            )
+        };
+      }
+      override async rename(
+        source: FileOperationLocation,
+        destination: FileOperationLocation,
+        expected: FileOperationIdentity
+      ) {
+        const moved = await super.rename(source, destination, expected);
+        if (moved.ino === this.inode) this.generation++;
+        return this.withMetadata(moved);
       }
     }
 
@@ -736,6 +792,637 @@ describe.skipIf(!["linux", "darwin"].includes(process.platform))(
       await manager.initialize();
       expect(manager.get(operation.requestId)?.status).toBe("completed");
       expect(getManagedAsset(db, photoId)?.relativePath).toBe("Summer.jpg");
+    });
+
+    it.each(["retry", "restart", "cancel remaining"] as const)(
+      "recovers a published Trash item after a lost acknowledgement through %s",
+      async (recovery) => {
+        updateAssetScore(db, {
+          assetId: photoId,
+          score: 83,
+          favorite: true,
+          updatedAt: new Date().toISOString()
+        });
+        setAssetTags(db, photoId, ["Keep"], new Date().toISOString());
+        const original = getManagedAsset(db, photoId)!;
+        await manager.close();
+        class LostTrashPublication extends FileOperationsFilesystem {
+          fail = true;
+          override async rename(
+            source: FileOperationLocation,
+            destination: FileOperationLocation,
+            expected: FileOperationIdentity
+          ) {
+            const moved = await super.rename(source, destination, expected);
+            if (
+              this.fail &&
+              destination.relativePath.startsWith(".aether-trash/")
+            ) {
+              this.fail = false;
+              throw new FileOperationFilesystemError("needs_review");
+            }
+            return moved;
+          }
+        }
+        manager = new FileOperationManager(
+          config,
+          db,
+          new LostTrashPublication()
+        );
+        await manager.initialize();
+        const operation = request("trash", {
+          items:
+            recovery === "cancel remaining"
+              ? [assetItem(photoId), assetItem(nestedId)]
+              : [assetItem(photoId)]
+        });
+        const retainedPath = `.aether-trash/${operation.requestId}/0`;
+        const retainedFile = path.join(sourceRoot.realPath, retainedPath);
+        const pending = await run(operation);
+        expect(pending.status).toBe("needs_attention");
+        expect(pending.items[0]).toMatchObject({
+          assetId: photoId,
+          errorCode: "needs_review"
+        });
+        expect(getManagedAsset(db, photoId)).toMatchObject({
+          lifecycle: "active",
+          relativePath: "photo.jpg"
+        });
+        expect(getAsset(db, photoId)).toMatchObject({ id: photoId, score: 83 });
+        expect(listTrash(db)).toHaveLength(0);
+        expect(await readFile(retainedFile, "utf8")).toBe("original photo");
+        expect(String((await stat(retainedFile, { bigint: true })).ino)).toBe(
+          original.fsInode
+        );
+        await expect(
+          stat(path.join(sourceRoot.realPath, "photo.jpg"))
+        ).rejects.toMatchObject({ code: "ENOENT" });
+
+        if (recovery === "restart") {
+          await manager.close();
+          manager = new FileOperationManager(config, db);
+          await manager.initialize();
+        } else if (recovery === "cancel remaining") {
+          expect(manager.cancel(operation.requestId)?.status).toBe("queued");
+        } else {
+          expect(manager.retry(operation.requestId)?.status).toBe("queued");
+        }
+        const recovered = await finished(operation.requestId);
+        expect(recovered).toMatchObject({
+          id: operation.requestId,
+          status: recovery === "cancel remaining" ? "partial" : "completed"
+        });
+        expect(recovered.items[0]).toMatchObject({
+          assetId: photoId,
+          status: "completed"
+        });
+        if (recovery === "cancel remaining") {
+          expect(recovered.items[1]).toMatchObject({
+            assetId: nestedId,
+            status: "cancelled"
+          });
+          expect(getAsset(db, nestedId)?.id).toBe(nestedId);
+          expect(
+            await readFile(
+              path.join(sourceRoot.realPath, "trip/nested/nested.jpg"),
+              "utf8"
+            )
+          ).toBe("nested media");
+        }
+        expect(getAsset(db, photoId)).toBeNull();
+        expect(getManagedAsset(db, photoId)).toMatchObject({
+          id: photoId,
+          lifecycle: "trashed",
+          relativePath: retainedPath
+        });
+        const records = listTrash(db);
+        expect(records).toHaveLength(1);
+        const record = records[0]!;
+        expect(record).toMatchObject({
+          id: `${operation.requestId}-0`,
+          assetId: photoId,
+          physicalRelativePath: retainedPath
+        });
+        expect(await readFile(retainedFile, "utf8")).toBe("original photo");
+        expect(manager.submit(operation)).toEqual(recovered);
+        expect(
+          (
+            await run(
+              request("restore", {
+                items: [
+                  { trashId: record.id, expectedVersion: record.sourceVersion }
+                ]
+              })
+            )
+          ).status
+        ).toBe("completed");
+        expect(getAsset(db, photoId)).toMatchObject({
+          id: photoId,
+          score: 83,
+          favorite: true,
+          tags: [expect.objectContaining({ displayName: "Keep" })]
+        });
+        expect(listTrash(db)).toHaveLength(0);
+        expect(
+          await readFile(path.join(sourceRoot.realPath, "photo.jpg"), "utf8")
+        ).toBe("original photo");
+      }
+    );
+
+    it("commits a verified Trash rename when only its root metadata changes during publication", async () => {
+      const original = getManagedAsset(db, photoId)!;
+      await manager.close();
+      const filesystem = new RenameMetadataFilesystem(original.fsInode!);
+      manager = new FileOperationManager(config, db, filesystem);
+      await manager.initialize();
+      const operation = request("trash", { items: [assetItem(photoId)] });
+      const before = await filesystem.inventory({
+        rootPath: sourceRoot.realPath,
+        relativePath: "photo.jpg"
+      });
+      expect((await run(operation)).status).toBe("completed");
+      const records = listTrash(db);
+      expect(records).toHaveLength(1);
+      const retained = records[0]!;
+      const after = await filesystem.inventory({
+        rootPath: sourceRoot.realPath,
+        relativePath: retained.physicalRelativePath
+      });
+      expect(after.entries[0]!.identity).toMatchObject({
+        dev: before.entries[0]!.identity.dev,
+        ino: before.entries[0]!.identity.ino,
+        size: before.entries[0]!.identity.size,
+        mode: before.entries[0]!.identity.mode,
+        mtimeNs: before.entries[0]!.identity.mtimeNs
+      });
+      expect(after.entries[0]!.sha256).toBe(before.entries[0]!.sha256);
+      expect(after.entries[0]!.identity.metadataSha256).not.toBe(
+        before.entries[0]!.identity.metadataSha256
+      );
+      expect(after.totalBytes).toBe(before.totalBytes + 1);
+      expect(getAsset(db, photoId)).toBeNull();
+      expect(
+        await readFile(
+          path.join(sourceRoot.realPath, retained.physicalRelativePath),
+          "utf8"
+        )
+      ).toBe("original photo");
+    });
+
+    it.each(["retry", "restart", "cancel remaining"] as const)(
+      "recovers an earlier prepared Trash journal after rename metadata changes through %s",
+      async (recovery) => {
+        updateAssetScore(db, {
+          assetId: photoId,
+          score: 83,
+          favorite: true,
+          updatedAt: new Date().toISOString()
+        });
+        setAssetTags(db, photoId, ["Keep"], new Date().toISOString());
+        const original = getManagedAsset(db, photoId)!;
+        await manager.close();
+        const filesystem = new RenameMetadataFilesystem(original.fsInode!);
+        manager = new FileOperationManager(config, db, filesystem);
+        await manager.initialize();
+        const operation = request("trash", {
+          items:
+            recovery === "cancel remaining"
+              ? [assetItem(photoId), assetItem(nestedId)]
+              : [assetItem(photoId)]
+        });
+        const source = {
+          rootPath: sourceRoot.realPath,
+          relativePath: "photo.jpg"
+        };
+        const destination = {
+          rootPath: sourceRoot.realPath,
+          relativePath: `.aether-trash/${operation.requestId}/0`
+        };
+        const expected = await filesystem.inspect(source);
+        const manifest = await filesystem.inventory(source);
+        await filesystem.createDirectory({
+          rootPath: sourceRoot.realPath,
+          relativePath: `.aether-trash/${operation.requestId}`
+        });
+        const published = await filesystem.rename(
+          source,
+          destination,
+          expected
+        );
+        const publishedManifest = await filesystem.inventory(destination);
+        const stateJson = JSON.stringify({
+          cancelRequested: false,
+          items: [
+            {
+              input: operation.items[0],
+              status: "needs_attention",
+              phase: "prepared",
+              source: { rootId: sourceRoot.id, relativePath: "photo.jpg" },
+              destination: {
+                rootId: sourceRoot.id,
+                relativePath: destination.relativePath
+              },
+              expected,
+              manifest,
+              published,
+              publishedManifest,
+              sourceAssetId: photoId,
+              trashId: `${operation.requestId}-0`,
+              errorCode: "destination_exists"
+            },
+            ...(recovery === "cancel remaining"
+              ? [{ input: operation.items[1], status: "queued" }]
+              : [])
+          ]
+        });
+        createManagedOperation(db, {
+          id: operation.requestId,
+          requestJson: JSON.stringify(operation),
+          stateJson
+        });
+        updateManagedOperation(db, operation.requestId, {
+          status: "needs_attention",
+          stateJson
+        });
+        expect(listTrash(db)).toHaveLength(0);
+        expect(getManagedAsset(db, photoId)).toMatchObject({
+          lifecycle: "active",
+          relativePath: "photo.jpg"
+        });
+
+        if (recovery === "restart") {
+          await manager.close();
+          manager = new FileOperationManager(
+            config,
+            db,
+            new RenameMetadataFilesystem(original.fsInode!, 1)
+          );
+          await manager.initialize();
+        } else if (recovery === "cancel remaining") {
+          manager.cancel(operation.requestId);
+        } else manager.retry(operation.requestId);
+        const recovered = await finished(operation.requestId);
+        expect(recovered).toMatchObject({
+          status: recovery === "cancel remaining" ? "partial" : "completed"
+        });
+        expect(recovered.items[0]).toMatchObject({
+          assetId: photoId,
+          status: "completed"
+        });
+        if (recovery === "cancel remaining") {
+          expect(recovered.items[1]).toMatchObject({
+            assetId: nestedId,
+            status: "cancelled"
+          });
+          expect(getAsset(db, nestedId)?.id).toBe(nestedId);
+          expect(
+            await readFile(
+              path.join(sourceRoot.realPath, "trip/nested/nested.jpg"),
+              "utf8"
+            )
+          ).toBe("nested media");
+        }
+        expect(getAsset(db, photoId)).toBeNull();
+        const records = listTrash(db);
+        expect(records).toHaveLength(1);
+        const record = records[0]!;
+        expect(record).toMatchObject({
+          id: `${operation.requestId}-0`,
+          assetId: photoId,
+          physicalRelativePath: destination.relativePath
+        });
+        expect(
+          await readFile(
+            path.join(sourceRoot.realPath, record.physicalRelativePath),
+            "utf8"
+          )
+        ).toBe("original photo");
+        expect(
+          (
+            await run(
+              request("restore", {
+                items: [
+                  { trashId: record.id, expectedVersion: record.sourceVersion }
+                ]
+              })
+            )
+          ).status
+        ).toBe("completed");
+        expect(getAsset(db, photoId)).toMatchObject({
+          id: photoId,
+          score: 83,
+          favorite: true,
+          tags: [expect.objectContaining({ displayName: "Keep" })]
+        });
+        expect(listTrash(db)).toHaveLength(0);
+        expect(
+          await readFile(path.join(sourceRoot.realPath, "photo.jpg"), "utf8")
+        ).toBe("original photo");
+      }
+    );
+
+    it("reports a changed retained Trash item separately from a destination collision", async () => {
+      await manager.close();
+      class ChangedTrashPublication extends FileOperationsFilesystem {
+        fail = true;
+        override async rename(
+          source: FileOperationLocation,
+          destination: FileOperationLocation,
+          expected: FileOperationIdentity
+        ) {
+          const moved = await super.rename(source, destination, expected);
+          if (
+            this.fail &&
+            destination.relativePath.startsWith(".aether-trash/")
+          ) {
+            this.fail = false;
+            const retainedFile = path.join(
+              destination.rootPath,
+              destination.relativePath
+            );
+            const times = await stat(retainedFile);
+            await utimes(retainedFile, times.atime, times.mtimeMs / 1000 + 1);
+            throw new FileOperationFilesystemError("needs_review");
+          }
+          return moved;
+        }
+      }
+      manager = new FileOperationManager(
+        config,
+        db,
+        new ChangedTrashPublication()
+      );
+      await manager.initialize();
+      const original = getManagedAsset(db, photoId)!;
+      const operation = request("trash", { items: [assetItem(photoId)] });
+      const retainedFile = path.join(
+        sourceRoot.realPath,
+        `.aether-trash/${operation.requestId}/0`
+      );
+      expect(await run(operation)).toMatchObject({
+        status: "needs_attention",
+        items: [{ errorCode: "needs_review" }]
+      });
+      expect(String((await stat(retainedFile, { bigint: true })).ino)).toBe(
+        original.fsInode
+      );
+      manager.retry(operation.requestId);
+      expect(await finished(operation.requestId)).toMatchObject({
+        status: "needs_attention",
+        items: [{ errorCode: "source_changed" }]
+      });
+      expect(getManagedAsset(db, photoId)).toMatchObject({
+        lifecycle: "active",
+        relativePath: "photo.jpg"
+      });
+      expect(listTrash(db)).toHaveLength(0);
+      expect(await readFile(retainedFile, "utf8")).toBe("original photo");
+      await expect(
+        stat(path.join(sourceRoot.realPath, "photo.jpg"))
+      ).rejects.toMatchObject({ code: "ENOENT" });
+    });
+
+    it.each(["content", "mode"] as const)(
+      "retains a published Trash item when its %s changes after rename",
+      async (change) => {
+        const sourceFile = path.join(sourceRoot.realPath, "photo.jpg");
+        await chmod(sourceFile, 0o640);
+        await utimes(sourceFile, 1_700_000_000, 1_700_000_000);
+        await scanLibrary(db, config.mediaRoots);
+        await manager.close();
+        class ChangedPublication extends FileOperationsFilesystem {
+          override async rename(
+            source: FileOperationLocation,
+            destination: FileOperationLocation,
+            expected: FileOperationIdentity
+          ) {
+            const moved = await super.rename(source, destination, expected);
+            const retainedFile = path.join(
+              destination.rootPath,
+              destination.relativePath
+            );
+            if (change === "content") {
+              await writeFile(retainedFile, "modified photo");
+              await utimes(retainedFile, 1_700_000_000, 1_700_000_000);
+            } else await chmod(retainedFile, 0o600);
+            return moved;
+          }
+        }
+        const filesystem = new ChangedPublication();
+        manager = new FileOperationManager(config, db, filesystem);
+        await manager.initialize();
+        const operation = request("trash", { items: [assetItem(photoId)] });
+        const before = await filesystem.inspect({
+          rootPath: sourceRoot.realPath,
+          relativePath: "photo.jpg"
+        });
+        expect(await run(operation)).toMatchObject({
+          status: "needs_attention",
+          items: [{ errorCode: "source_changed" }]
+        });
+        const retainedFile = path.join(
+          sourceRoot.realPath,
+          `.aether-trash/${operation.requestId}/0`
+        );
+        const after = await filesystem.inspect({
+          rootPath: sourceRoot.realPath,
+          relativePath: `.aether-trash/${operation.requestId}/0`
+        });
+        expect(after).toMatchObject({
+          dev: before.dev,
+          ino: before.ino,
+          size: before.size,
+          mtimeNs: before.mtimeNs
+        });
+        if (change === "mode") expect(after.mode).not.toBe(before.mode);
+        manager.retry(operation.requestId);
+        expect(await finished(operation.requestId)).toMatchObject({
+          status: "needs_attention",
+          items: [{ errorCode: "source_changed" }]
+        });
+        expect(getManagedAsset(db, photoId)).toMatchObject({
+          lifecycle: "active",
+          relativePath: "photo.jpg"
+        });
+        expect(listTrash(db)).toHaveLength(0);
+        expect(await readFile(retainedFile, "utf8")).toBe(
+          change === "content" ? "modified photo" : "original photo"
+        );
+      }
+    );
+
+    it("retains both paths when a source is recreated after a lost Trash acknowledgement", async () => {
+      await manager.close();
+      class RecreatedSource extends FileOperationsFilesystem {
+        override async rename(
+          source: FileOperationLocation,
+          destination: FileOperationLocation,
+          expected: FileOperationIdentity
+        ): Promise<FileOperationIdentity> {
+          await super.rename(source, destination, expected);
+          await writeFile(
+            path.join(source.rootPath, source.relativePath),
+            "replacement source"
+          );
+          throw new FileOperationFilesystemError("needs_review");
+        }
+      }
+      manager = new FileOperationManager(config, db, new RecreatedSource());
+      await manager.initialize();
+      const operation = request("trash", { items: [assetItem(photoId)] });
+      expect(await run(operation)).toMatchObject({
+        status: "needs_attention",
+        items: [{ errorCode: "needs_review" }]
+      });
+      manager.retry(operation.requestId);
+      expect(await finished(operation.requestId)).toMatchObject({
+        status: "needs_attention",
+        items: [{ errorCode: "source_changed" }]
+      });
+      expect(getManagedAsset(db, photoId)).toMatchObject({
+        lifecycle: "active",
+        relativePath: "photo.jpg"
+      });
+      expect(listTrash(db)).toHaveLength(0);
+      expect(
+        await readFile(path.join(sourceRoot.realPath, "photo.jpg"), "utf8")
+      ).toBe("replacement source");
+      expect(
+        await readFile(
+          path.join(
+            sourceRoot.realPath,
+            `.aether-trash/${operation.requestId}/0`
+          ),
+          "utf8"
+        )
+      ).toBe("original photo");
+    });
+
+    it("retains a moved folder when a child's metadata changes during publication", async () => {
+      await manager.close();
+      class ChangedChildMetadata extends FileOperationsFilesystem {
+        published = false;
+        override async inventory(
+          location: FileOperationLocation,
+          limits?: FileOperationLimits
+        ) {
+          const manifest = await super.inventory(location, limits);
+          let totalBytes = manifest.totalBytes;
+          const entries = manifest.entries.map((entry) => {
+            if (entry.relativePath !== "nested/nested.jpg") return entry;
+            totalBytes += 1 - (entry.identity.metadataBytes ?? 0);
+            return {
+              ...entry,
+              identity: {
+                ...entry.identity,
+                metadataSha256: (this.published ? "b" : "a").repeat(64),
+                metadataBytes: 1
+              }
+            };
+          });
+          return { entries, totalBytes };
+        }
+        override async rename(
+          source: FileOperationLocation,
+          destination: FileOperationLocation,
+          expected: FileOperationIdentity
+        ) {
+          const moved = await super.rename(source, destination, expected);
+          this.published = true;
+          return moved;
+        }
+      }
+      manager = new FileOperationManager(
+        config,
+        db,
+        new ChangedChildMetadata()
+      );
+      await manager.initialize();
+      const operation = request("rename-folder", {
+        items: [folderItem(tripId)],
+        name: "Holiday"
+      });
+      expect(await run(operation)).toMatchObject({
+        status: "needs_attention",
+        items: [{ errorCode: "source_changed" }]
+      });
+      manager.retry(operation.requestId);
+      expect(await finished(operation.requestId)).toMatchObject({
+        status: "needs_attention",
+        items: [{ errorCode: "source_changed" }]
+      });
+      expect(getManagedFolder(db, tripId)?.relativePath).toBe("trip");
+      expect(getManagedAsset(db, nestedId)?.relativePath).toBe(
+        "trip/nested/nested.jpg"
+      );
+      expect(
+        await readFile(
+          path.join(sourceRoot.realPath, "Holiday/nested/nested.jpg"),
+          "utf8"
+        )
+      ).toBe("nested media");
+      expect(
+        await readFile(
+          path.join(sourceRoot.realPath, "Holiday/.sidecar"),
+          "utf8"
+        )
+      ).toBe("unindexed sidecar");
+    });
+
+    it("retains both files when an unrelated item occupies the reserved Trash destination", async () => {
+      await manager.close();
+      class OccupiedTrashDestination extends FileOperationsFilesystem {
+        inserted = false;
+        override async rename(
+          source: FileOperationLocation,
+          destination: FileOperationLocation,
+          expected: FileOperationIdentity
+        ) {
+          if (
+            !this.inserted &&
+            destination.relativePath.startsWith(".aether-trash/")
+          ) {
+            this.inserted = true;
+            await writeFile(
+              path.join(destination.rootPath, destination.relativePath),
+              "unrelated retained file"
+            );
+          }
+          return super.rename(source, destination, expected);
+        }
+      }
+      manager = new FileOperationManager(
+        config,
+        db,
+        new OccupiedTrashDestination()
+      );
+      await manager.initialize();
+      const operation = request("trash", { items: [assetItem(photoId)] });
+      const retainedFile = path.join(
+        sourceRoot.realPath,
+        `.aether-trash/${operation.requestId}/0`
+      );
+      expect(await run(operation)).toMatchObject({
+        status: "needs_attention",
+        items: [{ errorCode: "destination_exists" }]
+      });
+      manager.retry(operation.requestId);
+      expect(await finished(operation.requestId)).toMatchObject({
+        status: "needs_attention",
+        items: [{ errorCode: "destination_exists" }]
+      });
+      expect(getManagedAsset(db, photoId)).toMatchObject({
+        lifecycle: "active",
+        relativePath: "photo.jpg"
+      });
+      expect(getAsset(db, photoId)?.id).toBe(photoId);
+      expect(listTrash(db)).toHaveLength(0);
+      expect(await readFile(retainedFile, "utf8")).toBe(
+        "unrelated retained file"
+      );
+      expect(
+        await readFile(path.join(sourceRoot.realPath, "photo.jpg"), "utf8")
+      ).toBe("original photo");
     });
 
     it("retains a source subtree when new host files appear after cross-filesystem publication", async () => {

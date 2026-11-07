@@ -84,9 +84,9 @@ async function waitForOperation(page: Page, id: string) {
       { timeout: 30_000 }
     )
     .toBe("completed");
-  const activity = page.getByRole("dialog", { name: "Activity", exact: true });
-  if (await activity.isVisible())
-    await activity.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(
+    page.getByRole("region", { name: "Activity", exact: true })
+  ).toBeHidden();
   return operation!;
 }
 
@@ -234,13 +234,16 @@ for (const phone of [false, true]) {
           });
           return;
         }
+        const matching = search
+          ? records.filter((record) => record.name.includes(search))
+          : records;
         await route.fulfill({
           json: {
-            items: search ? records.slice(1) : records,
+            items: matching,
             retentionDays: 30,
             revision: "1",
             totalRetained: 4,
-            page: { total: search ? 1 : 4, offset: 0, limit: 100 }
+            page: { total: search ? matching.length : 4, offset: 0, limit: 100 }
           } satisfies TrashResponse
         });
       });
@@ -259,7 +262,8 @@ for (const phone of [false, true]) {
       await expect(page.getByRole("article")).toHaveCount(0);
       await expect(loadMore).toHaveCount(0);
       await page
-        .getByRole("button", { name: "Refresh Trash", exact: true })
+        .getByRole("alert")
+        .getByRole("button", { name: "Retry", exact: true })
         .click();
       await expect(
         page.getByRole("heading", { name: "matching.png", exact: true })
@@ -271,6 +275,19 @@ for (const phone of [false, true]) {
         { search: "matching", offset: 0 },
         { search: "matching", offset: 0 }
       ]);
+      await page
+        .getByRole("textbox", { name: "Search Trash", exact: true })
+        .fill("not-present");
+      await expect(page.getByRole("article")).toHaveCount(0);
+      await page
+        .getByRole("button", { name: "Clear search", exact: true })
+        .click();
+      await expect(
+        page.getByRole("heading", { name: "first.png", exact: true })
+      ).toBeVisible();
+      await expect(
+        page.getByRole("textbox", { name: "Search Trash", exact: true })
+      ).toHaveValue("");
     } finally {
       await context.close();
     }
@@ -582,7 +599,7 @@ for (const phone of [false, true]) {
           exact: true
         })
       ).toHaveCount(0);
-      if (phone) {
+      {
         const article = page.getByRole("article").filter({
           has: page.getByRole("heading", { name: visibleName, exact: true })
         });
@@ -591,8 +608,20 @@ for (const phone of [false, true]) {
           exact: true
         });
         await expect(selected).not.toBeChecked();
-        await article.locator(".trash-selection-label img").tap();
+        await expect(article.getByText(/^Original folder:/)).toContainText(
+          fixtureName
+        );
+        const search = page.getByRole("textbox", {
+          name: "Search Trash",
+          exact: true
+        });
+        const searchBefore = await search.boundingBox();
+        if (phone) await article.locator(".trash-selection-label img").tap();
+        else await selected.check();
         await expect(selected).toBeChecked();
+        await expect(article).toHaveAttribute("data-selected", "true");
+        await expect(article.locator(".trash-item-restore")).toBeHidden();
+        expect(await search.boundingBox()).toEqual(searchBefore);
         const selectionBounds = await article
           .locator(".trash-selection-label")
           .boundingBox();
@@ -644,9 +673,9 @@ for (const phone of [false, true]) {
         }
         const screenshotPath = test
           .info()
-          .outputPath("trash-selection-phone.png");
+          .outputPath(`trash-selection-${layout}.png`);
         await page.screenshot({ path: screenshotPath, animations: "disabled" });
-        await test.info().attach("trash-selection-phone", {
+        await test.info().attach(`trash-selection-${layout}`, {
           path: screenshotPath,
           contentType: "image/png"
         });
@@ -657,6 +686,38 @@ for (const phone of [false, true]) {
       await page
         .getByRole("checkbox", { name: `Select ${visibleName}`, exact: true })
         .check();
+      let submittedOperations = 0;
+      page.on("request", (request) => {
+        if (
+          request.method() === "POST" &&
+          new URL(request.url()).pathname === "/api/file-operations"
+        )
+          submittedOperations += 1;
+      });
+      await page
+        .locator(".trash-toolbar")
+        .getByRole("button", { name: "Restore", exact: true })
+        .click();
+      const restoreReview = page.getByRole("dialog", {
+        name: "Restore media",
+        exact: true
+      });
+      await expect(restoreReview).toContainText(visibleName);
+      await expect(restoreReview).not.toContainText(hiddenName);
+      await restoreReview
+        .getByRole("button", { name: "Cancel", exact: true })
+        .click();
+      await expect(
+        page
+          .locator(".trash-toolbar")
+          .getByRole("button", { name: "Restore", exact: true })
+      ).toBeFocused();
+      await expect(
+        page.getByRole("checkbox", {
+          name: `Select ${visibleName}`,
+          exact: true
+        })
+      ).toBeChecked();
       await page
         .getByRole("button", { name: "Delete permanently", exact: true })
         .click();
@@ -677,6 +738,12 @@ for (const phone of [false, true]) {
           exact: true
         })
       ).not.toBeChecked();
+      await expect(
+        page.getByRole("button", {
+          name: `Restore ${visibleName}`,
+          exact: true
+        })
+      ).toBeVisible();
       const retained = (await (
         await page.request.get("/api/trash")
       ).json()) as TrashResponse;
@@ -701,6 +768,7 @@ for (const phone of [false, true]) {
         ((await (await page.request.get("/api/trash")).json()) as TrashResponse)
           .totalRetained
       ).toBe(retained.totalRetained);
+      expect(submittedOperations).toBe(0);
       await page
         .getByRole("button", { name: "Empty Trash", exact: true })
         .click();

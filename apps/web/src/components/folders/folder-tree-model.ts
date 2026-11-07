@@ -136,7 +136,11 @@ function appendRootTreeItem(
     label: root.label,
     assetCount: root.assetCount,
     depth: 0,
-    hasChildren: children.length > 0
+    hasChildren: children.length > 0,
+    canCreateFolder: Boolean(
+      root.writable && (root.allowedActions?.includes("create-folder") ?? true)
+    ),
+    canManageFolder: false
   });
 
   if (!expandedFolderIds.has(root.folderId)) {
@@ -149,7 +153,8 @@ function appendRootTreeItem(
       1,
       items,
       folderChildrenByParentId,
-      expandedFolderIds
+      expandedFolderIds,
+      root.writable ?? false
     );
   }
 }
@@ -159,9 +164,11 @@ function appendFolderTreeItem(
   depth: number,
   items: FolderTreeItem[],
   folderChildrenByParentId: Map<string, FolderTreeNode[]>,
-  expandedFolderIds: ReadonlySet<string>
+  expandedFolderIds: ReadonlySet<string>,
+  rootWritable: boolean
 ) {
   const children = folderChildrenByParentId.get(folder.id) ?? [];
+  const writable = folder.writable ?? rootWritable;
 
   items.push({
     id: folder.id,
@@ -169,7 +176,15 @@ function appendFolderTreeItem(
     label: folder.label,
     assetCount: folder.assetCount,
     depth,
-    hasChildren: children.length > 0
+    hasChildren: children.length > 0,
+    canCreateFolder: Boolean(
+      writable && (folder.allowedActions?.includes("create-folder") ?? true)
+    ),
+    canManageFolder: Boolean(
+      writable &&
+      (folder.allowedActions?.includes("rename-folder") ?? true) &&
+      (folder.allowedActions?.includes("move-folder") ?? true)
+    )
   });
 
   if (!expandedFolderIds.has(folder.id)) {
@@ -182,7 +197,8 @@ function appendFolderTreeItem(
       depth + 1,
       items,
       folderChildrenByParentId,
-      expandedFolderIds
+      expandedFolderIds,
+      rootWritable
     );
   }
 }

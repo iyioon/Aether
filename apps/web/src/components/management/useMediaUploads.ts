@@ -109,9 +109,16 @@ export function useMediaUploads({
         )
       );
   }, []);
-  const refresh = useCallback(async () => {
-    const result = await getUploads();
-    if (!activeRef.current) return;
+  const refreshGenerationRef = useRef(0);
+  const refresh = useCallback(async (signal?: AbortSignal) => {
+    const generation = ++refreshGenerationRef.current;
+    const result = await getUploads(signal);
+    if (
+      !activeRef.current ||
+      signal?.aborted ||
+      generation !== refreshGenerationRef.current
+    )
+      return;
     setError(null);
     setLimits(result.limits);
     for (const record of result.items) {
@@ -119,9 +126,14 @@ export function useMediaUploads({
         record.operationId &&
         (record.status === "publishing" || record.status === "validating")
       ) {
-        void getFileOperation(record.operationId)
+        void getFileOperation(record.operationId, signal)
           .then((operation) => {
-            if (activeRef.current) callbacksRef.current(operation, false);
+            if (
+              activeRef.current &&
+              !signal?.aborted &&
+              generation === refreshGenerationRef.current
+            )
+              callbacksRef.current(operation, false);
           })
           .catch(() => undefined);
       }
@@ -216,11 +228,13 @@ export function useMediaUploads({
     };
   }, [refresh]);
   useEffect(() => {
-    if (open)
-      void refresh().catch(() => {
-        if (activeRef.current)
-          setError("Uploads could not be loaded. Try again.");
-      });
+    if (!open) return;
+    const controller = new AbortController();
+    void refresh(controller.signal).catch(() => {
+      if (activeRef.current && !controller.signal.aborted)
+        setError("Uploads could not be loaded. Try again.");
+    });
+    return () => controller.abort();
   }, [open, refresh]);
   usePageLifecycle({
     onHidden: () => {

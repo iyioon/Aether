@@ -454,42 +454,97 @@ describe("offline lost media acknowledgement", () => {
     );
   });
 
-  it("acknowledges a lost Empty Trash purge without touching retained bytes", async () => {
-    const operation = emptySnapshot();
-    await prepareEmptyItem(operation.id, trashId);
-    const before = await readFile(
-      path.join(workspace, "media", ".aether-trash", "retained", "payload")
-    );
-    const ownership = getManagedRootOwnership(db, rootId);
-    await disconnect();
-    await acknowledgeLostMedia({ ...options(), operationIds: [operation.id] });
-    expect(getTrashRecord(db, trashId)).toBeNull();
-    expect(getManagedOperation(db, operation.id)?.status).toBe("failed");
-    expect(managedOperationItemSummary(db, operation.id)).toMatchObject({
-      total: 1,
-      failed: 1
-    });
-    expect(
-      JSON.parse(listManagedOperationItems(db, operation.id)[0]!.journalJson)
-    ).toMatchObject({
-      status: "failed",
-      errorCode: "media_lost",
-      snapshotRootId: rootId
-    });
-    expect(
-      await readFile(
-        path.join(
-          workspace,
-          "disconnected",
-          ".aether-trash",
-          "retained",
-          "payload"
+  it.each([
+    { label: "a saved basename", name: "photo.jpg" },
+    { label: "an earlier journal without a label", name: undefined },
+    { label: "a legacy Unix basename", name: "legacy\\photo\n .jpg" },
+    {
+      label: "an expanded Unicode basename",
+      name: `${"e\u0301".repeat(200)}.jpg`
+    }
+  ])(
+    "acknowledges a lost Empty Trash purge with $label without touching retained bytes",
+    async ({ name }) => {
+      const operation = emptySnapshot();
+      const itemId = await prepareEmptyItem(operation.id, trashId);
+      const stored = listManagedOperationItems(db, operation.id)[0]!;
+      const journal = JSON.parse(stored.journalJson) as Record<string, unknown>;
+      if (name === undefined) delete journal.name;
+      else journal.name = name;
+      db.prepare(
+        "UPDATE file_operation_items SET journal_json = ? WHERE id = ?"
+      ).run(JSON.stringify(journal), itemId);
+      const before = await readFile(
+        path.join(workspace, "media", ".aether-trash", "retained", "payload")
+      );
+      const ownership = getManagedRootOwnership(db, rootId);
+      await disconnect();
+      await acknowledgeLostMedia({
+        ...options(),
+        operationIds: [operation.id]
+      });
+      expect(getTrashRecord(db, trashId)).toBeNull();
+      expect(getManagedOperation(db, operation.id)?.status).toBe("failed");
+      expect(managedOperationItemSummary(db, operation.id)).toMatchObject({
+        total: 1,
+        failed: 1
+      });
+      expect(
+        JSON.parse(listManagedOperationItems(db, operation.id)[0]!.journalJson)
+      ).toMatchObject({
+        status: "failed",
+        errorCode: "media_lost",
+        snapshotRootId: rootId
+      });
+      expect(
+        await readFile(
+          path.join(
+            workspace,
+            "disconnected",
+            ".aether-trash",
+            "retained",
+            "payload"
+          )
         )
-      )
-    ).toEqual(before);
-    expect(getManagedRootOwnership(db, rootId)).toEqual(ownership);
-    expect(getWriteReconciliationRequired(db)).toBe(true);
-  });
+      ).toEqual(before);
+      expect(getManagedRootOwnership(db, rootId)).toEqual(ownership);
+      expect(getWriteReconciliationRequired(db)).toBe(true);
+    }
+  );
+
+  it.each([
+    { label: "a non-text value", name: 7 },
+    { label: "a nested object", name: { source: { rootId: "another-root" } } },
+    { label: "an absolute path", name: "/private/photo.jpg" },
+    { label: "a relative path", name: "../photo.jpg" },
+    { label: "an embedded NUL", name: "photo\0.jpg" },
+    { label: "an oversized basename", name: "x".repeat(4097) }
+  ])(
+    "rejects an Empty Trash display label containing $label atomically",
+    async ({ name }) => {
+      const operation = emptySnapshot();
+      const itemId = await prepareEmptyItem(operation.id, trashId);
+      const stored = listManagedOperationItems(db, operation.id)[0]!;
+      const journal = { ...JSON.parse(stored.journalJson), name };
+      db.prepare(
+        "UPDATE file_operation_items SET journal_json = ? WHERE id = ?"
+      ).run(JSON.stringify(journal), itemId);
+      await disconnect();
+      await expect(
+        acknowledgeLostMedia({ ...options(), operationIds: [operation.id] })
+      ).rejects.toThrow("lost_media_operation_unsupported");
+      expect(getTrashRecord(db, trashId)).not.toBeNull();
+      expect(getManagedOperation(db, operation.id)?.status).toBe(
+        "needs_attention"
+      );
+      expect(listManagedOperationItems(db, operation.id)[0]?.journalJson).toBe(
+        JSON.stringify(journal)
+      );
+      expect(
+        db.prepare("SELECT id FROM media_loss_acknowledgements").all()
+      ).toEqual([]);
+    }
+  );
 
   it("forgets only supplied Trash IDs when stopping a larger lost-root snapshot", async () => {
     const retained = await addRetained(0, "second.jpg");
@@ -643,47 +698,61 @@ describe("offline lost media acknowledgement", () => {
     expect(getWriteReconciliationRequired(db)).toBe(false);
   });
 
-  it("cancels only untouched unrelated queued requests before requiring a scan", async () => {
-    const otherRoot = config.mediaRoots[1]!;
-    const id = randomUUID();
-    const input = {
-      folderId: folderIdFor(otherRoot.id, ""),
-      expectedVersion: "version"
-    };
-    createManagedOperation(db, {
-      id,
-      requestJson: JSON.stringify({
-        requestId: id,
-        type: "create-folder",
-        items: [],
-        destinationFolderId: input.folderId,
-        expectedParentVersion: input.expectedVersion,
-        name: "queued"
-      }),
-      stateJson: JSON.stringify({
-        items: [{ input, status: "queued" }],
-        cancelRequested: false
-      })
-    });
-    await writeFile(
-      path.join(otherRoot.realPath, "keep.txt"),
-      "available bytes"
-    );
-    await disconnect();
-    const acknowledged = await acknowledgeLostMedia(options());
-    expect(getManagedOperation(db, id)?.status).toBe("cancelled");
-    expect(JSON.parse(getManagedOperation(db, id)!.stateJson)).toMatchObject({
-      cancelRequested: true,
-      cancelledForReconciliation: acknowledged.id,
-      items: [{ input, status: "cancelled" }]
-    });
-    expect(listPendingManagedOperations(db)).toEqual([]);
-    expect(
-      await readFile(path.join(otherRoot.realPath, "keep.txt"), "utf8")
-    ).toBe("available bytes");
-    expect((await scanLibrary(db, [otherRoot])).outcome).toBe("completed");
-    expect(getWriteReconciliationRequired(db)).toBe(false);
-  });
+  it.each([
+    { label: "saved names", name: "queued" },
+    { label: "legacy names", name: "legacy\\folder\n " },
+    { label: "expanded Unicode names", name: "e\u0301".repeat(200) },
+    { label: "earlier unnamed journals", name: undefined }
+  ])(
+    "cancels only untouched unrelated queued requests with $label before requiring a scan",
+    async ({ name }) => {
+      const otherRoot = config.mediaRoots[1]!;
+      const id = randomUUID();
+      const input = {
+        folderId: folderIdFor(otherRoot.id, ""),
+        expectedVersion: "version"
+      };
+      createManagedOperation(db, {
+        id,
+        requestJson: JSON.stringify({
+          requestId: id,
+          type: "create-folder",
+          items: [],
+          destinationFolderId: input.folderId,
+          expectedParentVersion: input.expectedVersion,
+          name: "queued"
+        }),
+        stateJson: JSON.stringify({
+          items: [{ input, name, status: "queued" }],
+          cancelRequested: false
+        })
+      });
+      await writeFile(
+        path.join(otherRoot.realPath, "keep.txt"),
+        "available bytes"
+      );
+      await disconnect();
+      const acknowledged = await acknowledgeLostMedia(options());
+      expect(getManagedOperation(db, id)?.status).toBe("cancelled");
+      expect(JSON.parse(getManagedOperation(db, id)!.stateJson)).toMatchObject({
+        cancelRequested: true,
+        cancelledForReconciliation: acknowledged.id,
+        items: [
+          {
+            input,
+            ...(name === undefined ? {} : { name }),
+            status: "cancelled"
+          }
+        ]
+      });
+      expect(listPendingManagedOperations(db)).toEqual([]);
+      expect(
+        await readFile(path.join(otherRoot.realPath, "keep.txt"), "utf8")
+      ).toBe("available bytes");
+      expect((await scanLibrary(db, [otherRoot])).outcome).toBe("completed");
+      expect(getWriteReconciliationRequired(db)).toBe(false);
+    }
+  );
 
   it("preserves upload staging and requires uploads to finish or cancel before loss acknowledgement", async () => {
     const id = randomUUID();

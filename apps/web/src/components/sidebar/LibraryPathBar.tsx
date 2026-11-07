@@ -39,6 +39,7 @@ interface LibraryPathBarProps {
   isSettingsOpen: boolean;
   isTrashOpen?: boolean;
   isAddMediaOpen?: boolean;
+  isActivityOpen?: boolean;
   controls?: ReactNode;
   status?: ReactNode;
   searchDraft: string;
@@ -79,6 +80,7 @@ export function LibraryPathBar({
   isSettingsOpen,
   isTrashOpen = false,
   isAddMediaOpen = false,
+  isActivityOpen = false,
   controls,
   status,
   searchDraft,
@@ -99,7 +101,11 @@ export function LibraryPathBar({
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const currentView = libraryViews.find((option) => option.value === view)!;
   const isLibraryOpen =
-    !isSettingsOpen && !isGuideOpen && !isTrashOpen && !isAddMediaOpen;
+    !isSettingsOpen &&
+    !isGuideOpen &&
+    !isTrashOpen &&
+    !isAddMediaOpen &&
+    !isActivityOpen;
 
   useEffect(() => {
     function focusSearch(event: KeyboardEvent) {
@@ -160,7 +166,8 @@ export function LibraryPathBar({
     !isSettingsOpen &&
     !isGuideOpen &&
     !isTrashOpen &&
-    !isAddMediaOpen
+    !isAddMediaOpen &&
+    !isActivityOpen
   ) {
     return (
       <div
@@ -189,7 +196,8 @@ export function LibraryPathBar({
               {isSettingsOpen ||
               isGuideOpen ||
               isTrashOpen ||
-              isAddMediaOpen ? (
+              isAddMediaOpen ||
+              isActivityOpen ? (
                 <>
                   <BreadcrumbItem>
                     <BreadcrumbLink asChild>
@@ -203,11 +211,13 @@ export function LibraryPathBar({
                     <BreadcrumbPage>
                       {isSettingsOpen
                         ? "Settings"
-                        : isAddMediaOpen
-                          ? "Add media"
-                          : isTrashOpen
-                            ? "Trash"
-                            : "User guide"}
+                        : isActivityOpen
+                          ? "Activity"
+                          : isAddMediaOpen
+                            ? "Add media"
+                            : isTrashOpen
+                              ? "Trash"
+                              : "User guide"}
                     </BreadcrumbPage>
                   </BreadcrumbItem>
                 </>

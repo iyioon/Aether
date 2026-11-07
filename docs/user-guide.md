@@ -35,7 +35,13 @@ remember their card shape and details separately; Feed uses Portrait.
 Scores, favorites and tags update when saved. If a change affects the current
 sorting or filters, cards stay in place until you choose **Update results** or
 change the view. This lets you adjust a score several times without moving its
-controls. Update results also continues loading when the result order changes.
+controls. **Update results** is above the search bar. Loading more results pauses
+while sorting or filtering changes are waiting.
+
+Completed uploads, restores, moves, renames and deletions update the Gallery
+automatically. Aether keeps your browsing position where possible and waits for
+selection or editing to finish. Any waiting score or tag changes keep their
+current order until you choose **Update results**.
 
 ### Use the viewer
 
@@ -167,11 +173,12 @@ drafts while retaining earlier applied changes. **Done** returns to browsing.
 
 ### Create or rename a folder
 
-1. Open the selected folder’s actions.
+1. Right-click a folder in the tree, or select it and open **Selected folder
+   actions**. With the folder focused, use Shift+F10 or the Menu key.
 2. Choose **New folder** or **Rename**.
 3. Enter the name and choose **Create folder** or **Rename**.
 
-New folder creates a child of the selected folder. Assigned roots cannot be
+New folder creates a child of that folder. Assigned roots cannot be
 renamed or moved. A folder rename includes its contents.
 
 ### Rename or move media
@@ -202,7 +209,7 @@ results and recovery; retry only unsuccessful items.
    the grid on desktop.
 2. Review the files, limits and writable destination. Use **Choose more files**
    to extend the selection.
-3. Choose **Add files**. The library reopens with progress in **Activity**.
+3. Choose **Add files**. **Activity** opens with upload progress.
 
 **Cancel** clears the unsubmitted selection and returns to the library. Leaving
 through library navigation or browser history keeps the selection in the current
@@ -215,9 +222,12 @@ tab until a reload. Folder uploads are not supported.
    select **Restore**.
 
 Trash retains files for 30 days by default and still uses disk space. The Trash
-page shows the server's retention period. Restore uses the
-original folder when available, following it if renamed or moved; otherwise
+page shows each item's original folder, retained size and deletion date, along
+with the server's retention period. Search finds retained items; selecting items
+shows actions for that selection. Restore uses the original folder when available, following it if renamed or moved; otherwise
 choose another writable destination. Conflicts never replace existing files.
+Items being restored or deleted show their current status. Use **View activity**
+for details; other items remain available.
 
 **Delete permanently** cannot be undone. **Empty Trash** includes items hidden
 by its search and requires a separate confirmation. An unavailable drive remains
@@ -226,8 +236,13 @@ unavailable; it is not an empty Trash.
 ### Check Activity
 
 Open **Account → Activity** in the sidebar for upload progress, completed work and
-items needing attention. Each operation identifies its media or folder. Closing
-Activity does not cancel accepted work.
+items needing attention. Activity opens as a page. Each result identifies its
+media or folder, action, time and status. Use **Needs attention** to find paused
+uploads and operations that need recovery. **Refresh Activity** checks for the
+latest results. Leaving the page does not cancel accepted work.
+
+Routine file actions keep the current view open and report their result in a
+notification. Use **View activity** for details.
 
 Uploads can pause offline or when the app leaves the foreground. Return to
 resume. After a reload, choose **Resume** and select the same file beside its transfer; Aether checks the

@@ -20,6 +20,7 @@ import { FolderTreePanel } from "../FolderTreePanel";
 import type {
   FolderScanState,
   FolderSortMode,
+  FolderTreeAction,
   FolderTreeItem
 } from "../folders/folder-tree-types";
 import {
@@ -78,9 +79,7 @@ interface LibrarySidebarProps {
   onScan: () => void;
   canCreateFolder?: boolean;
   canManageFolder?: boolean;
-  onFolderAction?: (
-    action: "create-folder" | "rename-folder" | "move-folder"
-  ) => void;
+  onFolderAction?: (action: FolderTreeAction, folderId?: string) => void;
   onSelectFolder: (folderId: string) => void;
   onToggleFolderExpansion: (folderId: string) => void;
 }
@@ -171,10 +170,14 @@ export function LibrarySidebar({
             onScan={onScan}
             canCreateFolder={canCreateFolder}
             canManageFolder={canManageFolder}
-            onFolderAction={(action) => {
-              setOpenMobile(false);
-              onFolderAction?.(action);
-            }}
+            onFolderAction={
+              onFolderAction
+                ? (action, folderId) => {
+                    setOpenMobile(false);
+                    onFolderAction(action, folderId);
+                  }
+                : undefined
+            }
             onSelectFolder={selectFolder}
             onToggleFolderExpansion={onToggleFolderExpansion}
           />

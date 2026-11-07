@@ -6,6 +6,11 @@ Notable changes to Aether are recorded here.
 
 ### Fixed
 
+- Keep Activity refreshes from failing uploads admitted before their staging
+  files are created.
+- Retain filenames in Activity after moving media to Trash, restoring it or
+  deleting it permanently.
+
 - Complete same-volume moves to Trash when native rename updates filesystem
   metadata, avoiding false name conflicts and stale Gallery records.
 - Enable full-device SQLite journal synchronization for macOS file operations.
@@ -15,6 +20,8 @@ Notable changes to Aether are recorded here.
 
 ### Added
 
+- Folder-tree context actions for New folder, Rename and Move to, available
+  through right-click, keyboard and touch hold.
 - Opt-in named writable roots, durable folder creation, media/folder rename and
   moves, recoverable Trash, restore, permanent deletion and Activity. Linux and
   macOS use descriptor-based native operations and retain ambiguous operations
@@ -42,6 +49,17 @@ Notable changes to Aether are recorded here.
 - Offline interface recovery, while private media and metadata remain online.
 
 ### Changed
+
+- Refresh Gallery results automatically after completed file actions, preserving
+  browsing position where possible. Keep pending score and tag sorting stable
+  through file changes, with one Update results action above the search bar.
+- Open Activity as a separate page with filenames, timestamps, status and a
+  Needs attention filter. Combine each upload and its final result in one entry.
+  Keep routine file actions in the current view and open Activity after adding
+  files.
+- Refine Trash search, selection actions, original-folder details, loading,
+  empty states and retry controls. Show pending restore/deletion status and
+  prevent conflicting actions.
 
 - Place the view switcher at the end of the search row with a separator, and show
   Add media only in Gallery. Keep result updates in the navigation row.

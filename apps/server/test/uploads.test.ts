@@ -10,6 +10,7 @@ import {
   writeFile,
   open,
   lstat,
+  statfs,
   type FileHandle
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -36,7 +37,11 @@ import { runMediaCommand } from "../src/library/video-processing.js";
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:fs/promises")>();
-  return { ...original, lstat: vi.fn(original.lstat) };
+  return {
+    ...original,
+    lstat: vi.fn(original.lstat),
+    statfs: vi.fn(original.statfs)
+  };
 });
 
 describe.skipIf(!["linux", "darwin"].includes(process.platform))(
@@ -176,7 +181,8 @@ describe.skipIf(!["linux", "darwin"].includes(process.platform))(
     async function create(
       name = "added.jpg",
       size = jpeg.length,
-      requestId = randomUUID()
+      requestId = randomUUID(),
+      signal?: AbortSignal
     ) {
       const metadata = {
         requestId,
@@ -188,6 +194,7 @@ describe.skipIf(!["linux", "darwin"].includes(process.platform))(
       return app.inject({
         method: "POST",
         url: "/api/uploads",
+        signal,
         headers: {
           ...headers,
           "upload-length": String(size),
@@ -486,6 +493,206 @@ describe.skipIf(!["linux", "darwin"].includes(process.platform))(
       expect(
         (await create("cancelled.jpg", jpeg.length, requestId)).statusCode
       ).toBe(409);
+    });
+
+    it.each([false, true])(
+      "keeps concurrent status reads from retiring an admission before staging exists (cancelled: %s)",
+      async (cancelled) => {
+        const { statfs: originalStatfs } =
+          await vi.importActual<typeof import("node:fs/promises")>(
+            "node:fs/promises"
+          );
+        let unblock!: () => void;
+        const blockedUntil = new Promise<void>((resolve) => {
+          unblock = resolve;
+        });
+        let blocked = false;
+        const space = vi
+          .mocked(statfs)
+          .mockImplementation(async (target, options) => {
+            const info = await originalStatfs(target, options);
+            if (!blocked && target === config.mediaRoots[0]!.realPath) {
+              blocked = true;
+              await blockedUntil;
+            }
+            return info;
+          });
+        const requestId = randomUUID();
+        const creation = create("admission.jpg", jpeg.length, requestId);
+        try {
+          await expect.poll(() => blocked).toBe(true);
+          const admitted = getManagedUploadByRequestId(db, requestId)!;
+          expect(admitted.stagingIdentity).toBeUndefined();
+          const status = await app.inject({
+            url: "/api/uploads/status",
+            headers
+          });
+          expect(status.statusCode).toBe(200);
+          expect(status.json().items).toContainEqual(
+            expect.objectContaining({
+              id: admitted.id,
+              status: "receiving",
+              offset: 0
+            })
+          );
+          expect(getManagedUpload(db, admitted.id)).toMatchObject({
+            status: "receiving",
+            cleanedUp: false
+          });
+          if (cancelled) {
+            const cancellation = await app.inject({
+              method: "POST",
+              url: "/api/uploads/cancel",
+              headers,
+              payload: { requestId }
+            });
+            expect(cancellation.statusCode).toBe(200);
+            expect(getManagedUpload(db, admitted.id)).toMatchObject({
+              status: "cancelled",
+              cleanedUp: false
+            });
+          }
+          unblock();
+          const response = await creation;
+          expect(response.statusCode).toBe(cancelled ? 409 : 201);
+          if (cancelled) {
+            await expect
+              .poll(() => getManagedUpload(db, admitted.id)?.cleanedUp)
+              .toBe(true);
+            expect(getManagedUpload(db, admitted.id)).toMatchObject({
+              status: "cancelled",
+              cleanedUp: true
+            });
+            await expect(
+              readFile(path.join(config.dataDir, "uploads", admitted.id))
+            ).rejects.toMatchObject({ code: "ENOENT" });
+            expect(db.prepare("SELECT id FROM file_operations").all()).toEqual(
+              []
+            );
+          } else {
+            expect(
+              (await patch(response.headers.location!, 0, jpeg.subarray(0, 40)))
+                .statusCode
+            ).toBe(204);
+            const prefix = await app.inject({
+              url: `${response.headers.location!}/prefix`,
+              headers
+            });
+            expect(prefix.statusCode).toBe(200);
+            expect(prefix.json()).toEqual({
+              offset: 40,
+              sha256: createHash("sha256")
+                .update(jpeg.subarray(0, 40))
+                .digest("hex")
+            });
+          }
+        } finally {
+          unblock();
+          await creation;
+          space.mockImplementation(originalStatfs);
+        }
+      }
+    );
+
+    it("bounds concurrent admission claims before staging creation", async () => {
+      const { statfs: originalStatfs } =
+        await vi.importActual<typeof import("node:fs/promises")>(
+          "node:fs/promises"
+        );
+      let unblock!: () => void;
+      const blockedUntil = new Promise<void>((resolve) => {
+        unblock = resolve;
+      });
+      let blocked = 0;
+      const space = vi
+        .mocked(statfs)
+        .mockImplementation(async (target, options) => {
+          const info = await originalStatfs(target, options);
+          if (target === config.mediaRoots[0]!.realPath) {
+            blocked += 1;
+            await blockedUntil;
+          }
+          return info;
+        });
+      const first = create("first.jpg");
+      const second = create("second.jpg");
+      try {
+        await expect.poll(() => blocked).toBe(2);
+        expect((await create("third.jpg")).statusCode).toBe(429);
+        expect(listManagedUploads(db)).toHaveLength(2);
+        unblock();
+        expect((await first).statusCode).toBe(201);
+        expect((await second).statusCode).toBe(201);
+        expect((await create("after-claims.jpg")).statusCode).toBe(201);
+      } finally {
+        unblock();
+        await Promise.all([first, second]);
+        space.mockImplementation(originalStatfs);
+      }
+    });
+
+    it("drains an admitted creation after its client disconnects before staging exists", async () => {
+      const { statfs: originalStatfs } =
+        await vi.importActual<typeof import("node:fs/promises")>(
+          "node:fs/promises"
+        );
+      let unblock!: () => void;
+      const blockedUntil = new Promise<void>((resolve) => {
+        unblock = resolve;
+      });
+      let blocked = false;
+      const space = vi
+        .mocked(statfs)
+        .mockImplementation(async (target, options) => {
+          const info = await originalStatfs(target, options);
+          if (!blocked && target === config.mediaRoots[0]!.realPath) {
+            blocked = true;
+            await blockedUntil;
+          }
+          return info;
+        });
+      const controller = new AbortController();
+      const requestId = randomUUID();
+      const creation = create(
+        "disconnected.jpg",
+        jpeg.length,
+        requestId,
+        controller.signal
+      ).then(
+        (response) => ({ status: response.statusCode }),
+        (error: NodeJS.ErrnoException) => ({ code: error.code })
+      );
+      let closing: Promise<void> | undefined;
+      try {
+        await expect.poll(() => blocked).toBe(true);
+        const admitted = getManagedUploadByRequestId(db, requestId)!;
+        expect(admitted.stagingIdentity).toBeUndefined();
+        controller.abort();
+        await expect(creation).resolves.toEqual({ code: "ABORT_ERR" });
+        let closed = false;
+        closing = app.close().then(() => {
+          closed = true;
+        });
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        expect(closed).toBe(false);
+        expect(db.open).toBe(true);
+        expect(getManagedUpload(db, admitted.id)).toMatchObject({
+          status: "receiving"
+        });
+        unblock();
+        await closing;
+        const retained = getManagedUpload(db, admitted.id)!;
+        expect(retained).toMatchObject({ status: "receiving", offset: 0 });
+        expect(retained.stagingIdentity).toBeDefined();
+        expect(
+          await readFile(path.join(config.dataDir, "uploads", admitted.id))
+        ).toEqual(Buffer.alloc(0));
+      } finally {
+        unblock();
+        await creation;
+        await closing;
+        space.mockImplementation(originalStatfs);
+      }
     });
 
     it("preserves cancellation during stage creation and cleans it after the creation claim drains", async () => {

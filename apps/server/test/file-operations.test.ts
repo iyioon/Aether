@@ -468,7 +468,7 @@ describe.skipIf(!["linux", "darwin"].includes(process.platform))(
       expect(getManagedAsset(db, photoId)?.relativePath).toBe("photo.jpg");
     });
 
-    it("hydrates current receipt metadata and omits assets that have since entered Trash", async () => {
+    it("retains operation names while hydrating current metadata and omitting inactive assets", async () => {
       const renamed = await run(
         request("rename-media", {
           items: [assetItem(photoId)],
@@ -484,6 +484,16 @@ describe.skipIf(!["linux", "darwin"].includes(process.platform))(
       expect(manager.get(renamed.id)?.items[0]?.asset).toMatchObject({
         score: 83,
         tags: [expect.objectContaining({ displayName: "Current tag" })]
+      });
+      await run(
+        request("rename-media", {
+          items: [assetItem(photoId)],
+          name: "Latest"
+        })
+      );
+      expect(manager.get(renamed.id)?.items[0]).toMatchObject({
+        name: "Current.jpg",
+        asset: { name: "Latest.jpg" }
       });
       const created = await run(
         request("create-folder", {
@@ -501,9 +511,11 @@ describe.skipIf(!["linux", "darwin"].includes(process.platform))(
         })
       );
       expect(manager.get(created.id)?.items[0]?.folder?.name).toBe("Second");
+      expect(manager.get(created.id)?.items[0]?.name).toBe("First");
       await run(request("trash", { items: [assetItem(photoId)] }));
       expect(manager.get(renamed.id)?.items[0]).toMatchObject({
         assetId: photoId,
+        name: "Current.jpg",
         status: "completed"
       });
       expect(manager.get(renamed.id)?.items[0]?.asset).toBeUndefined();
@@ -682,6 +694,7 @@ describe.skipIf(!["linux", "darwin"].includes(process.platform))(
       );
       expect(kept.status).toBe("completed");
       expect(kept.items[0]?.asset?.name).toBe("photo (2).jpg");
+      expect(kept.items[0]?.name).toBe("photo (2).jpg");
     });
 
     it("replays identical requests without repeating writes and rejects a changed intent", async () => {
@@ -1582,7 +1595,10 @@ describe.skipIf(!["linux", "darwin"].includes(process.platform))(
       const trashed = await run(
         request("trash", { items: [assetItem(photoId)] })
       );
-      expect(trashed.status).toBe("completed");
+      expect(trashed).toMatchObject({
+        status: "completed",
+        items: [{ name: "photo.jpg", assetId: photoId }]
+      });
       const trashId = trashed.items[0]!.trashId!;
       expect(getAsset(db, photoId)).toBeNull();
       const record = getTrashRecord(db, trashId)!;
@@ -1598,7 +1614,10 @@ describe.skipIf(!["linux", "darwin"].includes(process.platform))(
           items: [{ trashId, expectedVersion: record.sourceVersion }]
         })
       );
-      expect(restored.status).toBe("completed");
+      expect(restored).toMatchObject({
+        status: "completed",
+        items: [{ name: "photo.jpg", assetId: photoId }]
+      });
       expect(getAsset(db, photoId)).toMatchObject({
         score: 92,
         favorite: true,
@@ -1616,13 +1635,63 @@ describe.skipIf(!["linux", "darwin"].includes(process.platform))(
           ]
         })
       );
-      expect(purged.status).toBe("completed");
+      expect(purged).toMatchObject({
+        status: "completed",
+        items: [{ name: "photo.jpg", assetId: photoId }]
+      });
       expect(getManagedAsset(db, photoId)).toBeNull();
       expect(listTrash(db)).toHaveLength(0);
       await expect(
         stat(path.join(sourceRoot.realPath, secondRecord.physicalRelativePath))
       ).rejects.toMatchObject({ code: "ENOENT" });
-      expect(manager.get(trashed.id)).toBeTruthy();
+      await manager.close();
+      db.close();
+      db = openDatabase(config.configDir);
+      manager = new FileOperationManager(config, db);
+      await manager.initialize();
+      for (const operation of [trashed, restored, secondTrash, purged]) {
+        const receipt = manager.get(operation.id)!;
+        expect(receipt).toMatchObject({
+          status: "completed",
+          items: [{ name: "photo.jpg", assetId: photoId }]
+        });
+        expect(receipt.items[0]?.asset).toBeUndefined();
+        expect(JSON.stringify(receipt)).not.toContain(sourceRoot.realPath);
+        expect(JSON.stringify(receipt)).not.toContain(".aether-trash/");
+        expect(
+          manager.list().find(({ id }) => id === operation.id)?.items
+        ).toEqual(receipt.items);
+      }
+    });
+
+    it("identifies earlier completed Trash receipts from the retained original name and journal", async () => {
+      const trashed = await run(
+        request("trash", { items: [assetItem(photoId)] })
+      );
+      const operation = getManagedOperation(db, trashed.id)!;
+      const journal = JSON.parse(operation.stateJson) as {
+        items: Array<{ name?: string }>;
+      };
+      delete journal.items[0]!.name;
+      updateManagedOperation(db, operation.id, {
+        status: operation.status,
+        stateJson: JSON.stringify(journal)
+      });
+      expect(manager.get(trashed.id)?.items[0]?.name).toBe("photo.jpg");
+      const record = getTrashRecord(db, trashed.items[0]!.trashId!)!;
+      await run(
+        request("purge", {
+          items: [{ trashId: record.id, expectedVersion: record.sourceVersion }]
+        })
+      );
+      await manager.close();
+      manager = new FileOperationManager(config, db);
+      await manager.initialize();
+      expect(getTrashRecord(db, record.id)).toBeNull();
+      expect(manager.get(trashed.id)).toMatchObject({
+        status: "completed",
+        items: [{ name: "photo.jpg", assetId: photoId }]
+      });
     });
 
     it("snapshots every retained item beyond the first page and replays the same Empty Trash receipt", async () => {
@@ -1637,6 +1706,7 @@ describe.skipIf(!["linux", "darwin"].includes(process.platform))(
           .prepare("SELECT id FROM assets WHERE lifecycle = 'active'")
           .all() as Array<{ id: string }>
       ).map(({ id }) => id);
+      const names = new Set(ids.map((id) => getAsset(db, id)!.name));
       expect(ids).toHaveLength(105);
       for (let offset = 0; offset < ids.length; offset += 100) {
         const result = await run(
@@ -1666,6 +1736,7 @@ describe.skipIf(!["linux", "darwin"].includes(process.platform))(
         needsAttention: 0
       });
       expect(accepted.items).toHaveLength(100);
+      expect(accepted.items.every((item) => names.has(item.name!))).toBe(true);
       await vi.waitFor(
         () => expect(manager.get(input.requestId)?.status).toBe("completed"),
         { timeout: 30_000, interval: 20 }
@@ -1680,6 +1751,13 @@ describe.skipIf(!["linux", "darwin"].includes(process.platform))(
         needsAttention: 0
       });
       expect(replay.items).toHaveLength(100);
+      expect(replay.items.map((item) => item.name)).toEqual(
+        accepted.items.map((item) => item.name)
+      );
+      await manager.close();
+      manager = new FileOperationManager(config, db);
+      await manager.initialize();
+      expect(manager.get(replay.id)?.items).toEqual(replay.items);
       expect(() =>
         manager.submitEmptyTrash({ ...input, expectedCount: 0 })
       ).toThrow("request_id_conflict");

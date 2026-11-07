@@ -83,6 +83,7 @@ interface Location {
 }
 interface ItemJournal {
   input: FileOperationRequestItem;
+  name?: string;
   status:
     | "queued"
     | "running"
@@ -466,6 +467,7 @@ export class FileOperationManager {
         expectedCount: request.expectedCount!
       });
     const existing = getManagedOperation(this.db, request.requestId);
+    const itemNames = new Map<string, string>();
     if (!existing) {
       if (
         listPendingManagedOperations(this.db).some(
@@ -515,6 +517,16 @@ export class FileOperationManager {
         }
         if (source.sourceVersion !== item.expectedVersion)
           throw new FileManagementError("source_changed");
+        const name =
+          "originalName" in source ? source.originalName : source.name;
+        itemNames.set(
+          item.assetId ?? item.folderId ?? item.trashId!,
+          request.type === "rename-media"
+            ? `${request.name!}${path.posix.extname(name)}`
+            : request.type === "rename-folder"
+              ? request.name!
+              : name
+        );
       }
     }
     const journal: OperationJournal = {
@@ -526,10 +538,17 @@ export class FileOperationManager {
                   folderId: request.destinationFolderId!,
                   expectedVersion: request.expectedParentVersion!
                 },
+                name: request.name,
                 status: "queued"
               }
             ]
-          : request.items.map((item) => ({ input: item, status: "queued" })),
+          : request.items.map((item) => ({
+              input: item,
+              name: itemNames.get(
+                item.assetId ?? item.folderId ?? item.trashId!
+              ),
+              status: "queued"
+            })),
       cancelRequested: false
     };
     const created = createManagedOperation(this.db, {
@@ -990,6 +1009,7 @@ export class FileOperationManager {
         contentSha256: sha256,
         seenAt: new Date().toISOString()
       });
+      item.name = item.asset.name;
       item.phase = "committed";
       persist();
     }
@@ -1102,6 +1122,7 @@ export class FileOperationManager {
         name,
         identity: directoryIdentity(actual)
       });
+    item.name = item.folder.name;
     item.phase = "committed";
     persist();
   }
@@ -1538,6 +1559,8 @@ export class FileOperationManager {
                 identity: fileIdentity(actual)
               });
       }
+      if (request.type !== "trash")
+        item.name = item.asset?.name ?? item.folder?.name ?? item.name;
       item.phase = "committed";
       persist();
     }
@@ -1616,6 +1639,7 @@ export class FileOperationManager {
     }
     if (record.sourceVersion !== item.input.expectedVersion)
       throw new FileManagementError("source_changed");
+    item.name ??= record.originalName;
     const location = {
       rootId: record.identity.rootId,
       relativePath: record.physicalRelativePath
@@ -1978,9 +2002,9 @@ export class FileOperationManager {
         items: items.map((item) => {
           return {
             trashId: item.input.trashId,
-            name: item.input.trashId
-              ? names.get(item.input.trashId)
-              : undefined,
+            name:
+              item.name ??
+              (item.input.trashId ? names.get(item.input.trashId) : undefined),
             status: item.status,
             errorCode: item.errorCode
           };
@@ -2023,9 +2047,10 @@ export class FileOperationManager {
     const trashNames = new Map(
       getTrashNamesByIds(
         this.db,
-        journal.items.flatMap((item) =>
-          item.input.trashId ? [item.input.trashId] : []
-        )
+        journal.items.flatMap((item) => {
+          const id = item.trashId ?? item.input.trashId;
+          return id ? [id] : [];
+        })
       ).map((item) => [item.id, item.name])
     );
     return {
@@ -2039,9 +2064,22 @@ export class FileOperationManager {
         trashId: item.trashId ?? item.input.trashId,
         status: item.status,
         errorCode: item.errorCode,
-        name: item.input.trashId
-          ? trashNames.get(item.input.trashId)
-          : undefined,
+        name:
+          item.name ??
+          item.asset?.name ??
+          item.folder?.name ??
+          trashNames.get(item.trashId ?? item.input.trashId ?? "") ??
+          (request.type === "trash" && item.source
+            ? path.posix.basename(item.source.relativePath)
+            : request.type !== "purge" && item.destination
+              ? path.posix.basename(item.destination.relativePath)
+              : undefined) ??
+          (request.type === "create-folder" || request.type === "add-media"
+            ? request.name
+            : undefined) ??
+          currentAssets.get(item.input.assetId ?? item.sourceAssetId ?? "")
+            ?.name ??
+          currentFolders.get(item.input.folderId ?? "")?.name,
         asset: currentAssets.get(
           item.input.assetId ?? item.sourceAssetId ?? item.asset?.id ?? ""
         ),

@@ -87,15 +87,16 @@ async function toolbarGeometry(page: Page) {
       })
   );
 }
-async function closeActivity(page: Page) {
-  const activity = page.getByRole("dialog", { name: "Activity", exact: true });
-  await expect(activity).toBeVisible();
-  await activity.getByRole("button", { name: "Close", exact: true }).click();
-  await expect(activity).toBeHidden();
+async function returnToLibrary(page: Page) {
+  const activity = page.getByRole("region", { name: "Activity", exact: true });
+  if (await activity.isVisible()) {
+    await page.getByRole("button", { name: "Library", exact: true }).click();
+    await expect(activity).toBeHidden();
+  }
 }
 async function openActivity(page: Page) {
   await chooseAccountAction(page, "Activity");
-  const activity = page.getByRole("dialog", { name: "Activity", exact: true });
+  const activity = page.getByRole("region", { name: "Activity", exact: true });
   await expect(activity).toBeVisible();
   return activity;
 }
@@ -103,7 +104,7 @@ async function operationDone(
   page: Page,
   type: FileOperation["type"],
   name?: string,
-  closePanel = true
+  returnToGallery = true
 ) {
   let result: FileOperation | undefined;
   await expect
@@ -117,7 +118,7 @@ async function operationDone(
             (!name ||
               operation.items.some(
                 (item) =>
-                  item.asset?.name === name ||
+                  (item.asset?.name ?? item.name) === name ||
                   (item.folder?.label ?? item.folder?.name) === name
               ))
         );
@@ -126,7 +127,7 @@ async function operationDone(
       { timeout: 30_000 }
     )
     .toBe("completed");
-  if (closePanel) await closeActivity(page);
+  if (returnToGallery) await returnToLibrary(page);
   return result!;
 }
 
@@ -427,7 +428,7 @@ test("creates folders and adds, renames, moves, restores and permanently deletes
       .getByRole("region", { name: "Library controls" })
       .getByRole("button", { name: "Add media", exact: true })
       .click();
-    const upload = page.getByRole("region", { name: "Add media", exact: true });
+    const upload = page.locator(".add-media-page");
     await upload.getByLabel("Choose media", { exact: true }).setInputFiles({
       name: originalName,
       mimeType: "image/png",
@@ -457,8 +458,22 @@ test("creates folders and adds, renames, moves, restores and permanently deletes
       .getByRole("button", { name: "Add files", exact: true })
       .click();
     await expect(upload).toBeHidden();
-    await operationDone(page, "add-media", originalName);
-    await page.goto(`/?folder=${folder.id}&view=gallery&sort=filename`);
+    await operationDone(page, "add-media", originalName, false);
+    const activity = page.getByRole("region", {
+      name: "Activity",
+      exact: true
+    });
+    await expect(page).toHaveURL(/\bpage=activity\b/);
+    await expect(
+      activity.getByRole("region", {
+        name: `Upload ${originalName}`,
+        exact: true
+      })
+    ).toContainText("Completed");
+    await expect(activity.getByText(originalName, { exact: true })).toHaveCount(
+      1
+    );
+    await returnToLibrary(page);
     await expect(
       page.getByRole("button", { name: `Open ${originalName}`, exact: true })
     ).toBeVisible();
@@ -517,12 +532,12 @@ test("creates folders and adds, renames, moves, restores and permanently deletes
       .click();
     await operationDone(page, "trash", undefined, false);
     await expect(
-      page.getByRole("dialog", { name: "Activity", exact: true })
-    ).toBeVisible();
+      page.getByRole("region", { name: "Activity", exact: true })
+    ).toBeHidden();
     await expect(
       page.getByRole("button", { name: `Open ${renamedName}`, exact: true })
     ).toHaveCount(0);
-    await closeActivity(page);
+    await returnToLibrary(page);
     await chooseAccountAction(page, "Trash");
     await expect(
       page.getByRole("heading", { name: renamedName, exact: true })
@@ -535,6 +550,10 @@ test("creates folders and adds, renames, moves, restores and permanently deletes
       .getByRole("button", { name: "Restore", exact: true })
       .click();
     await operationDone(page, "restore", renamedName);
+    await page.getByRole("button", { name: "Library", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: `Open ${renamedName}`, exact: true })
+    ).toBeVisible();
     const restored = (await (
       await page.request.get(`/api/assets/${asset.id}`)
     ).json()) as AssetRecord;
@@ -561,6 +580,7 @@ test("creates folders and adds, renames, moves, restores and permanently deletes
           ).status
       )
       .toBe("completed");
+    await chooseAccountAction(page, "Trash");
     await page
       .getByRole("button", { name: "Refresh Trash", exact: true })
       .click();
@@ -608,9 +628,19 @@ test("checks retained bytes before resuming a reselected upload after reload", a
   const held = new Promise<void>((resolve) => {
     release = resolve;
   });
+  let finishHeldPatch: () => void = () => undefined;
+  const heldPatchFinished = new Promise<void>((resolve) => {
+    finishHeldPatch = resolve;
+  });
   let secondChunk = false;
   let patchRequests = 0;
+  let admissions = 0;
   page.on("request", (request) => {
+    if (
+      request.method() === "POST" &&
+      new URL(request.url()).pathname === "/api/uploads"
+    )
+      admissions += 1;
     if (
       request.method() === "PATCH" &&
       new URL(request.url()).pathname.startsWith("/api/uploads/")
@@ -626,6 +656,7 @@ test("checks retained bytes before resuming a reselected upload after reload", a
       secondChunk = true;
       await held;
       await route.abort("aborted").catch(() => undefined);
+      finishHeldPatch();
       return;
     }
     await route.continue().catch(() => undefined);
@@ -635,10 +666,7 @@ test("checks retained bytes before resuming a reselected upload after reload", a
       .getByRole("region", { name: "Library controls" })
       .getByRole("button", { name: "Add media", exact: true })
       .click();
-    const addMedia = page.getByRole("region", {
-      name: "Add media",
-      exact: true
-    });
+    const addMedia = page.locator(".add-media-page");
     await addMedia
       .getByLabel("Choose media", { exact: true })
       .setInputFiles({ name, mimeType: "image/png", buffer: bytes });
@@ -646,13 +674,22 @@ test("checks retained bytes before resuming a reselected upload after reload", a
       .getByRole("button", { name: "Add files", exact: true })
       .click();
     await expect(addMedia).toBeHidden();
-    let activity = page.getByRole("dialog", {
+    let activity = page.getByRole("region", {
       name: "Activity",
       exact: true
     });
     await expect.poll(() => secondChunk, { timeout: 30_000 }).toBe(true);
+    await chooseAccountAction(page, "Settings");
+    await expect(activity).toBeHidden();
+    await expect(
+      page.getByRole("region", { name: "Settings", exact: true })
+    ).toBeVisible();
+    activity = await openActivity(page);
+    await expect(activity).toContainText(name);
+    expect(admissions).toBe(1);
     await activity.getByRole("button", { name: "Pause", exact: true }).click();
     release();
+    await heldPatchFinished;
     await page.unroute("**/api/uploads/*");
     const before = (await (
       await page.request.get("/api/uploads/status")
@@ -676,10 +713,10 @@ test("checks retained bytes before resuming a reselected upload after reload", a
     expect(pausedProof!.offset).toBeLessThan(bytes.length);
     await page.reload();
     activity = await openActivity(page);
-    const row = activity
-      .getByRole("region", { name: "Uploads", exact: true })
-      .locator("section")
-      .filter({ hasText: name });
+    const row = activity.getByRole("region", {
+      name: `Upload ${name}`,
+      exact: true
+    });
     const beforeMismatchPatches = patchRequests;
     await row.getByRole("button", { name: "Resume", exact: true }).click();
     await activity
@@ -780,7 +817,7 @@ test("reviews desktop drops before submission and rejects folder drops", async (
       new DragEvent("drop", { dataTransfer: files, cancelable: true })
     );
   });
-  const addMedia = page.getByRole("region", { name: "Add media", exact: true });
+  const addMedia = page.locator(".add-media-page");
   const review = addMedia.getByRole("list", { name: "Files to add" });
   await expect(review).toContainText("review-photo.png");
   await expect(
@@ -895,10 +932,7 @@ test("abandons a pending upload name check when leaving Add media", async ({
       .getByRole("region", { name: "Library controls" })
       .getByRole("button", { name: "Add media", exact: true })
       .click();
-    const addMedia = page.getByRole("region", {
-      name: "Add media",
-      exact: true
-    });
+    const addMedia = page.locator(".add-media-page");
     await addMedia.getByLabel("Choose media", { exact: true }).setInputFiles({
       name,
       mimeType: "image/png",
@@ -929,7 +963,7 @@ test("abandons a pending upload name check when leaving Add media", async ({
     );
     await expect(settings).toBeVisible();
     await expect(
-      page.getByRole("dialog", { name: "Activity", exact: true })
+      page.getByRole("region", { name: "Activity", exact: true })
     ).toBeHidden();
     expect(admissions).toBe(0);
     await page.getByRole("button", { name: "Library", exact: true }).click();
@@ -987,10 +1021,7 @@ test("cancels a pending upload name check without admitting a late result", asyn
       .getByRole("region", { name: "Library controls" })
       .getByRole("button", { name: "Add media", exact: true });
     await addButton.click();
-    const addMedia = page.getByRole("region", {
-      name: "Add media",
-      exact: true
-    });
+    const addMedia = page.locator(".add-media-page");
     await addMedia.getByLabel("Choose media", { exact: true }).setInputFiles({
       name: `cancelled-draft-${Date.now()}.png`,
       mimeType: "image/png",
@@ -1011,7 +1042,7 @@ test("cancels a pending upload name check without admitting a late result", asyn
     release();
     await expect.poll(() => previewReleased).toBe(true);
     await expect(
-      page.getByRole("dialog", { name: "Activity", exact: true })
+      page.getByRole("region", { name: "Activity", exact: true })
     ).toBeHidden();
     await expect(
       page.getByRole("region", { name: "Gallery view", exact: true })
@@ -1051,10 +1082,7 @@ test("initializes the upload destination after an early file selection while the
   });
   try {
     await page.goto(`/?folder=${root.folderId}&page=add-media&view=gallery`);
-    const addMedia = page.getByRole("region", {
-      name: "Add media",
-      exact: true
-    });
+    const addMedia = page.locator(".add-media-page");
     await expect(addMedia).toBeVisible();
     await expect.poll(() => treeRequested).toBe(true);
     await addMedia.getByLabel("Choose media", { exact: true }).setInputFiles({
@@ -1123,16 +1151,13 @@ for (const layout of ["desktop", "phone", "landscape"] as const) {
       await expect(
         activity.getByRole("heading", { name: "Add media", exact: true })
       ).toHaveCount(0);
-      await closeActivity(page);
+      await returnToLibrary(page);
       const addButton = page
         .getByRole("region", { name: "Library controls" })
         .getByRole("button", { name: "Add media", exact: true });
-      await expect(addButton).toBeFocused();
+      await expect(addButton).toBeEnabled();
       await addButton.click();
-      const addMedia = page.getByRole("region", {
-        name: "Add media",
-        exact: true
-      });
+      const addMedia = page.locator(".add-media-page");
       await expect(addMedia).toBeVisible();
       await expect(page.getByRole("dialog")).toHaveCount(0);
       const heading = addMedia.getByRole("heading", {
@@ -1345,10 +1370,7 @@ test("cancels an upload before its creation response and prevents late admission
       .getByRole("region", { name: "Library controls" })
       .getByRole("button", { name: "Add media", exact: true })
       .click();
-    const addMedia = page.getByRole("region", {
-      name: "Add media",
-      exact: true
-    });
+    const addMedia = page.locator(".add-media-page");
     const name = `cancelled-${Date.now()}.png`;
     await addMedia.getByLabel("Choose media", { exact: true }).setInputFiles({
       name,
@@ -1360,14 +1382,14 @@ test("cancels an upload before its creation response and prevents late admission
       .click();
     await expect.poll(() => Boolean(metadata)).toBe(true);
     await expect(addMedia).toBeHidden();
-    const activity = page.getByRole("dialog", {
+    const activity = page.getByRole("region", {
       name: "Activity",
       exact: true
     });
-    const row = activity
-      .getByRole("region", { name: "Uploads", exact: true })
-      .locator("section")
-      .filter({ hasText: name });
+    const row = activity.getByRole("region", {
+      name: `Upload ${name}`,
+      exact: true
+    });
     await row.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(row).toContainText("Cancelled");
     release();

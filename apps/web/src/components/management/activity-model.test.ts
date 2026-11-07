@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { FileOperation } from "../../api/client";
-import { activityItemsLabel, activityProgressLabel } from "./activity-model";
+import {
+  activityItemsLabel,
+  activityProgressLabel,
+  activityNeedsAttention
+} from "./activity-model";
 
 function operation(patch: Partial<FileOperation> = {}): FileOperation {
   return {
@@ -14,6 +18,43 @@ function operation(patch: Partial<FileOperation> = {}): FileOperation {
 }
 
 describe("Activity descriptions", () => {
+  it("retains the receipt name when the live asset has since been renamed", () => {
+    const item = {
+      name: "original.jpg",
+      status: "completed",
+      folder: {
+        id: "folder",
+        rootId: "root",
+        parentId: null,
+        relativePath: "new name",
+        name: "new name",
+        assetCount: 0
+      }
+    };
+    expect(activityItemsLabel(operation({ items: [item] }))).toBe(
+      "original.jpg"
+    );
+  });
+
+  it("separates partial failures from a batch whose remaining work was cancelled", () => {
+    expect(
+      activityNeedsAttention(
+        operation({
+          status: "partial",
+          summary: { total: 2, completed: 1, failed: 0, cancelled: 1 }
+        })
+      )
+    ).toBe(false);
+    expect(
+      activityNeedsAttention(
+        operation({ status: "partial", items: [{ status: "failed" }] })
+      )
+    ).toBe(true);
+    expect(
+      activityNeedsAttention(operation({ status: "needs_attention" }))
+    ).toBe(true);
+    expect(activityNeedsAttention(operation())).toBe(false);
+  });
   it("identifies a single completed operation without repeating its status", () => {
     expect(activityItemsLabel(operation())).toBe("holiday.jpg");
     expect(activityProgressLabel(operation())).toBeNull();

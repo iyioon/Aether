@@ -5,9 +5,12 @@ import {
   type AssetRecord
 } from "../../api/client";
 import {
+  hasAssetSourceChanged,
+  mergeManagedAssetOrder,
   readAssetAppend,
   readAssetWindow,
-  sameAssetOrder
+  sameAssetOrder,
+  shouldRetainManagedAsset
 } from "./asset-window";
 
 afterEach(() => vi.useRealTimers());
@@ -56,6 +59,72 @@ describe("readAssetWindow", () => {
     ).rejects.toMatchObject({ status: 409 });
     expect(getPage).toHaveBeenCalledTimes(3);
   });
+  it("extends an existing managed window by small result growth without losing its old depth", async () => {
+    const getPage = vi
+      .fn()
+      .mockResolvedValueOnce(page(["new", "a", "b"], "10", 5))
+      .mockResolvedValueOnce(page(["c"], "10", 5));
+    const result = await readAssetWindow(
+      3,
+      getPage,
+      new AbortController().signal,
+      { previousTotal: 4, limit: 80 }
+    );
+    expect(result.items.map((asset) => asset.id)).toEqual([
+      "new",
+      "a",
+      "b",
+      "c"
+    ]);
+    expect(getPage.mock.calls).toEqual([
+      [0, 3],
+      [3, 1, "10"]
+    ]);
+  });
+  it("caps automatic growth after a large folder move instead of reading the whole library", async () => {
+    const initial = Array.from({ length: 260 }, (_, index) => String(index));
+    const getPage = vi
+      .fn()
+      .mockImplementation((offset: number, limit: number) =>
+        Promise.resolve(
+          page(
+            Array.from({ length: limit }, (_, index) => String(offset + index)),
+            "10",
+            100_000
+          )
+        )
+      );
+    const result = await readAssetWindow(
+      initial.length,
+      getPage,
+      new AbortController().signal,
+      { previousTotal: 1_000, limit: 80 }
+    );
+    expect(result.items).toHaveLength(340);
+    expect(getPage.mock.calls).toEqual([
+      [0, 250],
+      [250, 90, "10"]
+    ]);
+  });
+  it("does not reduce the requested depth after result removal and recalculates growth after a revision retry", async () => {
+    const getPage = vi
+      .fn()
+      .mockResolvedValueOnce(page(["a", "b"], "9", 5))
+      .mockRejectedValueOnce(new ApiError(409, "library_changed"))
+      .mockResolvedValueOnce(page(["b", "c"], "10", 2));
+    const result = await readAssetWindow(
+      2,
+      getPage,
+      new AbortController().signal,
+      { previousTotal: 3, limit: 80 }
+    );
+    expect(result.items.map((asset) => asset.id)).toEqual(["b", "c"]);
+    expect(getPage.mock.calls).toEqual([
+      [0, 2],
+      [2, 2, "9"],
+      [0, 2]
+    ]);
+  });
   it("does not retry ordinary failures or cancelled reads", async () => {
     const getPage = vi
       .fn()
@@ -80,6 +149,118 @@ describe("sameAssetOrder", () => {
       sameAssetOrder([{ id: "a" }, { id: "b" }], [{ id: "b" }, { id: "a" }])
     ).toBe(false);
     expect(sameAssetOrder([{ id: "a" }], [])).toBe(false);
+  });
+});
+
+describe("hasAssetSourceChanged", () => {
+  const asset = {
+    id: "a",
+    sourceVersion: "version-1",
+    folderId: "folder",
+    name: "original.png",
+    mtimeMs: 1,
+    sizeBytes: 100,
+    score: 0,
+    favorite: false,
+    tags: []
+  };
+  it("distinguishes saved curation from physical source changes for retained filtered records", () => {
+    const curated = {
+      ...asset,
+      score: 5,
+      favorite: true,
+      tags: [{ id: "selected" }]
+    };
+    expect(hasAssetSourceChanged(asset, curated)).toBe(false);
+    expect(
+      hasAssetSourceChanged(asset, { ...asset, name: "renamed.png" })
+    ).toBe(true);
+    expect(
+      hasAssetSourceChanged(asset, { ...asset, folderId: "other-folder" })
+    ).toBe(true);
+    expect(
+      hasAssetSourceChanged(asset, { ...asset, sourceVersion: "version-2" })
+    ).toBe(true);
+  });
+});
+
+describe("shouldRetainManagedAsset", () => {
+  const original = {
+    sourceVersion: "version-1",
+    folderId: "folder",
+    name: "matching-original.png",
+    mtimeMs: 1,
+    sizeBytes: 100
+  };
+  it("retains a renamed matching record beyond the fetched prefix after score edits move it later", () => {
+    const renamed = {
+      ...original,
+      sourceVersion: "version-2",
+      name: "matching-renamed.png"
+    };
+    expect(shouldRetainManagedAsset(original, renamed, true, true)).toBe(true);
+    expect(shouldRetainManagedAsset(renamed, renamed, true, true)).toBe(true);
+  });
+  it("removes a renamed record excluded by the canonical search even after its local name was patched", () => {
+    const renamed = {
+      ...original,
+      sourceVersion: "version-2",
+      name: "excluded.png"
+    };
+    expect(shouldRetainManagedAsset(original, renamed, false, false)).toBe(
+      false
+    );
+    expect(shouldRetainManagedAsset(renamed, renamed, false, true)).toBe(false);
+  });
+  it("keeps curation-only score and tag filter exits until the person applies results", () => {
+    expect(shouldRetainManagedAsset(original, original, false, false)).toBe(
+      true
+    );
+  });
+});
+
+describe("mergeManagedAssetOrder", () => {
+  const records = (ids: string[]) => ids.map((id) => ({ id }));
+  const ids = (assets: { id: string }[]) => assets.map((asset) => asset.id);
+  it("inserts uploads and restored records near surviving neighbors without moving existing score controls", () => {
+    const previous = records(["a", "b", "c"]);
+    const result = mergeManagedAssetOrder(
+      previous,
+      records(["c", "first", "second", "b", "a", "last"])
+    );
+    expect(ids(result)).toEqual(["a", "first", "second", "b", "c", "last"]);
+    expect(result.filter((asset) => previous.includes(asset))).toEqual(
+      previous
+    );
+    expect(new Set(ids(result)).size).toBe(result.length);
+  });
+  it("keeps edited records excluded by the current filter when their active records are retained", () => {
+    const retained = { id: "edited", score: 7 };
+    const unchanged = { id: "other", score: 0 };
+    const added = { id: "upload", score: 0 };
+    const result = mergeManagedAssetOrder(
+      [retained, unchanged],
+      [added, unchanged]
+    );
+    expect(result).toEqual([retained, added, unchanged]);
+  });
+  it("does not reinsert removed records and accepts an entirely new window", () => {
+    expect(
+      ids(
+        mergeManagedAssetOrder(
+          records(["survivor"]),
+          records(["new", "survivor"])
+        )
+      )
+    ).toEqual(["new", "survivor"]);
+    expect(ids(mergeManagedAssetOrder([], records(["a", "b"])))).toEqual([
+      "a",
+      "b"
+    ]);
+    expect(ids(mergeManagedAssetOrder(records(["a", "b"]), []))).toEqual([
+      "a",
+      "b"
+    ]);
   });
 });
 

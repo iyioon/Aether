@@ -408,14 +408,31 @@ export async function getAsset(
   });
 }
 
+export interface AssetDetailsFilter {
+  folderId: string;
+  type?: MediaTypeFilter;
+  recursive?: boolean;
+  search?: string;
+  tags?: string[];
+  scoreFilter?: ScoreFilter;
+}
+
+export interface AssetDetailsResponse {
+  assets: AssetRecord[];
+  revision: string;
+  matchingAssetIds?: string[];
+}
+
 export function getAssetDetails(
   assetIds: string[],
-  signal?: AbortSignal
-): Promise<{ assets: AssetRecord[]; revision: string }> {
-  return request<{ assets: AssetRecord[]; revision: string }>(
-    "/api/assets/batch/details",
-    { method: "POST", body: JSON.stringify({ assetIds }), signal }
-  );
+  signal?: AbortSignal,
+  filter?: AssetDetailsFilter
+): Promise<AssetDetailsResponse> {
+  return request<AssetDetailsResponse>("/api/assets/batch/details", {
+    method: "POST",
+    body: JSON.stringify({ assetIds, filter }),
+    signal
+  });
 }
 
 export async function getAssets(options: {
@@ -995,6 +1012,8 @@ export interface FileOperationItem {
 }
 export interface FileOperation {
   id: string;
+  createdAt?: string;
+  updatedAt?: string;
   type: FileOperationType;
   status:
     | "queued"

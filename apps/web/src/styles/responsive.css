@@ -105,7 +105,8 @@
     min-height: 44px;
   }
 
-  .sidebar-account-menu [data-slot="dropdown-menu-item"] {
+  .sidebar-account-menu [data-slot="dropdown-menu-item"],
+  .folder-context-menu [data-slot="context-menu-item"] {
     min-height: 44px;
   }
 

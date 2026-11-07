@@ -27,6 +27,17 @@ const stored: AppLocationState = {
 };
 
 describe("application resume and explicit locations", () => {
+  it("restores an explicit Activity page without losing the library query or reopening media", () => {
+    const activity = resolveAppLocation("?page=activity&asset=asset-1", stored);
+    expect(activity.library).toEqual(stored.library);
+    expect(activity.navigation).toMatchObject({
+      page: "activity",
+      viewerAssetId: null
+    });
+    expect(resolveAppLocation("?page=library", activity).navigation.page).toBe(
+      "library"
+    );
+  });
   afterEach(() => vi.unstubAllGlobals());
   it("resumes the complete checkpoint from the Home Screen launch", () => {
     expect(resolveAppLocation("?launch=resume&folder=old", stored)).toEqual(

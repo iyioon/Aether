@@ -817,7 +817,7 @@ export function createEmptyTrashOperation(
       db.prepare(
         `INSERT INTO file_operation_items (id, operation_id, item_index, asset_id, status, journal_json, updated_at)
        SELECT @id || ':' || t.id, @id, ROW_NUMBER() OVER (ORDER BY t.trashed_at, t.id) - 1,
-       t.asset_id, 'queued', json_object('input', json_object('trashId', t.id), 'sourceRevision', a.source_revision, 'snapshotRootId', a.root_id, 'status', 'queued'), @now
+       t.asset_id, 'queued', json_object('input', json_object('trashId', t.id), 'name', t.original_name, 'sourceRevision', a.source_revision, 'snapshotRootId', a.root_id, 'status', 'queued'), @now
        FROM trash_records t JOIN assets a ON a.id = t.asset_id WHERE a.lifecycle = 'trashed'`
       ).run({ id: input.id, now: new Date().toISOString() });
       return result;
@@ -1172,6 +1172,8 @@ export function acknowledgeLostManagedRecords(
       )
         throw new ManagementConflictError("lost_media_operation_unsupported");
       for (const item of journal.items) {
+        if (!validOperationItemName(item.name))
+          throw new ManagementConflictError("lost_media_operation_unsupported");
         let locations = 0;
         for (const key of ["source", "destination", "stage", "quarantine"]) {
           const location = item[key];
@@ -1302,13 +1304,40 @@ function assertUnclaimedForReconciliation(
         request.data.expectedCount
     )
       return refuse();
-    const claimed = db
-      .prepare(
-        `SELECT 1 FROM file_operation_items i WHERE operation_id = ? AND status NOT IN ('completed','failed','cancelled')
-       AND (phase <> 'queued' OR EXISTS (SELECT 1 FROM json_each(i.journal_json) field WHERE field.key NOT IN ('input','sourceRevision','snapshotRootId','status','errorCode'))) LIMIT 1`
-      )
-      .get(operation.id);
-    if (claimed) return refuse();
+    let afterIndex = -1;
+    while (true) {
+      const items = listManagedOperationItems(
+        db,
+        operation.id,
+        true,
+        100,
+        afterIndex
+      );
+      if (!items.length) break;
+      for (const stored of items) {
+        const item = JSON.parse(stored.journalJson) as Record<string, unknown>;
+        if (
+          stored.phase !== "queued" ||
+          !item ||
+          typeof item !== "object" ||
+          Array.isArray(item) ||
+          !validOperationItemName(item.name) ||
+          Object.keys(item).some(
+            (key) =>
+              ![
+                "input",
+                "name",
+                "sourceRevision",
+                "snapshotRootId",
+                "status",
+                "errorCode"
+              ].includes(key)
+          )
+        )
+          return refuse();
+        afterIndex = stored.itemIndex;
+      }
+    }
     return;
   }
   if (
@@ -1328,8 +1357,9 @@ function assertUnclaimedForReconciliation(
       !["queued", "running", "needs_attention"].includes(String(item.status)) ||
       !item.input ||
       typeof item.input !== "object" ||
+      !validOperationItemName(item.name) ||
       Object.keys(item).some(
-        (key) => !["input", "status", "errorCode"].includes(key)
+        (key) => !["input", "name", "status", "errorCode"].includes(key)
       )
     )
       return refuse();
@@ -1445,11 +1475,13 @@ function validateLostEmptyTrashOperation(
         ) ||
         input.assetId !== undefined ||
         input.folderId !== undefined ||
+        !validOperationItemName(item.name) ||
         typeof item.snapshotRootId !== "string" ||
         Object.keys(item).some(
           (key) =>
             ![
               "input",
+              "name",
               "sourceRevision",
               "snapshotRootId",
               "status",
@@ -1579,6 +1611,20 @@ function validRelativePath(relativePath: string): boolean {
               character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127
           )
       )
+  );
+}
+
+/** A historical label is not a managed destination name or a filesystem claim. */
+function validOperationItemName(name: unknown): boolean {
+  return (
+    name === undefined ||
+    (typeof name === "string" &&
+      name.length > 0 &&
+      name !== "." &&
+      name !== ".." &&
+      !name.includes("/") &&
+      !name.includes("\0") &&
+      Buffer.byteLength(name, "utf8") <= 4096)
   );
 }
 

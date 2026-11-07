@@ -15,9 +15,12 @@ import {
 import { buildAssetListQueryKey } from "../gallery-loading";
 import { randomSeedForQuery } from "./random-order-state";
 import {
+  hasAssetSourceChanged,
+  mergeManagedAssetOrder,
   readAssetAppend,
   readAssetWindow,
-  sameAssetOrder
+  sameAssetOrder,
+  shouldRetainManagedAsset
 } from "./asset-window";
 import { folderWithin } from "../management/management-model";
 
@@ -63,8 +66,14 @@ export function useAssetList({
   const acceptedEpochRef = useRef(0);
   const acceptedQueryRef = useRef<string | null>(null);
   const changedAssetIdsRef = useRef(new Set<string>());
+  const structurallyChangedIdsRef = useRef(new Set<string>());
   const revisionRef = useRef<string | undefined>(undefined);
   const explicitReloadRef = useRef(false);
+  // File commits can refresh membership without applying deferred curation.
+  const deferredOrderQueryRef = useRef<string | null>(null);
+  const managedQueryRef = useRef<string | null>(null);
+  const managedInterruptedRef = useRef<(() => void) | undefined>(undefined);
+  const managedCanApplyRef = useRef<(() => boolean) | undefined>(undefined);
   const stateRef = useRef({
     assets,
     loadedQueryKey,
@@ -113,12 +122,29 @@ export function useAssetList({
   queryRef.current = listQueryKey;
   const isResultsPending = pendingQueryKey === listQueryKey;
 
-  const markResultsPending = useCallback(() => {
+  const markResultsStale = useCallback(() => {
     appendRef.current?.abort();
     appendRef.current = null;
     setIsLoadingMore(false);
     setPendingQueryKey(queryRef.current);
   }, []);
+  const markResultsPending = useCallback(
+    (preserveOrder = true) => {
+      if (preserveOrder) deferredOrderQueryRef.current = queryRef.current;
+      markResultsStale();
+    },
+    [markResultsStale]
+  );
+  const deferManagedRead = useCallback(() => {
+    managedQueryRef.current = null;
+    requestRef.current?.abort();
+    if (acceptedQueryRef.current === queryRef.current)
+      setLoadedQueryKey(queryRef.current);
+    setIsLoadingAssets(false);
+    const interrupted = managedInterruptedRef.current;
+    if (interrupted) interrupted();
+    else markResultsStale();
+  }, [markResultsStale]);
   const invalidateReads = useCallback(() => {
     mutationEpochRef.current += 1;
     requestRef.current?.abort();
@@ -126,13 +152,15 @@ export function useAssetList({
     appendRef.current = null;
     setIsLoadingAssets(false);
     setIsLoadingMore(false);
-    if (acceptedQueryRef.current === queryRef.current)
+    if (managedQueryRef.current === queryRef.current) {
+      deferManagedRead();
+    } else if (acceptedQueryRef.current === queryRef.current)
       setLoadedQueryKey(queryRef.current);
     else {
       explicitReloadRef.current = true;
       setReloadToken((current) => current + 1);
     }
-  }, []);
+  }, [deferManagedRead]);
   const mergeUpdatedAssets = useCallback(
     (updatedAssets: AssetRecord[]) => {
       invalidateReads();
@@ -142,6 +170,8 @@ export function useAssetList({
       setAssets((current) =>
         current.map((asset) => {
           const updated = updates.get(asset.id);
+          if (updated && hasAssetSourceChanged(asset, updated))
+            structurallyChangedIdsRef.current.add(asset.id);
           return updated && !unavailableRef.current.has(asset.id)
             ? preservePresentation(asset, updated)
             : asset;
@@ -170,9 +200,9 @@ export function useAssetList({
       const removed = new Set(ids);
       for (const id of ids) unavailableRef.current.add(id);
       setAssets((current) => current.filter((asset) => !removed.has(asset.id)));
-      markResultsPending();
+      markResultsStale();
     },
-    [invalidateReads, markResultsPending]
+    [invalidateReads, markResultsStale]
   );
   const markAssetsUnavailable = useCallback(
     (ids: string[]) => {
@@ -186,15 +216,27 @@ export function useAssetList({
           removed.has(asset.id) ? { ...asset, unavailable: true } : asset
         )
       );
-      markResultsPending();
+      markResultsStale();
     },
-    [invalidateReads, markResultsPending]
+    [invalidateReads, markResultsStale]
   );
   const reloadAssets = useCallback(() => {
     if (requestRef.current && stateRef.current.loadedQueryKey === null) return;
+    managedQueryRef.current = null;
     explicitReloadRef.current = true;
     setReloadToken((current) => current + 1);
   }, []);
+  const reconcileManagedAssets = useCallback(
+    (onInterrupted?: () => void, canApply?: () => boolean) => {
+      managedQueryRef.current = queryRef.current;
+      managedInterruptedRef.current = onInterrupted;
+      managedCanApplyRef.current = canApply;
+      requestRef.current?.abort();
+      appendRef.current?.abort();
+      setReloadToken((current) => current + 1);
+    },
+    []
+  );
 
   const getPage = useCallback(
     (
@@ -248,15 +290,20 @@ export function useAssetList({
     const query = listQueryKey;
     const epoch = mutationEpochRef.current;
     const state = stateRef.current;
-    const sameQuery = state.loadedQueryKey === query;
+    const sameQuery = acceptedQueryRef.current === query;
+    const managed = managedQueryRef.current === query;
     const explicit = explicitReloadRef.current || !sameQuery;
     explicitReloadRef.current = false;
     if (!sameQuery) {
+      deferredOrderQueryRef.current = null;
+      if (!managed) managedQueryRef.current = null;
+      changedAssetIdsRef.current.clear();
+      structurallyChangedIdsRef.current.clear();
       setOutsideScopeAssetIds([]);
       setPendingQueryKey(null);
       setLoadedQueryKey(null);
     }
-    if (explicit) {
+    if (explicit || managed) {
       if (sameQuery) setLoadedQueryKey(null);
       setIsLoadingAssets(true);
       setAssetError(null);
@@ -264,11 +311,20 @@ export function useAssetList({
     const count = sameQuery
       ? Math.max(ASSET_PAGE_LIMIT, state.assets.length)
       : ASSET_PAGE_LIMIT;
+    const canPublish = () => {
+      if (!managed || managedCanApplyRef.current?.() !== false) return true;
+      deferManagedRead();
+      return false;
+    };
+    if (!canPublish()) return () => controller.abort();
     void readAssetWindow(
       count,
       (offset, limit, revision) =>
         getPage(offset, limit, controller.signal, revision),
-      controller.signal
+      controller.signal,
+      managed
+        ? { previousTotal: state.totalAssets, limit: ASSET_PAGE_LIMIT }
+        : undefined
     )
       .then(async (response) => {
         if (
@@ -277,12 +333,17 @@ export function useAssetList({
           mutationEpochRef.current !== epoch
         )
           return;
+        if (!canPublish()) return;
         const current = stateRef.current;
         const orderChanged = !sameAssetOrder(current.assets, response.items);
+        const retainManagedOrder =
+          managed && sameQuery && deferredOrderQueryRef.current === query;
         const retainOrder =
-          sameQuery &&
-          !explicit &&
-          (current.pendingQueryKey === query || orderChanged);
+          retainManagedOrder ||
+          (sameQuery &&
+            !explicit &&
+            !managed &&
+            (current.pendingQueryKey === query || orderChanged));
         const incoming = new Map(
           response.items.map((asset) => [asset.id, asset])
         );
@@ -292,11 +353,29 @@ export function useAssetList({
             .map((asset) => asset.id);
           const missingUnavailable: string[] = [];
           const outsideScope: string[] = [];
+          const matching = new Set(response.items.map((asset) => asset.id));
           for (let offset = 0; offset < missing.length; offset += 500) {
             const ids = missing.slice(offset, offset + 500);
-            const details = await getAssetDetails(ids, controller.signal);
-            if (details.revision !== response.page.revision)
+            const details = await getAssetDetails(
+              ids,
+              controller.signal,
+              managed
+                ? {
+                    folderId,
+                    type: mediaType,
+                    recursive: true,
+                    search,
+                    tags: tagFilters,
+                    scoreFilter
+                  }
+                : undefined
+            );
+            if (
+              details.revision !== response.page.revision ||
+              (managed && !details.matchingAssetIds)
+            )
               throw new ApiError(409, "library_changed");
+            for (const id of details.matchingAssetIds ?? []) matching.add(id);
             for (const asset of details.assets) {
               incoming.set(asset.id, asset);
               if (!folderWithin(tree, asset.folderId, folderId))
@@ -311,6 +390,45 @@ export function useAssetList({
             mutationEpochRef.current !== epoch
           )
             return;
+          if (!canPublish()) return;
+          if (managed) {
+            const structuralChanges = new Set(
+              structurallyChangedIdsRef.current
+            );
+            const removed = new Set([...missingUnavailable, ...outsideScope]);
+            for (const asset of incoming.values())
+              if (!removed.has(asset.id))
+                unavailableRef.current.delete(asset.id);
+            setOutsideScopeAssetIds([]);
+            setUnavailableAssetIds((previous) =>
+              previous.filter((id) => unavailableRef.current.has(id))
+            );
+            setAssets((previous) => {
+              const survivors = previous.flatMap((asset) => {
+                const update = incoming.get(asset.id);
+                return update &&
+                  !removed.has(asset.id) &&
+                  shouldRetainManagedAsset(
+                    asset,
+                    update,
+                    matching.has(asset.id),
+                    structuralChanges.has(asset.id)
+                  )
+                  ? [preservePresentation(asset, update)]
+                  : [];
+              });
+              return mergeManagedAssetOrder(survivors, response.items);
+            });
+            structurallyChangedIdsRef.current.clear();
+            setTotalAssets(response.page.total);
+            revisionRef.current = response.page.revision;
+            acceptedEpochRef.current = epoch;
+            acceptedQueryRef.current = query;
+            managedQueryRef.current = null;
+            setLoadedQueryKey(query);
+            setPendingQueryKey(query);
+            return;
+          }
           for (const id of missingUnavailable) unavailableRef.current.add(id);
           if (outsideScope.length)
             setOutsideScopeAssetIds((previous) => [
@@ -341,7 +459,7 @@ export function useAssetList({
                 : asset;
             })
           );
-          markResultsPending();
+          markResultsStale();
         } else {
           setOutsideScopeAssetIds([]);
           for (const asset of response.items)
@@ -360,6 +478,10 @@ export function useAssetList({
           revisionRef.current = response.page.revision;
           acceptedEpochRef.current = epoch;
           acceptedQueryRef.current = query;
+          managedQueryRef.current = null;
+          deferredOrderQueryRef.current = null;
+          changedAssetIdsRef.current.clear();
+          structurallyChangedIdsRef.current.clear();
           setLoadedQueryKey(query);
           setPendingQueryKey(null);
         }
@@ -372,8 +494,9 @@ export function useAssetList({
             : "Unable to update results. Try again."
         );
         if (sameQuery) {
+          managedQueryRef.current = null;
           setLoadedQueryKey(query);
-          markResultsPending();
+          markResultsStale();
         }
       })
       .finally(() => {
@@ -383,7 +506,20 @@ export function useAssetList({
         }
       });
     return () => controller.abort();
-  }, [tree, folderId, listQueryKey, reloadToken, getPage, markResultsPending]);
+  }, [
+    tree,
+    folderId,
+    listQueryKey,
+    reloadToken,
+    getPage,
+    markResultsPending,
+    markResultsStale,
+    deferManagedRead,
+    mediaType,
+    scoreFilter,
+    search,
+    tagFilters
+  ]);
 
   const handleLoadMore = useCallback(async () => {
     const state = stateRef.current;
@@ -484,6 +620,7 @@ export function useAssetList({
     markResultsPending,
     mergeUpdatedAssets,
     markAssetsUnavailable,
+    reconcileManagedAssets,
     reloadAssets,
     removeAssets,
     setAssetError,

@@ -677,11 +677,26 @@ Library revisions cover metadata, indexing and file commits. Ordered list window
 return records, counts and revision from one read snapshot. The browser rejects
 superseded mutation/query responses and mixed-revision pages. Scores and tags
 patch immediately while explicit Update results controls affected order/filter
-changes. Paging pauses until reconciliation. A page rejected after an unrelated
+changes. That control appears only in the navigation row; pagination remains
+separate. Confirmed management commits coalesce into a tree refresh so open
+destination pickers can use newly created folders. Gallery reconciliation waits
+until selection, editing and keyboard layers finish. These reads update membership,
+counts and ordering automatically. Pending curation keeps the relative order of
+surviving records while inserting new records near their server-ordered neighbors.
+Bounded detail hydration checks canonical filter membership in the same read
+snapshot, so a renamed item outside the loaded prefix is not mistaken for a
+search exit. File removal uses the anchored refresh rather than removing cards
+before that refresh starts.
+Refresh retains loaded depth, with at most one extra page for growth, and uses
+the existing scroll-anchor restoration and neighbor fallback. A large insertion
+can move an old anchor outside that bounded window. Paging pauses until reconciliation. A page rejected after an unrelated
 revision change can retry after a consistent read confirms the exact loaded IDs
 and order, with bounded retries and query/mutation guards. Preview metadata can
 therefore update without interrupting ordinary scrolling. Scroll anchors,
 stable selection and viewer neighbors survive result replacement.
+Folder-tree context menus target the clicked or focused folder without navigating.
+They share the header menu's actions and derive write capabilities from root and
+folder records; configured roots cannot be renamed or moved.
 Activity retains individual operation results. A bounded notification buffer
 coalesces results received while hidden into a foreground summary, preserving
 request/result deduplication and a route back to Activity.
@@ -690,12 +705,24 @@ Add media is a separate application page for destination and file review, with
 a visually hidden task heading, one scrolling body and persistent actions.
 Cancel clears the unsubmitted selection and returns to the library; ordinary library
 or history navigation keeps it in memory. Files are not stored in navigation
-checkpoints. Add files returns to the library and opens Activity. The sidebar's
-Account menu opens Activity, which contains accepted uploads, progress, recovery controls and recent
-operation results. Activity keeps its heading and close control outside the scrolling results.
-Operation summaries identify their items; upload reselection stays inside the
-affected transfer. The upload controller remains mounted across page changes,
-so leaving either surface does not cancel accepted work.
+checkpoints. Add files opens the Activity page. Routine file operations keep the
+current view and use the shared notification with a route to Activity. The
+sidebar's Account menu opens Activity, which contains accepted uploads, progress,
+recovery controls and recent results. Its filters and refresh control stay
+outside the scrolling results. Trash uses the same compact list treatment with
+original root/folder labels and separate selection actions. Known pending
+restore, purge and Empty Trash operations disable conflicting actions and show
+inline status with a route to Activity without blocking search or navigation.
+Operation receipts retain basename-only display names in their durable journal,
+including Trash and permanent-deletion results after their library records are
+removed. Live asset hydration remains separate from these historical names.
+Activity presents one entry per transfer/publication, with inline recovery and
+an attention filter. Its URL and resume checkpoint use `page=activity`, with
+normal browser history and a focused page heading. Reads are aborted when
+obsolete and reject results superseded by accepted operations.
+Upload reselection stays inside the affected transfer. The upload controller
+remains mounted across page changes, so leaving either page does not cancel
+accepted work.
 
 The maintained tus server and browser client handle resumable byte transport.
 Upload staging and metadata stay under the data directory. Authenticated routes
@@ -706,7 +733,10 @@ retained prefix. Browser checkpoints contain only bounded opaque IDs.
 Cancellation records the original request ID before cleanup, preventing a late
 creation request from restarting a cancelled transfer. Staging creation, writes
 and finalization recheck that intent; owned bytes are cleaned after active claims
-drain.
+drain. A bounded creation claim spans reservation through staging-file creation,
+so concurrent status reconciliation cannot mistake an admitted upload for a
+missing stage. Disconnect and shutdown cleanup drain that claim before releasing
+the request.
 
 ## Data Directory
 

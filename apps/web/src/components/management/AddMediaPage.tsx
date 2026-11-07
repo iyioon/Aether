@@ -4,19 +4,13 @@ import type {
   FileOperationInput,
   TreeResponse
 } from "../../api/client";
-import {
-  useMediaUploads,
-  type Transfer,
-  type UploadProgress
-} from "./useMediaUploads";
+import { useMediaUploads, type UploadProgress } from "./useMediaUploads";
 export type { UploadProgress } from "./useMediaUploads";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
-import { Label } from "../ui/label";
 import { ArrowLeft, Folder, Upload } from "lucide-react";
 import { createUuid } from "../../lib/uuid";
-import { Progress } from "../ui/progress";
-import { ActivityContents, ActivityPanel } from "./ActivitySheet";
+import { ActivityPage } from "./ActivityPage";
 import { FolderDestinationPicker } from "./FolderDestinationPicker";
 import { formatBytes } from "../media/media-format";
 import { uploadBatchError, uploadFileError } from "./upload-review";
@@ -35,19 +29,6 @@ export interface IncomingMedia {
   error?: string;
 }
 
-const uploadStatusLabels: Record<Transfer["state"], string> = {
-  queued: "Queued",
-  uploading: "Uploading",
-  paused: "Paused",
-  checking: "Checking",
-  received: "Preparing media",
-  error: "Paused",
-  cancelled: "Cancelled",
-  failed: "Failed",
-  completed: "Completed",
-  expired: "Expired"
-};
-
 export function AddMediaPage({
   tree,
   selectedFolderId,
@@ -62,8 +43,6 @@ export function AddMediaPage({
   onSubmit,
   incomingMedia,
   activityOpen,
-  onCloseActivity,
-  onReturnFocus,
   onAdded,
   isLoadingFolders,
   onRefreshFolders
@@ -71,11 +50,9 @@ export function AddMediaPage({
   isLoadingFolders: boolean;
   onRefreshFolders: () => Promise<unknown>;
   activityOpen: boolean;
-  onCloseActivity: () => void;
-  onReturnFocus: () => void;
   onAdded: (skipped: number) => void;
   operations: FileOperation[];
-  onRefresh: () => Promise<void>;
+  onRefresh: (signal?: AbortSignal) => Promise<void>;
   onSubmit: (input: FileOperationInput) => Promise<FileOperation>;
   incomingMedia?: IncomingMedia | null;
   open: boolean;
@@ -100,7 +77,6 @@ export function AddMediaPage({
   const [draggingFiles, setDraggingFiles] = useState(false);
   const destinationInitializedRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const resumeInputRef = useRef<HTMLInputElement>(null);
   const pageOpenRef = useRef(open);
   pageOpenRef.current = open;
   const previewGenerationRef = useRef(0);
@@ -131,10 +107,6 @@ export function AddMediaPage({
   const incomingIdRef = useRef<number | null>(null);
   const submittedDraftRef = useRef<string | null>(null);
   const submittingRef = useRef(false);
-  const [resumeTarget, setResumeTarget] = useState<Transfer | null>(null);
-  useEffect(() => {
-    if (resumeTarget) resumeInputRef.current?.focus();
-  }, [resumeTarget]);
   const conflictReview = useConflictReview();
   const clearConflictReview = conflictReview.clear;
   useEffect(() => {
@@ -149,13 +121,30 @@ export function AddMediaPage({
     tree,
     destination,
     conflict: "skip",
-    open: open || activityOpen,
+    open,
     onTransfers,
     onBatchStarted,
     onUploadCancelled,
     onOperation
   });
-  const { transfers, limits, refresh, running } = uploads;
+  const { limits, refresh } = uploads;
+  const retryRequestsRef = useRef(new Map<string, FileOperationInput>());
+  const retryOperation = useCallback(
+    (operation: FileOperation) => {
+      if (!operation.retryInput) return Promise.resolve(operation);
+      const input = retryRequestsRef.current.get(operation.id) ?? {
+        ...operation.retryInput,
+        requestId: createUuid()
+      };
+      retryRequestsRef.current.set(operation.id, input);
+      if (retryRequestsRef.current.size > 100)
+        retryRequestsRef.current.delete(
+          retryRequestsRef.current.keys().next().value!
+        );
+      return onSubmit(input);
+    },
+    [onSubmit]
+  );
   const choose = useCallback(
     (files: FileList | File[] | null) => {
       if (!files?.length) return;
@@ -285,12 +274,6 @@ export function AddMediaPage({
   );
   const destinationRoot = tree?.roots.find(
     (root) => root.id === destinationFolder?.rootId
-  );
-  const visibleOperations = operations.filter(
-    (operation) =>
-      operation.type !== "add-media" ||
-      operation.status !== "completed" ||
-      !transfers.some((transfer) => transfer.operationId === operation.id)
   );
   return (
     <>
@@ -604,138 +587,15 @@ export function AddMediaPage({
           </footer>
         </div>
       </section>
-      <ActivityPanel
-        open={activityOpen}
-        onClose={onCloseActivity}
-        onReturnFocus={onReturnFocus}
-      >
-        <div className="grid gap-6 px-4 pb-6">
-          {uploads.error ? (
-            <div className="grid justify-items-start gap-2">
-              <p className="text-sm text-destructive" role="alert">
-                {uploads.error}
-              </p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => void refresh().catch(() => undefined)}
-              >
-                Retry loading uploads
-              </Button>
-            </div>
-          ) : null}
-          {transfers.length ? (
-            <section className="grid gap-3" aria-label="Uploads">
-              {transfers.map((transfer) => (
-                <section
-                  key={transfer.key}
-                  aria-label={`Upload ${transfer.name}`}
-                  className="grid gap-2 rounded-lg border p-3"
-                >
-                  <div className="flex justify-between gap-2">
-                    <strong className="min-w-0 break-words text-sm">
-                      {transfer.name}
-                    </strong>
-                    <span className="shrink-0 text-xs text-muted-foreground">
-                      {uploadStatusLabels[transfer.state]}
-                    </span>
-                  </div>
-                  <Progress
-                    value={
-                      transfer.size
-                        ? (transfer.accepted / transfer.size) * 100
-                        : 0
-                    }
-                    aria-label={`Upload ${transfer.name}`}
-                  />
-                  <span className="text-xs text-muted-foreground">
-                    {formatBytes(transfer.accepted)} of{" "}
-                    {formatBytes(transfer.size)}
-                  </span>
-                  {transfer.error ? (
-                    <p role="alert" className="text-sm text-destructive">
-                      {transfer.error}
-                    </p>
-                  ) : null}
-                  <div className="flex gap-2">
-                    {transfer.state === "uploading" ? (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          uploads.pause(transfer);
-                        }}
-                      >
-                        Pause
-                      </Button>
-                    ) : ["paused", "error"].includes(transfer.state) ? (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        disabled={running >= 2}
-                        onClick={() => {
-                          if (transfer.file)
-                            void uploads.resume(transfer, transfer.file);
-                          else setResumeTarget(transfer);
-                        }}
-                      >
-                        Resume
-                      </Button>
-                    ) : null}
-                    {![
-                      "received",
-                      "cancelled",
-                      "completed",
-                      "failed",
-                      "expired"
-                    ].includes(transfer.state) ? (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => void uploads.cancel(transfer)}
-                      >
-                        Cancel
-                      </Button>
-                    ) : null}
-                  </div>
-                  {resumeTarget?.key === transfer.key &&
-                  ["paused", "error"].includes(transfer.state) ? (
-                    <div className="grid gap-2">
-                      <Label htmlFor={`resume-file-${transfer.key}`}>
-                        Reselect {resumeTarget.name}
-                      </Label>
-                      <Input
-                        id={`resume-file-${transfer.key}`}
-                        ref={resumeInputRef}
-                        type="file"
-                        onChange={(event) => {
-                          const file = event.target.files?.[0];
-                          if (file) {
-                            void uploads.resume(resumeTarget, file);
-                            setResumeTarget(null);
-                          }
-                        }}
-                      />
-                    </div>
-                  ) : null}
-                </section>
-              ))}
-            </section>
-          ) : null}
-          {transfers.length === 0 || visibleOperations.length > 0 ? (
-            <ActivityContents
-              open={activityOpen}
-              operations={visibleOperations}
-              onRefresh={onRefresh}
-              onOperation={onOperation}
-              onRetry={onSubmit}
-            />
-          ) : null}
-        </div>
-      </ActivityPanel>
+      {activityOpen ? (
+        <ActivityPage
+          uploads={uploads}
+          operations={operations}
+          onRefresh={onRefresh}
+          onOperation={onOperation}
+          onRetry={retryOperation}
+        />
+      ) : null}
     </>
   );
 }

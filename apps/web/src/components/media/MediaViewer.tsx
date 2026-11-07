@@ -1158,12 +1158,6 @@ export function MediaViewer({
         showCloseButton={false}
         aria-describedby={undefined}
         aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight Space M I Escape"
-        onInteractOutside={(event) => {
-          const target = event.detail.originalEvent.target;
-          if (target instanceof Element && target.closest(".activity-sheet")) {
-            event.preventDefault();
-          }
-        }}
         onEscapeKeyDown={(event) => {
           if (optionsOpenRef.current) {
             event.preventDefault();

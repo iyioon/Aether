@@ -14,6 +14,66 @@ export function sameAssetOrder(
   );
 }
 
+type AssetSourceIdentity = Pick<
+  AssetRecord,
+  "sourceVersion" | "folderId" | "name" | "sizeBytes" | "mtimeMs"
+>;
+
+export function hasAssetSourceChanged(
+  previous: AssetSourceIdentity,
+  current: AssetSourceIdentity
+): boolean {
+  return (
+    previous.sourceVersion !== current.sourceVersion ||
+    previous.folderId !== current.folderId ||
+    previous.name !== current.name ||
+    previous.sizeBytes !== current.sizeBytes ||
+    previous.mtimeMs !== current.mtimeMs
+  );
+}
+
+/** A missing prefix entry can still match the query at a later position.
+ * Curation-only filter exits also stay visible until results are applied. */
+export function shouldRetainManagedAsset(
+  previous: AssetSourceIdentity,
+  current: AssetSourceIdentity,
+  matchesQuery: boolean,
+  observedSourceChange: boolean
+): boolean {
+  return (
+    matchesQuery ||
+    (!observedSourceChange && !hasAssetSourceChanged(previous, current))
+  );
+}
+
+/** Keep existing controls in place while inserting new records near their
+ * next surviving neighbor in the server's current window. */
+export function mergeManagedAssetOrder<T extends { id: string }>(
+  previous: T[],
+  incoming: T[]
+): T[] {
+  const survivors = new Set(previous.map((asset) => asset.id));
+  const before = new Map<string, T[]>();
+  const trailing: T[] = [];
+  let nextSurvivor: string | undefined;
+  for (let index = incoming.length - 1; index >= 0; index -= 1) {
+    const asset = incoming[index]!;
+    if (survivors.has(asset.id)) nextSurvivor = asset.id;
+    else if (nextSurvivor) {
+      const bucket = before.get(nextSurvivor) ?? [];
+      bucket.push(asset);
+      before.set(nextSurvivor, bucket);
+    } else trailing.push(asset);
+  }
+  return [
+    ...previous.flatMap((asset) => [
+      ...(before.get(asset.id)?.reverse() ?? []),
+      asset
+    ]),
+    ...trailing.reverse()
+  ];
+}
+
 export async function readAssetWindow(
   count: number,
   getPage: (
@@ -21,18 +81,29 @@ export async function readAssetWindow(
     limit: number,
     expectedRevision?: string
   ) => Promise<AssetListResponse>,
-  signal: AbortSignal
+  signal: AbortSignal,
+  growth?: { previousTotal: number; limit: number }
 ): Promise<AssetListResponse> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     signal.throwIfAborted();
     try {
       const response = await getPage(0, Math.min(250, count));
       const revision = response.page.revision;
-      while (response.items.length < Math.min(count, response.page.total)) {
+      const windowCount =
+        count +
+        (growth
+          ? Math.min(
+              growth.limit,
+              Math.max(0, response.page.total - growth.previousTotal)
+            )
+          : 0);
+      while (
+        response.items.length < Math.min(windowCount, response.page.total)
+      ) {
         signal.throwIfAborted();
         const next = await getPage(
           response.items.length,
-          Math.min(250, count - response.items.length),
+          Math.min(250, windowCount - response.items.length),
           revision
         );
         if (next.page.revision !== revision || next.items.length === 0)

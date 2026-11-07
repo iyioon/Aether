@@ -10,6 +10,9 @@ export type FolderScanState =
 export type FolderSortMode =
   "name-asc" | "name-desc" | "items-desc" | "items-asc";
 
+export type FolderTreeAction =
+  "create-folder" | "rename-folder" | "move-folder";
+
 export interface FolderTreeItem {
   id: string;
   parentId: string | null;
@@ -17,4 +20,6 @@ export interface FolderTreeItem {
   assetCount: number;
   depth: number;
   hasChildren: boolean;
+  canCreateFolder: boolean;
+  canManageFolder: boolean;
 }

@@ -207,17 +207,19 @@ For score, favorite or tag changes that affect the current query, keep the
 displayed result order and membership until the user chooses **Update results**
 or changes the query. This applies to direct card controls, viewer annotations
 and Edit details. Update the value immediately, even when it no longer matches
-the current filter. Show one compact Update results action in the existing
-Gallery toolbar while reconciliation is pending; reserve its space to avoid
-moving adjacent controls. Do not add a toast, modal, repeated subtitle or a
-refresh action on every card. The pending action explains the temporary result
+the current filter. Show one compact Update results action in the top library
+navigation row while reconciliation is pending. Keep it available above the
+results on desktop and phones; do not duplicate it at the end of the Gallery.
+Do not add a toast, modal, repeated subtitle or a refresh action on every card.
+The pending action explains the temporary result
 snapshot; the result count updates with the accepted replacement results. While
 pending, show the loaded count as "80 shown" rather than presenting an outdated
 total as current. Announce the transition to pending once, without moving focus;
 these are saved edits awaiting updated results, not unsaved changes.
 
-Do not automatically reorder after a save response, an idle timeout, pointer
-release, editor close or selection Done. This keeps a touch user free to pause
+Do not automatically apply deferred score, favorite or tag sorting/filtering
+after a save response, an idle timeout, pointer release, editor close or selection
+Done. This keeps a touch user free to pause
 and increase the same score again. Update results becomes available after writes
 settle and the open editor/menu and selection task finish. Keep it keyboard
 reachable, with a concise accessible reason when unavailable. Applying either
@@ -227,31 +229,39 @@ and clears the old pending state; preserve the random seed unless the user asks
 to reshuffle. Foreground and watcher refreshes use the same policy while the
 current Gallery context remains active.
 
-Only defer reconciliation when a changed field can affect the current result.
-Tags currently affect filtering, not sorting; do not introduce a tag-sort mode
-to solve this problem.
+A file operation initiated in this browser reconciles automatically after it
+commits and the current interaction finishes. Uploads and restores appear without
+Update results; moves, renames and
+Trash refresh membership, order and counts through the same path. Coalesce
+completed work into a bounded refresh rather than reloading once per file.
+An existing deferred score/tag result order remains stable through these file
+changes: merge matching additions, remove unavailable or out-of-scope records,
+and retain surviving controls in their established order until Update results.
 
-| Change                             | Effect on the current Gallery                                                                                                                                                                                                                                                                                         |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Score or favorite                  | Patch the returned record immediately. Offer Update results for score sorting, including favorite tie-breaks, or an affected ranked/unranked/favorites filter. Other sorts retain their visible order without an Update results prompt solely for a score change.                                                     |
-| Tags                               | Patch acknowledged tags after bounded record hydration. Offer Update results when an active tag filter can change membership. An unfiltered Gallery keeps its order.                                                                                                                                                  |
-| Media rename                       | After commit, patch the name and search fields by the same card ID. Offer Update results for affected filename order, date-order name tie-breaks or search membership; retain unrelated order.                                                                                                                        |
-| Media or folder move               | Apply only committed moves. An item moved within the selected recursive folder scope retains its slot; moving outside removes it at the next safe boundary after commit. Patch paths, counts, tree and breadcrumbs without navigating to the destination; affected search/filter membership waits for Update results. |
-| Folder creation or rename          | Insert or patch the committed folder by ID. Preserve the active folder, expanded ancestors and breadcrumb context; a created empty folder does not reset the media grid. Folder rename also updates descendant paths and offers Update results for affected path search.                                              |
-| Add or restore                     | Only fully committed assets become eligible for ordinary media access. Offer Update results once per completed batch for matching additions; do not guess their rank within a partially loaded result or scroll to the first new item.                                                                                |
-| Move to Trash or confirmed removal | Disable ordinary media actions immediately; remove the committed subset at the next safe boundary. Preserve failed items and unrelated result order; never leave a deleted source interactive to keep the layout stable.                                                                                              |
+Only defer curation reconciliation when a changed field can affect the current
+result. Tags currently affect filtering, not sorting; do not introduce a tag-sort
+mode to solve this problem. External additions and order changes, and a failed
+automatic refresh, also use the single top-row Update results action.
 
-Apply confirmed structural removals at the next safe interaction boundary after
+| Change                             | Effect on the current Gallery                                                                                                                                                                                                                                                                                             |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Score or favorite                  | Patch the returned record immediately. Offer Update results for score sorting, including favorite tie-breaks, or an affected ranked/unranked/favorites filter. Other sorts retain their visible order without an Update results prompt solely for a score change.                                                         |
+| Tags                               | Patch acknowledged tags after bounded record hydration. Offer Update results when an active tag filter can change membership. An unfiltered Gallery keeps its order.                                                                                                                                                      |
+| Media rename                       | After commit, patch the name and search fields by the same card ID. Automatically reconcile affected order, membership and counts after the interaction finishes; preserve an existing deferred curation order.                                                                                                           |
+| Media or folder move               | Apply only committed moves. Patch paths, counts, tree and breadcrumbs without navigating to the destination. Automatically reconcile the current scope after the interaction finishes; remove items moved outside it. Preserve an existing deferred curation order among surviving records.                               |
+| Folder creation or rename          | Insert or patch the committed folder by ID. Preserve the active folder, expanded ancestors and breadcrumb context. Refresh affected search and subtree results automatically; a created empty folder does not reset the media grid.                                                                                       |
+| Add or restore                     | Only fully committed assets become eligible for ordinary media access. Automatically refresh matching additions using the server's canonical query, retaining loaded depth and a surviving visible anchor where possible. Do not scroll to the first new item or require Update results for an ordinary completed upload. |
+| Move to Trash or confirmed removal | Disable ordinary media actions immediately; remove the committed subset at the next safe boundary. Automatically reconcile membership, counts and pagination, preserving failed items and any deferred curation order. Never leave a deleted source interactive to keep the layout stable.                                |
+
+Apply confirmed structural changes at the next safe interaction boundary after
 acknowledgement; closing a task before it finishes must not suppress its eventual
 update. Do not interrupt another press, editor or selection task. A queued job,
 transfer percentage or cancellation request is not a committed change. Coalesce
 affected tree/list reads for a batch; do not reload once per file. Preserve any
-pending score/tag Update results state
-when applying structural changes: remove unavailable IDs and merge committed
-changes without silently resorting all other cards. If a full query replacement
-is needed, keep that replacement behind Update results. Partial operations apply
-only successful records and retain failures in the existing selection/Activity
-context.
+pending score/tag Update results state when applying structural changes. Otherwise
+accept the consistent server order automatically, with the loaded window and
+scroll position retained where possible. Partial operations apply only successful
+records and retain failures in the existing selection/Activity context.
 
 Changes from another device, a scan or a watcher must not replace the grid during
 a press/hold, keyboard edit, open menu/dialog or selection task. Patch known
@@ -265,9 +275,13 @@ additions and ordering changes behind the same single
 Update results action.
 
 On reconciliation, preserve the loaded depth and an unaffected visible card's
-ID and pixel offset. If it has left, choose the next surviving neighbor in the
-previous order, then the previous one. Do not follow an edited card to its new
-rank or jump to the top. Restore focus to the same surviving control by ID;
+ID and pixel offset when it remains in the refreshed window. An automatic
+refresh may fetch up to 80 additional matching records as the result count
+grows; it does not fetch arbitrarily far to recover an anchor after a large
+insertion or move. If the anchor has left the query or bounded window, choose
+the next surviving neighbor in the previous order, then the previous one; use
+the refreshed window's fallback when none survives. Do not follow an edited
+card to its distant new rank. Restore focus to the same surviving control by ID;
 if its card leaves the viewport/results, use the nearest visible logical
 neighbor or the toolbar without scrolling to a distant rank. Account for
 virtualized rows unmounting cards. Keep a moved viewer item open by stable ID
@@ -279,8 +293,8 @@ the results when the open item remains outside the query. Trash advances to the
 next surviving item, then the previous,
 or closes an empty viewer. Keep transitions restrained and respect reduced motion.
 
-Make ordered reads consistent with writes. Extend the planned library mutation
-revision to cover metadata, indexing and file-operation commits. Return committed
+Make ordered reads consistent with writes. The library mutation revision covers
+metadata, indexing and file-operation commits. Return committed
 revisions with mutation acknowledgements, and list records, total and revision
 from one consistent database read. Reject an older
 same-query response after a newer mutation acknowledgement, not only after a
@@ -292,18 +306,23 @@ the loaded window before appending at a newer revision; do not replace its order
 or prompt solely for unrelated metadata. Unexpected differences use Update results.
 
 The current server uses offset pagination. While order/membership is pending,
-pause both automatic append and Load more, with Update results as the route to
-continue. Replace the paging action with the same Update results command while
-pending, so it remains reachable after a long scroll and on phones. Do not append
-a new offset page to the frozen old order or sort only loaded cards: ID
+pause both automatic append and Load more. Keep pagination at the bottom and
+Update results in the top navigation row; the footer must not become a second
+refresh control. Successful automatic structural reconciliation resumes paging
+unless curation order remains deferred. Do not append a new offset page to the
+frozen old order or sort only loaded cards: ID
 deduplication cannot recover skipped records. Even a locally applied structural
-removal invalidates the old paging window until reconciliation. Update results
-refetches the loaded window at one revision using the server's canonical filters
-and tie-breaks, then replaces ordered IDs/count together and resumes pagination.
+removal invalidates the old paging window until reconciliation. Both automatic
+structural refresh and explicit Update results refetch the loaded window at one
+revision using the server's canonical filters and tie-breaks. Explicit Update
+results replaces ordered IDs/count together, clears deferred curation and
+resumes pagination.
 Abort or reject obsolete refresh/append responses, including responses from
-before a structural operation. New writes during refresh keep it pending rather
-than allowing a stale replacement to win. Announce the completed update once
-through the existing results status, without a routine toast or focus change.
+before a structural operation. New writes invalidate an in-flight refresh and
+schedule fresh structural reconciliation or retain deferred curation as
+appropriate, rather than allowing a stale replacement to win. Announce the
+completed update once through the existing results status, without a routine
+toast or focus change.
 If removals empty the loaded window, keep Update results and selection Done/Cancel
 reachable. Do not claim that the library or query is empty until an authoritative
 refresh confirms it.
@@ -322,8 +341,9 @@ as well as rename/move; extend committed insertion/removal to F3 and F4. Reuse
 the existing list, mutation queue and scroll-restoration helpers. Predictable
 input and meaningful focus follow [WCAG on input](https://www.w3.org/WAI/WCAG22/Understanding/on-input.html)
 and [focus order](https://www.w3.org/WAI/WCAG22/Understanding/focus-order.html).
-The explicit Update results policy is Aether's design choice; those criteria do
-not prescribe a specific sorting policy or delay.
+The split between automatic file changes and explicit deferred curation updates
+is Aether's design choice; those criteria do not prescribe a specific sorting
+policy or delay.
 
 ### Shared Destination Picker
 
@@ -419,7 +439,7 @@ for multi-file lists, action hierarchy and file-specific errors. Keep a native
 file-picker button alongside drag-and-drop, following
 [WAI's dragging alternatives](https://www.w3.org/WAI/WCAG22/Understanding/dragging-movements.html).
 Transfer starts only after Add files; success requires server acknowledgement
-of publication and indexing. Add files returns to the library and opens Activity.
+of publication and indexing. Add files opens the Activity page.
 After acceptance, closing Activity leaves work intact. Navigation must not
 unmount transfers. Use the same name-conflict choices as Move; never overwrite
 an existing file or treat a skipped upload as Added.
@@ -529,13 +549,19 @@ than automatic removal of their recovery records.
 
 ### Activity And Feedback
 
-Use a dismissible, non-modal side panel on desktop and a full-height Sheet on
-phones. Keep one queue with active and recent results; no separate upload dashboard.
-Keep file selection and destination review on the Add media page. Activity has
-one title and contains only accepted transfers and operation results.
-Show a count on Activity only for running work or items needing attention. Closing
-the panel is not cancellation. A shared summary toast may offer View activity; avoid
-per-file notifications and persistent status overlays on media cards.
+Use a separate Activity page on desktop and phones, reached from Account or a
+View activity notification. Preserve browser history, reload and page focus.
+Keep one list with active and recent results, merging each upload with its
+publication. File selection and destination review stay on Add media. The
+breadcrumb identifies Activity without a repeated visible heading or subtitle.
+Show the saved filename first, followed by operation, timestamp and status;
+retain receipt names after Trash, restore, rename and permanent deletion. Keep
+filters and Refresh Activity above the scrolling list. Needs attention includes
+paused uploads and failed or unresolved operations, with errors and recovery
+controls beside the affected item. Leaving Activity is not cancellation.
+Accepted Add files opens Activity; routine file actions retain the current view
+and use a summary toast with View activity. Avoid per-file notifications and
+persistent status overlays on media cards.
 
 | State                                               | Presentation and action                                                                                                                                                                                                       |
 | --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -650,8 +676,8 @@ Follow the [WAI modal-dialog pattern](https://www.w3.org/WAI/ARIA/apg/patterns/d
 give each dialog a title, move focus into it, contain focus while modal, support
 Escape and restore focus to its invoker or a surviving neighbor. Close a menu or
 mobile sidebar before opening another modal; preserve the pending action through
-that transition. A non-modal desktop Activity panel must not trap focus or mark
-the library inert. Keep destructive confirmations focused initially on Cancel.
+that transition. Activity is a normal page with a focused heading and no focus
+trap or modal overlay. Keep destructive confirmations focused initially on Cancel.
 
 Retain existing tree keyboard navigation and keyboard-layer guards. Enter/Space
 activates folder rows; ContextMenu/Shift+F10 opens item commands. Announce batch
@@ -884,6 +910,55 @@ into a fresh scan only after those locations are reconciled. Lock related
 presentation/annotation mutations briefly and reject stale revisions. Existing
 reads may finish, but new requests follow the current asset lifecycle.
 
+### Scan Cost And Follow-up Work
+
+Managed uploads, moves, renames, Trash and restores commit their indexed records
+directly in SQLite. Upload validation inspects the newly received file; it does
+not inspect the rest of the library. Gallery result reconciliation rereads
+indexed records and reapplies the current query. It does not start a media scan.
+
+The current watcher is enabled by default outside tests. It debounces visible
+filesystem changes for two seconds by default, then requests a scan of all
+configured roots and rediscovers directories for its watches. This includes
+Aether's own visible file changes after their direct commits. Hidden management
+storage is excluded. A scan still traverses directories and checks file
+attributes throughout the roots, but reuses stored hashes when fingerprints and
+filesystem identities match. New or changed files are hashed; image dimensions
+are inspected when content is new or changed or dimensions are unavailable.
+Scores, favorites and tags do not write source files or trigger watcher scans.
+
+The operation runner also inventories and hashes affected files before and after
+publication and verifies copies before source retirement. These checks protect
+recovery and the only verified copy; they are separate from library scanning.
+Current commits refresh counts across all folders and tags, and Trash, restore
+and purge recompute the active ranking projection. These remain scaling costs;
+the current implementation is not fully incremental.
+
+The following efficiency work is planned, not implemented:
+
+- Coalesce dirty directories and compare their current state with indexed
+  snapshots after managed commits. Reconcile affected entries without rescanning
+  unrelated roots. Retain events received during an operation or reconciliation
+  so concurrent external edits cannot be mistaken for Aether's own changes.
+- Refresh affected directory watches, including moved or recreated directories.
+  Use a conservative full scan when event paths are absent, events are known to
+  be missing or dropped, or the affected scope cannot be established. Preserve
+  manual full scanning and all-root availability checks before missing-file
+  removal.
+- Bound count updates to affected folders and tags, and avoid rebuilding ranking
+  projections when an operation cannot change active comparison inputs. Keep
+  the updates transactional with the corresponding lifecycle or location commit.
+- Measure directory visits, file reads and database work on disposable large
+  libraries. Cover managed changes concurrent with external edits, delayed or
+  missing event paths, replaced directories, disconnected roots and unresolved
+  operations before changing the watcher policy. Preserve existing content,
+  metadata and identity verification at publication and retirement boundaries.
+
+This direction follows [Apple's event and snapshot guidance](https://developer.apple.com/library/archive/documentation/Darwin/Conceptual/FSEvents_ProgGuide/UsingtheFSEventsFramework/UsingtheFSEventsFramework.html)
+and accounts for [Node's watcher limitations](https://nodejs.org/docs/latest-v24.x/api/fs.html#caveats).
+Filesystem notifications indicate that verification is needed; they do not
+establish file identity or authorize removal.
+
 ### Trash Storage And Maintenance
 
 Keep trashed original bytes in an app-reserved, protected directory on their
@@ -1019,7 +1094,7 @@ Unknown leftovers stay protected and visible to the operator.
 | Operation feature            | Focused routes, schemas, repository and filesystem modules under `apps/server/src/library`; reuse the repository facade and descriptor validation.                                                                                                                                                                                |
 | Lifecycle and reconciliation | `db/database.ts`, `library/asset-query.ts`, repository folder/scan/ranking/comparison modules, `scanner.ts`, watcher coordination and direct media resolution.                                                                                                                                                                    |
 | Cache and maintenance        | Existing derivative/presentation cache cleanup, `maintenance` backup/restore/data commands and startup recovery.                                                                                                                                                                                                                  |
-| Browser                      | `api/client.ts`, AppShell feature hook, GalleryCardActions, BatchActionsBar, shared score/favorite controls, folder create/rename actions, media rename dialog, destination picker, viewer More menu, sidebar Trash and Activity panel.                                                                                           |
+| Browser                      | `api/client.ts`, AppShell feature hook, GalleryCardActions, BatchActionsBar, shared score/favorite controls, folder create/rename actions, media rename dialog, destination picker, viewer More menu, sidebar Trash and Activity pages.                                                                                           |
 | Edit details                 | `batch/BatchActionsBar.tsx`, `batch/batch-curation-model.ts` and tests, `batch/useBatchSelection.ts`, `MediaCurationControls.tsx`, `styles/batch-actions.css`, existing Tabs/Dialog/Sheet primitives and media-editor footer/draft patterns.                                                                                      |
 | Notifications                | `App.tsx`, `components/ui/sonner.tsx`, AppShell event ownership, existing `app/scan-status.ts`/`app-helpers.ts` formatters, library job polling, settings resets, annotation/editor save paths and operation/Activity hooks.                                                                                                      |
 | Gallery updates              | `assets/useAssetList.ts`, `media/useMediaActions.ts`, `media/asset-score-mutation-queue.ts`, `batch/useBatchSelection.ts`, `gallery/GalleryGrid.tsx`, AppShell refresh predicates, shared toolbar/paging controls and `scroll-restoration.ts`; server list/mutation revision contracts in repository modules and `api/client.ts`. |

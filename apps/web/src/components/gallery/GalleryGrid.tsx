@@ -54,8 +54,6 @@ interface GalleryGridProps {
   gridSize: GridSize;
   hasMore: boolean;
   resultsPending?: boolean;
-  canUpdateResults?: boolean;
-  onUpdateResults?: () => void;
   isLoading: boolean;
   isLoadingMore: boolean;
   isContentReady: boolean;
@@ -122,8 +120,6 @@ export function GalleryGrid({
   gridSize,
   hasMore,
   resultsPending = false,
-  canUpdateResults = true,
-  onUpdateResults,
   isLoading,
   isLoadingMore,
   isContentReady,
@@ -1075,21 +1071,12 @@ export function GalleryGrid({
             </strong>
             <span>
               {resultsPending
-                ? "Update results to show the current library."
+                ? "Choose Update results above to show the current library."
                 : hasQueryFilters
                   ? "Adjust the search or filters to see more media."
                   : "Add media, or scan after copying files into this folder."}
             </span>
-            {resultsPending ? (
-              <Button
-                type="button"
-                variant="outline"
-                disabled={!canUpdateResults}
-                onClick={onUpdateResults}
-              >
-                Update results
-              </Button>
-            ) : !hasQueryFilters && onAddMedia ? (
+            {!resultsPending && !hasQueryFilters && onAddMedia ? (
               <Button type="button" onClick={onAddMedia}>
                 Add media
               </Button>
@@ -1170,19 +1157,20 @@ export function GalleryGrid({
             );
           })}
         </div>
-        {hasMore || resultsPending ? (
+        {hasMore ? (
           <div className="load-more-row" ref={loadMoreRef}>
             <Button
               type="button"
               variant="outline"
-              disabled={isLoadingMore || (resultsPending && !canUpdateResults)}
-              onClick={resultsPending ? onUpdateResults : onLoadMore}
+              disabled={isLoadingMore || resultsPending}
+              title={
+                resultsPending
+                  ? "Update results above before loading more"
+                  : undefined
+              }
+              onClick={onLoadMore}
             >
-              {resultsPending
-                ? "Update results"
-                : isLoadingMore
-                  ? "Loading"
-                  : "Load more"}
+              {isLoadingMore ? "Loading" : "Load more"}
             </Button>
           </div>
         ) : null}

@@ -49,13 +49,6 @@ async function signIn(page: Page) {
     page.getByRole("region", { name: "Gallery view" })
   ).toBeVisible();
 }
-async function closeActivity(page: Page) {
-  const activity = page.getByRole("dialog", { name: "Activity", exact: true });
-  await expect(activity).toBeVisible();
-  await activity.getByRole("button", { name: "Close", exact: true }).click();
-  await expect(activity).toBeHidden();
-}
-
 test("reviews each move conflict, skips without a job and submits only the chosen items", async ({
   page
 }, testInfo) => {
@@ -197,7 +190,9 @@ test("reviews each move conflict, skips without a job and submits only the chose
       "keep-both",
       "skip"
     ]);
-    await closeActivity(page);
+    await expect(
+      page.getByRole("region", { name: "Activity", exact: true })
+    ).toBeHidden();
     expect(await readFile(path.join(owned, "Source", "one.png"))).toEqual(png);
     expect(await readFile(path.join(owned, "Destination", "one.png"))).toEqual(
       png
@@ -248,10 +243,7 @@ test("reviews duplicate upload names on phone before admitting files and keeps b
       .getByRole("region", { name: "Library controls" })
       .getByRole("button", { name: "Add media", exact: true })
       .click();
-    const addMedia = page.getByRole("region", {
-      name: "Add media",
-      exact: true
-    });
+    const addMedia = page.locator(".add-media-page");
     const admission: string[] = [];
     page.on("request", (request) => {
       if (request.method() === "POST" && request.url().endsWith("/api/uploads"))

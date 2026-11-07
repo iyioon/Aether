@@ -84,6 +84,7 @@ function metadataFor(upload: ManagedUpload): Record<string, string> {
  * descriptors and records its identity before acknowledging creation. */
 class BoundedFileStore extends FileStore {
   readonly active = new Set<string>();
+  private readonly creating = new Set<string>();
   readonly expectedChecksums = new Map<string, Buffer>();
   constructor(
     directory: string,
@@ -174,6 +175,24 @@ class BoundedFileStore extends FileStore {
       throw transportError(429, "upload_busy");
     this.active.add(id);
   }
+  claimCreation(id: string): void {
+    this.claim(id);
+    this.creating.add(id);
+  }
+  async releaseCreation(id: string): Promise<void> {
+    if (!this.creating.delete(id)) return;
+    try {
+      const latest = getManagedUpload(this.db, id);
+      if (latest?.status === "receiving")
+        updateManagedUpload(this.db, {
+          ...latest,
+          status: "failed",
+          errorCode: "upload_interrupted"
+        });
+    } finally {
+      await this.release(id);
+    }
+  }
   async release(id: string): Promise<void> {
     this.active.delete(id);
     const latest = getManagedUpload(this.db, id);
@@ -184,11 +203,13 @@ class BoundedFileStore extends FileStore {
       await this.cleanup(id);
   }
   override async create(upload: Upload): Promise<Upload> {
-    let claimed = false;
+    let claimed = this.creating.delete(upload.id);
     let handle: DescriptorHandle | undefined;
     try {
-      this.claim(upload.id);
-      claimed = true;
+      if (!claimed) {
+        this.claim(upload.id);
+        claimed = true;
+      }
       await this.assertParent();
       const admitted = getManagedUpload(this.db, upload.id);
       if (!admitted || admitted.status !== "receiving" || admitted.cleanedUp)
@@ -416,6 +437,7 @@ export async function registerUploadRoutes(
   const cleanupJobs = new Map<string, Promise<void>>();
   const activeRequests = new Set<Promise<void>>();
   const protocolTransfers = new Set<string>();
+  const creationRequests = new WeakMap<Request, string>();
   const requireUpload = (id: string) => {
     const upload = getManagedUpload(db, id);
     if (!upload) throw transportError(404, "upload_not_found");
@@ -622,7 +644,7 @@ export async function registerUploadRoutes(
       if (length && (!/^\d+$/.test(length) || Number(length) > CHUNK_BYTES))
         throw transportError(413, "chunk_too_large");
     },
-    async onUploadCreate(_request, upload) {
+    async onUploadCreate(request, upload) {
       if (closing || stagingUnsafe)
         throw transportError(503, "upload_recovery_required");
       const metadata = UploadMetadata.safeParse(upload.metadata);
@@ -656,6 +678,10 @@ export async function registerUploadRoutes(
         (folder.fsDeviceId && folder.fsDeviceId !== ownership.deviceId)
       )
         throw transportError(403, "unsupported_filesystem");
+      // Status reconciliation must not inspect a reservation whose staging
+      // file has not been created yet. Transfer this claim to store.create.
+      store.claimCreation(upload.id);
+      creationRequests.set(request, upload.id);
       try {
         createManagedUpload(
           db,
@@ -938,6 +964,7 @@ export async function registerUploadRoutes(
       if (typeof request.raw.setTimeout === "function")
         request.raw.setTimeout(60_000, () => request.raw.destroy());
       const controller = new AbortController();
+      let webRequest: Request | undefined;
       let finishRequest!: () => void;
       const completion = new Promise<void>((resolve) => {
         finishRequest = resolve;
@@ -984,9 +1011,11 @@ export async function registerUploadRoutes(
           init.body = Readable.toWeb(request.raw) as ReadableStream<Uint8Array>;
           init.duplex = "half";
         }
-        const response = await server.handleWeb(
-          new Request(new URL(request.url, "http://aether.invalid"), init)
+        webRequest = new Request(
+          new URL(request.url, "http://aether.invalid"),
+          init
         );
+        const response = await server.handleWeb(webRequest);
         reply.code(response.status);
         response.headers.forEach((value, key) => {
           reply.header(key, value);
@@ -997,21 +1026,29 @@ export async function registerUploadRoutes(
           response.body ? Buffer.from(await response.arrayBuffer()) : undefined
         );
       } finally {
-        if (transferKey && transferClaimed)
-          protocolTransfers.delete(transferKey);
-        if (request.method === "PATCH" && transferClaimed)
-          store.expectedChecksums.delete(
-            request.params &&
-              typeof request.params === "object" &&
-              "uploadId" in request.params
-              ? String(request.params.uploadId)
-              : ""
-          );
-        activeRequests.delete(completion);
-        finishRequest();
-        request.raw.off("aborted", abort);
-        request.raw.off("error", abort);
-        reply.raw.off("close", onClose);
+        try {
+          const creationId = webRequest && creationRequests.get(webRequest);
+          if (webRequest && creationId) {
+            creationRequests.delete(webRequest);
+            await store.releaseCreation(creationId);
+          }
+        } finally {
+          if (transferKey && transferClaimed)
+            protocolTransfers.delete(transferKey);
+          if (request.method === "PATCH" && transferClaimed)
+            store.expectedChecksums.delete(
+              request.params &&
+                typeof request.params === "object" &&
+                "uploadId" in request.params
+                ? String(request.params.uploadId)
+                : ""
+            );
+          activeRequests.delete(completion);
+          finishRequest();
+          request.raw.off("aborted", abort);
+          request.raw.off("error", abort);
+          reply.raw.off("close", onClose);
+        }
       }
     };
     scope.all("/api/uploads", handle);

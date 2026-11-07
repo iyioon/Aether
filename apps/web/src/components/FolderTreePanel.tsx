@@ -4,6 +4,7 @@ import {
   useEffect,
   useLayoutEffect,
   useRef,
+  useState,
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent
 } from "react";
@@ -28,9 +29,16 @@ import { folderTreeItemDomId } from "./folders/folder-tree-dom";
 import type {
   FolderScanState,
   FolderSortMode,
+  FolderTreeAction,
   FolderTreeItem
 } from "./folders/folder-tree-types";
 import { Button } from "./ui/button";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger
+} from "./ui/context-menu";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -73,9 +81,7 @@ interface FolderTreePanelProps {
   onScan: () => void;
   canCreateFolder?: boolean;
   canManageFolder?: boolean;
-  onFolderAction?: (
-    action: "create-folder" | "rename-folder" | "move-folder"
-  ) => void;
+  onFolderAction?: (action: FolderTreeAction, folderId?: string) => void;
   onSelectFolder: (folderId: string) => void;
   onToggleFolderExpansion: (folderId: string) => void;
 }
@@ -85,6 +91,7 @@ interface FolderTreeRowProps {
   isSelected: boolean;
   isTabStop: boolean;
   item: FolderTreeItem;
+  onFolderAction?: (action: FolderTreeAction, folderId?: string) => void;
   onFolderKeyDown: (
     event: ReactKeyboardEvent<HTMLElement>,
     item: FolderTreeItem
@@ -269,21 +276,33 @@ export function FolderTreePanel({
               <DropdownMenuContent align="end">
                 <DropdownMenuItem
                   disabled={!canCreateFolder}
-                  onSelect={() => onFolderAction("create-folder")}
+                  onSelect={() =>
+                    onFolderAction(
+                      "create-folder",
+                      selectedFolderId ?? undefined
+                    )
+                  }
                 >
                   <Plus />
                   New folder
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   disabled={!canManageFolder}
-                  onSelect={() => onFolderAction("rename-folder")}
+                  onSelect={() =>
+                    onFolderAction(
+                      "rename-folder",
+                      selectedFolderId ?? undefined
+                    )
+                  }
                 >
                   <Pencil />
                   Rename…
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   disabled={!canManageFolder}
-                  onSelect={() => onFolderAction("move-folder")}
+                  onSelect={() =>
+                    onFolderAction("move-folder", selectedFolderId ?? undefined)
+                  }
                 >
                   <FolderInput />
                   Move to…
@@ -369,6 +388,7 @@ export function FolderTreePanel({
               isTabStop={treeTabStopId === item.id}
               item={item}
               key={item.id}
+              onFolderAction={onFolderAction}
               onFolderKeyDown={onFolderKeyDown}
               onSelectFolder={onSelectFolder}
               onToggleFolderExpansion={onToggleFolderExpansion}
@@ -419,11 +439,19 @@ const FolderTreeRow = memo(function FolderTreeRow({
   isSelected,
   isTabStop,
   item,
+  onFolderAction,
   onFolderKeyDown,
   onSelectFolder,
   onToggleFolderExpansion
 }: FolderTreeRowProps) {
-  return (
+  const [menuOpen, setMenuOpen] = useState(false);
+  const rowRef = useRef<HTMLDivElement>(null);
+  const pendingActionRef = useRef<FolderTreeAction | null>(null);
+  const touchPointerRef = useRef(false);
+  const blockTouchMenuRef = useRef(false);
+  const suppressClickRef = useRef(false);
+
+  const row = (
     <div
       aria-expanded={item.hasChildren ? isExpanded : undefined}
       aria-label={`${item.label}, ${item.assetCount} ${
@@ -440,6 +468,7 @@ const FolderTreeRow = memo(function FolderTreeRow({
         .filter(Boolean)
         .join(" ")}
       id={folderTreeItemDomId(item.id)}
+      ref={rowRef}
       data-folder-id={item.id}
       role="treeitem"
       tabIndex={isTabStop ? 0 : -1}
@@ -449,8 +478,42 @@ const FolderTreeRow = memo(function FolderTreeRow({
         } as CSSProperties
       }
       title={item.label}
+      onClickCapture={(event) => {
+        if (suppressClickRef.current && event.detail !== 0) {
+          event.preventDefault();
+          event.stopPropagation();
+          suppressClickRef.current = false;
+        }
+      }}
       onClick={() => onSelectFolder(item.id)}
-      onKeyDown={(event) => onFolderKeyDown(event, item)}
+      onKeyDown={(event) => {
+        if (
+          onFolderAction &&
+          (event.key === "ContextMenu" ||
+            (event.shiftKey && event.key === "F10"))
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+          blockTouchMenuRef.current = false;
+          const bounds = event.currentTarget.getBoundingClientRect();
+          event.currentTarget.dispatchEvent(
+            new MouseEvent("contextmenu", {
+              bubbles: true,
+              cancelable: true,
+              clientX: Math.min(
+                window.innerWidth - 12,
+                Math.max(12, bounds.left + Math.min(bounds.width / 2, 24))
+              ),
+              clientY: Math.min(
+                window.innerHeight - 12,
+                Math.max(12, bounds.top + bounds.height / 2)
+              )
+            })
+          );
+          return;
+        }
+        onFolderKeyDown(event, item);
+      }}
     >
       {item.hasChildren ? (
         <button
@@ -477,6 +540,82 @@ const FolderTreeRow = memo(function FolderTreeRow({
       <span className="tree-label">{item.label}</span>
       <small className="tree-count">{item.assetCount}</small>
     </div>
+  );
+
+  if (!onFolderAction) return row;
+
+  return (
+    <ContextMenu
+      open={menuOpen}
+      onOpenChange={(open) => {
+        if (open && blockTouchMenuRef.current) return;
+        if (open) {
+          pendingActionRef.current = null;
+          suppressClickRef.current = touchPointerRef.current;
+        }
+        setMenuOpen(open);
+      }}
+    >
+      <ContextMenuTrigger
+        asChild
+        onPointerDownCapture={(event) => {
+          touchPointerRef.current = event.pointerType !== "mouse";
+          suppressClickRef.current = false;
+          blockTouchMenuRef.current =
+            touchPointerRef.current &&
+            event.target instanceof Element &&
+            Boolean(event.target.closest(".tree-disclosure"));
+        }}
+        onPointerUpCapture={() => {
+          touchPointerRef.current = false;
+        }}
+        onPointerCancelCapture={() => {
+          touchPointerRef.current = false;
+        }}
+      >
+        {row}
+      </ContextMenuTrigger>
+      <ContextMenuContent
+        aria-label={`Actions for ${item.label}`}
+        className="folder-context-menu"
+        collisionPadding={12}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          rowRef.current?.focus({ preventScroll: true });
+          const action = pendingActionRef.current;
+          pendingActionRef.current = null;
+          if (action) onFolderAction(action, item.id);
+        }}
+      >
+        <ContextMenuItem
+          disabled={!item.canCreateFolder}
+          onSelect={() => {
+            pendingActionRef.current = "create-folder";
+          }}
+        >
+          <Plus aria-hidden="true" />
+          New folder
+        </ContextMenuItem>
+        <ContextMenuItem
+          disabled={!item.canManageFolder}
+          onSelect={() => {
+            pendingActionRef.current = "rename-folder";
+          }}
+        >
+          <Pencil aria-hidden="true" />
+          Rename…
+        </ContextMenuItem>
+        <ContextMenuItem
+          disabled={!item.canManageFolder}
+          onSelect={() => {
+            pendingActionRef.current = "move-folder";
+          }}
+        >
+          <FolderInput aria-hidden="true" />
+          Move to…
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 });
 

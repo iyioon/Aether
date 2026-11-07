@@ -143,7 +143,20 @@ export const TagsBody = z.object({
 
 const BatchAssetIds = z.array(z.string().min(1).max(256)).min(1).max(500);
 
-export const AssetDetailsBody = z.object({ assetIds: BatchAssetIds });
+const AssetDetailsFilter = AssetListQuery.pick({
+  type: true,
+  search: true
+}).extend({
+  folderId: FolderParams.shape.folderId,
+  recursive: ComparisonPairContext.shape.recursive,
+  tags: ComparisonPairContext.shape.tags,
+  scoreFilter: AssetListQuery.shape.score
+});
+
+export const AssetDetailsBody = z.object({
+  assetIds: BatchAssetIds,
+  filter: AssetDetailsFilter.optional()
+});
 
 export const BatchScoreBody = z
   .object({

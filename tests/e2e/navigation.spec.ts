@@ -106,15 +106,27 @@ for (const phone of [false, true]) {
         ).toBeHidden();
       }
       await chooseAccountAction(page, "Activity");
-      const activity = page.getByRole("dialog", {
+      const activity = page.getByRole("region", {
         name: "Activity",
         exact: true
       });
       await expect(activity).toBeVisible();
-      await activity
-        .getByRole("button", { name: "Close", exact: true })
-        .click();
+      await expect(page).toHaveURL(/\bpage=activity\b/);
+      await expect(page.getByRole("dialog", { name: "Activity" })).toHaveCount(
+        0
+      );
+      await expect(
+        activity.getByRole("heading", { name: "Activity", exact: true })
+      ).toBeFocused();
+      await page.goBack();
       await expect(activity).toBeHidden();
+      await expect(
+        page.getByRole("region", { name: "Gallery view", exact: true })
+      ).toBeVisible();
+      await page.goForward();
+      await expect(activity).toBeVisible();
+      await page.reload();
+      await expect(activity).toBeVisible();
       for (const name of ["Trash", "User guide", "Settings"]) {
         await chooseAccountAction(page, name);
         await expect(
@@ -127,6 +139,58 @@ for (const phone of [false, true]) {
       }
       await chooseAccountAction(page, "Sign out");
       await expect(page.getByLabel("Password", { exact: true })).toBeVisible();
+    } finally {
+      await context.close();
+    }
+  });
+
+  test(`opens Activity directly without changing files on ${phone ? "phone" : "desktop"}`, async ({
+    browser
+  }) => {
+    const context = await browser.newContext({
+      baseURL: productionBaseURL,
+      viewport: phone
+        ? { width: 320, height: 760 }
+        : { width: 1440, height: 980 },
+      isMobile: phone,
+      hasTouch: phone,
+      serviceWorkers: "block"
+    });
+    try {
+      const page = await context.newPage();
+      await page.goto("/?page=activity");
+      await page
+        .getByLabel("Password", { exact: true })
+        .fill("aether-e2e-password");
+      await page.getByRole("button", { name: "Enter", exact: true }).click();
+      const activity = page.getByRole("region", {
+        name: "Activity",
+        exact: true
+      });
+      await expect(activity).toBeVisible();
+      const writes: string[] = [];
+      page.on("request", (request) => {
+        const url = new URL(request.url());
+        if (url.pathname.startsWith("/api/") && request.method() !== "GET")
+          writes.push(`${request.method()} ${url.pathname}`);
+      });
+      await expect(page).toHaveURL(/\bpage=activity\b/);
+      await expect(page.getByRole("dialog")).toHaveCount(0);
+      await expect(
+        page.getByRole("button", { name: "Add media", exact: true })
+      ).toHaveCount(0);
+      await chooseAccountAction(page, "Trash");
+      await expect(
+        page.getByRole("heading", { name: "Trash", exact: true })
+      ).toBeVisible();
+      await page.goBack();
+      await expect(activity).toBeVisible();
+      await page.reload();
+      await expect(activity).toBeVisible();
+      expect(writes).toEqual([]);
+      await page.screenshot({
+        path: test.info().outputPath("activity-page.png")
+      });
     } finally {
       await context.close();
     }

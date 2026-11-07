@@ -91,8 +91,16 @@ export function UserGuidePage({
             <p>
               Saved score, favorite or tag changes appear immediately. If they
               affect the current sorting or filters, cards stay in place until
-              you choose Update results or change the view. Update results also
-              continues loading when the result order has changed.
+              you choose Update results or change the view. Update results is
+              above the search bar. Loading more results pauses while sorting or
+              filtering changes are waiting.
+            </p>
+            <p>
+              Completed uploads, restores, moves, renames and deletions update
+              the Gallery automatically. Aether keeps your browsing position
+              where possible and waits for selection or editing to finish. Any
+              waiting score or tag changes keep their current order until you
+              choose Update results.
             </p>
             <h2>Use the viewer</h2>
             <p>
@@ -231,14 +239,17 @@ export function UserGuidePage({
             </p>
             <h2>Create or rename a folder</h2>
             <ol>
-              <li>Open the selected folder’s actions.</li>
+              <li>
+                Right-click a folder in the tree, or select it and open Selected
+                folder actions. With the folder focused, use Shift+F10 or the
+                Menu key.
+              </li>
               <li>Choose New folder or Rename.</li>
               <li>Enter the name and choose Create folder or Rename.</li>
             </ol>
             <p>
-              New folder creates a child of the selected folder. Assigned roots
-              cannot be renamed or moved. Renaming a folder includes its
-              contents.
+              New folder creates a child of that folder. Assigned roots cannot
+              be renamed or moved. Renaming a folder includes its contents.
             </p>
             <h2>Rename or move media</h2>
             <ol>
@@ -277,9 +288,7 @@ export function UserGuidePage({
                 Review the files, limits and writable destination. Use Choose
                 more files to extend the selection.
               </li>
-              <li>
-                Choose Add files. The library reopens with progress in Activity.
-              </li>
+              <li>Choose Add files. Activity opens with upload progress.</li>
             </ol>
             <p>
               Cancel clears the unsubmitted selection and returns to the
@@ -297,16 +306,25 @@ export function UserGuidePage({
             </ol>
             <p>
               Trash retains files for 30 days by default and still uses disk
-              space. Restore uses the original folder when available; otherwise
-              choose another destination. Delete permanently and Empty Trash
-              cannot be undone. Empty Trash includes items hidden by its search.
+              space. Each item shows its original folder, size and deletion
+              date. Items being restored or deleted show their current status;
+              use View activity for details. Restore uses the original folder
+              when available; otherwise choose another destination. Delete
+              permanently and Empty Trash cannot be undone. Empty Trash includes
+              items hidden by its search.
             </p>
             <h2>Check Activity</h2>
             <p>
               Open Account → Activity in the sidebar for upload progress,
-              completed work and items needing attention. Each operation
-              identifies its media or folder. Closing Activity does not cancel
-              accepted work.
+              completed work and items needing attention. Activity opens as a
+              page. Each result identifies its media or folder, action, time and
+              status. Use Needs attention to find paused uploads and operations
+              that need recovery. Refresh Activity checks for the latest
+              results. Leaving the page does not cancel accepted work.
+            </p>
+            <p>
+              Routine file actions keep the current view open and report their
+              result in a notification. Use View activity for details.
             </p>
             <p>
               Uploads can pause offline or when the app leaves the foreground.

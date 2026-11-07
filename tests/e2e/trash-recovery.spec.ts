@@ -128,7 +128,7 @@ for (const phone of [false, true]) {
         (await page.request.head(`/api/assets/${asset.id}/download`)).status()
       ).toBe(404);
       await chooseAccountAction(page, "Activity");
-      const activity = page.getByRole("dialog", {
+      const activity = page.getByRole("region", {
         name: "Activity",
         exact: true
       });
@@ -160,14 +160,10 @@ for (const phone of [false, true]) {
         .getByRole("region", { name: "Move to Trash", exact: true })
         .first();
       await expect(latestTrashOperation).toContainText("Completed");
+      await expect(latestTrashOperation).toContainText(name);
       await expect(
         latestTrashOperation.getByRole("button", { name: "Check again" })
       ).toHaveCount(0);
-      await activity
-        .getByRole("button", { name: "Close", exact: true })
-        .click();
-      await expect(activity).toBeHidden();
-      await expect(card).toHaveCount(0);
       const notification = page
         .locator("[data-sonner-toast]")
         .filter({ hasText: "1 item moved to Trash" });
@@ -179,6 +175,17 @@ for (const phone of [false, true]) {
         .getByRole("button", { name: "Close toast", exact: true })
         .click();
       await expect(notification).toBeHidden();
+      await page.reload();
+      const retainedReceipt = activity
+        .getByRole("region", { name: "Move to Trash", exact: true })
+        .filter({ hasText: name });
+      await expect(retainedReceipt).toContainText("Completed");
+      await expect(
+        retainedReceipt.getByText(name, { exact: true })
+      ).toBeVisible();
+      await page.goBack();
+      await expect(activity).toBeHidden();
+      await expect(card).toHaveCount(0);
 
       const trash = (await (
         await page.request.get(`/api/trash?search=${encodeURIComponent(name)}`)

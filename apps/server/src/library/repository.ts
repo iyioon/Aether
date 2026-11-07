@@ -3,7 +3,8 @@ import {
   ASSET_SOURCE_SELECT_COLUMNS,
   ASSET_SELECT_COLUMNS,
   buildAssetFilterQuery,
-  FINAL_SCORE_SQL
+  FINAL_SCORE_SQL,
+  type AssetFilterOptions
 } from "./asset-query.js";
 import { stableId } from "./ids.js";
 export {
@@ -671,6 +672,53 @@ export function updateAssetScoresBatch(
     assets: getAssetsByIds(db, assetIds),
     updated: assetIds.length
   };
+}
+
+export function getAssetDetails(
+  db: AetherDatabase,
+  assetIds: string[],
+  filter?: AssetFilterOptions
+): {
+  assets: AssetRecord[];
+  revision: string;
+  matchingAssetIds?: string[];
+} | null {
+  return db
+    .transaction(() => {
+      const folder = filter ? getFolder(db, filter.folderId) : undefined;
+      if (filter && !folder) return null;
+      const assets = getAssetsByIds(db, assetIds);
+      if (!filter || !folder)
+        return { assets, revision: getLibraryRevision(db) };
+
+      const ids = [...new Set(assetIds)];
+      const { parameters, whereClause } = buildAssetFilterQuery(folder, filter);
+      const placeholders = ids.map((id, index) => {
+        const name = `assetId${index}`;
+        parameters[name] = id;
+        return `@${name}`;
+      });
+      const matching = new Set(
+        ids.length
+          ? (
+              db
+                .prepare(
+                  `SELECT a.id FROM assets a
+                   LEFT JOIN asset_annotations aa ON aa.asset_id = a.id
+                   LEFT JOIN asset_rankings ar ON ar.asset_id = a.id
+                   WHERE ${whereClause} AND a.id IN (${placeholders.join(", ")})`
+                )
+                .all(parameters) as Array<{ id: string }>
+            ).map((asset) => asset.id)
+          : []
+      );
+      return {
+        assets,
+        revision: getLibraryRevision(db),
+        matchingAssetIds: ids.filter((id) => matching.has(id))
+      };
+    })
+    .deferred();
 }
 
 export function getAssetsByIds(

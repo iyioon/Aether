@@ -32,6 +32,11 @@ export function useFileOperations(
   const [operations, setOperations] = useState<FileOperation[]>([]);
   const [refreshToken, setRefreshToken] = useState(0);
   const activeRef = useRef(true);
+  const refreshGenerationRef = useRef(0);
+  const acceptedGenerationRef = useRef(0);
+  const acceptedOperationsRef = useRef(
+    new Map<string, { generation: number; operation: FileOperation }>()
+  );
   const notificationsRef = useRef(new OperationNotificationBuffer());
   const notificationTimerRef = useRef<number | undefined>(undefined);
   const pollingRef = useRef(0);
@@ -168,6 +173,13 @@ export function useFileOperations(
   const accept = useCallback(
     (operation: FileOperation, notify: boolean) => {
       if (!activeRef.current) return;
+      const accepted = acceptedOperationsRef.current;
+      accepted.delete(operation.id);
+      accepted.set(operation.id, {
+        generation: ++acceptedGenerationRef.current,
+        operation
+      });
+      if (accepted.size > 100) accepted.delete(accepted.keys().next().value!);
       setOperations((current) =>
         [
           operation,
@@ -260,13 +272,29 @@ export function useFileOperations(
     };
   }, [accept, refreshToken, scheduleNotifications, watchIds]);
   const refresh = useCallback(async (signal?: AbortSignal) => {
+    const generation = ++refreshGenerationRef.current;
+    const acceptedBeforeRead = acceptedGenerationRef.current;
     const result = await getFileOperations(signal);
-    if (signal?.aborted || !activeRef.current) return;
-    setOperations(result.items);
+    if (
+      signal?.aborted ||
+      !activeRef.current ||
+      generation !== refreshGenerationRef.current
+    )
+      return;
+    // Keep acknowledgements received while the list request was in flight.
+    const newer = [...acceptedOperationsRef.current.values()]
+      .filter((entry) => entry.generation > acceptedBeforeRead)
+      .map((entry) => entry.operation);
+    const newerIds = new Set(newer.map((operation) => operation.id));
+    const items = [
+      ...newer,
+      ...result.items.filter((operation) => !newerIds.has(operation.id))
+    ].slice(0, 100);
+    setOperations(items);
     setWatchIds((current) => [
       ...new Set([
         ...current,
-        ...result.items
+        ...items
           .filter((entry) => !isOperationTerminal(entry))
           .map((entry) => entry.id)
       ])

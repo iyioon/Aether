@@ -59,6 +59,7 @@ export function resolveAppLocation(
         page === "settings" ||
         page === "guide" ||
         page === "trash" ||
+        page === "activity" ||
         page === "add-media"
           ? page
           : "library",
@@ -110,6 +111,7 @@ export function readStoredAppLocation(): AppLocationState {
           nav.page === "settings" ||
           nav.page === "guide" ||
           nav.page === "trash" ||
+          nav.page === "activity" ||
           nav.page === "add-media") &&
         (nav.comparisonWorkspace === "ranking" ||
           nav.comparisonWorkspace === "leaderboard")

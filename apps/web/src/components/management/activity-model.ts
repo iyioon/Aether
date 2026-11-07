@@ -1,11 +1,21 @@
 import type { FileOperation, FileOperationItem } from "../../api/client";
 
+export function activityNeedsAttention(operation: FileOperation): boolean {
+  return (
+    operation.status === "needs_attention" ||
+    operation.status === "failed" ||
+    (operation.status === "partial" &&
+      (operation.summary?.failed ??
+        operation.items.filter((item) => item.status === "failed").length) > 0)
+  );
+}
+
 export function activityItemName(item: FileOperationItem): string | null {
   return (
+    item.name ??
     item.asset?.name ??
     item.folder?.label ??
     item.folder?.name ??
-    item.name ??
     null
   );
 }

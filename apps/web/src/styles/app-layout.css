@@ -451,8 +451,18 @@
   );
 }
 
-.tree-row:hover {
+.tree-row:hover,
+.tree-row[data-state="open"]:not(.active) {
   background: color-mix(in srgb, var(--sidebar-accent) 62%, transparent);
+}
+
+.folder-context-menu {
+  min-width: 180px;
+  max-width: calc(100vw - 24px);
+}
+
+.folder-context-menu [data-slot="context-menu-item"] {
+  min-height: 36px;
 }
 
 .tree-row:focus-visible {

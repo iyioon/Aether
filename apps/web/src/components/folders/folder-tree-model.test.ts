@@ -65,3 +65,62 @@ describe("folder tree sorting", () => {
     ]);
   });
 });
+
+describe("folder tree actions", () => {
+  it("limits configured roots to creation and keeps read-only folders disabled", () => {
+    const writableTree: TreeResponse = {
+      roots: tree.roots.map((root) => ({
+        ...root,
+        writable: root.id === "root-a",
+        allowedActions: ["create-folder", "rename-folder", "move-folder"]
+      })),
+      folders: tree.folders.map((folder) => ({
+        ...folder,
+        ...(folder.id === "child-z" ? { writable: false } : {})
+      }))
+    };
+    const items = buildVisibleFolderItems({
+      tree: writableTree,
+      folderChildrenByParentId: buildFolderChildrenByParentId(writableTree),
+      expandedFolderIds: new Set(["folder-a"])
+    });
+
+    expect(
+      items.map(({ id, canCreateFolder, canManageFolder }) => ({
+        id,
+        canCreateFolder,
+        canManageFolder
+      }))
+    ).toEqual([
+      { id: "folder-a", canCreateFolder: true, canManageFolder: false },
+      { id: "child-a", canCreateFolder: true, canManageFolder: true },
+      { id: "child-z", canCreateFolder: false, canManageFolder: false },
+      { id: "folder-b", canCreateFolder: false, canManageFolder: false }
+    ]);
+  });
+
+  it("respects explicit server action restrictions", () => {
+    const restrictedTree: TreeResponse = {
+      roots: tree.roots.map((root) => ({
+        ...root,
+        writable: true,
+        allowedActions: []
+      })),
+      folders: tree.folders.map((folder) => ({
+        ...folder,
+        writable: true,
+        allowedActions: folder.id === "child-a" ? ["create-folder"] : []
+      }))
+    };
+    const items = buildVisibleFolderItems({
+      tree: restrictedTree,
+      folderChildrenByParentId: buildFolderChildrenByParentId(restrictedTree),
+      expandedFolderIds: new Set(["folder-a"])
+    });
+
+    expect(items.filter((item) => item.canManageFolder)).toEqual([]);
+    expect(
+      items.filter((item) => item.canCreateFolder).map((item) => item.id)
+    ).toEqual(["child-a"]);
+  });
+});

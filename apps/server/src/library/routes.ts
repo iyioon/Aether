@@ -11,6 +11,7 @@ import {
   clearAssetManualAdjustment,
   folderIdFor,
   getAsset,
+  getAssetDetails,
   getAssetsByIds,
   getAssetTags,
   InvalidTagError,
@@ -196,12 +197,9 @@ export async function registerLibraryRoutes(
     const body = AssetDetailsBody.safeParse(request.body);
     if (!body.success)
       return reply.code(400).send({ error: "invalid_request" });
-    return db
-      .transaction(() => ({
-        assets: getAssetsByIds(db, body.data.assetIds),
-        revision: getLibraryRevision(db)
-      }))
-      .deferred();
+    const result = getAssetDetails(db, body.data.assetIds, body.data.filter);
+    if (!result) return reply.code(404).send({ error: "folder_not_found" });
+    return result;
   });
 
   registerComparisonRoutes(app, db);

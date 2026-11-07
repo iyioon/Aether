@@ -34,6 +34,10 @@ The server owns all filesystem and database access.
   produces previews, and serves media.
 - **security** checks that resolved files stay inside an allowed media root.
 
+Startup tracks its initialization stage and reports fixed recovery instructions
+through `maintenance/startup-failure.ts`. Diagnostics never include raw exception
+messages, stack traces or private configuration values.
+
 HTTP route modules validate requests and turn known failures into clear
 responses. Repository modules own database queries and transactions. Media
 processors receive an already validated source record; they never accept a raw

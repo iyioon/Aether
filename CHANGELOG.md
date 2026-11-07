@@ -4,6 +4,12 @@ Notable changes to Aether are recorded here.
 
 ## Unreleased
 
+### Fixed
+
+- Identify startup failures with privacy-safe stages and recovery instructions.
+- Preserve exact filesystem identity when opening Linux upload staging on
+  volumes with large inode numbers.
+
 ### Added
 
 - Opt-in named writable roots, durable folder creation, media/folder rename and

@@ -216,3 +216,19 @@ docker compose ps
 
 See [Data management](data-management.md) for backup locations and recovery
 notes.
+
+## Startup Failures
+
+The server reports the startup stage and a recovery instruction. A Vite
+`ECONNREFUSED` proxy error means Vite could not reach the API; use the server's
+message to identify the failed step.
+
+After pulling an update, run `npm ci` and `npm run build` with Node.js 24 before
+restarting. A missing module or incompatible native dependency can prevent the
+API from starting even while Vite runs.
+
+For removable media, reconnect the volume and check its configured path.
+`AETHER_WRITABLE_ROOTS` contains root names from `AETHER_MEDIA_ROOTS`, not paths.
+Native macOS and Windows installations support read-only media browsing and
+metadata editing; file uploads and filesystem changes require a supported Linux
+runtime. An empty `AETHER_WRITABLE_ROOTS` keeps file management disabled.

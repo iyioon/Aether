@@ -369,12 +369,14 @@ export async function registerUploadRoutes(
   }
   const directory = path.join(config.dataDir, "uploads");
   await mkdir(directory, { recursive: true, mode: 0o700 });
-  const info = await lstat(directory);
+  const info = await lstat(directory, { bigint: true });
+  const uid = process.getuid?.();
   if (
     !info.isDirectory() ||
     info.isSymbolicLink() ||
-    (info.mode & 0o777) !== 0o700 ||
-    info.uid !== process.getuid?.()
+    (info.mode & 0o777n) !== 0o700n ||
+    uid === undefined ||
+    info.uid !== BigInt(uid)
   )
     throw new Error("Upload staging requires a private directory.");
   const parent = await open(
@@ -382,10 +384,7 @@ export async function registerUploadRoutes(
     constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW
   );
   const openedParent = await parent.stat({ bigint: true });
-  if (
-    openedParent.dev !== BigInt(info.dev) ||
-    openedParent.ino !== BigInt(info.ino)
-  ) {
+  if (openedParent.dev !== info.dev || openedParent.ino !== info.ino) {
     await parent.close();
     throw new Error("Upload staging changed during startup.");
   }

@@ -9,6 +9,7 @@ import {
   writeFile,
   open,
   readlink,
+  lstat,
   type FileHandle
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -30,6 +31,11 @@ import {
   uploadVolumeReservations
 } from "../src/library/repository-uploads.js";
 import { fileManagementBlockers } from "../src/maintenance/file-management.js";
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:fs/promises")>();
+  return { ...original, lstat: vi.fn(original.lstat) };
+});
 
 describe.skipIf(process.platform !== "linux")(
   "authenticated resumable uploads",
@@ -96,6 +102,70 @@ describe.skipIf(process.platform !== "linux")(
       db?.close();
       if (directory) await rm(directory, { recursive: true, force: true });
     });
+
+    it.each([
+      { changed: false, outcome: "accepts unchanged" },
+      { changed: true, outcome: "rejects changed" }
+    ])(
+      "$outcome staging directories with inodes above the safe integer range",
+      async ({ changed }) => {
+        await app.close();
+        const staging = path.join(config.dataDir, "uploads");
+        const inode = 2n ** 53n + 1n;
+        expect(BigInt(Number(inode))).not.toBe(inode);
+        const { lstat: originalLstat } =
+          await vi.importActual<typeof import("node:fs/promises")>(
+            "node:fs/promises"
+          );
+        const probe = await open(staging, "r");
+        const prototype = Object.getPrototypeOf(probe) as FileHandle;
+        await probe.close();
+        const originalStat = prototype.stat;
+        const pathStat = vi
+          .mocked(lstat)
+          .mockImplementation(async (filePath, options) => {
+            const info = await originalLstat(filePath, options);
+            if (filePath === staging)
+              info.ino = typeof info.ino === "bigint" ? inode : Number(inode);
+            return info;
+          });
+        const descriptorStat = vi
+          .spyOn(prototype, "stat")
+          .mockImplementation(async function (this: FileHandle, options) {
+            const info = await originalStat.call(this, options);
+            if ((await readlink(`/proc/self/fd/${this.fd}`)) === staging) {
+              const openedInode = changed ? inode + 2n : inode;
+              info.ino =
+                typeof info.ino === "bigint"
+                  ? openedInode
+                  : Number(openedInode);
+            }
+            return info;
+          });
+        try {
+          if (changed) {
+            await expect(
+              buildApp({ config, db, logger: false })
+            ).rejects.toThrow("Upload staging changed during startup.");
+          } else {
+            app = await buildApp({ config, db, logger: false });
+            const status = await app.inject({
+              url: "/api/uploads/status",
+              headers
+            });
+            expect(status.statusCode).toBe(200);
+            expect(status.json()).toMatchObject({
+              items: [],
+              recoveryRequired: false
+            });
+          }
+        } finally {
+          await app.close();
+          pathStat.mockImplementation(originalLstat);
+          descriptorStat.mockRestore();
+        }
+      }
+    );
 
     async function create(
       name = "added.jpg",

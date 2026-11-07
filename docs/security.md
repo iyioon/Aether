@@ -133,6 +133,10 @@ Private settings are read from a validated ordinary file that is neither a
 symlink nor a hard link, using no-follow opening and owner-only permissions.
 Inherited shell settings take precedence.
 
+Startup diagnostics report the failed stage, public configuration key names and
+fixed recovery instructions. They omit raw exception messages, stack traces,
+configured paths and setting values.
+
 Rotate `AETHER_SESSION_SECRET` if it is exposed. This signs every current device
 out. Change the password hash as well if the password may be known.
 

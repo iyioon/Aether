@@ -67,8 +67,37 @@ describe("server startup", () => {
 
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("Aether server failed to start.");
+    expect(result.stderr).toContain("Stage: database.");
     expect(result.stderr).not.toContain(fixture);
     expect(result.stderr).not.toContain("aether.sqlite");
+    await expect(access(path.join(dataDir, "runtime.lock"))).rejects.toThrow();
+  });
+
+  it("explains invalid writable-root names and releases the lock without exposing paths", async () => {
+    const fixture = await mkdtemp(
+      path.join(tmpdir(), "aether-startup-config-")
+    );
+    fixtures.push(fixture);
+    const dataDir = path.join(fixture, "data");
+    const mediaDir = path.join(fixture, "media");
+    await mkdir(mediaDir);
+    const result = await runServer(
+      fileURLToPath(new URL("../src/index.ts", import.meta.url)),
+      fixture,
+      {
+        AETHER_DATA_DIR: dataDir,
+        AETHER_MEDIA_ROOTS: `photos=${mediaDir}`,
+        AETHER_WRITABLE_ROOTS: mediaDir,
+        AETHER_SESSION_SECRET: "private-startup-test-secret",
+        AETHER_WATCH_ENABLED: "false",
+        NODE_ENV: "test"
+      }
+    );
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("Stage: configuration.");
+    expect(result.stderr).toContain("names defined in AETHER_MEDIA_ROOTS");
+    expect(result.stderr).not.toContain(fixture);
+    expect(result.stderr).not.toContain("private-startup-test-secret");
     await expect(access(path.join(dataDir, "runtime.lock"))).rejects.toThrow();
   });
 });

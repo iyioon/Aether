@@ -14,6 +14,10 @@ import {
   type PrivateTemporaryFiles
 } from "./maintenance/private-temporary-files.js";
 import { prepareRestoreStateForStartup } from "./maintenance/restore-recovery.js";
+import {
+  startupFailureMessage,
+  type StartupStage
+} from "./maintenance/startup-failure.js";
 
 // Every runtime file created by the server is private by default. Explicit
 // modes in the data/cache helpers provide the same protection to CLI paths.
@@ -55,9 +59,8 @@ async function closeRuntimeResources(): Promise<void> {
   });
 }
 
-function reportStartupFailure(): void {
-  const message =
-    "Aether server failed to start. Check its configuration, data directory, and whether another instance is running.";
+function reportStartupFailure(stage: StartupStage, error: unknown): void {
+  const message = startupFailureMessage(stage, error);
 
   if (app) {
     app.log.error(message);
@@ -89,11 +92,15 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
 }
 
 async function start(): Promise<void> {
+  let stage: StartupStage = "environment";
   try {
     const rootDir = loadProjectEnv();
     const dataPaths = resolveDataPaths(process.env, rootDir);
+    stage = "data directory";
     await initializeDataDirectory(dataPaths);
+    stage = "runtime lock";
     releaseRuntimeLock = await acquireRuntimeLock(dataPaths);
+    stage = "private settings";
     loadPrivateEnv(rootDir);
 
     const privateDataPaths = resolveDataPaths(process.env, rootDir);
@@ -103,11 +110,16 @@ async function start(): Promise<void> {
       );
     }
 
+    stage = "restore recovery";
     await prepareRestoreStateForStartup(dataPaths);
+    stage = "temporary files";
     await removeAbandonedTemporaryFiles(dataPaths);
     temporaryFiles = await createPrivateTemporaryFiles(dataPaths);
+    stage = "configuration";
     const config = await loadConfig(process.env, rootDir);
+    stage = "database";
     db = openDatabase(config.configDir);
+    stage = "application setup";
     const { buildApp } = await import("./http/app.js");
     app = await buildApp({ config, db });
 
@@ -118,9 +130,10 @@ async function start(): Promise<void> {
       void shutdown("SIGTERM");
     });
 
+    stage = "API listener";
     await app.listen({ host: config.host, port: config.port });
-  } catch {
-    reportStartupFailure();
+  } catch (error) {
+    reportStartupFailure(stage, error);
     await closeRuntimeResources().catch(() => {
       process.stderr.write("Aether could not finish startup cleanup.\n");
     });

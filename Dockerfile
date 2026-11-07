@@ -1,4 +1,4 @@
-FROM node:24-trixie-slim AS build-deps
+FROM node:26-trixie-slim AS build-deps
 WORKDIR /app
 
 RUN apt-get update \
@@ -25,7 +25,7 @@ RUN npm run test -w @aether/server -- \
   test/presentation-bounce-probe.test.ts test/presentation-bounce-cache.test.ts \
   test/video-processing.test.ts test/heif-decoder.test.ts
 
-FROM node:24-trixie-slim AS production-deps
+FROM node:26-trixie-slim AS production-deps
 WORKDIR /app
 
 RUN apt-get update \
@@ -38,7 +38,7 @@ COPY apps/web/package.json apps/web/package.json
 RUN npm ci --omit=dev --workspace=@aether/server --include-workspace-root=false \
   && npm cache clean --force
 
-FROM node:24-trixie-slim AS runtime
+FROM node:26-trixie-slim AS runtime
 WORKDIR /app
 
 ENV NODE_ENV=production

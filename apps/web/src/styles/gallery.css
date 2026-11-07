@@ -642,3 +642,28 @@
   background: var(--primary);
   color: var(--primary-foreground);
 }
+
+.gallery-card-options {
+  position: absolute;
+  z-index: 3;
+  top: 8px;
+  right: 8px;
+  opacity: 0;
+}
+.media-tile:is(:hover, :focus-within) .gallery-card-options {
+  opacity: 1;
+}
+@media (hover: none) and (pointer: coarse) {
+  .gallery-card-options {
+    width: 44px;
+    height: 44px;
+    opacity: 1;
+  }
+}
+
+@media (max-width: 767px),
+  (max-width: 1024px) and (hover: none) and (pointer: coarse) {
+  .gallery-card-menu [role="menuitem"] {
+    min-height: 44px;
+  }
+}

@@ -63,9 +63,7 @@
 .library-path-bar {
   display: flex;
   flex: 0 0 auto;
-  align-items: center;
-  gap: 8px;
-  height: calc(56px + env(safe-area-inset-top));
+  flex-direction: column;
   min-width: 0;
   padding: env(safe-area-inset-top) max(14px, env(safe-area-inset-right)) 0
     max(14px, env(safe-area-inset-left));
@@ -79,10 +77,24 @@
 }
 
 .library-path-navigation,
+.library-path-heading,
+.library-path-view-actions,
+.library-result-status,
 .library-path-actions,
 .topbar-search {
   display: flex;
   align-items: center;
+}
+
+.library-path-heading {
+  min-width: 0;
+  height: 56px;
+  gap: 12px;
+}
+
+.library-path-view-actions {
+  flex: 0 0 auto;
+  gap: 8px;
 }
 
 .library-path-navigation {
@@ -99,13 +111,37 @@
 
 .library-path-actions {
   flex: 0 0 auto;
+  min-width: 0;
   gap: 8px;
+  padding-bottom: 10px;
+}
+
+.library-path-actions > .control-strip {
   margin-left: auto;
 }
 
 .topbar-search {
   position: relative;
-  width: clamp(220px, 28vw, 360px);
+  flex: 1 1 240px;
+  min-width: 0;
+  max-width: 480px;
+}
+
+.control-action-label {
+  display: none;
+}
+
+@container library-workspace (min-width: 721px) {
+  .library-path-actions .control-add-trigger {
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    padding-inline: 12px;
+  }
+
+  .library-path-actions .control-action-label {
+    display: inline;
+  }
 }
 
 .topbar-search > svg {
@@ -125,11 +161,6 @@
 .library-path-separator {
   height: 18px;
   margin-right: 4px;
-}
-
-.library-view-separator {
-  height: 20px;
-  margin-inline: 2px;
 }
 
 .library-view-switcher {

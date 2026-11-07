@@ -16,6 +16,7 @@ import {
   type TagSuggestion
 } from "../../api/client";
 import { normalizeTagDraft, normalizeTagIdentity } from "../library-state";
+import { createUuid } from "../../lib/uuid";
 import { clearRankingResumeState } from "../compare/ranking-resume-state";
 import {
   MediaFavoriteButton,
@@ -58,10 +59,12 @@ export function AssetAnnotationPanel({
     TagSuggestion[]
   >([]);
   const [annotationError, setAnnotationError] = useState<string | null>(null);
+  const [scoreError, setScoreError] = useState<string | null>(null);
   const [isRunningScoreAction, setIsRunningScoreAction] = useState(false);
   const [isResetComparisonOpen, setIsResetComparisonOpen] = useState(false);
   const [isSavingTags, setIsSavingTags] = useState(false);
   const [isLoadingTags, setIsLoadingTags] = useState(true);
+  const [tagReloadToken, setTagReloadToken] = useState(0);
   const [isLoadingSmartTags, setIsLoadingSmartTags] = useState(false);
   const [isLoadingAiTags, setIsLoadingAiTags] = useState(false);
   const activeRef = useRef(true);
@@ -91,7 +94,6 @@ export function AssetAnnotationPanel({
   }, [isSavingTags, isRunningScoreAction, onBusyChange]);
 
   useEffect(() => {
-    const controller = new AbortController();
     setTags([]);
     setIsLoadingTags(true);
     setIsSavingTags(pendingTagsRef.current.has(asset.id));
@@ -102,8 +104,14 @@ export function AssetAnnotationPanel({
     setTagSuggestions([]);
     setSmartTagSuggestions([]);
     setAnnotationError(null);
+    setScoreError(null);
     setIsResetComparisonOpen(false);
+  }, [asset.id]);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    setIsLoadingTags(true);
+    setAnnotationError(null);
     getAssetTags(asset.id, controller.signal)
       .then((response) => {
         if (!controller.signal.aborted) {
@@ -113,16 +121,14 @@ export function AssetAnnotationPanel({
       })
       .catch(() => {
         if (!controller.signal.aborted) {
-          setAnnotationError(
-            "Tags could not be loaded. Close and reopen Info to try again."
-          );
+          setAnnotationError("Tags could not be loaded. Try again.");
         }
       });
 
     return () => {
       controller.abort();
     };
-  }, [asset.id]);
+  }, [asset.id, tagReloadToken]);
 
   useEffect(() => {
     const query = tagInput.trim();
@@ -161,7 +167,7 @@ export function AssetAnnotationPanel({
   }, [tagInput, tags]);
 
   function saveScore(input: { score?: number; favorite?: boolean }) {
-    setAnnotationError(null);
+    setScoreError(null);
     onScoreChange(asset, input);
   }
 
@@ -170,7 +176,7 @@ export function AssetAnnotationPanel({
     const context = contextRef.current;
     pendingScoresRef.current.add(asset.id);
     setIsRunningScoreAction(true);
-    setAnnotationError(null);
+    setScoreError(null);
 
     try {
       const { asset: updatedAsset } = await clearAssetManualAdjustment(
@@ -180,7 +186,7 @@ export function AssetAnnotationPanel({
       callbacksRef.current.onAssetUpdated(updatedAsset);
       callbacksRef.current.onRankingChanged();
       toast.success("Manual adjustment removed", {
-        id: `adjustment-reset-${asset.id}:${crypto.randomUUID()}`
+        id: `adjustment-reset-${asset.id}:${createUuid()}`
       });
     } catch (caught) {
       if (
@@ -188,7 +194,7 @@ export function AssetAnnotationPanel({
         contextRef.current === context &&
         !(caught instanceof ApiError && caught.status === 401)
       )
-        setAnnotationError(
+        setScoreError(
           "The adjustment change could not be confirmed. Reopen Info to check the score."
         );
     } finally {
@@ -203,7 +209,7 @@ export function AssetAnnotationPanel({
     const context = contextRef.current;
     pendingScoresRef.current.add(asset.id);
     setIsRunningScoreAction(true);
-    setAnnotationError(null);
+    setScoreError(null);
 
     try {
       const response = await resetAssetComparisons(asset.id);
@@ -213,7 +219,7 @@ export function AssetAnnotationPanel({
       callbacksRef.current.onRankingChanged();
       if (contextRef.current === context) setIsResetComparisonOpen(false);
       toast.success("Comparisons reset for 1 item", {
-        id: `comparison-reset-${asset.id}:${crypto.randomUUID()}`
+        id: `comparison-reset-${asset.id}:${createUuid()}`
       });
     } catch (caught) {
       if (
@@ -221,7 +227,7 @@ export function AssetAnnotationPanel({
         contextRef.current === context &&
         !(caught instanceof ApiError && caught.status === 401)
       )
-        setAnnotationError(
+        setScoreError(
           "The reset could not be confirmed. Reopen Info to check comparisons before trying again."
         );
     } finally {
@@ -251,7 +257,7 @@ export function AssetAnnotationPanel({
       callbacksRef.current.onAssetTagsUpdated(asset.id, response.tags);
       toast.success(
         `${names.length === 0 ? "Tags cleared for" : names.length > previous.size ? "Tags added to" : "Tags updated for"} 1 item`,
-        { id: `tags-save-${asset.id}:${crypto.randomUUID()}` }
+        { id: `tags-save-${asset.id}:${createUuid()}` }
       );
       if (contextRef.current !== context) return;
       setTags(response.tags);
@@ -367,16 +373,21 @@ export function AssetAnnotationPanel({
         asset={asset}
         isResetOpen={isResetComparisonOpen}
         isSaving={isScoreSaving || isRunningScoreAction}
-        resetError={isResetComparisonOpen ? annotationError : null}
+        resetError={isResetComparisonOpen ? scoreError : null}
         onClearAdjustment={() => void clearManualAdjustment()}
         onReset={() => void resetComparisons()}
         onResetOpenChange={(open) => {
           if (!pendingScoresRef.current.has(asset.id)) {
-            setAnnotationError(null);
+            setScoreError(null);
             setIsResetComparisonOpen(open);
           }
         }}
       />
+      {scoreError && !isResetComparisonOpen ? (
+        <p className="annotation-error" role="alert">
+          {scoreError}
+        </p>
+      ) : null}
 
       <div className="tag-editor">
         <div className="tag-editor-heading">
@@ -426,7 +437,9 @@ export function AssetAnnotationPanel({
           <div className="tag-chip-list">
             {tags.map((tag) => (
               <span className="tag-chip" key={tag.id}>
-                {tag.displayName}
+                <span className="tag-chip-label" title={tag.displayName}>
+                  {tag.displayName}
+                </span>
                 <Button
                   size="icon-xs"
                   type="button"
@@ -444,13 +457,14 @@ export function AssetAnnotationPanel({
 
         <div className="tag-entry-row">
           <Input
+            aria-label="Add a tag"
             value={tagInput}
             maxLength={48}
             placeholder="Add a tag"
             disabled={isSavingTags || isLoadingTags}
             onChange={(event) => setTagInput(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter") {
+              if (event.key === "Enter" && !event.nativeEvent.isComposing) {
                 event.preventDefault();
                 addTag(tagInput);
               }
@@ -510,10 +524,23 @@ export function AssetAnnotationPanel({
           </div>
         ) : null}
 
-        {annotationError && !isResetComparisonOpen ? (
-          <span className="annotation-error" role="alert">
-            {annotationError}
-          </span>
+        {annotationError ? (
+          <>
+            <span className="annotation-error" role="alert">
+              {annotationError}
+            </span>
+            {isLoadingTags ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="justify-self-start"
+                onClick={() => setTagReloadToken((current) => current + 1)}
+              >
+                Retry tags
+              </Button>
+            ) : null}
+          </>
         ) : null}
       </div>
     </section>

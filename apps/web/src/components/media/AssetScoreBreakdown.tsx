@@ -33,26 +33,20 @@ export function AssetScoreBreakdown({
   onReset,
   onResetOpenChange
 }: AssetScoreBreakdownProps) {
+  if (!asset.ranking)
+    return <p className="text-sm text-muted-foreground">No comparisons yet.</p>;
+
   return (
     <div className="score-breakdown">
       <div className="score-breakdown-values">
-        {asset.ranking ? (
-          <RankedScoreValues
-            asset={asset}
-            ranking={asset.ranking}
-            isSaving={isSaving}
-            onClearAdjustment={onClearAdjustment}
-            onRequestReset={() => onResetOpenChange(true)}
-          />
-        ) : (
-          <UnrankedScoreValues score={asset.score} />
-        )}
+        <RankedScoreValues
+          asset={asset}
+          ranking={asset.ranking}
+          isSaving={isSaving}
+          onClearAdjustment={onClearAdjustment}
+          onRequestReset={() => onResetOpenChange(true)}
+        />
       </div>
-      <p>
-        {asset.ranking
-          ? "Final score adds the comparison score and manual adjustment, and never falls below 0."
-          : "With no comparisons yet, the final score is the manual score."}
-      </p>
       {asset.ranking ? (
         <AlertDialog open={isResetOpen} onOpenChange={onResetOpenChange}>
           <AlertDialogContent
@@ -157,29 +151,6 @@ function RankedScoreValues({
             </TooltipContent>
           </Tooltip>
         </span>
-      </span>
-      <span>
-        Final
-        <strong>{asset.score}</strong>
-      </span>
-    </>
-  );
-}
-
-function UnrankedScoreValues({ score }: { score: number }) {
-  return (
-    <>
-      <span>
-        Comparison
-        <strong>Not ranked</strong>
-      </span>
-      <span>
-        Manual score
-        <strong>{score}</strong>
-      </span>
-      <span>
-        Final
-        <strong>{score}</strong>
       </span>
     </>
   );

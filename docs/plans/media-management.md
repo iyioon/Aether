@@ -392,7 +392,7 @@ Trash follows a renamed folder's preserved ID, as it does after a folder move.
 ### Add Media
 
 Use the native multi-file picker on desktop and phones; desktop drag-and-drop
-opens the same review flow in Activity. Show filenames, sizes, selected count,
+opens the same Add media page. Show filenames, sizes, selected count,
 total size, destination and one Add files action before uploading. Default to the
 current folder only when writable; otherwise ask for a destination. Changing it
 uses the shared picker, preserving the review without stacking modal layers.
@@ -400,14 +400,17 @@ Allow removing files and adding more before submission. Show the actual configur
 limits and actionable validation near affected rows; reject folder drops with
 an explanation rather than silently ignoring their contents.
 
-Keep the growing upload list in Activity rather than a small modal. This follows
+Keep Add media as a page in the application shell, with one heading, a scrollable
+review and persistent actions. Keep the growing upload list in Activity. This follows
 [Carbon's uploader guidance](https://carbondesignsystem.com/components/file-uploader/usage/)
-on multi-file lists, progress and file-specific errors. Transfer starts only after
-Add files; success requires server acknowledgement of publication and indexing.
-Closing Activity preserves the unsubmitted review within the current tab;
-Discard releases it. A reload requires selecting those unsubmitted files again.
-After acceptance, closing Activity leaves work intact. Navigation must not
-unmount transfers. Use the same name-conflict choices as Move; never overwrite
+on multi-file lists, progress and file-specific errors, including avoiding a
+modal for multiple files. Transfer starts only after Add files; success requires
+server acknowledgement of publication and indexing. Add files returns to the
+library and opens Activity. Returning to the library before submission preserves
+the review within the current tab; Discard releases it. A reload requires
+selecting those unsubmitted files again. After acceptance, closing Activity leaves
+work intact. Navigation must not unmount transfers. Use the same name-conflict
+choices as Move; never overwrite
 an existing file or treat a skipped upload as Added.
 
 Copy the bytes supplied by the device picker without modifying or deleting the
@@ -517,6 +520,8 @@ than automatic removal of their recovery records.
 
 Use a dismissible, non-modal side panel on desktop and a full-height Sheet on
 phones. Keep one queue with active and recent results; no separate upload dashboard.
+Keep file selection and destination review on the Add media page. Activity has
+one title and contains only accepted transfers and operation results.
 Show a count on Activity only for running work or items needing attention. Closing
 the panel is not cancellation. A shared summary toast may offer View activity; avoid
 per-file notifications and persistent status overlays on media cards.

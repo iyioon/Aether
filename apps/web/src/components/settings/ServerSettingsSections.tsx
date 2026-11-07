@@ -68,7 +68,11 @@ export function ServerStatusSettingsSection({
           ["Media roots", String(settings?.library.mediaRootCount ?? 0)],
           [
             "Writable roots",
-            String(mediaRoots.filter((root) => root.writable).length)
+            mediaRoots.length
+              ? String(mediaRoots.filter((root) => root.writable).length)
+              : settings?.library.mediaRootCount === 0
+                ? "0"
+                : "—"
           ],
           ["Watcher", settings?.library.watchEnabled ? "Enabled" : "Disabled"],
           [
@@ -82,10 +86,7 @@ export function ServerStatusSettingsSection({
           {settings.library.mediaRoots.map((root) => {
             const capability = mediaRoots.find((entry) => entry.id === root.id);
             return (
-              <span
-                className="settings-pill font-mono text-xs font-medium"
-                key={root.id}
-              >
+              <span className="settings-pill text-xs font-medium" key={root.id}>
                 {root.label}
                 {capability
                   ? ` · ${capability.writable ? "Writable" : "Read-only"}`

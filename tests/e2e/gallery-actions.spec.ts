@@ -109,6 +109,162 @@ test("opens Gallery actions with pointer and keyboard and preserves normal card 
   ).toHaveAttribute("aria-pressed", "false");
 });
 
+test("keeps viewer menus and panels reachable from browser fullscreen", async ({
+  page
+}) => {
+  const card = await openGallery(page);
+  await card.click();
+  const viewer = page.getByRole("dialog", {
+    name: "family-photo.png",
+    exact: true
+  });
+  await expect(viewer).toBeVisible();
+  try {
+    await viewer.evaluate((element) => element.requestFullscreen());
+    await expect
+      .poll(() =>
+        viewer.evaluate((element) => document.fullscreenElement === element)
+      )
+      .toBe(true);
+    const more = viewer.getByRole("button", {
+      name: "More options for family-photo.png",
+      exact: true
+    });
+    await more.click();
+    const menu = page.locator(".viewer-more-menu");
+    await expect(menu).toBeVisible();
+    expect(
+      await menu.evaluate((element) =>
+        document.fullscreenElement?.contains(element)
+      )
+    ).toBe(true);
+    await menu.getByRole("menuitem", { name: "Rename…", exact: true }).click();
+    const rename = page.getByRole("dialog", {
+      name: "Rename media",
+      exact: true
+    });
+    const name = rename.getByRole("textbox", { name: "Name", exact: true });
+    await expect(name).toBeFocused();
+    expect(
+      await name.evaluate((element) => {
+        const bounds = element.getBoundingClientRect();
+        const hit = document.elementFromPoint(
+          bounds.x + bounds.width / 2,
+          bounds.y + bounds.height / 2
+        );
+        return hit !== null && element.contains(hit);
+      })
+    ).toBe(true);
+    await rename.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(viewer).toBeVisible();
+    await expect(more).toBeFocused();
+    await viewer.evaluate((element) => element.requestFullscreen());
+    await expect
+      .poll(() =>
+        viewer.evaluate((element) => document.fullscreenElement === element)
+      )
+      .toBe(true);
+    await viewer
+      .getByRole("button", {
+        name: "Show info for family-photo.png",
+        exact: true
+      })
+      .click();
+    const info = page.locator(".media-info-sheet");
+    const tagInput = info.getByRole("textbox", {
+      name: "Add a tag",
+      exact: true
+    });
+    await expect(tagInput).toBeEnabled();
+    await expect(tagInput).toBeInViewport();
+    expect(
+      await tagInput.evaluate((element) => {
+        const bounds = element.getBoundingClientRect();
+        const hit = document.elementFromPoint(
+          bounds.x + bounds.width / 2,
+          bounds.y + bounds.height / 2
+        );
+        return hit !== null && element.contains(hit);
+      })
+    ).toBe(true);
+    await info.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(info).toHaveCount(0);
+    await expect(viewer).toBeVisible();
+  } finally {
+    await page.evaluate(async () => {
+      if (document.fullscreenElement) await document.exitFullscreen();
+    });
+  }
+});
+
+test("commits an IME tag draft only after composition has finished", async ({
+  page
+}) => {
+  const card = await openGallery(page);
+  const assetId = await page
+    .locator(".media-tile")
+    .filter({ has: card })
+    .getAttribute("data-asset-id");
+  expect(assetId).toBeTruthy();
+  const tagsUrl = `/api/assets/${assetId}/tags`;
+  const originalResponse = await page.request.get(tagsUrl);
+  expect(originalResponse.ok()).toBe(true);
+  const originalNames = (
+    (await originalResponse.json()) as { tags: Array<{ displayName: string }> }
+  ).tags.map((tag) => tag.displayName);
+  const token = (await page.context().cookies()).find(
+    (cookie) => cookie.name === "aether_csrf"
+  )?.value;
+  expect(token).toBeTruthy();
+  let saves = 0;
+  page.on("request", (request) => {
+    if (
+      request.method() === "PUT" &&
+      new URL(request.url()).pathname === tagsUrl
+    )
+      saves += 1;
+  });
+  try {
+    await card.click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Info", exact: true }).click();
+    const input = page
+      .locator(".media-info-sheet")
+      .getByRole("textbox", { name: "Add a tag", exact: true });
+    await expect(input).toBeEnabled();
+    const tagName = `구성 확인 ${Date.now()}`;
+    await input.fill(tagName);
+    await input.dispatchEvent("keydown", {
+      key: "Enter",
+      code: "Enter",
+      isComposing: true
+    });
+    expect(
+      await input.evaluate((element: HTMLInputElement) => ({
+        value: element.value,
+        disabled: element.disabled
+      }))
+    ).toEqual({ value: tagName, disabled: false });
+    expect(saves).toBe(0);
+    const saved = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PUT" &&
+        new URL(response.url()).pathname === tagsUrl &&
+        response.ok()
+    );
+    await input.press("Enter");
+    const response = await saved;
+    expect(response.request().postDataJSON().tags).toContain(tagName);
+    await expect(input).toHaveValue("");
+    expect(saves).toBe(1);
+  } finally {
+    const restored = await page.request.put(tagsUrl, {
+      headers: { "x-csrf-token": token! },
+      data: { tags: originalNames }
+    });
+    expect(restored.ok()).toBe(true);
+  }
+});
+
 test("offers touch long-press actions without opening the viewer and cancels while scrolling", async ({
   browser
 }) => {

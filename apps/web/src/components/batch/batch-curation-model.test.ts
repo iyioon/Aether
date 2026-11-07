@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   buildBatchCurationInput,
+  batchTagNames,
+  changedScoreDraft,
   parseScoreDraft,
+  selectableAssetIds,
   uniformValue
 } from "./batch-curation-model";
 
@@ -69,5 +72,36 @@ describe("score editor drafts", () => {
   it("treats mixed favorites as unset rather than false", () => {
     expect(uniformValue([true, false])).toBeUndefined();
     expect(uniformValue([false, false])).toBe(false);
+  });
+  it("does not submit a uniform score that was edited and restored", () => {
+    expect(changedScoreDraft("8", 8, true)).toBeUndefined();
+    expect(changedScoreDraft("9", 8, true)).toBe(9);
+    expect(changedScoreDraft("0", undefined, true)).toBe(0);
+    expect(changedScoreDraft("8", undefined, false)).toBeUndefined();
+  });
+});
+
+describe("batch tag drafts", () => {
+  it("includes the current input without requiring an extra Add click", () => {
+    expect(batchTagNames(["Family"], "Trip")).toEqual(["Family", "Trip"]);
+  });
+  it("normalizes and deduplicates staged tags and the current input", () => {
+    expect(batchTagNames(["Family", "Trip"], "  family  ")).toEqual([
+      "Family",
+      "Trip"
+    ]);
+    expect(batchTagNames(["Family"], "   ")).toEqual(["Family"]);
+  });
+});
+
+describe("selection scope", () => {
+  it("omits unavailable records from Select loaded", () => {
+    expect([
+      ...selectableAssetIds([
+        { id: "available" },
+        { id: "missing", unavailable: true },
+        { id: "available-too", unavailable: false }
+      ])
+    ]).toEqual(["available", "available-too"]);
   });
 });

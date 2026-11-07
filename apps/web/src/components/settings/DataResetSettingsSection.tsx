@@ -8,7 +8,7 @@ import {
   RotateCcw,
   Tags,
   TrendingUp,
-  TriangleAlert
+  Info
 } from "lucide-react";
 import {
   resetLibraryData,
@@ -16,7 +16,7 @@ import {
   type LibraryDataResetOptions,
   type LibraryDataResetResult
 } from "../../api/client";
-import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
+import { Alert, AlertDescription } from "../ui/alert";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -177,8 +177,7 @@ export function DataResetSettingsSection({
       value="Choose only the information you want to remove."
     >
       <Alert>
-        <TriangleAlert />
-        <AlertTitle>Source files are kept</AlertTitle>
+        <Info />
         <AlertDescription>
           Source files, indexed folders and server settings are kept. Generated
           media previews are rebuilt when needed.

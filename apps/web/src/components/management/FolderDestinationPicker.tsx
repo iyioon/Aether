@@ -16,6 +16,7 @@ import {
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
+import { createUuid } from "../../lib/uuid";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -142,7 +143,7 @@ export function FolderDestinationPicker({
     )
       return;
     const input = requestRef.current ?? {
-      requestId: crypto.randomUUID(),
+      requestId: createUuid(),
       type: "create-folder" as const,
       items: [],
       destinationFolderId: value,
@@ -233,7 +234,9 @@ export function FolderDestinationPicker({
         >
           {root ? <HardDrive /> : <Folder />}
           <span className="min-w-0 flex-1 text-left">
-            <span className="block truncate">{folder.label}</span>
+            <span className="block whitespace-normal break-words">
+              {folder.label}
+            </span>
             {reason ? (
               <span className="block text-xs text-muted-foreground">
                 {reason}
@@ -308,7 +311,7 @@ export function FolderDestinationPicker({
       {!current && allowOriginal ? (
         <Button
           type="button"
-          variant="outline"
+          variant={!value ? "secondary" : "outline"}
           disabled={busy || unconfirmed}
           aria-pressed={!value}
           onClick={() => navigate("")}
@@ -317,12 +320,19 @@ export function FolderDestinationPicker({
         </Button>
       ) : null}
       <div className="destination-folder-list" ref={listRef}>
-        {current ? (
+        {!tree ? (
+          <p
+            className="py-6 text-center text-sm text-muted-foreground"
+            role="status"
+          >
+            Loading folders…
+          </p>
+        ) : current ? (
           children.length ? (
             <ul>{children.map((folder) => row(folder))}</ul>
           ) : (
             <p className="py-6 text-center text-sm text-muted-foreground">
-              No folders
+              No subfolders
             </p>
           )
         ) : (

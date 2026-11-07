@@ -7,6 +7,8 @@ import {
   type TrashRecord
 } from "../../api/client";
 import { usePageLifecycle } from "../../hooks/usePageLifecycle";
+import { createUuid } from "../../lib/uuid";
+import { restoreFocusAfterClose } from "../../lib/focus-restoration";
 import { formatBytes } from "../media/media-format";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
@@ -40,6 +42,7 @@ export function TrashPage({
   const [items, setItems] = useState<TrashRecord[]>([]);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [search, setSearch] = useState("");
+  const [loadedSearch, setLoadedSearch] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -55,6 +58,7 @@ export function TrashPage({
   const [emptyError, setEmptyError] = useState<string | null>(null);
   const [emptyUnknown, setEmptyUnknown] = useState(false);
   const emptyPendingRef = useRef(false);
+  const emptyTrashTriggerRef = useRef<HTMLButtonElement>(null);
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
@@ -81,6 +85,7 @@ export function TrashPage({
       .then((result) => {
         if (controller.signal.aborted) return;
         setItems(result.items);
+        setLoadedSearch(search);
         setTotal(result.page.total);
         setTotalRetained(result.totalRetained);
         acceptedRevisionRef.current = result.revision;
@@ -99,9 +104,10 @@ export function TrashPage({
       });
     return () => controller.abort();
   }, [revision, reload, search]);
-  const visible = items;
+  const visible = loading || loadedSearch === search ? items : [];
+  const staleResults = loading || loadedSearch !== search;
   async function loadMore() {
-    if (loading || appendRef.current || items.length >= total) return;
+    if (staleResults || appendRef.current || items.length >= total) return;
     const query = search;
     const controller = new AbortController();
     appendRef.current = controller;
@@ -182,12 +188,12 @@ export function TrashPage({
             Trash
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Items are kept for {retentionDays} days. Permanent deletion cannot
-            be undone.
+            Items are kept for {retentionDays} days.
           </p>
         </div>
         <div className="flex items-center gap-2">
           <Button
+            ref={emptyTrashTriggerRef}
             type="button"
             variant="outline"
             disabled={loading || !totalRetained || !acceptedRevisionRef.current}
@@ -197,7 +203,7 @@ export function TrashPage({
               setActionError(null);
               setEmptyUnknown(false);
               setEmptySnapshot({
-                requestId: crypto.randomUUID(),
+                requestId: createUuid(),
                 expectedRevision: acceptedRevisionRef.current,
                 expectedCount: totalRetained
               });
@@ -219,7 +225,7 @@ export function TrashPage({
       </header>
       <div className="trash-toolbar grid min-w-0 items-center gap-2">
         <Input
-          className="min-w-0 flex-1"
+          className={`min-w-0 flex-1${selectedItems.length ? "" : " col-span-full"}`}
           aria-label="Search Trash"
           placeholder="Search Trash"
           value={search}
@@ -229,54 +235,78 @@ export function TrashPage({
             setSelected(new Set());
           }}
         />
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          disabled={!selectedItems.length}
-          onClick={() => action("restore")}
-        >
-          <RotateCcw />
-          Restore
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          disabled={!selectedItems.length}
-          onClick={() => action("purge")}
-        >
-          <Trash2 />
-          Delete permanently
-        </Button>
+        {selectedItems.length ? (
+          <>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={staleResults}
+              onClick={() => action("restore")}
+            >
+              <RotateCcw />
+              Restore
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={staleResults}
+              onClick={() => action("purge")}
+            >
+              <Trash2 />
+              Delete permanently
+            </Button>
+          </>
+        ) : null}
       </div>
       {error || actionError ? (
         <p role="alert" className="text-sm text-destructive">
           {error ?? actionError}
         </p>
       ) : null}
-      <p className="text-sm text-muted-foreground" role="status">
-        {loading
-          ? "Loading Trash…"
-          : `${total} ${total === 1 ? "item" : "items"}`}
-        {selectedItems.length ? ` · ${selectedItems.length} selected` : ""}
-      </p>
-      {!loading && !visible.length ? (
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-muted-foreground" role="status">
+          {loading
+            ? "Loading Trash…"
+            : loadedSearch === search
+              ? `${total} ${total === 1 ? "item" : "items"}`
+              : null}
+          {selectedItems.length ? ` · ${selectedItems.length} selected` : ""}
+        </p>
+        {selectedItems.length ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={() => setSelected(new Set())}
+          >
+            Clear selection
+          </Button>
+        ) : null}
+      </div>
+      {!loading && !error && !visible.length ? (
         <p className="text-sm text-muted-foreground">
           {search.trim() ? "No items match this search." : "Trash is empty."}
         </p>
       ) : null}
-      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2">
+      <div
+        className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2"
+        aria-busy={loading}
+      >
         {visible.map((item) => (
           <article
             key={item.id}
-            className="flex min-w-0 items-center gap-3 rounded-lg border p-3"
+            className="trash-item flex min-w-0 items-center gap-3 rounded-lg border p-3"
           >
             <Label className="trash-selection-label flex shrink-0 items-center gap-3">
               <Checkbox
                 aria-label={`Select ${item.name}`}
                 checked={selected.has(item.id)}
-                disabled={!selected.has(item.id) && selected.size >= 100}
+                disabled={
+                  staleResults ||
+                  (!selected.has(item.id) && selected.size >= 100)
+                }
                 onCheckedChange={(checked) =>
                   setSelected((current) => {
                     const next = new Set(current);
@@ -302,11 +332,19 @@ export function TrashPage({
                 />
               </div>
             </Label>
-            <div className="min-w-0 flex-1">
-              <h2 className="truncate text-sm font-medium">{item.name}</h2>
-              <p className="truncate text-xs text-muted-foreground">
-                {item.originalRelativePath}
-              </p>
+            <div className="trash-item-details min-w-0 flex-1">
+              <h2 className="break-words text-sm font-medium">{item.name}</h2>
+              {item.originalRelativePath.includes("/") ? (
+                <p
+                  className="truncate text-xs text-muted-foreground"
+                  title={item.originalRelativePath}
+                >
+                  {item.originalRelativePath.slice(
+                    0,
+                    item.originalRelativePath.lastIndexOf("/")
+                  )}
+                </p>
+              ) : null}
               <p className="text-xs text-muted-foreground">
                 {formatBytes(item.sizeBytes)} · Deleted{" "}
                 {new Date(item.deletedAt).toLocaleDateString()}
@@ -325,11 +363,13 @@ export function TrashPage({
               type="button"
               size="sm"
               variant="ghost"
+              className="trash-item-restore"
               aria-label={`Restore ${item.name}`}
+              disabled={staleResults}
               onClick={() => action("restore", [item])}
             >
               <RotateCcw />
-              <span className="hidden sm:inline">Restore</span>
+              Restore
             </Button>
           </article>
         ))}
@@ -339,7 +379,7 @@ export function TrashPage({
           Up to 100 items can be selected at once.
         </p>
       ) : null}
-      {items.length < total ? (
+      {loadedSearch === search && items.length < total ? (
         <Button
           className="justify-self-center"
           type="button"
@@ -358,6 +398,10 @@ export function TrashPage({
       >
         <AlertDialogContent
           className="management-confirmation"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            restoreFocusAfterClose(emptyTrashTriggerRef.current);
+          }}
           onEscapeKeyDown={(event) => {
             if (emptyPendingRef.current) event.preventDefault();
           }}

@@ -101,6 +101,7 @@ test("uses a working drawer on wide touch landscape screens", async ({
   const galleryUrl = productionUrl(page.url());
 
   for (const viewport of [
+    { width: 568, height: 320 },
     { width: 932, height: 430 },
     { width: 956, height: 440 }
   ]) {
@@ -130,6 +131,19 @@ test("uses a working drawer on wide touch landscape screens", async ({
       await expect(
         drawer.getByRole("navigation", { name: "Media folders" })
       ).toBeVisible();
+      const firstFolder = drawer.getByRole("treeitem").first();
+      await expect(firstFolder).toBeInViewport();
+      const folderBounds = await firstFolder.boundingBox();
+      expect(folderBounds!.height).toBeGreaterThanOrEqual(44);
+      await expect(
+        drawer.getByRole("button", { name: "Sign out", exact: true })
+      ).toBeVisible();
+      await drawer
+        .getByRole("button", { name: "Sign out", exact: true })
+        .scrollIntoViewIfNeeded();
+      await expect(
+        drawer.getByRole("button", { name: "Sign out", exact: true })
+      ).toBeInViewport();
       await phone.keyboard.press("Escape");
       await expect(drawer).toBeHidden();
     } finally {
@@ -144,10 +158,14 @@ test("keeps gallery search and toolbar controls on one row on narrow phones", as
 }) => {
   const storageState = await page.context().storageState();
 
-  for (const width of [320, 393]) {
+  for (const viewport of [
+    { width: 320, height: 852 },
+    { width: 393, height: 852 },
+    { width: 568, height: 320 }
+  ]) {
     const context = await browser.newContext({
       storageState,
-      viewport: { width, height: 852 },
+      viewport,
       isMobile: true,
       hasTouch: true,
       serviceWorkers: "block"
@@ -199,8 +217,8 @@ test("keeps gallery search and toolbar controls on one row on narrow phones", as
           })
       }));
 
-      expect(geometry.search.width).toBeGreaterThanOrEqual(100);
-      expect(geometry.targets).toHaveLength(4);
+      expect(geometry.search.width).toBeGreaterThanOrEqual(140);
+      expect(geometry.targets).toHaveLength(3);
       for (const target of geometry.targets) {
         expect(target.left).toBeGreaterThanOrEqual(geometry.search.right);
         expect(
@@ -212,13 +230,20 @@ test("keeps gallery search and toolbar controls on one row on narrow phones", as
         expect(target.reachable).toBe(true);
       }
       const search = phone.getByRole("searchbox", { name: "Search" });
+      const viewMenu = phone.getByRole("button", {
+        name: "Change view, Gallery selected"
+      });
+      const searchBounds = await search.boundingBox();
+      const viewBounds = await viewMenu.boundingBox();
+      expect(viewBounds!.y + viewBounds!.height).toBeLessThanOrEqual(
+        searchBounds!.y
+      );
+      await phone.keyboard.press("/");
+      await expect(search).toBeFocused();
       await search.fill("beach-walk");
       await expect(
         phone.getByRole("img", { name: "beach-walk.png" })
       ).toBeVisible();
-      const viewMenu = phone.getByRole("button", {
-        name: "Change view, Gallery selected"
-      });
       await viewMenu.tap();
       await expect(
         phone.getByRole("menuitemradio", { name: "Gallery", exact: true })
@@ -239,6 +264,62 @@ test("keeps gallery search and toolbar controls on one row on narrow phones", as
     } finally {
       await context.close();
     }
+  }
+});
+
+test("keeps search and header geometry stable when saved scores need updated results", async ({
+  page
+}) => {
+  await page.addInitScript(() =>
+    localStorage.setItem(
+      "aether.gallery.metadata-fields",
+      JSON.stringify(["title", "score"])
+    )
+  );
+  const url = new URL(productionUrl(page.url()));
+  url.searchParams.set("view", "gallery");
+  url.searchParams.set("sort", "score");
+
+  for (const width of [1440, 1024, 768, 640]) {
+    await page.setViewportSize({ width, height: 980 });
+    await page.goto(url.href);
+    const gallery = page.getByRole("region", { name: "Gallery view" });
+    await expect(gallery).toHaveAttribute("aria-busy", "false");
+    const increaseScore = gallery
+      .getByRole("button", { name: /^Increase score for/ })
+      .first();
+    await expect(increaseScore).toBeEnabled();
+    const geometry = () =>
+      page.evaluate(() => {
+        const search = document
+          .querySelector('[aria-label="Search"]')!
+          .getBoundingClientRect();
+        const header = document
+          .querySelector(".library-path-bar")!
+          .getBoundingClientRect();
+        return {
+          search: { x: search.x, y: search.y, width: search.width },
+          headerHeight: header.height,
+          documentWidth: document.documentElement.scrollWidth,
+          viewportWidth: innerWidth
+        };
+      });
+    const before = await geometry();
+    await increaseScore.click();
+    const update = page
+      .getByRole("region", { name: "Library results" })
+      .getByRole("button", { name: "Update results", exact: true });
+    await expect(update).toBeVisible();
+    const after = await geometry();
+    expect(after.search).toEqual(before.search);
+    expect(after.headerHeight).toBe(before.headerHeight);
+    expect(after.documentWidth).toBeLessThanOrEqual(after.viewportWidth);
+    await update.focus();
+    await update.click();
+    await expect(update).toBeHidden();
+    await expect(
+      page.getByRole("button", { name: /^View options/ })
+    ).toBeFocused();
   }
 });
 

@@ -306,7 +306,7 @@
 
 .score-breakdown-values {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -390,14 +390,18 @@
   min-height: 30px;
   gap: 5px;
   padding: 0 6px 0 10px;
-  overflow: hidden;
   color: var(--secondary-foreground);
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--secondary);
   font-size: 13px;
-  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.tag-chip-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .tag-chip button {
@@ -545,5 +549,32 @@
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
+  }
+}
+
+@media (max-width: 767px),
+  (max-width: 1024px) and (hover: none) and (pointer: coarse) {
+  .media-info-sheet
+    :is(.annotation-curation-controls, .score-breakdown-value)
+    button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .media-info-sheet .tag-editor button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .media-info-sheet .tag-entry-row input {
+    min-height: 44px;
+  }
+
+  .media-info-sheet .annotation-curation-controls .score-control {
+    height: 44px;
+  }
+
+  .viewer-more-menu [role="menuitem"] {
+    min-height: 44px;
   }
 }

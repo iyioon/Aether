@@ -36,10 +36,7 @@ export class AppErrorBoundary extends Component<
           <Alert variant="destructive" role="alert">
             <CircleAlert />
             <AlertTitle>Aether could not open this view</AlertTitle>
-            <AlertDescription>
-              The app may have been updated while it was open. Reload to use the
-              latest version.
-            </AlertDescription>
+            <AlertDescription>Reload to try again.</AlertDescription>
           </Alert>
           <Button
             className="mt-4 w-full"

@@ -72,22 +72,20 @@
 @media (max-width: 767px),
   (max-width: 1024px) and (hover: none) and (pointer: coarse) {
   .library-path-bar {
-    height: calc(56px + env(safe-area-inset-top));
     padding-inline: max(10px, env(safe-area-inset-left))
       max(10px, env(safe-area-inset-right));
   }
 
   .library-path-navigation {
-    flex: 0 1 auto;
+    flex: 1 1 auto;
   }
 
   .library-path-actions {
-    flex: 1 1 auto;
-    justify-content: flex-end;
+    padding-bottom: 8px;
   }
 
   .topbar-search {
-    width: min(48vw, 260px);
+    max-width: none;
   }
 
   .app-shell {
@@ -104,6 +102,23 @@
   }
 
   [data-slot="sidebar-menu-button"] {
+    min-height: 44px;
+  }
+
+  .tree-row {
+    grid-template-columns: 44px 22px minmax(0, 1fr) auto;
+    min-height: 44px;
+    padding-block: 0;
+  }
+
+  .tree-disclosure,
+  .tree-disclosure-spacer {
+    width: 44px;
+    height: 44px;
+  }
+
+  .panel-heading [data-slot="button"] {
+    min-width: 44px;
     min-height: 44px;
   }
 
@@ -461,44 +476,64 @@
 }
 
 @container library-workspace (max-width: 720px) {
-  .library-path-bar:has(.library-path-actions) {
-    flex-wrap: wrap;
-    height: auto;
-    min-height: 92px;
-    padding-top: calc(8px + env(safe-area-inset-top));
-    padding-bottom: 8px;
-  }
-
-  .library-path-navigation,
-  .library-path-actions {
-    flex: 1 1 100%;
-    width: 100%;
-    min-width: 0;
-  }
-
-  .library-path-actions {
-    margin-left: 0;
-  }
-
   .topbar-search {
-    flex: 1 1 112px;
-    width: auto;
-    min-width: 0;
+    max-width: none;
+  }
+
+  .library-path-view-actions .results-update-slot > button {
+    width: 36px;
+    min-width: 36px;
+    height: 36px;
+    padding: 0;
+  }
+
+  .library-path-view-actions .results-update-slot > button > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
   }
 }
 
-@container library-workspace (max-width: 480px) {
+@container library-workspace (max-width: 600px) {
   .library-view-menu-trigger {
     flex-basis: 44px;
     width: 44px;
   }
-  .library-path-actions > .library-view-separator,
-  .library-path-actions > .library-view-switcher {
+  .library-path-view-actions > .library-view-switcher {
     display: none;
   }
 
-  .library-path-actions > .library-view-menu-trigger {
+  .library-path-view-actions > .library-view-menu-trigger {
     display: inline-flex;
+  }
+}
+
+/* Match the shared compact breakpoint even with a wide landscape viewport. */
+@media (max-width: 767px),
+  (max-width: 1024px) and (hover: none) and (pointer: coarse) {
+  .library-path-view-actions .results-update-slot > button {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+  }
+}
+
+@media (max-height: 480px) and (max-width: 767px),
+  (max-height: 480px) and (max-width: 1024px) and (hover: none) and (pointer: coarse) {
+  [data-slot="sidebar"][data-mobile="true"] > .flex {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  [data-slot="sidebar"][data-mobile="true"]
+    :is([data-slot="sidebar-header"], [data-slot="sidebar-footer"]) {
+    flex-shrink: 0;
+  }
+
+  [data-slot="sidebar"][data-mobile="true"] [data-slot="sidebar-content"] {
+    flex: 0 0 180px;
   }
 }
 

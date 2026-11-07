@@ -38,7 +38,9 @@ interface LibraryPathBarProps {
   isGuideOpen: boolean;
   isSettingsOpen: boolean;
   isTrashOpen?: boolean;
+  isAddMediaOpen?: boolean;
   controls?: ReactNode;
+  status?: ReactNode;
   searchDraft: string;
   selectedFolderId: string | null;
   tree: TreeResponse | null;
@@ -76,7 +78,9 @@ export function LibraryPathBar({
   isGuideOpen,
   isSettingsOpen,
   isTrashOpen = false,
+  isAddMediaOpen = false,
   controls,
+  status,
   searchDraft,
   selectedFolderId,
   tree,
@@ -94,6 +98,8 @@ export function LibraryPathBar({
   );
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const currentView = libraryViews.find((option) => option.value === view)!;
+  const isLibraryOpen =
+    !isSettingsOpen && !isGuideOpen && !isTrashOpen && !isAddMediaOpen;
 
   useEffect(() => {
     function focusSearch(event: KeyboardEvent) {
@@ -153,7 +159,8 @@ export function LibraryPathBar({
     view === "feed" &&
     !isSettingsOpen &&
     !isGuideOpen &&
-    !isTrashOpen
+    !isTrashOpen &&
+    !isAddMediaOpen
   ) {
     return (
       <div
@@ -161,6 +168,7 @@ export function LibraryPathBar({
         data-hidden={isFeedChromeHidden}
         inert={isFeedChromeHidden}
       >
+        {status}
         {controls}
         {viewSwitcher}
       </div>
@@ -169,67 +177,121 @@ export function LibraryPathBar({
 
   return (
     <header className="library-path-bar">
-      <div className="library-path-navigation">
-        <SidebarTrigger />
-        <Separator className="library-path-separator" orientation="vertical" />
-        <Breadcrumb>
-          <BreadcrumbList className="flex-nowrap overflow-hidden">
-            {isSettingsOpen || isGuideOpen || isTrashOpen ? (
-              <>
-                <BreadcrumbItem>
-                  <BreadcrumbLink asChild>
-                    <button type="button" onClick={onBackToLibrary}>
-                      Library
-                    </button>
-                  </BreadcrumbLink>
-                </BreadcrumbItem>
-                <BreadcrumbSeparator />
-                <BreadcrumbItem>
-                  <BreadcrumbPage>
-                    {isSettingsOpen
-                      ? "Settings"
-                      : isTrashOpen
-                        ? "Trash"
-                        : "User guide"}
-                  </BreadcrumbPage>
-                </BreadcrumbItem>
-              </>
-            ) : path.length ? (
-              path.map((segment, index) => {
-                const isCurrent = index === path.length - 1;
+      <div className="library-path-heading">
+        <div className="library-path-navigation">
+          <SidebarTrigger />
+          <Separator
+            className="library-path-separator"
+            orientation="vertical"
+          />
+          <Breadcrumb>
+            <BreadcrumbList className="flex-nowrap overflow-hidden">
+              {isSettingsOpen ||
+              isGuideOpen ||
+              isTrashOpen ||
+              isAddMediaOpen ? (
+                <>
+                  <BreadcrumbItem>
+                    <BreadcrumbLink asChild>
+                      <button type="button" onClick={onBackToLibrary}>
+                        Library
+                      </button>
+                    </BreadcrumbLink>
+                  </BreadcrumbItem>
+                  <BreadcrumbSeparator />
+                  <BreadcrumbItem>
+                    <BreadcrumbPage>
+                      {isSettingsOpen
+                        ? "Settings"
+                        : isAddMediaOpen
+                          ? "Add media"
+                          : isTrashOpen
+                            ? "Trash"
+                            : "User guide"}
+                    </BreadcrumbPage>
+                  </BreadcrumbItem>
+                </>
+              ) : path.length ? (
+                path.map((segment, index) => {
+                  const isCurrent = index === path.length - 1;
 
-                return (
-                  <Fragment key={segment.id}>
-                    {index > 0 ? <BreadcrumbSeparator /> : null}
-                    <BreadcrumbItem className="min-w-0">
-                      {isCurrent ? (
-                        <BreadcrumbPage className="truncate">
-                          {segment.label}
-                        </BreadcrumbPage>
-                      ) : (
-                        <BreadcrumbLink asChild>
-                          <button
-                            className="max-w-44 truncate"
-                            type="button"
-                            onClick={() => onSelectFolder(segment.id)}
-                          >
+                  return (
+                    <Fragment key={segment.id}>
+                      {index > 0 ? <BreadcrumbSeparator /> : null}
+                      <BreadcrumbItem className="min-w-0">
+                        {isCurrent ? (
+                          <BreadcrumbPage className="truncate">
                             {segment.label}
-                          </button>
-                        </BreadcrumbLink>
-                      )}
-                    </BreadcrumbItem>
-                  </Fragment>
-                );
-              })
-            ) : (
-              <BreadcrumbItem>
-                <BreadcrumbPage>Library</BreadcrumbPage>
-              </BreadcrumbItem>
-            )}
-          </BreadcrumbList>
-        </Breadcrumb>
+                          </BreadcrumbPage>
+                        ) : (
+                          <BreadcrumbLink asChild>
+                            <button
+                              className="max-w-44 truncate"
+                              type="button"
+                              onClick={() => onSelectFolder(segment.id)}
+                            >
+                              {segment.label}
+                            </button>
+                          </BreadcrumbLink>
+                        )}
+                      </BreadcrumbItem>
+                    </Fragment>
+                  );
+                })
+              ) : (
+                <BreadcrumbItem>
+                  <BreadcrumbPage>Library</BreadcrumbPage>
+                </BreadcrumbItem>
+              )}
+            </BreadcrumbList>
+          </Breadcrumb>
+        </div>
+        {isLibraryOpen ? (
+          <div className="library-path-view-actions">
+            {status}
+            {viewSwitcher}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  className="library-view-menu-trigger"
+                  size="icon"
+                  variant="outline"
+                  aria-label={`Change view, ${currentView.name} selected`}
+                >
+                  <currentView.icon aria-hidden="true" />
+                  <ChevronDown className="size-3" aria-hidden="true" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" collisionPadding={12}>
+                <DropdownMenuRadioGroup
+                  aria-label="Library view"
+                  value={view}
+                  onValueChange={(value) => {
+                    const option = libraryViews.find(
+                      (entry) => entry.value === value
+                    );
+                    if (option) onSwitchView(option.value);
+                  }}
+                >
+                  {libraryViews.map(({ value, name, icon: Icon }) => (
+                    <DropdownMenuRadioItem
+                      className="min-h-11"
+                      key={value}
+                      value={value}
+                      onFocus={() => onPreloadView(value)}
+                      onPointerEnter={() => onPreloadView(value)}
+                    >
+                      <Icon aria-hidden="true" />
+                      {name}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        ) : null}
       </div>
-      {!isSettingsOpen && !isGuideOpen && !isTrashOpen ? (
+      {isLibraryOpen ? (
         <div className="library-path-actions">
           <div className="topbar-search">
             <Search aria-hidden="true" />
@@ -238,6 +300,7 @@ export function LibraryPathBar({
               aria-label="Search"
               aria-keyshortcuts="/"
               placeholder="Search"
+              aria-description="Search names and paths in this folder and its subfolders"
               ref={searchInputRef}
               type="search"
               value={searchDraft}
@@ -245,51 +308,6 @@ export function LibraryPathBar({
             />
           </div>
           {controls}
-          {controls ? (
-            <Separator
-              className="library-view-separator"
-              orientation="vertical"
-            />
-          ) : null}
-          {viewSwitcher}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                className="library-view-menu-trigger"
-                size="icon"
-                variant="outline"
-                aria-label={`Change view, ${currentView.name} selected`}
-              >
-                <currentView.icon aria-hidden="true" />
-                <ChevronDown className="size-3" aria-hidden="true" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" collisionPadding={12}>
-              <DropdownMenuRadioGroup
-                aria-label="Library view"
-                value={view}
-                onValueChange={(value) => {
-                  const option = libraryViews.find(
-                    (entry) => entry.value === value
-                  );
-                  if (option) onSwitchView(option.value);
-                }}
-              >
-                {libraryViews.map(({ value, name, icon: Icon }) => (
-                  <DropdownMenuRadioItem
-                    className="min-h-11"
-                    key={value}
-                    value={value}
-                    onFocus={() => onPreloadView(value)}
-                    onPointerEnter={() => onPreloadView(value)}
-                  >
-                    <Icon aria-hidden="true" />
-                    {name}
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
         </div>
       ) : null}
     </header>

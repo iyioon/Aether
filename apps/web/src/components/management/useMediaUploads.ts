@@ -12,6 +12,7 @@ import {
   type UploadRecord
 } from "../../api/client";
 import { usePageLifecycle } from "../../hooks/usePageLifecycle";
+import { createUuid } from "../../lib/uuid";
 import { folderVersion } from "./management-model";
 import { saveUploadCheckpoint } from "./upload-checkpoints";
 import type { Upload } from "tus-js-client";
@@ -111,6 +112,7 @@ export function useMediaUploads({
   const refresh = useCallback(async () => {
     const result = await getUploads();
     if (!activeRef.current) return;
+    setError(null);
     setLimits(result.limits);
     for (const record of result.items) {
       if (
@@ -217,7 +219,7 @@ export function useMediaUploads({
     if (open)
       void refresh().catch(() => {
         if (activeRef.current)
-          setError("Uploads could not be loaded. Try opening Add media again.");
+          setError("Uploads could not be loaded. Try again.");
       });
   }, [open, refresh]);
   usePageLifecycle({
@@ -445,7 +447,7 @@ export function useMediaUploads({
     }
     const next = files.map(({ file, key, conflict: fileConflict }) => ({
       key,
-      operationId: crypto.randomUUID(),
+      operationId: createUuid(),
       name: file.name,
       size: file.size,
       accepted: 0,

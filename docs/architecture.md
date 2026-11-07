@@ -156,6 +156,11 @@ reads and uses records returned by the server after a change. Scroll position
 and appearance choices are browser-local conveniences, not part of the library
 database.
 
+`LibraryPathBar` separates folder/view navigation from the library search and
+creation/filter/selection toolbar. `LibraryResultStatus` owns the pending-result
+control in the navigation row, keeping search and viewport geometry stable.
+Short touch sidebars scroll their navigation and retain a bounded folder area.
+
 `LibraryViewOptions` groups the existing library controls behind one toolbar
 button, using the shared shadcn Popover on desktop and Sheet at the mobile
 breakpoint. Tabs separate Filters, Sort, and Layout (Compare omits Sort); only controls that
@@ -562,6 +567,10 @@ capability/atlas caches are cleared on sign-out.
 
 Gallery actions use the shared Radix ContextMenu primitive, matching existing
 menu tokens and the [Radix desktop/touch interaction](https://www.radix-ui.com/primitives/docs/components/context-menu).
+Cards also expose the same actions through a More options dropdown. Viewer
+menus portal inside its fullscreen container; opening a separate editing or
+file-action panel first exits browser fullscreen. Programmatic panels restore
+focus to the invoking control after closing, while respecting active dialogs.
 Keyboard context-menu keys, focus restoration, scroll cancellation and trailing
 touch clicks are guarded. Curation holds do not trigger a menu. Viewer chrome
 supports explicit media clicks alongside idle hiding; Info keeps media running
@@ -650,6 +659,16 @@ stable selection and viewer neighbors survive result replacement.
 Activity retains individual operation results. A bounded notification buffer
 coalesces results received while hidden into a foreground summary, preserving
 request/result deduplication and a route back to Activity.
+
+Add media is a separate application page for destination and file review, with
+one task heading and persistent actions. Its unsubmitted browser files stay in
+memory when the user returns to the library; they are not stored in navigation
+checkpoints. Add files returns to the library and opens Activity. The sidebar's
+Activity panel contains accepted uploads, progress, recovery controls and recent
+operation results. Activity keeps its heading and close control outside the scrolling results.
+Operation summaries identify their items; upload reselection stays inside the
+affected transfer. The upload controller remains mounted across page changes,
+so leaving either surface does not cancel accepted work.
 
 The maintained tus server and browser client handle resumable byte transport.
 Upload staging and metadata stay under the data directory. Authenticated routes

@@ -12,6 +12,7 @@ import {
   type TreeResponse
 } from "../../api/client";
 import type { FolderScanState } from "../folders/folder-tree-types";
+import { createUuid } from "../../lib/uuid";
 import { sleep } from "./app-helpers";
 import {
   scanStateForJob,
@@ -90,6 +91,7 @@ export function useLibraryTree({ initialFolderId }: UseLibraryTreeOptions) {
       if (requestId !== treeRequestRef.current || signal?.aborted)
         throw new DOMException("Obsolete tree read", "AbortError");
       applyTreeResponse(response);
+      setError(null);
       return response;
     },
     [applyTreeResponse]
@@ -309,7 +311,7 @@ export function useLibraryTree({ initialFolderId }: UseLibraryTreeOptions) {
       setScanProgress(null);
       if (!(caught instanceof ApiError && caught.status === 401)) {
         setScanNotification({
-          id: crypto.randomUUID(),
+          id: createUuid(),
           title: "Scan could not be confirmed",
           description:
             "Check the server connection and scan status before trying again.",

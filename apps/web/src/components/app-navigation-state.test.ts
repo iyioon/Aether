@@ -14,6 +14,18 @@ describe("app navigation state", () => {
     ).toEqual({ page: "settings", comparisonWorkspace: "ranking" });
   });
 
+  it("restores Add media as a separate page", () => {
+    expect(
+      parseAppNavigationState(
+        JSON.stringify({
+          version: 1,
+          page: "add-media",
+          comparisonWorkspace: "leaderboard"
+        })
+      )
+    ).toEqual({ page: "add-media", comparisonWorkspace: "leaderboard" });
+  });
+
   it("uses safe defaults for missing, stale, or invalid state", () => {
     const expected = { page: "library", comparisonWorkspace: "leaderboard" };
 

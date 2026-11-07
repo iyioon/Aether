@@ -110,7 +110,7 @@ for (const reorder of [false, true]) {
           element.scrollTop = element.scrollHeight;
         });
         await expect.poll(() => rejected).toBe(true);
-        const controls = page.getByRole("region", { name: "Library controls" });
+        const controls = page.getByRole("region", { name: "Library results" });
         if (reorder) {
           const update = controls.getByRole("button", {
             name: "Update results",

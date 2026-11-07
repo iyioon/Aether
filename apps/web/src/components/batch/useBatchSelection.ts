@@ -12,6 +12,7 @@ import {
 } from "../app/app-helpers";
 import { uniqueTagNames } from "../tags/tag-utils";
 import { useTagSuggestions } from "../tags/useTagSuggestions";
+import { selectableAssetIds } from "./batch-curation-model";
 
 interface UseBatchSelectionOptions {
   assets: AssetRecord[];
@@ -110,7 +111,7 @@ export function useBatchSelection({
     setIsSelectionMode(true);
     setBatchError(null);
     setBatchStatus(null);
-    setSelectedAssetIds(new Set(assets.map((asset) => asset.id)));
+    setSelectedAssetIds(selectableAssetIds(assets));
   }
 
   function clearSelectedAssets() {

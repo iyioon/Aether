@@ -116,10 +116,8 @@ export function SettingsPage({
 
           <TabsContent className="settings-tab-panel" value="server">
             <div className="settings-tab-intro">
-              <p className="text-sm text-muted-foreground">
-                Read-only values reported by the running Aether server.
-              </p>
               <Button
+                className="ml-auto"
                 disabled={isLoading}
                 size="sm"
                 type="button"

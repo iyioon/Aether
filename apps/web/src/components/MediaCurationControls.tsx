@@ -11,7 +11,13 @@ interface MediaScoreControlProps {
   score: number;
   size?: "sm" | "md";
   onChange: (score: number) => void;
-  editor?: { value: string; mixed: boolean; onChange: (value: string) => void };
+  editor?: {
+    value: string;
+    mixed: boolean;
+    invalid?: boolean;
+    describedBy?: string;
+    onChange: (value: string) => void;
+  };
 }
 
 export function MediaScoreControl({
@@ -103,6 +109,8 @@ export function MediaScoreControl({
           aria-label="Score"
           inputMode="numeric"
           value={editor.value}
+          aria-invalid={editor.invalid || undefined}
+          aria-describedby={editor.describedBy}
           placeholder={editor.mixed ? "Mixed" : "0"}
           disabled={disabled}
           onChange={(event) => editor.onChange(event.target.value)}
@@ -111,7 +119,7 @@ export function MediaScoreControl({
           type="button"
           variant="outline"
           size="icon"
-          disabled={disabled || !valid}
+          disabled={disabled || !valid || numeric === Number.MAX_SAFE_INTEGER}
           aria-label={`Increase score for ${mediaName}`}
           onClick={() => valid && editor.onChange(String(numeric + 1))}
         >

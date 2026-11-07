@@ -206,3 +206,50 @@ describe("guide topics and Trash locations", () => {
     expect(trash.library).toEqual(stored.library);
   });
 });
+
+describe("Add media locations", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("opens Add media without losing the library query or opening a viewer", () => {
+    const addMedia = resolveAppLocation(
+      "?page=add-media&asset=asset-1",
+      stored
+    );
+    expect(addMedia.library).toEqual(stored.library);
+    expect(addMedia.navigation).toMatchObject({
+      page: "add-media",
+      viewerAssetId: null
+    });
+    expect(resolveAppLocation("?page=library", addMedia).navigation.page).toBe(
+      "library"
+    );
+  });
+
+  it("round trips Add media through URL and resume storage", () => {
+    const values = new Map<string, string>();
+    const replaceState = vi.fn();
+    vi.stubGlobal("window", {
+      location: { pathname: "/", search: "", hash: "" },
+      history: { replaceState },
+      localStorage: {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => values.set(key, value)
+      }
+    });
+    const addMedia: AppLocationState = {
+      ...stored,
+      navigation: { ...stored.navigation, page: "add-media" }
+    };
+    saveAppLocation(addMedia);
+    expect(readStoredAppLocation()).toEqual(addMedia);
+    writeAppLocationToUrl(addMedia);
+    const search = new URL(
+      String(replaceState.mock.calls[0]?.[2]),
+      "https://aether.test"
+    ).search;
+    expect(resolveAppLocation(search, stored)).toEqual(addMedia);
+    expect(
+      resolveAppLocation("?launch=resume", readStoredAppLocation())
+    ).toEqual(addMedia);
+  });
+});

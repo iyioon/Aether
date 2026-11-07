@@ -4,7 +4,9 @@ import {
   ListChecks,
   MoreHorizontal,
   Pencil,
-  Trash2
+  Plus,
+  Trash2,
+  X
 } from "lucide-react";
 import type { AssetRecord, TagRecord } from "../../api/client";
 import { useIsMobile } from "../../hooks/use-mobile";
@@ -14,9 +16,13 @@ import {
 } from "../MediaCurationControls";
 import {
   buildBatchCurationInput,
+  batchTagNames,
+  changedScoreDraft,
+  MAX_BATCH_TAGS,
   parseScoreDraft,
   uniformValue,
-  type BatchCurationInput
+  type BatchCurationInput,
+  type BatchTagMode
 } from "./batch-curation-model";
 import {
   AlertDialog,
@@ -54,6 +60,7 @@ import {
   SheetTitle
 } from "../ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
+import { normalizeTagIdentity } from "../library-state";
 
 interface BatchActionsBarProps {
   isOpen: boolean;
@@ -72,10 +79,12 @@ interface BatchActionsBarProps {
   onMove?: () => void;
   onTrash?: () => void;
   onRename?: (asset: AssetRecord) => void;
+  fileActionsDisabledReason?: string;
 }
 
 export function BatchActionsBar(props: BatchActionsBarProps) {
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const detailsTriggerRef = useRef<HTMLButtonElement>(null);
   const {
     isOpen,
     selectedAssets,
@@ -86,7 +95,8 @@ export function BatchActionsBar(props: BatchActionsBarProps) {
     onSelectLoaded,
     onMove,
     onTrash,
-    onRename
+    onRename,
+    fileActionsDisabledReason
   } = props;
   const selectedCount = selectedAssets.length;
   const selectionKey = selectedAssets
@@ -99,8 +109,9 @@ export function BatchActionsBar(props: BatchActionsBarProps) {
       <section
         className="batch-actions-bar rounded-xl border bg-card shadow-lg"
         aria-label="Selected media actions"
+        aria-busy={isSaving || undefined}
       >
-        <div className="batch-summary">
+        <div className="batch-summary" role="status" aria-atomic="true">
           <Badge variant="secondary">{selectedCount}</Badge>
           <strong>{selectedCount === 1 ? "item" : "items"} selected</strong>
         </div>
@@ -109,7 +120,16 @@ export function BatchActionsBar(props: BatchActionsBarProps) {
             type="button"
             size="sm"
             variant="outline"
-            disabled={isSaving || selectedCount === 0 || !onMove}
+            disabled={
+              isSaving ||
+              selectedCount === 0 ||
+              !onMove ||
+              Boolean(fileActionsDisabledReason)
+            }
+            aria-label="Move to…"
+            aria-describedby={
+              fileActionsDisabledReason ? "batch-file-action-reason" : undefined
+            }
             onClick={onMove}
           >
             <FolderInput />
@@ -121,6 +141,7 @@ export function BatchActionsBar(props: BatchActionsBarProps) {
             variant="outline"
             disabled={isSaving || selectedCount === 0}
             className="batch-edit-details"
+            ref={detailsTriggerRef}
             onClick={() => setDetailsOpen(true)}
           >
             <Pencil />
@@ -130,8 +151,16 @@ export function BatchActionsBar(props: BatchActionsBarProps) {
             type="button"
             size="sm"
             variant="outline"
-            disabled={isSaving || selectedCount === 0 || !onTrash}
+            disabled={
+              isSaving ||
+              selectedCount === 0 ||
+              !onTrash ||
+              Boolean(fileActionsDisabledReason)
+            }
             aria-label="Move to Trash"
+            aria-describedby={
+              fileActionsDisabledReason ? "batch-file-action-reason" : undefined
+            }
             onClick={onTrash}
           >
             <Trash2 />
@@ -164,7 +193,15 @@ export function BatchActionsBar(props: BatchActionsBarProps) {
                 Clear selection
               </DropdownMenuItem>
               {selectedCount === 1 && onRename ? (
-                <DropdownMenuItem onSelect={() => onRename(selectedAssets[0]!)}>
+                <DropdownMenuItem
+                  disabled={Boolean(fileActionsDisabledReason)}
+                  aria-describedby={
+                    fileActionsDisabledReason
+                      ? "batch-file-action-reason"
+                      : undefined
+                  }
+                  onSelect={() => onRename(selectedAssets[0]!)}
+                >
                   Rename…
                 </DropdownMenuItem>
               ) : null}
@@ -180,12 +217,21 @@ export function BatchActionsBar(props: BatchActionsBarProps) {
             Done
           </Button>
         </div>
+        {fileActionsDisabledReason && selectedCount > 0 ? (
+          <p
+            id="batch-file-action-reason"
+            className="batch-selection-reason text-xs text-muted-foreground"
+          >
+            {fileActionsDisabledReason}
+          </p>
+        ) : null}
       </section>
       {detailsOpen && selectedCount > 0 ? (
         <EditDetails
           key={selectionKey}
           {...props}
           onCancel={() => setDetailsOpen(false)}
+          onReturnFocus={() => detailsTriggerRef.current?.focus()}
         />
       ) : null}
     </>
@@ -201,8 +247,12 @@ function EditDetails({
   onApplyCuration,
   onApplyTags,
   onTagDraftChange,
-  onCancel
-}: BatchActionsBarProps & { onCancel: () => void }) {
+  onCancel,
+  onReturnFocus
+}: BatchActionsBarProps & {
+  onCancel: () => void;
+  onReturnFocus: () => void;
+}) {
   const mobile = useIsMobile();
   const [tab, setTab] = useState("score");
   const [scoreBaseline, setScoreBaseline] = useState(() =>
@@ -217,8 +267,14 @@ function EditDetails({
   const [scoreDirty, setScoreDirty] = useState(false);
   const [favoriteDraft, setFavoriteDraft] = useState(favoriteBaseline);
   const [favoriteDirty, setFavoriteDirty] = useState(false);
-  const [tagMode, setTagMode] = useState<"add" | "replace">("add");
-  const [clearTags, setClearTags] = useState(false);
+  const [tagMode, setTagMode] = useState<BatchTagMode>("add");
+  const [stagedTags, setStagedTags] = useState<string[]>([]);
+  const tagInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const input = tagInputRef.current;
+    if (input && document.activeElement === input)
+      input.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [stagedTags, tab, tagMode]);
   const [confirmClear, setConfirmClear] = useState(false);
   const submittedRef = useRef(false);
   const [lastSubmittedTab, setLastSubmittedTab] = useState<string | null>(null);
@@ -230,11 +286,14 @@ function EditDetails({
   const score = parseScoreDraft(scoreDraft);
   const invalidScore = scoreDirty && score === undefined;
   const curation = buildBatchCurationInput({
-    score: scoreDirty ? score : undefined,
+    score: changedScoreDraft(scoreDraft, scoreBaseline, scoreDirty),
     favorite: favoriteDraft ?? false,
     isFavoriteDirty: favoriteDirty
   });
-  const tagsChanged = clearTags || tagDraft.trim().length > 0;
+  const tagNames = batchTagNames(stagedTags, tagDraft);
+  const tooManyTags = tagMode !== "clear" && tagNames.length > MAX_BATCH_TAGS;
+  const tagsChanged = tagMode === "clear" || tagNames.length > 0;
+  const stagedTagIdentities = new Set(stagedTags.map(normalizeTagIdentity));
   const selectionProblem =
     selectedAssets.length > 500
       ? "Edit up to 500 items at a time. Reduce the selection before applying changes."
@@ -244,7 +303,17 @@ function EditDetails({
   const canApply =
     !isSaving &&
     !selectionProblem &&
-    (tab === "score" ? !invalidScore && curation !== null : tagsChanged);
+    (tab === "score"
+      ? !invalidScore && curation !== null
+      : tagsChanged && !tooManyTags);
+
+  function stageTag(name: string) {
+    const next = batchTagNames(stagedTags, name);
+    if (next.length > MAX_BATCH_TAGS) return;
+    setStagedTags(next);
+    onTagDraftChange("");
+    tagInputRef.current?.focus();
+  }
 
   function cancel() {
     if (isSaving || submittedRef.current) return;
@@ -253,7 +322,7 @@ function EditDetails({
   }
   async function apply(confirmed = false) {
     if (!canApply || submittedRef.current) return;
-    if (tab === "tags" && clearTags && !confirmed) {
+    if (tab === "tags" && tagMode === "clear" && !confirmed) {
       setConfirmClear(true);
       return;
     }
@@ -271,12 +340,13 @@ function EditDetails({
       } else if (tab === "tags") {
         if (
           await onApplyTags(
-            clearTags ? [] : [tagDraft],
-            clearTags ? "replace" : tagMode
+            tagMode === "clear" ? [] : tagNames,
+            tagMode === "clear" ? "replace" : tagMode
           )
         ) {
           setTabErrors((current) => ({ ...current, tags: null }));
-          setClearTags(false);
+          setTagMode("add");
+          setStagedTags([]);
           onTagDraftChange("");
         }
       }
@@ -322,6 +392,8 @@ function EditDetails({
                 editor={{
                   value: scoreDraft,
                   mixed: scoreBaseline === undefined && !scoreDirty,
+                  invalid: invalidScore,
+                  describedBy: invalidScore ? "batch-score-error" : undefined,
                   onChange: (value) => {
                     setScoreDraft(value);
                     setScoreDirty(true);
@@ -329,7 +401,11 @@ function EditDetails({
                 }}
               />
               {invalidScore ? (
-                <p className="text-sm text-destructive" role="alert">
+                <p
+                  id="batch-score-error"
+                  className="text-sm text-destructive"
+                  role="alert"
+                >
                   Enter a whole number of zero or more.
                 </p>
               ) : null}
@@ -363,9 +439,7 @@ function EditDetails({
                 aria-label="Tag update mode"
                 value={tagMode}
                 disabled={isSaving}
-                onValueChange={(value) =>
-                  setTagMode(value as "add" | "replace")
-                }
+                onValueChange={(value) => setTagMode(value as BatchTagMode)}
               >
                 <div className="flex items-center gap-2">
                   <RadioGroupItem id="batch-tag-add" value="add" />
@@ -375,51 +449,125 @@ function EditDetails({
                   <RadioGroupItem id="batch-tag-replace" value="replace" />
                   <Label htmlFor="batch-tag-replace">Replace existing</Label>
                 </div>
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem id="batch-tag-clear" value="clear" />
+                  <Label htmlFor="batch-tag-clear">Clear all tags</Label>
+                </div>
               </RadioGroup>
-              <Label htmlFor="batch-tag-name">Tag name</Label>
-              <Input
-                id="batch-tag-name"
-                value={tagDraft}
-                disabled={isSaving || clearTags}
-                maxLength={48}
-                placeholder="Enter a tag"
-                onChange={(event) => onTagDraftChange(event.target.value)}
-              />
-              {tagSuggestions.length && !clearTags ? (
+              {tagMode === "replace" || tagMode === "clear" ? (
+                <p
+                  className="text-sm text-muted-foreground"
+                  id="batch-tag-scope"
+                >
+                  {tagMode === "clear"
+                    ? "Removes all tags from"
+                    : "Replaces all existing tags on"}{" "}
+                  {selectedAssets.length} selected{" "}
+                  {selectedAssets.length === 1 ? "item" : "items"}.
+                </p>
+              ) : null}
+              {tagMode !== "clear" ? (
+                <>
+                  <Label htmlFor="batch-tag-name">Tag name</Label>
+                  <div className="batch-tag-entry">
+                    <Input
+                      id="batch-tag-name"
+                      ref={tagInputRef}
+                      value={tagDraft}
+                      disabled={isSaving}
+                      maxLength={48}
+                      aria-invalid={tooManyTags || undefined}
+                      aria-describedby={
+                        tooManyTags
+                          ? "batch-tags-error"
+                          : tagMode === "replace"
+                            ? "batch-tag-scope"
+                            : undefined
+                      }
+                      onChange={(event) => onTagDraftChange(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (
+                          event.key !== "Enter" ||
+                          event.nativeEvent.isComposing
+                        )
+                          return;
+                        event.preventDefault();
+                        stageTag(tagDraft);
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={isSaving || !tagDraft.trim() || tooManyTags}
+                      onClick={() => stageTag(tagDraft)}
+                    >
+                      <Plus /> Add
+                    </Button>
+                  </div>
+                  {tooManyTags ? (
+                    <p
+                      id="batch-tags-error"
+                      className="text-sm text-destructive"
+                      role="alert"
+                    >
+                      Apply up to {MAX_BATCH_TAGS} tags at a time. Remove a tag
+                      before adding another.
+                    </p>
+                  ) : null}
+                  {stagedTags.length ? (
+                    <ul className="batch-tag-drafts" aria-label="Tags to apply">
+                      {stagedTags.map((tag) => (
+                        <li
+                          className="batch-tag-draft"
+                          key={normalizeTagIdentity(tag)}
+                        >
+                          <span>{tag}</span>
+                          <Button
+                            type="button"
+                            size="icon-xs"
+                            variant="ghost"
+                            disabled={isSaving}
+                            aria-label={`Remove ${tag} from changes`}
+                            onClick={() =>
+                              setStagedTags((current) =>
+                                current.filter((name) => name !== tag)
+                              )
+                            }
+                          >
+                            <X />
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </>
+              ) : null}
+              {tagSuggestions.some(
+                (tag) => !stagedTagIdentities.has(tag.normalizedName)
+              ) && tagMode !== "clear" ? (
                 <div
                   className="batch-tag-suggestions"
                   aria-label="Tag suggestions"
                 >
-                  {tagSuggestions.map((tag) => (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      key={tag.id}
-                      disabled={isSaving}
-                      onClick={() => onTagDraftChange(tag.displayName)}
-                    >
-                      {tag.displayName}
-                    </Button>
-                  ))}
+                  {tagSuggestions
+                    .filter(
+                      (tag) => !stagedTagIdentities.has(tag.normalizedName)
+                    )
+                    .map((tag) => (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        key={tag.id}
+                        disabled={
+                          isSaving || stagedTags.length >= MAX_BATCH_TAGS
+                        }
+                        onClick={() => stageTag(tag.displayName)}
+                      >
+                        {tag.displayName}
+                      </Button>
+                    ))}
                 </div>
-              ) : null}
-              <Button
-                className="justify-self-start"
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={isSaving}
-                aria-pressed={clearTags}
-                onClick={() => setClearTags((current) => !current)}
-              >
-                <Trash2 />
-                {clearTags ? "Keep tags" : "Clear tags"}
-              </Button>
-              {clearTags ? (
-                <p className="text-sm text-muted-foreground">
-                  Apply removes all tags from the selection.
-                </p>
               ) : null}
             </div>
           </TabsContent>
@@ -458,6 +606,7 @@ function EditDetails({
         mobile={mobile}
         isSaving={isSaving}
         onClose={cancel}
+        onReturnFocus={onReturnFocus}
         count={selectedAssets.length}
       >
         {content}
@@ -491,12 +640,14 @@ function ResponsiveEditor({
   mobile,
   isSaving,
   onClose,
+  onReturnFocus,
   count,
   children
 }: {
   mobile: boolean;
   isSaving: boolean;
   onClose: () => void;
+  onReturnFocus: () => void;
   count: number;
   children: ReactNode;
 }) {
@@ -517,6 +668,10 @@ function ResponsiveEditor({
           showCloseButton={!isSaving}
           onEscapeKeyDown={guard}
           onPointerDownOutside={guard}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            onReturnFocus();
+          }}
         >
           <SheetHeader>
             <SheetTitle>Edit details</SheetTitle>
@@ -540,6 +695,10 @@ function ResponsiveEditor({
         showCloseButton={!isSaving}
         onEscapeKeyDown={guard}
         onPointerDownOutside={guard}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          onReturnFocus();
+        }}
       >
         <DialogHeader>
           <DialogTitle>Edit details</DialogTitle>

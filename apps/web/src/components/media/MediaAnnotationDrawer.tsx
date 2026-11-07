@@ -3,6 +3,10 @@ import type { AiStatus, AssetRecord, TagRecord } from "../../api/client";
 import { useIsMobile } from "../../hooks/use-mobile";
 import { panelExitDurationMs } from "../../lib/motion";
 import {
+  captureFocusTarget,
+  restoreFocusAfterClose
+} from "../../lib/focus-restoration";
+import {
   Sheet,
   SheetContent,
   SheetDescription,
@@ -39,6 +43,7 @@ export function MediaAnnotationDrawer({
   onAssetTagsUpdated
 }: MediaAnnotationDrawerProps) {
   const isMobile = useIsMobile();
+  const [returnFocusTarget] = useState(captureFocusTarget);
   const [isOpen, setIsOpen] = useState(true);
   const closeTimerRef = useRef<number | null>(null);
   const isClosingRef = useRef(false);
@@ -84,6 +89,10 @@ export function MediaAnnotationDrawer({
       }}
     >
       <SheetContent
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          restoreFocusAfterClose(returnFocusTarget);
+        }}
         showCloseButton={!isBusy}
         onEscapeKeyDown={(event) => {
           if (busyRef.current) event.preventDefault();

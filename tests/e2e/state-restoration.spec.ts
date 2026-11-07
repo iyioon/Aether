@@ -212,7 +212,7 @@ test("keeps the visible Gallery asset when foreground refresh changes ordering",
       )
   ).toEqual(beforeOrder);
   const update = page
-    .getByRole("region", { name: "Library controls" })
+    .getByRole("region", { name: "Library results" })
     .getByRole("button", { name: "Update results", exact: true });
   await expect(update).toBeEnabled();
   await update.click();

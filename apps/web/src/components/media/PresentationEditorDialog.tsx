@@ -17,6 +17,10 @@ import {
   type PresentationValues
 } from "../../api/client";
 import { Button } from "../ui/button";
+import {
+  captureFocusTarget,
+  restoreFocusAfterClose
+} from "../../lib/focus-restoration";
 import { Dialog, DialogContent, DialogTitle } from "../ui/dialog";
 import {
   getPresentationValues,
@@ -94,6 +98,7 @@ export function PresentationEditorDialog({
   onClose,
   onSaved
 }: PresentationEditorDialogProps) {
+  const [returnFocusTarget] = useState(captureFocusTarget);
   const descriptionId = useId();
   const pendingRef = useRef(false);
   const [pending, setPending] = useState(false);
@@ -268,6 +273,10 @@ export function PresentationEditorDialog({
       }}
     >
       <DialogContent
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          restoreFocusAfterClose(returnFocusTarget);
+        }}
         className="media-editor"
         showCloseButton={false}
         aria-describedby={descriptionId}

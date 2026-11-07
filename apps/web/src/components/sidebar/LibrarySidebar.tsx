@@ -37,6 +37,7 @@ interface LibrarySidebarProps {
   isGuideOpen: boolean;
   isSettingsOpen: boolean;
   isTrashOpen?: boolean;
+  isActivityOpen?: boolean;
   items: FolderTreeItem[];
   scanProgress: ScanProgress | null;
   scanState: FolderScanState;
@@ -83,6 +84,7 @@ export function LibrarySidebar({
   isGuideOpen,
   isSettingsOpen,
   isTrashOpen,
+  isActivityOpen = false,
   items,
   scanProgress,
   scanState,
@@ -133,11 +135,8 @@ export function LibrarySidebar({
       <SidebarHeader className="p-4 pb-2">
         <div className="flex h-12 items-center gap-2 px-2">
           <BrandMark className="sidebar-brand-logo" />
-          <span className="flex min-w-0 flex-col gap-0.5 leading-none">
+          <span className="flex min-w-0 leading-none">
             <strong className="truncate font-semibold">Aether</strong>
-            <span className="truncate text-xs text-muted-foreground">
-              Private library
-            </span>
           </span>
         </div>
       </SidebarHeader>
@@ -192,6 +191,15 @@ export function LibrarySidebar({
           <SidebarMenuItem>
             <SidebarMenuButton
               className="sidebar-footer-action"
+              isActive={isActivityOpen}
+              aria-label="Activity"
+              aria-description={
+                activityCount
+                  ? `${activityCount} operations in progress or needing attention`
+                  : undefined
+              }
+              aria-expanded={isActivityOpen}
+              aria-haspopup="dialog"
               onClick={() => {
                 onOpenActivity();
                 setOpenMobile(false);
@@ -202,7 +210,7 @@ export function LibrarySidebar({
               {activityCount ? (
                 <span
                   className="ml-auto text-xs tabular-nums"
-                  aria-label={`${activityCount} active or paused operations`}
+                  aria-hidden="true"
                 >
                   {activityCount}
                 </span>

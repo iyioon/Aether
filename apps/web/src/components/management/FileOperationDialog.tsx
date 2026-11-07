@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { ApiError, getFolderInventory } from "../../api/client";
 import type {
   AssetRecord,
@@ -10,6 +10,11 @@ import type {
   TreeResponse
 } from "../../api/client";
 import { useIsMobile } from "../../hooks/use-mobile";
+import { createUuid } from "../../lib/uuid";
+import {
+  captureFocusTarget,
+  restoreFocusAfterClose
+} from "../../lib/focus-restoration";
 import { formatBytes } from "../media/media-format";
 import {
   AlertDialog,
@@ -75,6 +80,7 @@ export function FileOperationDialog({
   onSubmit: (input: FileOperationInput) => Promise<unknown>;
   onCreateFolder?: (input: FileOperationInput) => Promise<FileOperation>;
 }) {
+  const [returnFocusTarget] = useState(captureFocusTarget);
   const folder = managementFolders(tree).find(
     (entry) => entry.id === target.folderId
   );
@@ -90,6 +96,15 @@ export function FileOperationDialog({
         ? (folder?.label ?? "")
         : ""
   );
+  const nameId = useId();
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const [nameEdited, setNameEdited] = useState(false);
+  const nameError =
+    nameEdited && invalidName(name)
+      ? name.trim()
+        ? "Enter a name without slashes, a leading dot or surrounding spaces."
+        : "Enter a name."
+      : null;
   const [destinationId, setDestinationId] = useState(
     target.type === "create-folder"
       ? (target.folderId ?? selectedFolderId ?? "")
@@ -201,7 +216,7 @@ export function FileOperationDialog({
               }
             ];
     let input: FileOperationInput = requestRef.current ?? {
-      requestId: crypto.randomUUID(),
+      requestId: createUuid(),
       type: target.type,
       items,
       ...(requiresName ? { name } : {}),
@@ -322,22 +337,44 @@ export function FileOperationDialog({
       ) : null}
       {requiresName ? (
         <div className="grid gap-2">
-          <Label htmlFor="operation-name">Name</Label>
+          <Label htmlFor={nameId}>Name</Label>
           <div className="flex items-center gap-2">
             <Input
-              id="operation-name"
+              id={nameId}
+              ref={nameInputRef}
               value={name}
               maxLength={200}
               disabled={isSaving || unknown}
+              aria-invalid={Boolean(nameError)}
+              aria-describedby={
+                [
+                  nameError ? `${nameId}-error` : "",
+                  target.type === "rename-media" ? `${nameId}-extension` : ""
+                ]
+                  .filter(Boolean)
+                  .join(" ") || undefined
+              }
               autoComplete="off"
-              onChange={(event) => setName(event.target.value)}
+              onChange={(event) => {
+                setName(event.target.value);
+                setNameEdited(true);
+              }}
+              onBlur={() => setNameEdited(true)}
             />
             {target.type === "rename-media" && assets[0] ? (
-              <span className="text-sm text-muted-foreground">
+              <span
+                id={`${nameId}-extension`}
+                className="text-sm text-muted-foreground"
+              >
                 .{assets[0].extension.replace(/^\./, "")}
               </span>
             ) : null}
           </div>
+          {nameError ? (
+            <p id={`${nameId}-error`} className="text-sm text-destructive">
+              {nameError}
+            </p>
+          ) : null}
         </div>
       ) : null}
       {!reviewing && requiresDestination && target.type !== "create-folder" ? (
@@ -401,6 +438,10 @@ export function FileOperationDialog({
       >
         <AlertDialogContent
           className="management-confirmation"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            restoreFocusAfterClose(returnFocusTarget);
+          }}
           onEscapeKeyDown={(event) => {
             if (isSaving) event.preventDefault();
           }}
@@ -411,10 +452,14 @@ export function FileOperationDialog({
                 ? "Delete permanently?"
                 : "Move to Trash?"}
             </AlertDialogTitle>
-            <AlertDialogDescription>
+            <AlertDialogDescription className="break-words">
               {target.type === "purge"
-                ? `Permanently delete ${selectionCount} ${selectionCount === 1 ? "item" : "items"} and their Aether metadata. This cannot be undone.`
-                : `${selectionCount} ${selectionCount === 1 ? "item will" : "items will"} leave the library. Restore them from Trash before the retention period ends.`}
+                ? selectionCount === 1 && target.trash?.[0]
+                  ? `Permanently delete “${target.trash[0].name}” and its Aether metadata. This cannot be undone.`
+                  : `Permanently delete ${selectionCount} selected items and their Aether metadata. This cannot be undone.`
+                : selectionCount === 1 && operationAssets[0]
+                  ? `Move “${operationAssets[0].name}” to Trash. Restore it before the retention period ends.`
+                  : `${selectionCount} selected items will leave the library. Restore them from Trash before the retention period ends.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           {fields}
@@ -452,6 +497,15 @@ export function FileOperationDialog({
         requiresDestination && target.type !== "create-folder"
       }
       onClose={close}
+      onOpenAutoFocus={
+        requiresName
+          ? (event) => {
+              event.preventDefault();
+              nameInputRef.current?.focus();
+              nameInputRef.current?.select();
+            }
+          : undefined
+      }
     >
       <form
         className="grid gap-5"
@@ -516,7 +570,8 @@ export function ManagementDialog({
   onClose,
   children,
   open = true,
-  destinationBrowser = false
+  destinationBrowser = false,
+  onOpenAutoFocus
 }: {
   title: string;
   description?: string;
@@ -525,8 +580,14 @@ export function ManagementDialog({
   children: ReactNode;
   open?: boolean;
   destinationBrowser?: boolean;
+  onOpenAutoFocus?: (event: Event) => void;
 }) {
   const mobile = useIsMobile();
+  const [returnFocusTarget] = useState(captureFocusTarget);
+  const restoreFocus = (event: Event) => {
+    event.preventDefault();
+    restoreFocusAfterClose(returnFocusTarget);
+  };
   const guard = (event: Event) => {
     if (isSaving) event.preventDefault();
   };
@@ -545,11 +606,15 @@ export function ManagementDialog({
           showCloseButton={!isSaving}
           onEscapeKeyDown={guard}
           onPointerDownOutside={guard}
+          onOpenAutoFocus={onOpenAutoFocus}
+          onCloseAutoFocus={restoreFocus}
         >
           <SheetHeader>
             <SheetTitle>{title}</SheetTitle>
             {description ? (
-              <SheetDescription>{description}</SheetDescription>
+              <SheetDescription className="break-words">
+                {description}
+              </SheetDescription>
             ) : null}
           </SheetHeader>
           {children}
@@ -569,11 +634,15 @@ export function ManagementDialog({
         showCloseButton={!isSaving}
         onEscapeKeyDown={guard}
         onPointerDownOutside={guard}
+        onOpenAutoFocus={onOpenAutoFocus}
+        onCloseAutoFocus={restoreFocus}
       >
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           {description ? (
-            <DialogDescription>{description}</DialogDescription>
+            <DialogDescription className="break-words">
+              {description}
+            </DialogDescription>
           ) : null}
         </DialogHeader>
         {children}

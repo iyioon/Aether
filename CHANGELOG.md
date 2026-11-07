@@ -34,6 +34,18 @@ Notable changes to Aether are recorded here.
 
 ### Changed
 
+- Keep search and library actions together, with view switching and result
+  updates in navigation. Preserve folder access on short touch screens.
+- Add visible Gallery menus, explicit batch tag actions and multiple staged
+  tags. Keep score and tag errors beside their controls.
+- Identify Activity operations, retain its header while scrolling, and place
+  upload reselection beside each transfer. Improve name validation and phone
+  Trash selection, filenames and recovery actions.
+- Keep viewer menus and editing panels reachable from fullscreen, and restore
+  focus to their invoking controls when closed.
+
+- Separate Add media into a page for destination and file review. Keep uploads,
+  progress and operation results in Activity, with one heading per surface.
 - Separate Score and Tags in Edit details, retain independent drafts and apply
   only the active tab. Keep repeated score edits stationary until Update results
   reapplies affected sorting and filters. Keep paging available when preview
@@ -69,6 +81,8 @@ Notable changes to Aether are recorded here.
   while keeping normal-speed forward repeat.
 
 ### Fixed
+
+- Keep file drops and media-management actions working over HTTP on local network addresses.
 
 - Replace lossless Bounce playback with high-quality, original-resolution HEVC
   and compatible H.264 copies with bounded bitrate. Retire earlier Bounce files

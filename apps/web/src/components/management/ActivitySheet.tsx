@@ -6,16 +6,14 @@ import {
   type FileOperationInput
 } from "../../api/client";
 import type { ReactNode } from "react";
+import { createUuid } from "../../lib/uuid";
 import { useIsMobile } from "../../hooks/use-mobile";
 import { formatBytes } from "../media/media-format";
 import { Progress } from "../ui/progress";
 import { Button } from "../ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../ui/sheet";
-import {
-  isOperationTerminal,
-  managementError,
-  operationTitle
-} from "./management-model";
+import { activityItemsLabel, activityProgressLabel } from "./activity-model";
+import { managementError, operationTitle } from "./management-model";
 
 const statusLabels: Record<FileOperation["status"], string> = {
   queued: "Queued",
@@ -44,11 +42,13 @@ export function ActivityPanel({
   open,
   onClose,
   busy = false,
+  onReturnFocus,
   children
 }: {
   open: boolean;
   onClose: () => void;
   busy?: boolean;
+  onReturnFocus?: () => void;
   children: ReactNode;
 }) {
   const mobile = useIsMobile();
@@ -62,11 +62,17 @@ export function ActivityPanel({
     >
       <SheetContent
         data-modal={mobile}
-        className={`activity-sheet h-dvh w-full overflow-y-auto pb-[env(safe-area-inset-bottom)] ${mobile ? "sm:max-w-none" : "sm:max-w-[520px]"}`}
+        className={`activity-sheet h-dvh w-full overflow-hidden pb-[env(safe-area-inset-bottom)] ${mobile ? "sm:max-w-none" : "sm:max-w-[520px]"}`}
         side="right"
         showOverlay={mobile}
         showCloseButton={!busy}
         aria-describedby={undefined}
+        onCloseAutoFocus={(event) => {
+          if (onReturnFocus) {
+            event.preventDefault();
+            onReturnFocus();
+          }
+        }}
         onInteractOutside={(event) => {
           if (!mobile) event.preventDefault();
         }}
@@ -74,7 +80,7 @@ export function ActivityPanel({
         <SheetHeader className="pt-[max(1rem,env(safe-area-inset-top))]">
           <SheetTitle>Activity</SheetTitle>
         </SheetHeader>
-        {children}
+        <div className="activity-body">{children}</div>
       </SheetContent>
     </Sheet>
   );
@@ -125,7 +131,7 @@ export function ActivityContents({
     setError(null);
     const input = retryRequestsRef.current.get(operation.id) ?? {
       ...operation.retryInput,
-      requestId: crypto.randomUUID()
+      requestId: createUuid()
     };
     retryRequestsRef.current.set(operation.id, input);
     try {
@@ -173,7 +179,7 @@ export function ActivityContents({
           </Button>
         </div>
       ) : null}
-      {operations.length === 0 ? (
+      {operations.length === 0 && !error ? (
         <p className="text-sm text-muted-foreground">
           No recent file operations.
         </p>
@@ -192,12 +198,16 @@ export function ActivityContents({
                 {statusLabels[operation.status]}
               </span>
             </div>
-            <p className="text-sm text-muted-foreground">
-              {operation.summary?.completed ??
-                operation.items.filter((item) => item.status === "completed")
-                  .length}{" "}
-              of {operation.summary?.total ?? operation.items.length} completed
-            </p>
+            {activityItemsLabel(operation) ? (
+              <p className="break-words text-sm">
+                {activityItemsLabel(operation)}
+              </p>
+            ) : null}
+            {activityProgressLabel(operation) ? (
+              <p className="text-sm text-muted-foreground">
+                {activityProgressLabel(operation)}
+              </p>
+            ) : null}
             {operation.progress ? (
               <div className="grid gap-1">
                 <Progress
@@ -248,7 +258,7 @@ export function ActivityContents({
                 {retrying === operation.id ? "Retrying…" : "Retry remaining"}
               </Button>
             ) : null}
-            {!isOperationTerminal(operation) || operation.canCancel ? (
+            {operation.canCancel ? (
               <Button
                 className="justify-self-start"
                 type="button"

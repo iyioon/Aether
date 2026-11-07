@@ -248,8 +248,8 @@ test("reviews duplicate upload names on phone before admitting files and keeps b
       .getByRole("region", { name: "Library controls" })
       .getByRole("button", { name: "Add media", exact: true })
       .click();
-    const activity = page.getByRole("dialog", {
-      name: "Activity",
+    const addMedia = page.getByRole("region", {
+      name: "Add media",
       exact: true
     });
     const admission: string[] = [];
@@ -262,34 +262,34 @@ test("reviews duplicate upload names on phone before admitting files and keeps b
       mimeType: "image/png",
       buffer: png
     }));
-    await activity
+    await addMedia
       .getByLabel("Choose media", { exact: true })
       .setInputFiles(files);
-    await activity
+    await addMedia
       .getByRole("button", { name: "Add files", exact: true })
       .click();
     await expect(
-      activity.getByRole("region", { name: "Name conflicts", exact: true })
+      addMedia.getByRole("region", { name: "Name conflicts", exact: true })
     ).toBeVisible();
     expect(admission).toHaveLength(0);
-    await activity.getByRole("button", { name: "Done", exact: true }).click();
-    await expect(activity.getByRole("status")).toContainText(
+    await addMedia.getByRole("button", { name: "Done", exact: true }).click();
+    await expect(addMedia.getByRole("status")).toContainText(
       "2 files skipped."
     );
     expect(admission).toHaveLength(0);
-    await activity
+    await addMedia
       .getByLabel("Choose media", { exact: true })
       .setInputFiles(files);
-    await activity
+    await addMedia
       .getByRole("button", { name: "Add files", exact: true })
       .click();
-    await activity
+    await addMedia
       .getByRole("checkbox", {
         name: "Apply to remaining conflicts",
         exact: true
       })
       .check();
-    const choice = activity
+    const choice = addMedia
       .getByRole("combobox", {
         name: `Conflict choice for ${filename}`,
         exact: true
@@ -297,13 +297,13 @@ test("reviews duplicate upload names on phone before admitting files and keeps b
       .first();
     await choice.click();
     await page.getByRole("option", { name: "Keep both", exact: true }).click();
-    await expect(activity.getByRole("status")).toContainText(
+    await expect(addMedia.getByRole("status")).toContainText(
       "2 items to add · 0 skipped"
     );
-    await expect(activity).toContainText(
+    await expect(addMedia).toContainText(
       "Keep as a-long-photo-name-for-a-narrow-phone-layout (2).png"
     );
-    await expect(activity).toContainText(
+    await expect(addMedia).toContainText(
       "Keep as a-long-photo-name-for-a-narrow-phone-layout (3).png"
     );
     const bounds = await choice.boundingBox();
@@ -315,11 +315,11 @@ test("reviews duplicate upload names on phone before admitting files and keeps b
         )
       )
       .toBe(true);
-    await activity.screenshot({
+    await addMedia.screenshot({
       path: testInfo.outputPath("name-conflicts-phone.png"),
       animations: "disabled"
     });
-    await activity
+    await addMedia
       .getByRole("button", { name: "Add files", exact: true })
       .click();
     await expect

@@ -1,4 +1,4 @@
-export type AppPage = "library" | "guide" | "settings" | "trash";
+export type AppPage = "library" | "guide" | "settings" | "trash" | "add-media";
 export type ComparisonWorkspace = "leaderboard" | "ranking";
 
 export interface AppNavigationState {
@@ -77,7 +77,8 @@ function isAppPage(value: unknown): value is AppPage {
     value === "library" ||
     value === "guide" ||
     value === "settings" ||
-    value === "trash"
+    value === "trash" ||
+    value === "add-media"
   );
 }
 

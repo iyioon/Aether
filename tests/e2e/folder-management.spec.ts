@@ -185,6 +185,101 @@ async function expectDestinationContained(page: Page, dialog: Locator) {
 
 for (const phone of [false, true]) {
   const layout = phone ? "phone" : "desktop";
+  test(`retries a failed Trash search from its first page on ${layout}`, async ({
+    browser
+  }) => {
+    const context = await browser.newContext({
+      baseURL: productionBaseURL,
+      ...(phone
+        ? {
+            viewport: { width: 320, height: 760 },
+            isMobile: true,
+            hasTouch: true
+          }
+        : {})
+    });
+    const page = await context.newPage();
+    try {
+      await signInAndScan(page);
+      const records: TrashResponse["items"] = ["first.png", "matching.png"].map(
+        (name, index) => ({
+          id: `trash-search-${index}`,
+          assetId: `trash-search-asset-${index}`,
+          name,
+          originalRootId: "photos",
+          originalFolderId: "album",
+          originalRelativePath: `Album/${name}`,
+          sizeBytes: 1024,
+          deletedAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+          sourceVersion: "source-version"
+        })
+      );
+      let failedSearch = false;
+      const queries: Array<{ search: string; offset: number }> = [];
+      await page.route("**/api/file-operations", (route) =>
+        route.fulfill({ json: { items: [] } })
+      );
+      await page.route(/\/api\/trash\/[^/]+\/thumbnail$/, (route) =>
+        route.fulfill({ contentType: "image/png", body: png })
+      );
+      await page.route(/\/api\/trash\?/, async (route) => {
+        const url = new URL(route.request().url());
+        const search = url.searchParams.get("search") ?? "";
+        queries.push({
+          search,
+          offset: Number(url.searchParams.get("offset"))
+        });
+        if (search && !failedSearch) {
+          failedSearch = true;
+          await route.fulfill({
+            status: 500,
+            json: { error: "temporary_failure" }
+          });
+          return;
+        }
+        await route.fulfill({
+          json: {
+            items: search ? records.slice(1) : records,
+            retentionDays: 30,
+            revision: "1",
+            totalRetained: 4,
+            page: { total: search ? 1 : 4, offset: 0, limit: 100 }
+          } satisfies TrashResponse
+        });
+      });
+      await page.goto("/?page=trash");
+      const loadMore = page.getByRole("button", {
+        name: "Load more",
+        exact: true
+      });
+      await expect(loadMore).toBeEnabled();
+      await page
+        .getByRole("textbox", { name: "Search Trash", exact: true })
+        .fill("matching");
+      await expect(page.getByRole("alert")).toContainText(
+        "Trash could not be loaded"
+      );
+      await expect(page.getByRole("article")).toHaveCount(0);
+      await expect(loadMore).toHaveCount(0);
+      await page
+        .getByRole("button", { name: "Refresh Trash", exact: true })
+        .click();
+      await expect(
+        page.getByRole("heading", { name: "matching.png", exact: true })
+      ).toBeVisible();
+      await expect(
+        page.getByRole("button", { name: "Restore matching.png", exact: true })
+      ).toBeEnabled();
+      expect(queries.filter((query) => query.search === "matching")).toEqual([
+        { search: "matching", offset: 0 },
+        { search: "matching", offset: 0 }
+      ]);
+    } finally {
+      await context.close();
+    }
+  });
+
   test(`checks folder contents and creates a destination inline on ${layout}`, async ({
     browser
   }) => {
@@ -241,9 +336,30 @@ for (const phone of [false, true]) {
         rename.getByText("Includes hidden files and sidecars.", { exact: true })
       ).toBeVisible();
       await page.unroute(inventoryPattern);
-      await rename
-        .getByRole("textbox", { name: "Name", exact: true })
-        .fill("Renamed");
+      const renameName = rename.getByRole("textbox", {
+        name: "Name",
+        exact: true
+      });
+      await expect(renameName).toBeFocused();
+      expect(
+        await renameName.evaluate((input: HTMLInputElement) => ({
+          start: input.selectionStart,
+          end: input.selectionEnd
+        }))
+      ).toEqual({ start: 0, end: "Source".length });
+      await renameName.fill("/invalid");
+      await expect(renameName).toHaveAttribute("aria-invalid", "true");
+      await expect(
+        rename.getByText(
+          "Enter a name without slashes, a leading dot or surrounding spaces.",
+          { exact: true }
+        )
+      ).toBeVisible();
+      await expect(
+        rename.getByRole("button", { name: "Rename", exact: true })
+      ).toBeDisabled();
+      await renameName.fill("Renamed");
+      await expect(renameName).toHaveAttribute("aria-invalid", "false");
       const renameInput = await submitDialog(
         page,
         rename.getByRole("button", { name: "Rename", exact: true })
@@ -312,6 +428,29 @@ for (const phone of [false, true]) {
         await expectDestinationContained(page, move);
         await page.setViewportSize({ width: 1440, height: 980 });
         await expect(move).toHaveAttribute("data-slot", "dialog-content");
+        await expectDestinationContained(page, move);
+      } else {
+        await page.setViewportSize({ width: 932, height: 430 });
+        await expectDestinationContained(page, move);
+        for (const label of ["New folder", "Cancel", "Move here"]) {
+          const control = move.getByRole("button", {
+            name: label,
+            exact: true
+          });
+          await expect
+            .poll(() =>
+              control.evaluate((element) => {
+                const bounds = element.getBoundingClientRect();
+                const hit = document.elementFromPoint(
+                  bounds.x + bounds.width / 2,
+                  bounds.y + bounds.height / 2
+                );
+                return hit !== null && element.contains(hit);
+              })
+            )
+            .toBe(true);
+        }
+        await page.setViewportSize({ width: 320, height: 760 });
         await expectDestinationContained(page, move);
       }
       const bounds = await move.boundingBox();
@@ -382,6 +521,7 @@ for (const phone of [false, true]) {
     const fixture = path.resolve(".e2e", "media", fixtureName);
     const visibleName = `visible-${randomUUID()}-${randomUUID()}.png`;
     const hiddenName = `hidden-${randomUUID()}.png`;
+    let releaseSearch: () => void = () => undefined;
     try {
       await mkdir(fixture);
       await writeFile(path.join(fixture, visibleName), png);
@@ -412,12 +552,40 @@ for (const phone of [false, true]) {
       );
       await page.reload();
       await openTrash(page);
+      await expect(
+        page.getByRole("button", { name: `Restore ${hiddenName}`, exact: true })
+      ).toBeEnabled();
+      const heldSearch = new Promise<void>((resolve) => {
+        releaseSearch = resolve;
+      });
+      const searchPattern = /\/api\/trash\?/;
+      await page.route(searchPattern, async (route) => {
+        await heldSearch;
+        await route.continue();
+      });
       await page
         .getByRole("textbox", { name: "Search Trash", exact: true })
         .fill(visibleName);
       await expect(
+        page.getByRole("button", { name: `Restore ${hiddenName}`, exact: true })
+      ).toBeDisabled();
+      releaseSearch();
+      await expect(
         page.getByRole("heading", { name: visibleName, exact: true })
       ).toBeVisible();
+      await expect(
+        page.getByRole("button", {
+          name: `Restore ${visibleName}`,
+          exact: true
+        })
+      ).toBeEnabled();
+      await page.unroute(searchPattern);
+      await expect(
+        page.locator(".trash-toolbar").getByRole("button", {
+          name: "Restore",
+          exact: true
+        })
+      ).toHaveCount(0);
       if (phone) {
         const article = page.getByRole("article").filter({
           has: page.getByRole("heading", { name: visibleName, exact: true })
@@ -490,6 +658,29 @@ for (const phone of [false, true]) {
       await expect(
         page.getByRole("heading", { name: hiddenName, exact: true })
       ).toHaveCount(0);
+      await page
+        .getByRole("checkbox", { name: `Select ${visibleName}`, exact: true })
+        .check();
+      await page
+        .getByRole("button", { name: "Delete permanently", exact: true })
+        .click();
+      const deleteConfirmation = page.getByRole("alertdialog", {
+        name: "Delete permanently?",
+        exact: true
+      });
+      await expect(deleteConfirmation).toContainText(visibleName);
+      await deleteConfirmation
+        .getByRole("button", { name: "Cancel", exact: true })
+        .click();
+      await page
+        .getByRole("button", { name: "Clear selection", exact: true })
+        .click();
+      await expect(
+        page.getByRole("checkbox", {
+          name: `Select ${visibleName}`,
+          exact: true
+        })
+      ).not.toBeChecked();
       const retained = (await (
         await page.request.get("/api/trash")
       ).json()) as TrashResponse;
@@ -507,6 +698,9 @@ for (const phone of [false, true]) {
       await confirm
         .getByRole("button", { name: "Cancel", exact: true })
         .click();
+      await expect(
+        page.getByRole("button", { name: "Empty Trash", exact: true })
+      ).toBeFocused();
       expect(
         ((await (await page.request.get("/api/trash")).json()) as TrashResponse)
           .totalRetained
@@ -543,6 +737,7 @@ for (const phone of [false, true]) {
           (await page.request.get(`/api/assets/${asset.id}`)).status()
         ).toBe(404);
     } finally {
+      releaseSearch();
       await rm(fixture, { recursive: true, force: true });
       await scan(page);
       await context.close();

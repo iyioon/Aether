@@ -155,6 +155,8 @@ export function MediaViewer({
   const playbackBlocked = isPlaybackPaused;
   const [optionsOpen, setOptionsOpen] = useState(false);
   const optionsOpenRef = useRef(false);
+  const moreTriggerRef = useRef<HTMLButtonElement>(null);
+  const pendingMoreActionRef = useRef<(() => void) | null>(null);
   const [originalVideoFailed, setOriginalVideoFailed] = useState(false);
   const isAnimationCandidate =
     asset.mediaType === "image" &&
@@ -666,6 +668,26 @@ export function MediaViewer({
     );
   }, [revealControls]);
 
+  const openViewerPanel = useCallback((open: () => void) => {
+    if (document.fullscreenElement !== viewerDialogRef.current) {
+      open();
+      return;
+    }
+    const assetId = activeAssetIdRef.current;
+    void document.exitFullscreen().then(
+      () => {
+        if (!isClosingRef.current && activeAssetIdRef.current === assetId)
+          open();
+      },
+      () => setKeyboardAnnouncement("Exit fullscreen to open this panel.")
+    );
+  }, []);
+
+  const toggleInfo = useCallback(
+    () => openViewerPanel(onToggleInfo),
+    [onToggleInfo, openViewerPanel]
+  );
+
   const bindViewerVideo = useCallback(
     (video: HTMLVideoElement | null) => {
       nativeFullscreenCleanupRef.current?.();
@@ -1054,7 +1076,7 @@ export function MediaViewer({
         case "details":
           event.preventDefault();
           setKeyboardAnnouncement("Details opened");
-          onToggleInfo();
+          toggleInfo();
           break;
       }
     }
@@ -1070,7 +1092,7 @@ export function MediaViewer({
     playbackBlocked,
     isInfoOpen,
     navigateAndPlayViewerVideo,
-    onToggleInfo,
+    toggleInfo,
     toggleViewerSound,
     toggleViewerVideoPlayback
   ]);
@@ -1189,12 +1211,15 @@ export function MediaViewer({
           <DropdownMenu
             onOpenChange={(open) => {
               optionsOpenRef.current = open;
-              if (open) revealControls();
-              else hideControlsLater();
+              if (open) {
+                pendingMoreActionRef.current = null;
+                revealControls();
+              } else hideControlsLater();
             }}
           >
             <DropdownMenuTrigger asChild>
               <Button
+                ref={moreTriggerRef}
                 className="media-overlay-button"
                 size="icon"
                 type="button"
@@ -1204,9 +1229,25 @@ export function MediaViewer({
                 <MoreHorizontal />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
+            <DropdownMenuContent
+              container={viewerDialogRef.current}
+              className="viewer-more-menu"
+              align="end"
+              onCloseAutoFocus={(event) => {
+                const action = pendingMoreActionRef.current;
+                pendingMoreActionRef.current = null;
+                if (!action) return;
+                event.preventDefault();
+                moreTriggerRef.current?.focus({ preventScroll: true });
+                openViewerPanel(action);
+              }}
+            >
               {onEditAsset ? (
-                <DropdownMenuItem onSelect={() => onEditAsset(asset)}>
+                <DropdownMenuItem
+                  onSelect={() => {
+                    pendingMoreActionRef.current = () => onEditAsset(asset);
+                  }}
+                >
                   <Pencil />
                   Edit media
                 </DropdownMenuItem>
@@ -1219,14 +1260,21 @@ export function MediaViewer({
               </DropdownMenuItem>
               {onManageAsset ? (
                 <>
+                  <DropdownMenuSeparator />
                   <DropdownMenuItem
-                    onSelect={() => onManageAsset(asset, "rename-media")}
+                    onSelect={() => {
+                      pendingMoreActionRef.current = () =>
+                        onManageAsset(asset, "rename-media");
+                    }}
                   >
                     <Pencil />
                     Rename…
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onSelect={() => onManageAsset(asset, "move-media")}
+                    onSelect={() => {
+                      pendingMoreActionRef.current = () =>
+                        onManageAsset(asset, "move-media");
+                    }}
                   >
                     <FolderInput />
                     Move to…
@@ -1234,7 +1282,10 @@ export function MediaViewer({
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     variant="destructive"
-                    onSelect={() => onManageAsset(asset, "trash")}
+                    onSelect={() => {
+                      pendingMoreActionRef.current = () =>
+                        onManageAsset(asset, "trash");
+                    }}
                   >
                     <Trash2 />
                     Move to Trash
@@ -1260,7 +1311,7 @@ export function MediaViewer({
             variant="outline"
             aria-label={`Show info for ${asset.name}`}
             aria-pressed={isInfoOpen}
-            onClick={onToggleInfo}
+            onClick={toggleInfo}
           >
             <Info />
           </Button>

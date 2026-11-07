@@ -66,10 +66,10 @@ export function UserGuidePage({
             </ol>
             <h2>Choose a view</h2>
             <p>
-              Gallery shows a grid. Select a card to open the viewer.
-              Right-click a card or long-press its preview for actions;
-              selection and the viewer’s More menu provide the same file
-              commands.
+              Gallery shows a grid. Select a card to open the viewer. Use a
+              card’s More options menu, right-click, or long-press its preview
+              for actions; selection and the viewer’s More menu provide the same
+              file commands.
             </p>
             <p>
               Feed shows one item at a time. Swipe up or down on phones, or
@@ -110,7 +110,9 @@ export function UserGuidePage({
           <TabsContent className="guide-tab-panel" value="edit">
             <h2>Open the editor</h2>
             <ol>
-              <li>Open a card’s menu or the viewer’s More menu.</li>
+              <li>
+                Open a card’s More options menu or the viewer’s More menu.
+              </li>
               <li>Choose Edit media.</li>
               <li>
                 Adjust Playback or Framing, then choose Save. Cancel discards
@@ -215,9 +217,10 @@ export function UserGuidePage({
               returns to browsing.
             </p>
             <p>
-              Tags can be added to existing tags or replace them. Clear tags
-              requires confirmation and Apply. Suggestions are optional; only
-              tags you choose are saved.
+              Choose Add to existing, Replace existing or Clear all tags. Stage
+              up to 50 tags with Add or Enter, then choose Apply. Clearing tags
+              requires confirmation. Suggestions are optional; only tags you
+              choose are saved.
             </p>
             <h2>Create or rename a folder</h2>
             <ol>
@@ -233,8 +236,8 @@ export function UserGuidePage({
             <h2>Rename or move media</h2>
             <ol>
               <li>
-                Open a card’s menu or the viewer’s More menu. For several items,
-                select Gallery cards.
+                Open a card’s More options menu or the viewer’s More menu. For
+                several items, select Gallery cards.
               </li>
               <li>Choose Rename or Move to.</li>
               <li>
@@ -260,19 +263,18 @@ export function UserGuidePage({
             <h2>Add media</h2>
             <ol>
               <li>
-                Choose Add media and select files, or drop files into Gallery on
-                desktop.
+                Open Add media and select Choose files, or drop files into
+                Gallery on desktop.
               </li>
               <li>Review the files and choose a writable destination.</li>
-              <li>Choose Add files. Check progress in Activity.</li>
+              <li>
+                Choose Add files. The library reopens with progress in Activity.
+              </li>
             </ol>
             <p>
-              Closing Activity does not cancel accepted work. Unsubmitted files
-              stay in the current tab until discarded; after a reload, select
-              them again. Transfers can pause offline or when the app leaves the
-              foreground. Return to resume. After a reload, select the same file
-              when requested. An upload is complete when it has been added to
-              the library.
+              Returning to the library keeps unsubmitted files in the current
+              tab; Discard clears them. Select them again after a reload. Folder
+              uploads are not supported.
             </p>
             <h2>Move to Trash and restore</h2>
             <ol>
@@ -290,12 +292,23 @@ export function UserGuidePage({
             </p>
             <h2>Check Activity</h2>
             <p>
-              Activity keeps progress, completed work and items needing
-              attention. Resolve a reported problem, then use Check again. A
-              batch can partly succeed. Cancel remaining stops safely
-              cancellable file operations. Retry only unsuccessful items.
-              Checking status means the result is still unknown; wait for a
-              confirmed result before starting the same action again.
+              Open Activity in the sidebar for upload progress, completed work
+              and items needing attention. Each operation identifies its media
+              or folder. Closing Activity does not cancel accepted work.
+            </p>
+            <p>
+              Uploads can pause offline or when the app leaves the foreground.
+              Return to resume. After a reload, choose Resume and select the
+              same file beside its transfer; Aether checks the retained bytes
+              before continuing. An upload is complete when it has been added to
+              the library.
+            </p>
+            <p>
+              Resolve a reported problem, then use Check again. A batch can
+              partly succeed. Cancel remaining stops safely cancellable file
+              operations. Retry only unsuccessful items. Checking status means
+              the result is still unknown; wait for a confirmed result before
+              starting the same action again.
             </p>
           </TabsContent>
           <TabsContent className="guide-tab-panel" value="files">

@@ -11,6 +11,7 @@ import {
   type EmptyTrashInput
 } from "../../api/client";
 import { usePageLifecycle } from "../../hooks/usePageLifecycle";
+import { createUuid } from "../../lib/uuid";
 import {
   completedOperationItems,
   isOperationTerminal,
@@ -159,7 +160,7 @@ export function useFileOperations(
   const trackUploadBatch = useCallback((ids: string[]) => {
     uploadBatchesRef.current = [
       ...uploadBatchesRef.current,
-      { id: crypto.randomUUID(), ids }
+      { id: createUuid(), ids }
     ].slice(-100);
   }, []);
   const callbacksRef = useRef(onCommitted);

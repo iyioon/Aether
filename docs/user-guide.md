@@ -69,7 +69,7 @@ close. Phone controls use safe areas; iOS may still reserve status-bar space.
 
 ### Open and save
 
-1. Open a card’s menu or the viewer’s **More** menu.
+1. Open a card’s **More options** menu or the viewer’s **More** menu.
 2. Choose **Edit media**.
 3. Adjust Playback or Framing, then choose **Save**.
 
@@ -153,8 +153,9 @@ Apply saves only the active tab and leaves the editor open. Switching tabs keeps
 both drafts. **Mixed** means selected values differ; enter a score to replace
 them. An untouched score is kept. An explicit zero means unranked.
 
-Tags can be added to existing tags or replace them. **Clear tags** requires
-confirmation and Apply. Suggestions are optional; only chosen tags are saved.
+Choose **Add to existing**, **Replace existing** or **Clear all tags**.
+Stage up to 50 tags with **Add** or Enter, then choose **Apply**. Clearing tags
+requires confirmation. Suggestions are optional; only chosen tags are saved.
 Each Score or Tags submission saves all selected items together. **Cancel** discards unsaved
 drafts while retaining earlier applied changes. **Done** returns to browsing.
 
@@ -169,7 +170,7 @@ renamed or moved. A folder rename includes its contents.
 
 ### Rename or move media
 
-1. Open a card’s menu or the viewer’s **More** menu. Select Gallery cards for
+1. Open a card’s **More options** menu or the viewer’s **More** menu. Select Gallery cards for
    several items.
 2. Choose **Rename** or **Move to**.
 3. For a rename, enter a name and choose **Rename**. The media extension stays
@@ -191,16 +192,13 @@ results and recovery; retry only unsuccessful items.
 
 ### Add media
 
-1. Choose **Add media** and select files, or drop files into Gallery on desktop.
+1. Open **Add media** and select **Choose files**, or drop files into Gallery on desktop.
 2. Review the files, limits and writable destination.
-3. Choose **Add files**, then check progress in Activity.
+3. Choose **Add files**. The library reopens with progress in **Activity**.
 
-Closing Activity does not cancel accepted work. Unsubmitted files remain in the
-current tab until discarded; select them again after a reload. Transfers can
-pause offline or when the app leaves the foreground. Return to resume. After a
-reload, select the same file when requested; Aether checks the retained bytes
-before continuing. An upload is complete after the file has been added to the library.
-Folder uploads are not supported.
+Returning to the library keeps unsubmitted files in the current tab;
+**Discard** clears them. Select them again after a reload. Folder uploads are
+not supported.
 
 ### Use Trash
 
@@ -218,11 +216,19 @@ unavailable; it is not an empty Trash.
 
 ### Check Activity
 
-Activity keeps progress, completed work and items needing attention. Resolve a
-reported problem, then use **Check again** to resume the same operation. Closing
-Activity is not cancellation. **Cancel remaining** stops safely cancellable file operations; completed items
-require a reverse operation. A batch can partly succeed. Checking status means
-the outcome is still unknown; wait for a confirmed result before starting the same action again.
+Open **Activity** in the sidebar for upload progress, completed work and items
+needing attention. Each operation identifies its media or folder. Closing Activity does not cancel accepted work.
+
+Uploads can pause offline or when the app leaves the foreground. Return to
+resume. After a reload, choose **Resume** and select the same file beside its transfer; Aether checks the
+retained bytes before continuing. An upload is complete after the file has been
+added to the library.
+
+Resolve a reported problem, then use **Check again** to resume the same
+operation. **Cancel remaining** stops safely cancellable file operations;
+completed items require a reverse operation. A batch can partly succeed.
+Checking status means the outcome is still unknown; wait for a confirmed result
+before starting the same action again.
 
 ## Media Files
 

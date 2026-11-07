@@ -56,7 +56,10 @@ export function resolveAppLocation(
     library: explicitLibrary ? parseLibraryStateSearch(search) : stored.library,
     navigation: {
       page:
-        page === "settings" || page === "guide" || page === "trash"
+        page === "settings" ||
+        page === "guide" ||
+        page === "trash" ||
+        page === "add-media"
           ? page
           : "library",
       comparisonWorkspace:
@@ -106,7 +109,8 @@ export function readStoredAppLocation(): AppLocationState {
         (nav.page === "library" ||
           nav.page === "settings" ||
           nav.page === "guide" ||
-          nav.page === "trash") &&
+          nav.page === "trash" ||
+          nav.page === "add-media") &&
         (nav.comparisonWorkspace === "ranking" ||
           nav.comparisonWorkspace === "leaderboard")
       ) {

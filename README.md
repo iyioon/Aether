@@ -117,6 +117,11 @@ npm run data:wipe -- --confirm-wipe
 source media. See [Data management](docs/data-management.md) before wiping a
 library.
 
+To stop using this installation, follow
+[Remove Aether](docs/data-management.md#remove-aether) before deleting the
+project. The guide covers retained media, custom data locations and packages
+installed outside the project.
+
 ## Documentation
 
 - [Installation](docs/installation.md)

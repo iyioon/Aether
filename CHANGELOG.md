@@ -20,6 +20,8 @@ Notable changes to Aether are recorded here.
 
 ### Added
 
+- Add removal instructions covering media recovery, local and Docker data
+  removal, data kept for another server, and optional tool and cache cleanup.
 - Folder-tree context actions for New folder, Rename and Move to, available
   through right-click, keyboard and touch hold.
 - Opt-in named writable roots, durable folder creation, media/folder rename and

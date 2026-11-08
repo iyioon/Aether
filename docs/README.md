@@ -10,8 +10,9 @@
 
 ## Keep It Safe
 
-- [Data management](data-management.md): backups, rebuilds, complete wipes, and
-  what remains outside Aether.
+- [Data management](data-management.md): backups, rebuilds, complete wipes,
+  [removing Aether](data-management.md#remove-aether), and what remains outside
+  the project.
 - [Security](security.md): the trust model, network exposure, browser storage,
   and privacy limits.
 

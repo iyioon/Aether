@@ -235,10 +235,22 @@ docker compose run --rm --no-deps --entrypoint node aether \
   --from /data/backups/aether-YYYYMMDD-HHMMSSsssZ --confirm-restore
 ```
 
-For a complete Docker wipe, run `docker compose down`, delete only the marked
-`./aether-data` directory, and create a new protected `private.env` as described
-in [Installation](installation.md). The separate `./media` mount is not part of
-the wipe.
+Before removing Docker data, follow [Prepare](#prepare), stop the service, and
+inspect its data through a one-off container:
+
+```bash
+docker compose stop
+docker compose run --rm --no-deps --entrypoint node aether \
+  apps/server/dist/cli/data.js status
+```
+
+After checking the status and preserving wanted files, run `docker compose down`
+and delete only the marked host data directory bound to `/data` (`./aether-data`
+in the supplied Compose file). This manual deletion does not enforce the CLI's
+file-management guards; resolve every reported blocker first. The separate
+media mount must be kept if it contains media you want to retain. To start
+over, create a new protected `private.env` as described in
+[Installation](installation.md).
 
 ## Rebuild The Library
 
@@ -258,7 +270,7 @@ The next start and scan build a new index from the source folders.
 Scores, tags, favorites, comparison history, and sessions are part of the
 database. They are lost unless you keep a backup.
 
-## Wipe Everything Aether Manages
+## Wipe The Data Directory
 
 ```bash
 # Stop Aether first.
@@ -302,6 +314,103 @@ A server wipe cannot clear data stored elsewhere. Check these places separately:
 Deleting source media followed by a successful scan removes its live database
 record and Aether-managed derivatives. It is still not a promise of forensic
 erasure from browsers, backups, logs, snapshots, or storage hardware.
+
+## Remove Aether
+
+To stop running Aether temporarily, stop the server and keep its files. If moving
+to another server, stop the old server before copying the complete data
+directory, and preserve the media volumes. See
+[Moving the data directory](#moving-the-data-directory). Verify the replacement
+before removing the old copies. Filesystem identities can change between hosts;
+a copied database alone does not establish that the new server can safely
+manage the media.
+
+Run local commands from the project directory before deleting it. For Docker,
+use the [container maintenance commands](#docker-commands).
+
+### Prepare
+
+1. Open **Account → Activity**. Finish accepted work, or cancel transfers and
+   remaining operations you no longer want. Resolve **Needs attention** while
+   the affected drives and recorded copies are available.
+2. Open **Account → Trash**. Restore media you want to keep, or explicitly
+   delete the unwanted items permanently. Wait for the operations to finish.
+3. If you want to retain scores, tags, favorites, comparison history or saved
+   media edits, make a [backup](#back-up-the-database) outside the project and data
+   directory. Keep `private.env` separately; database backups exclude it and
+   source media.
+4. Stop Aether with **Ctrl+C** in its terminal, or stop its container or service.
+   Wait for the server process to exit. Disable any automatic startup you
+   configured before removing files.
+5. Run `npm run data:status`. Check the resolved `dataDir`,
+   `interruptedRestore` and `fileManagement` counts. A permanent removal requires
+   zero `operations`, `uploads` and `trash`. If blockers remain, resume Aether to
+   resolve them before stopping it again. Preserve interrupted-restore files
+   until [recovery](#restore-a-backup) is complete.
+
+Record the locations before removing configuration:
+
+| Location             | Contents and removal scope                                                                                                                |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Project directory    | Source, local `node_modules`, builds and test output. It may also contain the default data directory or a local media folder.             |
+| `AETHER_DATA_DIR`    | Database, generated media, settings, internal backups, temporary work and upload staging. Defaults to `./aether-data` inside the project. |
+| `AETHER_MEDIA_ROOTS` | Source photos and videos, including completed uploads. Writable roots may also contain `.aether-trash` and `.aether-staging`.             |
+| External backups     | Outputs selected with `AETHER_BACKUP_DIR` or `backup --output`, and any copies you made elsewhere.                                        |
+
+The root's `.aether-trash` and `.aether-staging` directories can hold original
+media, including the last retained copy. Their ownership and recovery records
+are in the database. A zero status count does not establish that unknown files
+in these directories are disposable. Do not delete reserved storage manually
+or discard the database to bypass a blocker. If files remain unexpectedly,
+preserve the database and affected roots until they have been checked.
+
+### Remove the installation
+
+1. With the server stopped and any files you want to keep saved elsewhere, run
+   `npm run data:wipe -- --confirm-wipe`. This permanently removes the selected
+   data directory, including its internal backups and sign-in secrets. Use the
+   same configuration as the server so the command selects the intended data
+   directory. Docker users follow the host data removal instructions above.
+2. Move any source media stored inside the project, such as `./media`, to its
+   permanent location before deleting the project. The wipe preserves media;
+   deleting the enclosing project folder would delete it too.
+3. Delete the project directory. This removes its local npm dependencies and
+   built native helpers without a separate `npm uninstall`.
+4. Remove external backups or old project copies only when you no longer need
+   them. If you moved to another server, check its media, annotations and saved
+   edits before deleting the old copies.
+
+### Clean up shared tools and device data
+
+These items are outside the project. Remove only what you no longer use:
+
+- **npm cache:** `npm config get cache` prints its location, normally `~/.npm`
+  on macOS. `npm cache clean --force` clears downloaded package data shared by
+  all npm projects; future installs download it again. It does not uninstall
+  packages from other projects. See [npm cache](https://docs.npmjs.com/cli/v11/commands/npm-cache/).
+- **System tools:** Node.js/npm, FFmpeg, libheif, Homebrew and Xcode command-line
+  tools remain installed. Use the installer or package manager that installed
+  each tool, and keep tools used by other software. For Homebrew, inspect
+  `brew list --formula` and uninstall only the selected formulae.
+  `brew autoremove --dry-run` previews unused dependencies and
+  `brew cleanup --dry-run` previews cache cleanup before you choose to apply
+  either. See the [Homebrew manual](https://docs.brew.sh/Manpage).
+- **Docker:** `docker compose down` removes this Compose project's containers
+  and network. Images and build cache remain by default; review Aether's entries
+  in Docker Desktop before removing them. Shared images and cache may be used by
+  other projects. See [Compose down](https://docs.docker.com/reference/cli/docker/compose/down/).
+- **Browsers and installed web apps:** remove Aether's website data for each
+  address you used, and remove its installed web app or Home Screen shortcut on
+  each device. Saved downloads remain ordinary files in their download folders.
+  Clear only Aether's site data if you want to keep other websites signed in.
+- **Optional services:** remove any tag-suggestion model or service installed
+  solely for Aether through that service's own management tools. Aether does not
+  uninstall external services or their downloaded models.
+- **macOS Trash and backups:** files moved to Finder's Trash occupy storage
+  until you empty it. Backups and APFS snapshots may retain copies after removal;
+  Time Machine manages local snapshot space as needed. See Apple's
+  [file deletion](https://support.apple.com/guide/mac-help/mchlp1093/mac) and
+  [local snapshot](https://support.apple.com/en-us/102154) guidance.
 
 ## Moving The Data Directory
 

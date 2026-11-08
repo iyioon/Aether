@@ -241,3 +241,10 @@ on volumes that pass the capability checks. Development startup builds the nativ
 components; production installs must run `npm run build` before restarting.
 Windows retains read-only media browsing and metadata editing. An empty
 `AETHER_WRITABLE_ROOTS` keeps file management disabled on every platform.
+
+## Remove Aether
+
+Follow [Remove Aether](data-management.md#remove-aether) before deleting a local
+checkout or Docker installation. It covers media recovery, keeping data for
+another server, data removal, and optional cleanup of packages, caches and
+browser data outside the project.

@@ -16,6 +16,7 @@ import {
 } from "./file-operation-model.js";
 import type { FileOperationManager } from "./file-operations.js";
 import { inspectHeifImage } from "./heif-decoder.js";
+import { ImageDerivativeError } from "./image-cache.js";
 import { detectMediaType } from "./media-types.js";
 import {
   getManagedFolder,
@@ -49,6 +50,14 @@ import {
 
 const CHUNK_BYTES = 16 * 1024 ** 2;
 const INACTIVITY_MS = 24 * 3600_000;
+const uploadImageErrorCodes = new Set([
+  "heic_decoder_unavailable",
+  "heic_hdr_not_supported",
+  "heic_color_not_supported",
+  "heic_source_not_supported",
+  "heic_limit_exceeded",
+  "heic_decode_failed"
+]);
 const UploadMetadata = z.object({
   requestId: z.uuid(),
   folderId: z.string().min(1).max(256),
@@ -141,7 +150,7 @@ class BoundedFileStore extends FileStore {
     )
       throw transportError(409, "upload_staging_changed");
   }
-  async openUpload(id: string): Promise<DescriptorHandle> {
+  async openUpload(id: string, readOnly = false): Promise<DescriptorHandle> {
     this.validateId(id);
     const upload = getManagedUpload(this.db, id);
     if (!upload || !upload.stagingIdentity || upload.cleanedUp)
@@ -150,7 +159,9 @@ class BoundedFileStore extends FileStore {
     const handle = await openRelative(
       this.parent,
       id,
-      constants.O_RDWR | constants.O_NOFOLLOW | constants.O_NONBLOCK
+      (readOnly ? constants.O_RDONLY : constants.O_RDWR) |
+        constants.O_NOFOLLOW |
+        constants.O_NONBLOCK
     );
     try {
       const info = await handle.stat({ bigint: true });
@@ -254,12 +265,13 @@ class BoundedFileStore extends FileStore {
     }
   }
   override async getUpload(id: string): Promise<Upload> {
-    if (this.active.has(id)) throw transportError(429, "upload_busy");
-    const upload = getManagedUpload(this.db, id);
-    if (!upload || upload.cleanedUp)
-      throw transportError(410, "upload_expired");
-    const handle = await this.openUpload(id);
+    this.claim(id);
+    let handle: DescriptorHandle | undefined;
     try {
+      const upload = getManagedUpload(this.db, id);
+      if (!upload || upload.cleanedUp)
+        throw transportError(410, "upload_expired");
+      handle = await this.openUpload(id);
       const info = await handle.stat();
       if (info.size < upload.offset)
         throw transportError(409, "upload_changed");
@@ -279,7 +291,11 @@ class BoundedFileStore extends FileStore {
         metadata: metadataFor(upload)
       });
     } finally {
-      await handle.close();
+      try {
+        await handle?.close();
+      } finally {
+        await this.release(id);
+      }
     }
   }
   override async write(
@@ -561,44 +577,51 @@ export async function registerUploadRoutes(
       if (upload.operationId) return upload.operationId;
       if (!["receiving", "validating"].includes(upload.status))
         throw transportError(409, "upload_not_receiving");
-      updateManagedUpload(db, {
-        ...upload,
-        status: "validating",
-        offset: upload.size
-      });
+      store.claim(id);
       try {
-        const handle = await store.openUpload(id);
+        updateManagedUpload(db, {
+          ...upload,
+          status: "validating",
+          offset: upload.size
+        });
         try {
-          await validateUploadedMedia(handle, upload.name, upload.size);
-        } finally {
-          await handle.close();
+          const handle = await store.openUpload(id, true);
+          try {
+            await validateUploadedMedia(handle, upload.name, upload.size);
+          } finally {
+            await handle.close();
+          }
+          const operation = operations.publishUpload({
+            requestId: upload.requestId,
+            uploadId: id,
+            destinationFolderId: upload.folderId,
+            expectedParentVersion: upload.expectedParentVersion,
+            name: upload.name,
+            conflict: upload.conflict
+          });
+          updateManagedUpload(db, {
+            ...getManagedUpload(db, id)!,
+            offset: upload.size,
+            operationId: operation.id,
+            status: "publishing"
+          });
+          return operation.id;
+        } catch (error) {
+          const code =
+            error instanceof FileManagementError ||
+            (error instanceof ImageDerivativeError &&
+              uploadImageErrorCodes.has(error.code))
+              ? error.code
+              : "unsupported_media";
+          updateManagedUpload(db, {
+            ...getManagedUpload(db, id)!,
+            status: "failed",
+            errorCode: code
+          });
+          throw transportError(422, code);
         }
-        const operation = operations.publishUpload({
-          requestId: upload.requestId,
-          uploadId: id,
-          destinationFolderId: upload.folderId,
-          expectedParentVersion: upload.expectedParentVersion,
-          name: upload.name,
-          conflict: upload.conflict
-        });
-        updateManagedUpload(db, {
-          ...getManagedUpload(db, id)!,
-          offset: upload.size,
-          operationId: operation.id,
-          status: "publishing"
-        });
-        return operation.id;
-      } catch (error) {
-        const code =
-          error instanceof FileManagementError
-            ? error.code
-            : "unsupported_media";
-        updateManagedUpload(db, {
-          ...getManagedUpload(db, id)!,
-          status: "failed",
-          errorCode: code
-        });
-        throw transportError(422, code);
+      } finally {
+        await store.release(id);
       }
     })();
     finishJobs.set(id, job);
@@ -766,11 +789,25 @@ export async function registerUploadRoutes(
           try {
             const actual = await store.getUpload(upload.id);
             upload = getManagedUpload(db, upload.id)!;
+            if (upload.status !== "receiving") continue;
             if (actual.offset === upload.size) {
               if (!closing) void finish(upload.id).catch(() => undefined);
               continue;
             }
           } catch (error) {
+            const latest = getManagedUpload(db, upload.id)!;
+            if (
+              (error !== null &&
+                typeof error === "object" &&
+                "body" in error &&
+                error.body === "upload_busy") ||
+              latest.status !== "receiving" ||
+              latest.offset !== upload.offset ||
+              latest.operationId !== upload.operationId ||
+              latest.cleanedUp !== upload.cleanedUp
+            )
+              continue;
+            upload = latest;
             if (!upload.stagingIdentity && missing(error))
               updateManagedUpload(db, {
                 ...upload,
@@ -1061,8 +1098,17 @@ async function validateUploadedMedia(
   expectedSize: number
 ): Promise<void> {
   const filename = descriptorPath(handle);
-  const stat = await handle.stat();
-  if (!stat.isFile() || stat.nlink !== 1 || stat.size !== expectedSize)
+  const stat = await handle.stat({ bigint: true });
+  if (
+    !stat.isFile() ||
+    stat.nlink !== 1n ||
+    stat.size !== BigInt(expectedSize) ||
+    stat.uid !== BigInt(process.getuid!()) ||
+    (stat.mode & 0o777n) !== 0o600n
+  )
+    throw new FileManagementError("upload_changed");
+  const digest = await uploadContentsDigest(handle, expectedSize);
+  if (!sameUploadFileStat(stat, await handle.stat({ bigint: true })))
     throw new FileManagementError("upload_changed");
   const header = Buffer.alloc(64);
   await handle.read(header, 0, header.length, 0);
@@ -1111,13 +1157,13 @@ async function validateUploadedMedia(
       {
         sourcePath: filename,
         sizeBytes: expectedSize,
-        mtimeMs: stat.mtimeMs,
+        mtimeMs: Number(stat.mtimeNs / 1_000_000n),
         asset: {
           id: "upload",
           name,
           mediaType: "video",
           mimeType: type.mimeType,
-          indexedMtimeMs: stat.mtimeMs,
+          indexedMtimeMs: Number(stat.mtimeNs / 1_000_000n),
           indexedSizeBytes: expectedSize,
           width: null,
           height: null,
@@ -1130,11 +1176,52 @@ async function validateUploadedMedia(
     if (!metadata.width || !metadata.height || !metadata.codec)
       throw new FileManagementError("unsupported_media");
   }
-  const after = await handle.stat();
-  if (
-    after.size !== stat.size ||
-    after.mtimeMs !== stat.mtimeMs ||
-    after.ctimeMs !== stat.ctimeMs
-  )
+  const after = await handle.stat({ bigint: true });
+  if (!sameUploadFileStat(stat, after))
     throw new FileManagementError("upload_changed");
+  if (after.ctimeNs !== stat.ctimeNs) {
+    // macOS decoder access can change ctime without changing the file's bytes.
+    // Verify its contents and stable metadata before accepting that case.
+    const verifiedDigest = await uploadContentsDigest(handle, expectedSize);
+    const verified = await handle.stat({ bigint: true });
+    if (
+      digest !== verifiedDigest ||
+      !sameUploadFileStat(after, verified) ||
+      after.ctimeNs !== verified.ctimeNs
+    )
+      throw new FileManagementError("upload_changed");
+  }
+}
+
+function sameUploadFileStat(before: BigIntStats, after: BigIntStats): boolean {
+  return (
+    before.dev === after.dev &&
+    before.ino === after.ino &&
+    before.size === after.size &&
+    before.nlink === after.nlink &&
+    before.uid === after.uid &&
+    before.gid === after.gid &&
+    before.mode === after.mode &&
+    before.mtimeNs === after.mtimeNs
+  );
+}
+
+async function uploadContentsDigest(
+  handle: DescriptorHandle,
+  size: number
+): Promise<string> {
+  const hash = createHash("sha256");
+  const buffer = Buffer.allocUnsafe(1024 * 1024);
+  for (let offset = 0; offset < size;) {
+    const { bytesRead } = await handle.read(
+      buffer,
+      0,
+      Math.min(buffer.length, size - offset),
+      offset
+    );
+    if (!bytesRead) throw new FileManagementError("upload_changed");
+    hash.update(buffer.subarray(0, bytesRead));
+    offset += bytesRead;
+  }
+  return hash.digest("hex");
 }

@@ -283,7 +283,11 @@ and never reloads, seeks or restarts the video to handle a wait.
 
 Explicit pause intent is separate from temporary hold, background, and panel
 pauses. Lifecycle events pause media synchronously; foreground autoplay is
-limited to muted media and preserves explicit pause. The viewer uses container fullscreen where
+limited to muted media and preserves explicit pause. Ranking previews expose a
+Play control when the current source's play request is rejected by browser
+policy. The control starts playback within the user gesture without recording
+a comparison choice; stale requests cannot restore the control over a new
+source or successful playback. The viewer uses container fullscreen where
 available, native iPhone video fullscreen otherwise, and native controls if a
 fullscreen request fails.
 
@@ -737,6 +741,31 @@ drain. A bounded creation claim spans reservation through staging-file creation,
 so concurrent status reconciliation cannot mistake an admitted upload for a
 missing stage. Disconnect and shutdown cleanup drain that claim before releasing
 the request.
+Status inspection and final validation hold the same bounded claim through file
+inspection and synchronization. Busy reads wait for another refresh;
+reconciliation rereads the journal after asynchronous work and cannot overwrite a newer offset,
+cancellation or publication result with an old inspection failure.
+
+Validation opens the staged file read-only and hashes it through its pinned
+descriptor before decoding, using a bounded read buffer. It rechecks exact
+device, inode, ownership, permissions, link count, size and nanosecond
+modification time. A change to only the change timestamp requires another
+matching content hash and identity check;
+it does not by itself reject an unchanged file on macOS. Normal validation adds
+one sequential file read; the second read is needed only when that timestamp
+changes.
+
+Upload failures retain allowlisted HEIC decoder codes in their server records.
+The transport reads each picker Blob chunk into a bounded 16 MiB memory buffer
+before sending it, avoiding disk-backed file serialization failures in affected
+WebKit versions. Reads share the request deadline and cancellation signal;
+aborted reads cannot send late bytes. See
+[WebKit issue 319985](https://bugs.webkit.org/show_bug.cgi?id=319985).
+The client maps structured API and plain tus errors to fixed recovery messages,
+without displaying response bodies. Recent terminal transfers remain in the
+bounded in-memory Activity list when another batch starts. Rejections before
+admission have no server receipt and disappear when the app reloads; accepted
+upload failures can be hydrated again from the server.
 
 ## Data Directory
 

@@ -3,7 +3,8 @@ import type { FileOperation } from "../../api/client";
 import {
   activityItemsLabel,
   activityProgressLabel,
-  activityNeedsAttention
+  activityNeedsAttention,
+  prioritizeUploadTransfers
 } from "./activity-model";
 
 function operation(patch: Partial<FileOperation> = {}): FileOperation {
@@ -18,6 +19,35 @@ function operation(patch: Partial<FileOperation> = {}): FileOperation {
 }
 
 describe("Activity descriptions", () => {
+  it("keeps a newly discovered unfinished upload ahead of a full result history", () => {
+    const history = Array.from({ length: 100 }, (_, index) => ({
+      id: `failed-${index}`,
+      state: "failed"
+    }));
+    const pending = { id: "new-server-upload", state: "paused" };
+    const visible = prioritizeUploadTransfers([...history, pending]);
+    expect(visible).toHaveLength(100);
+    expect(visible[0]).toBe(pending);
+    expect(visible.slice(1)).toEqual(history.slice(0, 99));
+  });
+
+  it("retains failed uploads when another batch starts without displacing ongoing work", () => {
+    const existing = [
+      { id: "rejected", state: "failed" },
+      { id: "ongoing", state: "uploading" }
+    ];
+    const next = { id: "new-file", state: "queued" };
+    expect(prioritizeUploadTransfers([...existing, next])).toEqual([
+      existing[1],
+      next,
+      existing[0]
+    ]);
+    expect(existing.map((transfer) => transfer.id)).toEqual([
+      "rejected",
+      "ongoing"
+    ]);
+  });
+
   it("retains the receipt name when the live asset has since been renamed", () => {
     const item = {
       name: "original.jpg",

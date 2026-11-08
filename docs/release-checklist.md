@@ -222,6 +222,15 @@ Never test rebuild or wipe against the only copy of a real library database.
   software keyboard and landscape sheets, VoiceOver, Home/return during transfer,
   offline/sign-in recovery and retained-prefix reselection. Record device/OS
   verification separately from Chrome emulation.
+- Reject an upload before admission and verify its filename and specific reason
+  remain in Activity after refresh and another batch. Check retained HEIC
+  failures after reload, including missing tools and unsupported HDR/color.
+- On macOS/APFS, add JPEG and PNG files and verify exact published bytes,
+  including a JPEG whose change timestamp changes during decoder inspection.
+- In Rank media on an actual iPhone Home Screen installation, block automatic
+  playback, including with Low Power Mode. Play starts each video muted and
+  inline without choosing a card or changing Undo. Verify returning from the
+  background and changing pairs cannot restore an obsolete Play control.
 - Check one toast per acknowledged operation/batch, inline form errors, quiet
   score increments, Undo/Activity alternatives and no old-session notifications.
 - Back up and restore with retained Trash and matching filesystem payloads;

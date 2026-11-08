@@ -55,6 +55,11 @@ Maintenance guards protect unresolved operations and retained originals.
 Every tus creation, offset query, chunk, termination and status request requires
 a session; unsafe methods require CSRF before reading bytes. Chunk, stream,
 inspection and disk budgets are bounded. Unfinished uploads are not served.
+Staged-file validation gives decoders a read-only descriptor and checks exact
+identity, ownership, permissions, link count, size and modification time.
+A decoder-related change to only the change timestamp is accepted only after
+matching content hashes before and
+after inspection; changed bytes or security attributes still fail validation.
 Device filenames and metadata remain on the authenticated server and in the
 current review; browser upload checkpoints contain only opaque IDs and are
 cleared on logout. Resumed files must match the full retained prefix before

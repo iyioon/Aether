@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   createUploadHttpStack,
+  UPLOAD_CHUNK_BYTES,
   cancelUpload,
   ApiError,
   getFileOperation,
@@ -15,10 +16,12 @@ import { usePageLifecycle } from "../../hooks/usePageLifecycle";
 import { createUuid } from "../../lib/uuid";
 import { folderVersion } from "./management-model";
 import { saveUploadCheckpoint } from "./upload-checkpoints";
+import { uploadErrorMessage, uploadResponseCode } from "./upload-errors";
+import {
+  isUploadTerminalState,
+  prioritizeUploadTransfers
+} from "./activity-model";
 import type { Upload } from "tus-js-client";
-
-const failedUploadMessage =
-  "This upload failed. Check the file type, size and destination, then add it again.";
 
 export interface UploadProgress {
   key: string;
@@ -178,7 +181,7 @@ export function useMediaUploads({
           record,
           error: terminal
             ? record.status === "failed"
-              ? failedUploadMessage
+              ? uploadErrorMessage(record.errorCode, undefined, transfer.error)
               : undefined
             : transfer.error,
           file: terminal ? undefined : transfer.file,
@@ -193,7 +196,7 @@ export function useMediaUploads({
               : transfer.state
         };
       });
-      return [
+      return prioritizeUploadTransfers([
         ...retained,
         ...result.items
           .filter(
@@ -209,10 +212,13 @@ export function useMediaUploads({
             size: record.size,
             accepted: record.offset,
             state: stateFor(record),
-            error: record.status === "failed" ? failedUploadMessage : undefined,
+            error:
+              record.status === "failed"
+                ? uploadErrorMessage(record.errorCode)
+                : undefined,
             record
           }))
-      ].slice(0, 100);
+      ]);
     });
   }, []);
   useEffect(() => {
@@ -357,7 +363,7 @@ export function useMediaUploads({
           name: transfer.name,
           conflict: transfer.conflict ?? conflict
         },
-        chunkSize: 16 * 1024 * 1024,
+        chunkSize: UPLOAD_CHUNK_BYTES,
         parallelUploads: 1,
         retryDelays: [0, 1000, 3000, 5000],
         storeFingerprintForResuming: false,
@@ -375,25 +381,33 @@ export function useMediaUploads({
         onShouldRetry: (caught) =>
           caught.originalRequest.getMethod() !== "POST" &&
           ![400, 401, 403, 404, 409, 410, 413, 415, 422].includes(
-            caught.originalResponse?.getStatus() ?? 0
+            caught.originalResponse?.getStatus() ??
+              (caught.causingError instanceof ApiError
+                ? caught.causingError.status
+                : 0)
           ) &&
           document.visibilityState !== "hidden",
         onError: (caught) => {
           instancesRef.current.delete(transfer.key);
-          const status =
-            "originalResponse" in caught
-              ? (
-                  caught.originalResponse as { getStatus: () => number } | null
-                )?.getStatus()
-              : undefined;
+          const response =
+            "originalResponse" in caught ? caught.originalResponse : undefined;
+          const cause = "causingError" in caught ? caught.causingError : caught;
+          const localError = cause instanceof ApiError ? cause : undefined;
+          const status = response?.getStatus() ?? localError?.status;
+          const code =
+            uploadResponseCode(response?.getBody()) ?? localError?.code;
           const rejected =
             status !== undefined && [400, 403, 413, 415, 422].includes(status);
           update(transfer.key, {
             state: rejected ? "failed" : "error",
             ...(rejected ? { file: undefined } : {}),
-            error: rejected
-              ? "This file could not be added. Check its type, size and destination, then add it again."
-              : "Upload paused. Resume checks the received bytes before continuing."
+            error: uploadErrorMessage(
+              code,
+              status,
+              rejected
+                ? undefined
+                : "Upload paused. Resume checks the received bytes before continuing."
+            )
           });
           if (rejected) onUploadCancelled(transfer.operationId, "failed");
         },
@@ -451,10 +465,7 @@ export function useMediaUploads({
     files: Array<{ key: string; file: File; conflict?: "skip" | "keep-both" }>
   ) {
     const active = transfers.filter(
-      (transfer) =>
-        !["completed", "failed", "cancelled", "expired"].includes(
-          transfer.state
-        )
+      (transfer) => !isUploadTerminalState(transfer.state)
     );
     if (active.length + files.length > 100) {
       return false;
@@ -472,7 +483,7 @@ export function useMediaUploads({
       file
     }));
     onBatchStarted(next.map((transfer) => transfer.operationId));
-    setTransfers([...active, ...next]);
+    setTransfers(prioritizeUploadTransfers([...transfers, ...next]));
     return true;
   }
   async function proveAndResume(transfer: Transfer, file: File) {

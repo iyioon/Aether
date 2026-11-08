@@ -140,6 +140,9 @@ again replaces its earlier preference. Comparison plays forward at 1× using the
 selected saved framing; Play highlights only changes its range. Layout changes
 preserve the pair and Undo.
 
+If automatic video playback is blocked, choose **Play** on each preview.
+Playing a video does not choose it or change the pair.
+
 Zero means unranked; a positive score means ranked. Info separates comparison
 score, manual adjustment and final score. **Use comparison score** removes the
 manual adjustment. **Reset comparisons** removes the item’s pair choices while
@@ -248,6 +251,11 @@ Uploads can pause offline or when the app leaves the foreground. Return to
 resume. After a reload, choose **Resume** and select the same file beside its transfer; Aether checks the
 retained bytes before continuing. An upload is complete after the file has been
 added to the library.
+
+Failed uploads show the reason in Activity, including missing server tools for
+HEIC photos. An attempt rejected before the server accepts it remains in the
+current app's recent Activity; reloading can remove that local result. Accepted
+uploads remain available from the server after a reload.
 
 Resolve a reported problem, then use **Check again** to resume the same
 operation. **Cancel remaining** stops safely cancellable file operations;

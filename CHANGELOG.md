@@ -6,6 +6,16 @@ Notable changes to Aether are recorded here.
 
 ### Fixed
 
+- Accept unchanged uploads when macOS changes only their file change timestamp
+  during validation, using content hashes and exact file identity checks.
+- Keep status inspections exclusive with upload writes, and preserve newer
+  upload state when reconciliation encounters a busy transfer.
+- Buffer bounded upload chunks before sending picker files to avoid empty-body
+  uploads in affected WebKit versions.
+- Show specific upload rejection and HEIC decoding errors in Activity, and keep
+  recent failed uploads visible when another batch starts.
+- Offer Play on ranking previews when the browser blocks automatic video
+  playback, without recording a comparison choice.
 - Keep Activity refreshes from failing uploads admitted before their staging
   files are created.
 - Retain filenames in Activity after moving media to Trash, restoring it or

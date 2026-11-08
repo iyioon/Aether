@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { constants } from "node:fs";
+import { constants, write as writeDescriptor } from "node:fs";
 import {
   mkdtemp,
   mkdir,
@@ -11,6 +11,8 @@ import {
   open,
   lstat,
   statfs,
+  chmod,
+  link,
   type FileHandle
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -34,6 +36,9 @@ import {
 import { fileManagementBlockers } from "../src/maintenance/file-management.js";
 import * as descriptorFilesystem from "../src/security/descriptor-filesystem.js";
 import { runMediaCommand } from "../src/library/video-processing.js";
+import * as heifDecoder from "../src/library/heif-decoder.js";
+import { ImageDerivativeError } from "../src/library/image-cache.js";
+import { MemoryLocker } from "@tus/server";
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:fs/promises")>();
@@ -304,6 +309,195 @@ describe.skipIf(!["linux", "darwin"].includes(process.platform))(
         db.prepare("SELECT id FROM assets WHERE name = 'invalid.jpg'").all()
       ).toHaveLength(0);
     });
+
+    it.each(["ctime", "content", "mode", "link", "identity"])(
+      "checks exact staged bytes and identity after a decoder-side %s change",
+      async (change) => {
+        const name = "checked.jpg";
+        const created = await create(name);
+        const url = created.headers.location!;
+        const id = url.split("/").at(-1)!;
+        const staging = path.join(config.dataDir, "uploads", id);
+        const originalOpen = descriptorFilesystem.openRelative;
+        let changed = false;
+        let ctimeChanged = false;
+        let originalMtimeNs: bigint | undefined;
+        const openSpy = vi
+          .spyOn(descriptorFilesystem, "openRelative")
+          .mockImplementation(async (...args) => {
+            const handle = await originalOpen(...args);
+            if (args[1] === id) {
+              const originalStat = handle.stat.bind(handle);
+              handle.stat = (async (options?: { bigint: true }) => {
+                const info = options?.bigint
+                  ? await originalStat(options)
+                  : await originalStat();
+                if (
+                  "mtimeNs" in info &&
+                  getManagedUpload(db, id)?.status === "validating"
+                ) {
+                  originalMtimeNs ??= info.mtimeNs;
+                  if (changed && change === "content")
+                    info.mtimeNs = originalMtimeNs;
+                  if (changed && change === "identity") info.ino += 1n;
+                }
+                return info;
+              }) as typeof handle.stat;
+            }
+            return handle;
+          });
+        const originalRewind = descriptorFilesystem.rewindDescriptor;
+        const rewindSpy = vi
+          .spyOn(descriptorFilesystem, "rewindDescriptor")
+          .mockImplementationOnce(async (handle) => {
+            await originalRewind(handle);
+            const before = await lstat(staging, { bigint: true });
+            if (change === "content") {
+              const altered = Buffer.from(jpeg);
+              altered[altered.length - 3]! ^= 1;
+              await writeFile(staging, altered);
+            } else if (change === "mode") await chmod(staging, 0o640);
+            else if (change === "link")
+              await link(staging, path.join(directory, "stage-hardlink"));
+            else await chmod(staging, 0o600);
+            ctimeChanged =
+              (await lstat(staging, { bigint: true })).ctimeNs !==
+              before.ctimeNs;
+            changed = true;
+          });
+        try {
+          const response = await patch(url, 0, jpeg);
+          expect(changed).toBe(true);
+          if (change === "ctime") {
+            expect(ctimeChanged).toBe(true);
+            expect(response.statusCode).toBe(204);
+            await expect
+              .poll(async () => {
+                await app.inject({ url: "/api/uploads/status", headers });
+                return getManagedUpload(db, id)?.status;
+              })
+              .toBe("completed");
+            expect(await readFile(path.join(directory, "media", name))).toEqual(
+              jpeg
+            );
+          } else {
+            expect(response.statusCode).toBe(422);
+            expect(response.body).toBe("upload_changed");
+            expect(db.prepare("SELECT id FROM assets").all()).toEqual([]);
+            expect(db.prepare("SELECT id FROM file_operations").all()).toEqual(
+              []
+            );
+          }
+        } finally {
+          rewindSpy.mockRestore();
+          openSpy.mockRestore();
+        }
+      }
+    );
+
+    it("rejects a short read while hashing a complete staged upload", async () => {
+      const created = await create("short-read.jpg");
+      const url = created.headers.location!;
+      const id = url.split("/").at(-1)!;
+      const original = descriptorFilesystem.openRelative;
+      const spy = vi
+        .spyOn(descriptorFilesystem, "openRelative")
+        .mockImplementation(async (...args) => {
+          const handle = await original(...args);
+          if (args[1] === id) {
+            const read = handle.read.bind(handle);
+            handle.read = async (...readArgs) =>
+              getManagedUpload(db, id)?.status === "validating"
+                ? { bytesRead: 0, buffer: readArgs[0] }
+                : read(...readArgs);
+          }
+          return handle;
+        });
+      try {
+        const response = await patch(url, 0, jpeg);
+        expect(response.statusCode).toBe(422);
+        expect(response.body).toBe("upload_changed");
+        expect(db.prepare("SELECT id FROM assets").all()).toEqual([]);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("gives the HEIC inspector a read-only inherited source descriptor", async () => {
+      let writeError: string | undefined;
+      const inspect = vi
+        .spyOn(heifDecoder, "inspectHeifImage")
+        .mockImplementationOnce(async (_filename, fd) => {
+          writeError = await new Promise<string | undefined>((resolve) => {
+            writeDescriptor(fd!, Buffer.from("x"), 0, 1, 0, (error) => {
+              resolve(error?.code);
+            });
+          });
+          throw new ImageDerivativeError("heic_decode_failed");
+        });
+      try {
+        const created = await create("readonly.heic");
+        const response = await patch(created.headers.location!, 0, jpeg);
+        expect(response.statusCode).toBe(422);
+        expect(response.body).toBe("heic_decode_failed");
+        expect(writeError).toBe("EBADF");
+        expect(db.prepare("SELECT id FROM assets").all()).toEqual([]);
+      } finally {
+        inspect.mockRestore();
+      }
+    });
+
+    it.each([
+      "heic_decoder_unavailable",
+      "heic_hdr_not_supported",
+      "heic_color_not_supported",
+      "heic_source_not_supported",
+      "heic_limit_exceeded",
+      "heic_decode_failed",
+      "private_decoder_detail"
+    ])(
+      "retains a safe HEIC upload failure for %s in Activity",
+      async (decoderCode) => {
+        const inspect = vi
+          .spyOn(heifDecoder, "inspectHeifImage")
+          .mockRejectedValue(new ImageDerivativeError(decoderCode));
+        const requestId = randomUUID();
+        const expectedCode =
+          decoderCode === "private_decoder_detail"
+            ? "unsupported_media"
+            : decoderCode;
+        try {
+          const created = await create("photo.heic", jpeg.length, requestId);
+          expect(created.statusCode).toBe(201);
+          const response = await patch(created.headers.location!, 0, jpeg);
+          expect(response.statusCode).toBe(422);
+          expect(response.body).toBe(expectedCode);
+          const status = await app.inject({
+            url: `/api/uploads/status?requestId=${requestId}`,
+            headers
+          });
+          expect(status.statusCode).toBe(200);
+          expect(status.json().items).toEqual([
+            expect.objectContaining({
+              requestId,
+              name: "photo.heic",
+              status: "failed",
+              errorCode: expectedCode
+            })
+          ]);
+          expect(inspect).toHaveBeenCalled();
+          expect(db.prepare("SELECT id FROM assets").all()).toHaveLength(0);
+          expect(
+            db.prepare("SELECT id FROM file_operations").all()
+          ).toHaveLength(0);
+          await expect(
+            readFile(path.join(directory, "media", "photo.heic"))
+          ).rejects.toMatchObject({ code: "ENOENT" });
+        } finally {
+          inspect.mockRestore();
+        }
+      }
+    );
 
     it.each([
       { name: "uploaded.mp4", mediaType: "video" },
@@ -624,6 +818,267 @@ describe.skipIf(!["linux", "darwin"].includes(process.platform))(
         expect((await first).statusCode).toBe(201);
         expect((await second).statusCode).toBe(201);
         expect((await create("after-claims.jpg")).statusCode).toBe(201);
+      } finally {
+        unblock();
+        await Promise.all([first, second]);
+        space.mockImplementation(originalStatfs);
+      }
+    });
+
+    it.each(["open", "sync"])(
+      "keeps status inspection exclusive with a concurrent chunk while waiting for %s",
+      async (phase) => {
+        const name = "status-race.jpg";
+        const created = await create(name);
+        const url = created.headers.location!;
+        const id = url.split("/").at(-1)!;
+        expect((await patch(url, 0, jpeg.subarray(0, 40))).statusCode).toBe(
+          204
+        );
+        const original = descriptorFilesystem.openRelative;
+        let unblock!: () => void;
+        const blockedUntil = new Promise<void>((resolve) => {
+          unblock = resolve;
+        });
+        let blocked = false;
+        const wait = async () => {
+          if (blocked) return;
+          blocked = true;
+          await blockedUntil;
+        };
+        const spy = vi
+          .spyOn(descriptorFilesystem, "openRelative")
+          .mockImplementation(async (...args) => {
+            if (args[1] === id && phase === "open") await wait();
+            const handle = await original(...args);
+            if (args[1] === id && phase === "sync") {
+              const sync = handle.sync.bind(handle);
+              handle.sync = async () => {
+                await wait();
+                await sync();
+              };
+            }
+            return handle;
+          });
+        const status = app.inject({ url: "/api/uploads/status", headers });
+        try {
+          await expect.poll(() => blocked).toBe(true);
+          const competing = await patch(url, 40, jpeg.subarray(40));
+          expect(competing.statusCode).toBe(429);
+          expect(getManagedUpload(db, id)).toMatchObject({
+            status: "receiving",
+            offset: 40,
+            cleanedUp: false
+          });
+          unblock();
+          expect((await status).json().items).toContainEqual(
+            expect.objectContaining({ id, status: "receiving", offset: 40 })
+          );
+          expect((await patch(url, 40, jpeg.subarray(40))).statusCode).toBe(
+            204
+          );
+          await expect
+            .poll(async () => {
+              await app.inject({ url: "/api/uploads/status", headers });
+              return getManagedUpload(db, id)?.status;
+            })
+            .toBe("completed");
+          expect(await readFile(path.join(directory, "media", name))).toEqual(
+            jpeg
+          );
+          expect(getManagedUpload(db, id)).toMatchObject({
+            offset: jpeg.length,
+            status: "completed"
+          });
+        } finally {
+          unblock();
+          await status;
+          spy.mockRestore();
+        }
+      }
+    );
+
+    it("preserves cancellation acknowledged during a status inspection", async () => {
+      const requestId = randomUUID();
+      const created = await create("cancel-status.jpg", jpeg.length, requestId);
+      const id = created.headers.location!.split("/").at(-1)!;
+      const original = descriptorFilesystem.openRelative;
+      let unblock!: () => void;
+      const blockedUntil = new Promise<void>((resolve) => {
+        unblock = resolve;
+      });
+      let blocked = false;
+      const spy = vi
+        .spyOn(descriptorFilesystem, "openRelative")
+        .mockImplementation(async (...args) => {
+          const handle = await original(...args);
+          if (args[1] === id) {
+            const sync = handle.sync.bind(handle);
+            handle.sync = async () => {
+              if (!blocked) {
+                blocked = true;
+                await blockedUntil;
+              }
+              await sync();
+            };
+          }
+          return handle;
+        });
+      const status = app.inject({ url: "/api/uploads/status", headers });
+      try {
+        await expect.poll(() => blocked).toBe(true);
+        const cancelled = await app.inject({
+          method: "POST",
+          url: "/api/uploads/cancel",
+          headers,
+          payload: { requestId }
+        });
+        expect(cancelled.statusCode).toBe(200);
+        expect(getManagedUpload(db, id)).toMatchObject({
+          status: "cancelled",
+          cleanedUp: false
+        });
+        unblock();
+        expect((await status).json().items).toContainEqual(
+          expect.objectContaining({ id, status: "cancelled" })
+        );
+        expect(getManagedUpload(db, id)).toMatchObject({
+          status: "cancelled",
+          cleanedUp: true
+        });
+        expect(db.prepare("SELECT id FROM file_operations").all()).toEqual([]);
+      } finally {
+        unblock();
+        await status;
+        spy.mockRestore();
+      }
+    });
+
+    it("defers final validation while an earlier status inspection owns the stage", async () => {
+      const name = "finish-inspection.jpg";
+      const created = await create(name);
+      const url = created.headers.location!;
+      const id = url.split("/").at(-1)!;
+      const originalOpen = descriptorFilesystem.openRelative;
+      let unblock!: () => void;
+      const blockedUntil = new Promise<void>((resolve) => {
+        unblock = resolve;
+      });
+      let inspected!: () => void;
+      const inspectionStarted = new Promise<void>((resolve) => {
+        inspected = resolve;
+      });
+      let blocked = false;
+      const openSpy = vi
+        .spyOn(descriptorFilesystem, "openRelative")
+        .mockImplementation(async (...args) => {
+          const handle = await originalOpen(...args);
+          if (args[1] === id) {
+            const sync = handle.sync.bind(handle);
+            handle.sync = async () => {
+              const current = getManagedUpload(db, id)!;
+              if (
+                !blocked &&
+                current.status === "receiving" &&
+                current.offset === current.size
+              ) {
+                blocked = true;
+                inspected();
+                await blockedUntil;
+              }
+              await sync();
+            };
+          }
+          return handle;
+        });
+      const originalLock = MemoryLocker.prototype.newLock;
+      let status: Promise<{ statusCode: number }> | undefined;
+      const lockSpy = vi
+        .spyOn(MemoryLocker.prototype, "newLock")
+        .mockImplementation(function (this: MemoryLocker, uploadId) {
+          const lock = originalLock.call(this, uploadId);
+          const unlock = lock.unlock.bind(lock);
+          lock.unlock = async () => {
+            await unlock();
+            const current = getManagedUpload(db, id)!;
+            if (uploadId === id && current.offset === current.size && !status) {
+              status = app.inject({ url: "/api/uploads/status", headers });
+              await inspectionStarted;
+            }
+          };
+          return lock;
+        });
+      try {
+        const response = await patch(url, 0, jpeg);
+        expect(blocked).toBe(true);
+        expect(response.statusCode).toBe(429);
+        expect(getManagedUpload(db, id)).toMatchObject({
+          status: "receiving",
+          offset: jpeg.length,
+          cleanedUp: false
+        });
+        expect(getManagedUpload(db, id)?.errorCode).toBeUndefined();
+        unblock();
+        expect((await status)?.statusCode).toBe(200);
+        await expect
+          .poll(async () => {
+            await app.inject({ url: "/api/uploads/status", headers });
+            return getManagedUpload(db, id)?.status;
+          })
+          .toBe("completed");
+        expect(await readFile(path.join(directory, "media", name))).toEqual(
+          jpeg
+        );
+      } finally {
+        unblock();
+        await status;
+        lockSpy.mockRestore();
+        openSpy.mockRestore();
+      }
+    });
+
+    it("defers status inspection while other admissions own both transfer slots", async () => {
+      const created = await create("waiting.jpg");
+      const id = created.headers.location!.split("/").at(-1)!;
+      const { statfs: originalStatfs } =
+        await vi.importActual<typeof import("node:fs/promises")>(
+          "node:fs/promises"
+        );
+      let unblock!: () => void;
+      const blockedUntil = new Promise<void>((resolve) => {
+        unblock = resolve;
+      });
+      let blocked = 0;
+      const space = vi
+        .mocked(statfs)
+        .mockImplementation(async (target, options) => {
+          const info = await originalStatfs(target, options);
+          if (target === config.mediaRoots[0]!.realPath) {
+            blocked += 1;
+            await blockedUntil;
+          }
+          return info;
+        });
+      const first = create("admitting-first.jpg");
+      const second = create("admitting-second.jpg");
+      try {
+        await expect.poll(() => blocked).toBe(2);
+        const status = await app.inject({
+          url: "/api/uploads/status",
+          headers
+        });
+        expect(status.statusCode).toBe(200);
+        expect(status.json().items).toContainEqual(
+          expect.objectContaining({ id, status: "receiving", offset: 0 })
+        );
+        expect(getManagedUpload(db, id)).toMatchObject({
+          status: "receiving",
+          cleanedUp: false
+        });
+        unblock();
+        expect((await first).statusCode).toBe(201);
+        expect((await second).statusCode).toBe(201);
+        expect(getManagedUpload(db, id)?.errorCode).toBeUndefined();
       } finally {
         unblock();
         await Promise.all([first, second]);

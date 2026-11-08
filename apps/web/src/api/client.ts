@@ -1246,6 +1246,73 @@ export function cancelUpload(
   });
 }
 
+export const UPLOAD_CHUNK_BYTES = 16 * 1024 ** 2;
+
+function readUploadChunk(
+  chunk: Blob,
+  signal: AbortSignal
+): Promise<ArrayBuffer> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (complete: () => void) => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener("abort", abort);
+      complete();
+    };
+    const abort = () =>
+      finish(() =>
+        reject(
+          signal.reason instanceof Error
+            ? signal.reason
+            : new DOMException("Cancelled", "AbortError")
+        )
+      );
+    const failed = () =>
+      finish(() => reject(new ApiError(0, "upload_read_failed")));
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) {
+      abort();
+      return;
+    }
+    try {
+      void chunk.arrayBuffer().then((bytes) => {
+        if (
+          !(bytes instanceof ArrayBuffer) ||
+          bytes.byteLength !== chunk.size
+        ) {
+          failed();
+          return;
+        }
+        finish(() => resolve(bytes));
+      }, failed);
+    } catch {
+      failed();
+    }
+  });
+}
+
+async function uploadRequestBody(
+  body: unknown,
+  signal: AbortSignal
+): Promise<BodyInit | null> {
+  signal.throwIfAborted();
+  if (body === null || body === undefined) return null;
+  if (body instanceof Blob) {
+    if (body.size > UPLOAD_CHUNK_BYTES)
+      throw new ApiError(413, "chunk_too_large");
+    // Reading one chunk avoids asking the browser's network process to reopen
+    // a disk-backed picker file, which can fail in Safari.
+    return readUploadChunk(body, signal);
+  }
+  if (body instanceof ArrayBuffer || ArrayBuffer.isView(body)) {
+    if (body.byteLength > UPLOAD_CHUNK_BYTES)
+      throw new ApiError(413, "chunk_too_large");
+    return body as BodyInit;
+  }
+  throw new ApiError(400, "invalid_upload_body");
+}
+
 export function createUploadHttpStack(expectedOffset?: number): HttpStack {
   return {
     getName: () => "AetherFetch",
@@ -1274,10 +1341,12 @@ export function createUploadHttpStack(expectedOffset?: number): HttpStack {
           if (csrf && isUnsafeMethod(method)) headers.set("x-csrf-token", csrf);
           const deadline = createRequestDeadline(controller.signal, 120_000);
           try {
+            const payload = await uploadRequestBody(body, deadline.signal!);
+            deadline.signal?.throwIfAborted();
             const response = await fetch(target, {
               method,
               headers,
-              body: body as BodyInit | null,
+              body: payload,
               credentials: "include",
               redirect: "error",
               signal: deadline.signal
@@ -1297,6 +1366,10 @@ export function createUploadHttpStack(expectedOffset?: number): HttpStack {
               getBody: () => text,
               getUnderlyingObject: () => null
             };
+          } catch (error) {
+            if (deadline.didTimeout())
+              throw new ApiTimeoutError(deadline.timeoutMs);
+            throw error;
           } finally {
             deadline.cleanup();
           }

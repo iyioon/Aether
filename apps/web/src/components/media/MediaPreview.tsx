@@ -7,7 +7,7 @@ import {
   useState
 } from "react";
 import { createPortal } from "react-dom";
-import { Image, Video } from "lucide-react";
+import { Image, Play, Video } from "lucide-react";
 import type { AssetRecord, PresentationAspect } from "../../api/client";
 import { isMediaImageReady, markMediaImageReady } from "./media-image-cache";
 import {
@@ -45,8 +45,18 @@ import { useVideoPlaybackFailure } from "./useVideoPlaybackFailure";
 import { canFallbackFromVideoFailure } from "./video-playback-failure";
 import { useVideoRangePreload } from "./useVideoRangePreload";
 import { releaseDetachedMedia } from "./detached-media";
+import { Button } from "../ui/button";
 
 const VIDEO_HOLD_DELAY_MS = 320;
+
+function isAutoplayDenied(error: unknown): boolean {
+  return (
+    error !== null &&
+    typeof error === "object" &&
+    "name" in error &&
+    error.name === "NotAllowedError"
+  );
+}
 
 export interface MediaPlaybackCommands {
   togglePlayback: () => void;
@@ -75,6 +85,7 @@ interface MediaPreviewProps {
   playbackPaused?: boolean;
   preloadPreview?: boolean;
   showVideoTimeline?: boolean;
+  showPlaybackRecovery?: boolean;
   staticPreview?: boolean;
   tall?: boolean;
   thumbnailSize?: number;
@@ -101,6 +112,7 @@ export const MediaPreview = memo(function MediaPreview({
   playbackPaused = false,
   preloadPreview = false,
   showVideoTimeline = false,
+  showPlaybackRecovery = false,
   staticPreview = false,
   tall = false,
   thumbnailSize = 640,
@@ -157,6 +169,9 @@ export const MediaPreview = memo(function MediaPreview({
   const [originalVideoFailed, setOriginalVideoFailed] = useState(false);
   const [videoPreviewFailed, setVideoPreviewFailed] = useState(false);
   const [videoPlaybackFailed, setVideoPlaybackFailed] = useState(false);
+  const [blockedVideoSource, setBlockedVideoSource] = useState<string | null>(
+    null
+  );
   const [isVisible, setIsVisible] = useState(false);
   const [readyVideoSource, setReadyVideoSource] = useState<string | null>(null);
   const [isVideoHoldPaused, setIsVideoHoldPaused] = useState(false);
@@ -375,9 +390,16 @@ export const MediaPreview = memo(function MediaPreview({
           if (!requestedMuted && !video.muted) {
             onAudiblePlaybackStarted?.();
           }
+          setBlockedVideoSource(null);
         })
-        .catch(() => {
-          if (requestedMuted || !isCurrentRequest()) {
+        .catch((error: unknown) => {
+          if (!isCurrentRequest()) {
+            return;
+          }
+          if (requestedMuted) {
+            if (isAutoplayDenied(error)) {
+              setBlockedVideoSource(requestedSource);
+            }
             return;
           }
 
@@ -386,14 +408,21 @@ export const MediaPreview = memo(function MediaPreview({
           video
             .play()
             .then(() => {
-              if (
-                !shouldAutoplayVideoRef.current ||
-                videoRef.current !== video
-              ) {
-                video.pause();
+              if (!isCurrentRequest()) {
+                if (
+                  !shouldAutoplayVideoRef.current ||
+                  videoRef.current !== video
+                )
+                  video.pause();
+                return;
               }
+              setBlockedVideoSource(null);
             })
-            .catch(() => undefined);
+            .catch((error: unknown) => {
+              if (isCurrentRequest() && isAutoplayDenied(error)) {
+                setBlockedVideoSource(requestedSource);
+              }
+            });
         });
     },
     [muted, variant, onAudibleAutoplayBlocked, onAudiblePlaybackStarted]
@@ -459,6 +488,7 @@ export const MediaPreview = memo(function MediaPreview({
     videoFrameRequestSequenceRef.current += 1;
     setReadyVideoSource(null);
     setVideoPlaybackFailed(false);
+    setBlockedVideoSource(null);
   }, [cancelPendingVideoReveal, videoSource]);
 
   useEffect(() => {
@@ -468,6 +498,7 @@ export const MediaPreview = memo(function MediaPreview({
     setOriginalVideoFailed(false);
     setVideoPreviewFailed(false);
     setVideoPlaybackFailed(false);
+    setBlockedVideoSource(null);
     setIsVisible(false);
     setReadyVideoSource(null);
     setIsVideoHoldPaused(false);
@@ -1134,6 +1165,7 @@ export const MediaPreview = memo(function MediaPreview({
       !isPageHidden &&
       (!isVideoReady || isVideoBuffering) &&
       !videoPlaybackFailed &&
+      blockedVideoSource !== videoSource &&
       !capabilitiesError &&
       !bounceUnavailable &&
       !bounceOverBudget &&
@@ -1238,7 +1270,12 @@ export const MediaPreview = memo(function MediaPreview({
             }
           }}
           onPlaying={(event) => {
-            if (shouldAutoplayVideo) {
+            if (
+              shouldAutoplayVideo &&
+              videoRef.current === event.currentTarget &&
+              videoSourceRef.current === videoSource
+            ) {
+              setBlockedVideoSource(null);
               revealVideoAfterPresentedFrame(event.currentTarget);
             }
           }}
@@ -1289,6 +1326,33 @@ export const MediaPreview = memo(function MediaPreview({
         : didVideoPosterFail && !isVideoReady
           ? errorNotice("Preview unavailable.")
           : null}
+      {showPlaybackRecovery &&
+      blockedVideoSource === videoSource &&
+      isVideoPlaybackAllowed &&
+      !videoPlaybackFailed &&
+      !capabilitiesError &&
+      !bounceUnavailable &&
+      !bounceOverBudget ? (
+        <Button
+          className="media-playback-recovery"
+          type="button"
+          variant="secondary"
+          aria-label={`Play ${asset.name}`}
+          onPointerDown={(event) => event.stopPropagation()}
+          onPointerUp={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            userPausedRef.current = false;
+            setIsVideoUserPaused(false);
+            setIsVideoResumePaused(false);
+            shouldAutoplayVideoRef.current = true;
+            playVisibleVideo();
+          }}
+        >
+          <Play aria-hidden="true" />
+          Play
+        </Button>
+      ) : null}
       {showVideoTimeline && !staticPreview ? (
         <>
           {controlsContainer ? (

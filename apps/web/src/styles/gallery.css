@@ -366,6 +366,16 @@
   opacity: 1;
 }
 
+.media-playback-recovery {
+  position: absolute;
+  z-index: 3;
+  top: 50%;
+  left: 50%;
+  min-height: 44px;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+}
+
 .media-video-shell.poster-ready .media-video-poster {
   opacity: 1;
 }

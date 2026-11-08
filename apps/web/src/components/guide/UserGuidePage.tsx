@@ -199,6 +199,10 @@ export function UserGuidePage({
               pool. Choosing the same pair again replaces the earlier
               preference.
             </p>
+            <p>
+              If automatic video playback is blocked, choose Play on each
+              preview. Playing a video does not choose it or change the pair.
+            </p>
             <h2>Read scores and progress</h2>
             <p>
               Zero means unranked; a positive score means ranked. Info shows the
@@ -332,6 +336,13 @@ export function UserGuidePage({
               same file beside its transfer; Aether checks the retained bytes
               before continuing. An upload is complete when it has been added to
               the library.
+            </p>
+            <p>
+              Failed uploads show the reason in Activity, including missing
+              server tools for HEIC photos. An attempt rejected before the
+              server accepts it remains in the current app's recent Activity;
+              reloading can remove that local result. Accepted uploads remain
+              available from the server after a reload.
             </p>
             <p>
               Resolve a reported problem, then use Check again. A batch can

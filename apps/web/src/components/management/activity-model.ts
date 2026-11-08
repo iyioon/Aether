@@ -1,5 +1,27 @@
 import type { FileOperation, FileOperationItem } from "../../api/client";
 
+const terminalUploadStates = new Set([
+  "completed",
+  "failed",
+  "cancelled",
+  "expired"
+]);
+
+export function isUploadTerminalState(state: string): boolean {
+  return terminalUploadStates.has(state);
+}
+
+/** Keep unfinished uploads visible when recent results fill the Activity limit. */
+export function prioritizeUploadTransfers<T extends { state: string }>(
+  transfers: T[]
+): T[] {
+  const active: T[] = [];
+  const recent: T[] = [];
+  for (const transfer of transfers)
+    (isUploadTerminalState(transfer.state) ? recent : active).push(transfer);
+  return [...active, ...recent].slice(0, 100);
+}
+
 export function activityNeedsAttention(operation: FileOperation): boolean {
   return (
     operation.status === "needs_attention" ||

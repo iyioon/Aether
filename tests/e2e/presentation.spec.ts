@@ -319,6 +319,15 @@ for (const phone of [false, true]) {
           name: "End time",
           exact: true
         });
+        for (const field of [startTime, endTime]) {
+          await expect(field).toHaveAttribute("inputmode", "text");
+          await expect(field).toHaveAccessibleDescription(
+            "Use m:ss.sss or seconds."
+          );
+        }
+        await expect(
+          editor.getByText("Use m:ss.sss or seconds.", { exact: true })
+        ).toHaveCount(1);
         const preview = editor.locator(
           name.endsWith("mp4") ? "video" : "canvas"
         );
@@ -2320,9 +2329,11 @@ test("keeps Feed portrait with attached controls, inline favorite info and saved
       { width: 852, height: 393 }
     ]) {
       await page.setViewportSize(viewport);
+      await expect
+        .poll(async () => (await card.boundingBox())?.width)
+        .toBeCloseTo(viewport.width, 0);
       const cardBounds = (await card.boundingBox())!;
       const favoriteBounds = (await favorite.boundingBox())!;
-      expect(cardBounds.width).toBeCloseTo(viewport.width, 0);
       expect(favoriteBounds.x).toBeGreaterThanOrEqual(cardBounds.x);
       expect(favoriteBounds.x + favoriteBounds.width).toBeLessThanOrEqual(
         cardBounds.x + cardBounds.width
@@ -3096,6 +3107,9 @@ test("shows current time validation after a failed save and retries the correcte
     });
     await start.fill("invalid");
     await expect(start).toHaveAttribute("aria-invalid", "true");
+    await expect(start).toHaveAccessibleDescription(
+      "Use m:ss.sss or seconds. Enter a time from 0:00.000 to 0:05.900."
+    );
     await expect(alert).toHaveText(
       "Enter a valid time within the selected range."
     );
@@ -3105,6 +3119,9 @@ test("shows current time validation after a failed save and retries the correcte
     const end = editor.getByRole("textbox", { name: "End time", exact: true });
     await end.fill("invalid");
     await expect(end).toHaveAttribute("aria-invalid", "true");
+    await expect(end).toHaveAccessibleDescription(
+      "Use m:ss.sss or seconds. Enter a time from 0:00.600 to 0:06.000."
+    );
     await expect(alert).toHaveText(
       "Enter a valid time within the selected range."
     );

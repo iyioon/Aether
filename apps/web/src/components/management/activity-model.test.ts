@@ -4,6 +4,8 @@ import {
   activityItemsLabel,
   activityProgressLabel,
   activityNeedsAttention,
+  activityCreatedAt,
+  compareActivityEntries,
   prioritizeUploadTransfers
 } from "./activity-model";
 
@@ -19,6 +21,66 @@ function operation(patch: Partial<FileOperation> = {}): FileOperation {
 }
 
 describe("Activity descriptions", () => {
+  it("retains the newest terminal transfers when hydrated results exceed the Activity limit", () => {
+    const history = Array.from({ length: 100 }, (_, index) => ({
+      id: `old-${index}`,
+      state: "failed",
+      createdAt: "2025-01-01T00:00:00Z"
+    }));
+    const recent = {
+      id: "recent",
+      state: "failed",
+      createdAt: "2026-01-01T00:00:00Z"
+    };
+    const visible = prioritizeUploadTransfers([...history, recent]);
+    expect(visible).toHaveLength(100);
+    expect(visible[0]).toBe(recent);
+    expect(history).toHaveLength(100);
+  });
+  it("places current upload failures among recent results while unfinished work remains first", () => {
+    const recentFailure = {
+      transfer: { state: "failed", createdAt: "2026-03-01T00:00:00Z" }
+    };
+    const oldReceipt = {
+      operation: operation({ createdAt: "2026-01-01T00:00:00Z" })
+    };
+    const pending = {
+      transfer: { state: "paused", createdAt: "2025-01-01T00:00:00Z" }
+    };
+    expect(
+      [oldReceipt, recentFailure, pending].sort(compareActivityEntries)
+    ).toEqual([pending, recentFailure, oldReceipt]);
+  });
+
+  it("keeps an upload's start time when its publication receipt appears", () => {
+    const transfer = { state: "completed", createdAt: "2026-01-01T00:00:00Z" };
+    const published = {
+      transfer,
+      operation: operation({ createdAt: "2026-03-01T00:00:00Z" })
+    };
+    const middleReceipt = {
+      operation: operation({ createdAt: "2026-02-01T00:00:00Z" })
+    };
+    expect(activityCreatedAt(published)).toBe(transfer.createdAt);
+    expect([published, middleReceipt].sort(compareActivityEntries)).toEqual([
+      middleReceipt,
+      published
+    ]);
+  });
+
+  it("keeps undated legacy entries stable without allowing invalid timestamps to break ordering", () => {
+    const missing = { transfer: { state: "expired" } };
+    const invalid = { operation: operation({ createdAt: "invalid" }) };
+    const valid = {
+      operation: operation({ createdAt: "2026-01-01T00:00:00Z" })
+    };
+    expect(compareActivityEntries(missing, invalid)).toBe(0);
+    expect([missing, valid, invalid].sort(compareActivityEntries)).toEqual([
+      valid,
+      missing,
+      invalid
+    ]);
+  });
   it("keeps a newly discovered unfinished upload ahead of a full result history", () => {
     const history = Array.from({ length: 100 }, (_, index) => ({
       id: `failed-${index}`,

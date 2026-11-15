@@ -64,6 +64,7 @@ import { readSidebarDefaultOpen } from "./sidebar/sidebar-state";
 import { clearSessionScrollPositions } from "./scroll-restoration";
 import { SidebarInset, SidebarProvider } from "./ui/sidebar";
 import { Skeleton } from "./ui/skeleton";
+import { Button } from "./ui/button";
 import { LibraryControlStrip } from "./toolbar/LibraryControlStrip";
 import { LibraryResultStatus } from "./toolbar/LibraryResultStatus";
 import { useLibraryControls } from "./toolbar/useLibraryControls";
@@ -294,6 +295,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     (input.favorite !== undefined && scoreFilter === "favorites");
   const {
     assetError,
+    assetLoadError,
     assets,
     changedAssetIds,
     unavailableAssetIds,
@@ -332,6 +334,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     listQueryKey,
     loadedQueryKey
   });
+  const hasLibraryError = Boolean(assetError || assetLoadError);
   const {
     batchError,
     batchStatus,
@@ -795,6 +798,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
   }
 
   function setSelectionMode(nextIsSelectionMode: boolean) {
+    if (nextIsSelectionMode && loadedQueryKey !== listQueryKey) return;
     if (nextIsSelectionMode) {
       setIsSelectionMode(true);
       return;
@@ -1008,7 +1012,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     !managementTarget &&
     !isLoadingAssets;
   const libraryStatus =
-    activePage === "library" ? (
+    activePage === "library" && !assetLoadError ? (
       <LibraryResultStatus
         loadedAssetCount={assets.length}
         isResultsPending={isResultsPending}
@@ -1026,7 +1030,9 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
         highlightsOnly={highlightsOnly}
         onHighlightsOnlyChange={setHighlightsOnly}
         isSelectionMode={isSelectionMode}
-        loadedAssetCount={availableAssetCount}
+        loadedAssetCount={
+          loadedQueryKey === listQueryKey ? availableAssetCount : 0
+        }
         onAddMedia={openAddMedia}
         mediaType={mediaType}
         isOpen={isOptionsOpen}
@@ -1133,11 +1139,15 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
           onSelectFolder={selectFolder}
           onToggleFolderExpansion={toggleFolderExpansion}
         />
-        <SidebarInset className="library-inset">
+        <SidebarInset
+          className={`library-inset${hasLibraryError ? " has-library-error" : ""}`}
+        >
           <LibraryPathBar
             controls={libraryControls}
             status={libraryStatus}
-            isFeedChromeHidden={isFeedChromeHidden && assets.length > 0}
+            isFeedChromeHidden={
+              isFeedChromeHidden && assets.length > 0 && !hasLibraryError
+            }
             isGuideOpen={activePage === "guide"}
             isSettingsOpen={activePage === "settings"}
             isTrashOpen={activePage === "trash"}
@@ -1305,7 +1315,10 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
                       onApplyCuration={saveBatchScore}
                       onApplyTags={saveBatchTags}
                       onTagDraftChange={setBatchTagDraft}
-                      onSelectLoaded={selectLoadedAssets}
+                      onSelectLoaded={() => {
+                        if (loadedQueryKey === listQueryKey)
+                          selectLoadedAssets();
+                      }}
                       onMove={() =>
                         setManagementTarget({
                           type: "move-media",
@@ -1323,10 +1336,57 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
                   ) : null}
 
                   {assetError ? (
-                    <div className="inline-error">{assetError}</div>
+                    <div className="inline-error" role="alert">
+                      {assetError}
+                    </div>
                   ) : null}
 
-                  {view === "gallery" ? (
+                  {assetLoadError && view !== "compare" ? (
+                    <div
+                      className={`inline-error library-load-error${loadedQueryKey !== listQueryKey ? " library-load-error-empty" : ""}`}
+                      role="alert"
+                    >
+                      <span>{assetLoadError.message}</span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={
+                          assetLoadError.retry === "reload" && !canUpdateResults
+                        }
+                        title={
+                          assetLoadError.retry === "reload" && !canUpdateResults
+                            ? "Finish editing or selecting before retrying"
+                            : undefined
+                        }
+                        onClick={(event) => {
+                          const retryButton = event.currentTarget;
+                          const restoreFocus =
+                            document.activeElement === retryButton;
+                          if (assetLoadError.retry === "more")
+                            void handleLoadMore(true);
+                          else reloadAssets();
+                          if (restoreFocus)
+                            window.requestAnimationFrame(() => {
+                              if (
+                                document.activeElement === document.body ||
+                                document.activeElement === retryButton
+                              )
+                                document
+                                  .querySelector<HTMLButtonElement>(
+                                    ".view-options-trigger"
+                                  )
+                                  ?.focus({ preventScroll: true });
+                            });
+                        }}
+                      >
+                        Retry
+                      </Button>
+                    </div>
+                  ) : null}
+
+                  {assetLoadError &&
+                  loadedQueryKey !== listQueryKey &&
+                  view !== "compare" ? null : view === "gallery" ? (
                     <GalleryGrid
                       assets={assets}
                       changedAssetIds={changedAssetIds}
@@ -1345,6 +1405,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
                       isContentReady={loadedQueryKey === listQueryKey}
                       isSelectionMode={isSelectionMode}
                       hasMore={hasMoreAssets}
+                      isLoadMoreBlocked={Boolean(assetLoadError)}
                       resultsPending={isResultsPending}
                       loadMoreRef={loadMoreRef}
                       measuredAspectRatios={measuredAspectRatios}
@@ -1366,7 +1427,10 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
                       onEditAsset={setEditingAsset}
                       onManageAsset={manageAsset}
                       writableAssetIds={writableAssetIds}
-                      onToggleSelection={toggleAssetSelection}
+                      onToggleSelection={(assetId) => {
+                        if (loadedQueryKey === listQueryKey)
+                          toggleAssetSelection(assetId);
+                      }}
                     />
                   ) : view === "feed" ? (
                     <FeedPreview
@@ -1386,8 +1450,11 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
                       isLoadingMore={isLoadingMore}
                       isContentReady={loadedQueryKey === listQueryKey}
                       hasMore={hasMoreAssets}
+                      isLoadMoreBlocked={Boolean(assetLoadError)}
                       loadMoreRef={loadMoreRef}
-                      isFeedChromeHidden={isFeedChromeHidden}
+                      isFeedChromeHidden={
+                        isFeedChromeHidden && !hasLibraryError
+                      }
                       isPlaybackPaused={selectedAssetId !== null}
                       savingScoreAssetIds={savingScoreAssetIds}
                       scrollContextKey={listQueryKey}

@@ -3,7 +3,13 @@ import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import sharp from "sharp";
-import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+import {
+  expect,
+  test,
+  type BrowserContext,
+  type Locator,
+  type Page
+} from "@playwright/test";
 import type {
   AssetListResponse,
   AssetRecord,
@@ -110,6 +116,87 @@ test.afterAll(async ({ browser }) => {
 });
 
 for (const phone of [false, true]) {
+  test(`resumes loading and prepared animations after coalesced suspension (${phone ? "phone" : "desktop"})`, async ({
+    browser
+  }) => {
+    const context = await browser.newContext({
+      storageState,
+      viewport: phone
+        ? { width: 393, height: 852 }
+        : { width: 1440, height: 980 },
+      isMobile: phone,
+      hasTouch: phone
+    });
+    let releaseManifest: () => void = () => undefined;
+    try {
+      const page = await context.newPage();
+      const animation = assets.find(
+        (asset) => asset.name === "animation.webp"
+      )!;
+      let manifestRequests = 0;
+      const heldManifest = new Promise<void>((resolve) => {
+        releaseManifest = resolve;
+      });
+      await page.route(
+        `**/api/assets/${animation.id}/animation?*`,
+        async (route) => {
+          manifestRequests += 1;
+          if (manifestRequests === 1) await heldManifest;
+          await route.continue().catch(() => undefined);
+        }
+      );
+      await page.goto(url("gallery", "image", animation.name));
+      const canvas = page.locator(".media-tile canvas");
+      await expect(canvas).toHaveCount(1);
+      await expect.poll(() => manifestRequests).toBe(1);
+      await coalesceSuspension(page);
+      await expect.poll(() => manifestRequests).toBeGreaterThanOrEqual(2);
+      releaseManifest();
+      await expectAnimationFramesAdvance(canvas);
+
+      await coalesceSuspension(page);
+      await expectAnimationFramesAdvance(canvas);
+
+      await page
+        .getByRole("button", { name: `Open ${animation.name}`, exact: true })
+        .click();
+      const viewer = page.getByRole("dialog", {
+        name: animation.name,
+        exact: true
+      });
+      const viewerCanvas = viewer.locator("canvas");
+      await expectAnimationFramesAdvance(viewerCanvas);
+      await viewer
+        .getByRole("button", { name: "Pause video", exact: true })
+        .click();
+      await expect(
+        viewer.getByRole("button", { name: "Play video", exact: true })
+      ).toBeVisible();
+      await coalesceSuspension(page);
+      const observedPausedFrames = await viewerCanvas.evaluate(
+        async (node: HTMLCanvasElement) => {
+          const context = node.getContext("2d")!;
+          const values = new Set<number>();
+          for (let frame = 0; frame < 30; frame++) {
+            await new Promise<void>((resolve) =>
+              requestAnimationFrame(() => resolve())
+            );
+            values.add(context.getImageData(0, 0, 1, 1).data[0]!);
+          }
+          return values.size;
+        }
+      );
+      expect(observedPausedFrames).toBe(1);
+      await viewer
+        .getByRole("button", { name: "Play video", exact: true })
+        .click();
+      await expectAnimationFramesAdvance(viewerCanvas);
+    } finally {
+      releaseManifest();
+      await context.close();
+    }
+  });
+
   test(`diagnoses viewer Bounce overload before changing codec (${phone ? "phone" : "desktop"})`, async ({
     browser
   }) => {
@@ -710,6 +797,38 @@ for (const phone of [false, true]) {
       await context.close();
     }
   });
+}
+
+async function coalesceSuspension(page: Page) {
+  await page.evaluate(() => {
+    // Both events finish in one task, before React commits a hidden render.
+    window.dispatchEvent(
+      new PageTransitionEvent("pagehide", { persisted: true })
+    );
+    window.dispatchEvent(
+      new PageTransitionEvent("pageshow", { persisted: true })
+    );
+  });
+}
+
+async function expectAnimationFramesAdvance(canvas: Locator) {
+  await expect(canvas).toHaveCSS("opacity", "1");
+  await expect(canvas).toHaveJSProperty("width", 96);
+  await expect(canvas).toHaveJSProperty("height", 64);
+  const frames = new Set<number>();
+  await expect
+    .poll(
+      async () => {
+        const pixel = await canvas.evaluate((node: HTMLCanvasElement) =>
+          Array.from(node.getContext("2d")!.getImageData(0, 0, 1, 1).data)
+        );
+        if (pixel[1] === 80 && pixel[2] === 160 && pixel[3] === 255)
+          frames.add(pixel[0]!);
+        return frames.size;
+      },
+      { intervals: [50] }
+    )
+    .toBeGreaterThanOrEqual(3);
 }
 
 function url(view: string, type: string, search = "") {

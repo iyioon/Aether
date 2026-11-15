@@ -54,6 +54,11 @@ export function useAssetList({
   );
   const unavailableRef = useRef(new Set<string>());
   const [assetError, setAssetError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<{
+    queryKey: string;
+    message: string;
+    retry: "reload" | "more";
+  } | null>(null);
   const [isLoadingAssets, setIsLoadingAssets] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [loadedQueryKey, setLoadedQueryKey] = useState<string | null>(null);
@@ -130,6 +135,7 @@ export function useAssetList({
   }, []);
   const markResultsPending = useCallback(
     (preserveOrder = true) => {
+      setLoadError((current) => (current?.retry === "more" ? null : current));
       if (preserveOrder) deferredOrderQueryRef.current = queryRef.current;
       markResultsStale();
     },
@@ -277,6 +283,7 @@ export function useAssetList({
     appendRef.current?.abort();
     appendRef.current = null;
     setIsLoadingMore(false);
+    setLoadError(null);
     if (!tree || !folderId) {
       setAssets([]);
       setTotalAssets(0);
@@ -488,11 +495,14 @@ export function useAssetList({
       })
       .catch((caught: unknown) => {
         if (controller.signal.aborted || queryRef.current !== query) return;
-        setAssetError(
-          caught instanceof ApiError && caught.status === 409
-            ? "The library changed while updating. Try Update results again."
-            : "Unable to update results. Try again."
-        );
+        setLoadError({
+          queryKey: query,
+          message:
+            caught instanceof ApiError && caught.status === 409
+              ? "The library changed while loading media. Try again."
+              : "Unable to load media.",
+          retry: "reload"
+        });
         if (sameQuery) {
           managedQueryRef.current = null;
           setLoadedQueryKey(query);
@@ -521,81 +531,98 @@ export function useAssetList({
     tagFilters
   ]);
 
-  const handleLoadMore = useCallback(async () => {
-    const state = stateRef.current;
-    const query = listQueryKey;
-    if (
-      !folderId ||
-      appendRef.current ||
-      isLoadingAssets ||
-      state.loadedQueryKey !== query ||
-      state.pendingQueryKey === query ||
-      state.assets.length >= state.totalAssets
-    )
-      return;
-    const controller = new AbortController();
-    appendRef.current = controller;
-    setIsLoadingMore(true);
-    setAssetError(null);
-    const epoch = mutationEpochRef.current;
-    try {
-      const appended = await readAssetAppend({
-        assets: state.assets,
-        revision: revisionRef.current,
-        refresh: acceptedEpochRef.current !== epoch,
-        limit: ASSET_PAGE_LIMIT,
-        getPage: (offset, limit, revision) => {
-          controller.signal.throwIfAborted();
-          if (
-            queryRef.current !== query ||
-            mutationEpochRef.current !== epoch ||
-            stateRef.current.pendingQueryKey === query
-          )
-            throw new DOMException("Obsolete asset page", "AbortError");
-          return getPage(offset, limit, controller.signal, revision);
-        },
-        signal: controller.signal
-      });
+  const handleLoadMore = useCallback(
+    async (retry = false) => {
+      const state = stateRef.current;
+      const query = listQueryKey;
       if (
-        controller.signal.aborted ||
-        queryRef.current !== query ||
-        mutationEpochRef.current !== epoch ||
-        appendRef.current !== controller ||
-        stateRef.current.pendingQueryKey === query
+        !folderId ||
+        (!retry && loadError?.queryKey === query) ||
+        appendRef.current ||
+        isLoadingAssets ||
+        state.loadedQueryKey !== query ||
+        state.pendingQueryKey === query ||
+        state.assets.length >= state.totalAssets
       )
         return;
-      if (!appended) {
-        markResultsPending();
-        return;
+      const controller = new AbortController();
+      appendRef.current = controller;
+      setIsLoadingMore(true);
+      setLoadError(null);
+      setAssetError(null);
+      const epoch = mutationEpochRef.current;
+      try {
+        const appended = await readAssetAppend({
+          assets: state.assets,
+          revision: revisionRef.current,
+          refresh: acceptedEpochRef.current !== epoch,
+          limit: ASSET_PAGE_LIMIT,
+          getPage: (offset, limit, revision) => {
+            controller.signal.throwIfAborted();
+            if (
+              queryRef.current !== query ||
+              mutationEpochRef.current !== epoch ||
+              stateRef.current.pendingQueryKey === query
+            )
+              throw new DOMException("Obsolete asset page", "AbortError");
+            return getPage(offset, limit, controller.signal, revision);
+          },
+          signal: controller.signal
+        });
+        if (
+          controller.signal.aborted ||
+          queryRef.current !== query ||
+          mutationEpochRef.current !== epoch ||
+          appendRef.current !== controller ||
+          stateRef.current.pendingQueryKey === query
+        )
+          return;
+        if (!appended) {
+          markResultsPending();
+          return;
+        }
+        const { response, refreshed } = appended;
+        revisionRef.current = response.page.revision;
+        acceptedEpochRef.current = epoch;
+        setAssets((current) => {
+          const byId = new Map(
+            refreshed?.items.map((asset) => [asset.id, asset])
+          );
+          return [
+            ...current.map((asset) => {
+              const updated = byId.get(asset.id);
+              return updated ? preservePresentation(asset, updated) : asset;
+            }),
+            ...response.items
+          ];
+        });
+        setTotalAssets(response.page.total);
+      } catch (caught) {
+        if (controller.signal.aborted || queryRef.current !== query) return;
+        if (caught instanceof ApiError && caught.status === 409)
+          markResultsPending();
+        else
+          setLoadError({
+            queryKey: query,
+            message: "Unable to load more media.",
+            retry: "more"
+          });
+      } finally {
+        if (appendRef.current === controller) {
+          appendRef.current = null;
+          setIsLoadingMore(false);
+        }
       }
-      const { response, refreshed } = appended;
-      revisionRef.current = response.page.revision;
-      acceptedEpochRef.current = epoch;
-      setAssets((current) => {
-        const byId = new Map(
-          refreshed?.items.map((asset) => [asset.id, asset])
-        );
-        return [
-          ...current.map((asset) => {
-            const updated = byId.get(asset.id);
-            return updated ? preservePresentation(asset, updated) : asset;
-          }),
-          ...response.items
-        ];
-      });
-      setTotalAssets(response.page.total);
-    } catch (caught) {
-      if (controller.signal.aborted || queryRef.current !== query) return;
-      if (caught instanceof ApiError && caught.status === 409)
-        markResultsPending();
-      else setAssetError("Unable to load more assets. Try again.");
-    } finally {
-      if (appendRef.current === controller) {
-        appendRef.current = null;
-        setIsLoadingMore(false);
-      }
-    }
-  }, [folderId, getPage, isLoadingAssets, listQueryKey, markResultsPending]);
+    },
+    [
+      folderId,
+      getPage,
+      isLoadingAssets,
+      listQueryKey,
+      loadError,
+      markResultsPending
+    ]
+  );
   useEffect(
     () => () => {
       requestRef.current?.abort();
@@ -605,6 +632,7 @@ export function useAssetList({
   );
   return {
     assetError,
+    assetLoadError: loadError?.queryKey === listQueryKey ? loadError : null,
     assets,
     changedAssetIds: changedAssetIdsRef.current,
     unavailableAssetIds,

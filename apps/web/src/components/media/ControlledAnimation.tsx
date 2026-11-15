@@ -121,6 +121,7 @@ export function ControlledAnimation({
   const [hidden, setHidden] = useState(
     () => typeof document !== "undefined" && document.hidden
   );
+  const [playbackResumeEpoch, setPlaybackResumeEpoch] = useState(0);
   const workControllersRef = useRef(new Set<AbortController>());
   const [state, setState] = useState(EMPTY_VIDEO_PLAYBACK_STATE);
   const callbacksRef = useRef({
@@ -185,6 +186,8 @@ export function ControlledAnimation({
         for (const controller of workControllersRef.current) controller.abort();
       }
       setHidden(value);
+      // Suspension can abort work without React committing the hidden state.
+      if (!value) setPlaybackResumeEpoch((epoch) => epoch + 1);
     };
     const visibility = () => suspend(document.hidden);
     const pagehide = () => suspend(true);
@@ -242,7 +245,15 @@ export function ControlledAnimation({
       controller.abort();
       workControllers.delete(controller);
     };
-  }, [active, hidden, asset.id, renditionKey, sourceKey, attempt]);
+  }, [
+    active,
+    hidden,
+    asset.id,
+    renditionKey,
+    sourceKey,
+    attempt,
+    playbackResumeEpoch
+  ]);
 
   useEffect(() => {
     if (!manifest || !active || hidden || failed) return;
@@ -481,6 +492,7 @@ export function ControlledAnimation({
     highlightEnd,
     loopMode,
     playbackRate,
+    playbackResumeEpoch,
     running,
     sourceKey,
     displayKey,

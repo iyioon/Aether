@@ -143,10 +143,44 @@ test("prepares bounded authenticated video ranges, plays the next pair, and keep
             const video = element as HTMLVideoElement;
             return (
               video.readyState >= 2 &&
+              !video.paused &&
+              video.muted &&
+              video.defaultMuted &&
+              video.playsInline &&
               video.videoWidth > 0 &&
               video.currentTime > 0
             );
           })
+        )
+      )
+      .toBe(true);
+    const videos = ranking.locator(".comparison-card video");
+    const beforePlayback = await videos.evaluateAll((nodes) =>
+      nodes.map((node) => {
+        const video = node as HTMLVideoElement;
+        return {
+          source: video.currentSrc,
+          time: video.currentTime,
+          frames: video.getVideoPlaybackQuality().totalVideoFrames
+        };
+      })
+    );
+    await expect
+      .poll(() =>
+        videos.evaluateAll(
+          (nodes, before) =>
+            nodes.every((node, index) => {
+              const video = node as HTMLVideoElement;
+              const previous = before[index]!;
+              return (
+                !video.paused &&
+                video.currentSrc === previous.source &&
+                video.currentTime !== previous.time &&
+                video.getVideoPlaybackQuality().totalVideoFrames >
+                  previous.frames
+              );
+            }),
+          beforePlayback
         )
       )
       .toBe(true);

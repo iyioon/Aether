@@ -295,8 +295,8 @@
   }
 }
 
-@media (max-width: 760px),
-  (max-width: 920px) and (hover: none) and (pointer: coarse) {
+@media (max-width: 767px),
+  (max-width: 1024px) and (hover: none) and (pointer: coarse) {
   .library-main.view-settings {
     height: 100vh;
     height: 100dvh;
@@ -326,6 +326,11 @@
   }
 
   .settings-tabs-list [data-slot="tabs-trigger"] {
+    min-height: 44px;
+  }
+
+  .settings-page :is([data-slot="button"], [data-slot="select-trigger"]) {
+    min-width: 44px;
     min-height: 44px;
   }
 
@@ -371,8 +376,8 @@
   }
 }
 
-@media (min-width: 430px) and (max-width: 760px),
-  (min-width: 430px) and (max-width: 920px) and (hover: none) and (pointer: coarse) {
+@media (min-width: 430px) and (max-width: 767px),
+  (min-width: 430px) and (max-width: 1024px) and (hover: none) and (pointer: coarse) {
   .settings-choice-grid-three,
   .settings-toggle-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));

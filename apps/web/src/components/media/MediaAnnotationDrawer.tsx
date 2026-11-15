@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { X } from "lucide-react";
 import type { AiStatus, AssetRecord, TagRecord } from "../../api/client";
 import { useIsMobile } from "../../hooks/use-mobile";
 import { panelExitDurationMs } from "../../lib/motion";
@@ -8,11 +9,13 @@ import {
 } from "../../lib/focus-restoration";
 import {
   Sheet,
+  SheetClose,
   SheetContent,
   SheetDescription,
   SheetHeader,
   SheetTitle
 } from "../ui/sheet";
+import { Button } from "../ui/button";
 import { AssetAnnotationPanel } from "./AssetAnnotationPanel";
 import { mediaDetailLine } from "./media-format";
 
@@ -93,7 +96,7 @@ export function MediaAnnotationDrawer({
           event.preventDefault();
           restoreFocusAfterClose(returnFocusTarget);
         }}
-        showCloseButton={!isBusy}
+        showCloseButton={false}
         onEscapeKeyDown={(event) => {
           if (busyRef.current) event.preventDefault();
         }}
@@ -111,6 +114,17 @@ export function MediaAnnotationDrawer({
           .join(" ")}
         side={isMobile ? "bottom" : "right"}
       >
+        <SheetClose asChild>
+          <Button
+            className="absolute top-4 right-4"
+            variant="ghost"
+            size="icon"
+            aria-label="Close"
+            disabled={isBusy}
+          >
+            <X aria-hidden="true" />
+          </Button>
+        </SheetClose>
         <SheetHeader>
           <SheetTitle className="truncate pr-8" title={asset.name}>
             {asset.name}

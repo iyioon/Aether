@@ -4,6 +4,7 @@ import {
   GalleryHorizontalEnd,
   GitCompareArrows,
   Grid3X3,
+  MoreHorizontal,
   Search
 } from "lucide-react";
 import type { TreeResponse } from "../../api/client";
@@ -25,6 +26,7 @@ import { Button } from "../ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuTrigger
@@ -98,6 +100,7 @@ export function LibraryPathBar({
     () => buildFolderPath(tree, selectedFolderId),
     [selectedFolderId, tree]
   );
+  const collapsedParents = path.length > 2 ? path.slice(1, -1) : [];
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const currentView = libraryViews.find((option) => option.value === view)!;
   const isLibraryOpen =
@@ -192,7 +195,7 @@ export function LibraryPathBar({
             orientation="vertical"
           />
           <Breadcrumb>
-            <BreadcrumbList className="flex-nowrap overflow-hidden">
+            <BreadcrumbList className="library-folder-breadcrumb flex-nowrap overflow-hidden">
               {isSettingsOpen ||
               isGuideOpen ||
               isTrashOpen ||
@@ -224,20 +227,70 @@ export function LibraryPathBar({
               ) : path.length ? (
                 path.map((segment, index) => {
                   const isCurrent = index === path.length - 1;
+                  if (collapsedParents.length && index > 0 && !isCurrent)
+                    return null;
 
                   return (
                     <Fragment key={segment.id}>
                       {index > 0 ? <BreadcrumbSeparator /> : null}
-                      <BreadcrumbItem className="min-w-0">
+                      {isCurrent && collapsedParents.length ? (
+                        <>
+                          <BreadcrumbItem className="library-parent-folders">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  type="button"
+                                  size="icon-sm"
+                                  variant="ghost"
+                                  aria-label="Show parent folders"
+                                >
+                                  <MoreHorizontal aria-hidden="true" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent
+                                className="library-parent-folder-menu"
+                                align="start"
+                                collisionPadding={12}
+                                aria-label="Parent folders"
+                                aria-labelledby={undefined}
+                              >
+                                {collapsedParents.map((parent) => (
+                                  <DropdownMenuItem
+                                    key={parent.id}
+                                    onSelect={() => onSelectFolder(parent.id)}
+                                    title={parent.label}
+                                  >
+                                    <span className="truncate">
+                                      {parent.label}
+                                    </span>
+                                  </DropdownMenuItem>
+                                ))}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </BreadcrumbItem>
+                          <BreadcrumbSeparator />
+                        </>
+                      ) : null}
+                      <BreadcrumbItem
+                        className={
+                          isCurrent
+                            ? "library-current-folder min-w-0"
+                            : "library-root-folder min-w-0"
+                        }
+                      >
                         {isCurrent ? (
-                          <BreadcrumbPage className="truncate">
+                          <BreadcrumbPage
+                            className="truncate"
+                            title={segment.label}
+                          >
                             {segment.label}
                           </BreadcrumbPage>
                         ) : (
                           <BreadcrumbLink asChild>
                             <button
-                              className="max-w-44 truncate"
+                              className="truncate"
                               type="button"
+                              title={segment.label}
                               onClick={() => onSelectFolder(segment.id)}
                             >
                               {segment.label}

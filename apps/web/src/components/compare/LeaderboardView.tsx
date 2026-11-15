@@ -102,15 +102,8 @@ export function LeaderboardView({
     >
       <header className="leaderboard-header">
         <div className="leaderboard-heading">
-          <div className="leaderboard-eyebrow">
-            <Trophy aria-hidden="true" />
-            Compare and rank
-          </div>
           <h1 id="leaderboard-title">Leaderboard</h1>
-          <p>
-            Media is ordered by final score. Your current folder, search, and
-            filters apply.
-          </p>
+          <p>Your current folder, search, and filters apply.</p>
         </div>
         <Button
           size="lg"

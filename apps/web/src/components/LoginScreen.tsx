@@ -92,7 +92,7 @@ export function LoginScreen({ notice, onAuthenticated }: LoginScreenProps) {
                   id="password"
                   name="password"
                   autoComplete="current-password"
-                  className="pr-10"
+                  className="min-h-11 pr-14"
                   disabled={isSubmitting}
                   type={isPasswordVisible ? "text" : "password"}
                   value={password}
@@ -108,7 +108,7 @@ export function LoginScreen({ notice, onAuthenticated }: LoginScreenProps) {
                   }}
                 />
                 <Button
-                  className="absolute top-1/2 right-1 -translate-y-1/2"
+                  className="absolute top-1/2 right-0 size-11 -translate-y-1/2"
                   size="icon-sm"
                   type="button"
                   variant="ghost"
@@ -132,7 +132,7 @@ export function LoginScreen({ notice, onAuthenticated }: LoginScreenProps) {
             ) : null}
 
             <Button
-              className="w-full"
+              className="min-h-11 w-full"
               disabled={isSubmitting || !password}
               size="lg"
               type="submit"

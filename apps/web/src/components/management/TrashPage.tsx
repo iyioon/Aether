@@ -6,7 +6,8 @@ import {
   RotateCcw,
   Search,
   Trash2,
-  TriangleAlert
+  TriangleAlert,
+  X
 } from "lucide-react";
 import {
   ApiError,
@@ -60,6 +61,7 @@ export function TrashPage({
   const [items, setItems] = useState<TrashRecord[]>([]);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [search, setSearch] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [loadedSearch, setLoadedSearch] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -132,6 +134,11 @@ export function TrashPage({
   function refreshAll() {
     refresh();
     void refreshOperations();
+  }
+  function clearSearch() {
+    setSearch("");
+    setSelected(new Set());
+    searchInputRef.current?.focus({ preventScroll: true });
   }
   usePageLifecycle({ onResume: refresh });
   useEffect(() => {
@@ -286,6 +293,8 @@ export function TrashPage({
           <div className="trash-search">
             <Search aria-hidden="true" className="size-4" />
             <Input
+              ref={searchInputRef}
+              className="pr-12"
               aria-label="Search Trash"
               placeholder="Search Trash"
               value={search}
@@ -294,7 +303,30 @@ export function TrashPage({
                 setSearch(event.target.value);
                 setSelected(new Set());
               }}
+              onKeyDown={(event) => {
+                if (
+                  event.key === "Escape" &&
+                  search &&
+                  !event.defaultPrevented &&
+                  !event.nativeEvent.isComposing
+                ) {
+                  event.preventDefault();
+                  clearSearch();
+                }
+              }}
             />
+            {search ? (
+              <Button
+                type="button"
+                className="absolute top-1/2 right-0 -translate-y-1/2"
+                size="icon"
+                variant="ghost"
+                aria-label="Clear search"
+                onClick={clearSearch}
+              >
+                <X aria-hidden="true" />
+              </Button>
+            ) : null}
           </div>
           <div className="trash-page-actions">
             <Button
@@ -460,16 +492,6 @@ export function TrashPage({
           <p className="text-sm text-muted-foreground">
             {search.trim() ? "No items match this search." : "Trash is empty."}
           </p>
-          {search.trim() ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => setSearch("")}
-            >
-              Clear search
-            </Button>
-          ) : null}
         </div>
       ) : null}
       <div className="trash-list" aria-busy={loading}>

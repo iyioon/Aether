@@ -1,17 +1,22 @@
 import type { CSSProperties, ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
+import { RadioGroup as RadioGroupPrimitive } from "radix-ui";
 import { Button } from "../ui/button";
-import { Checkbox } from "../ui/checkbox";
+import { RadioGroup } from "../ui/radio-group";
 import type { AppearanceAccentOption } from "./useAppearanceSettings";
 
 export function ChoiceGroup({
   children,
   columns = "auto",
-  label
+  label,
+  value,
+  onValueChange
 }: {
   children: ReactNode;
   columns?: "auto" | "two" | "three" | "five";
   label: string;
+  value: string;
+  onValueChange: (value: string) => void;
 }) {
   return (
     <div className="settings-field-group">
@@ -20,62 +25,37 @@ export function ChoiceGroup({
           {label}
         </span>
       </div>
-      <div
+      <RadioGroup
         className={`settings-choice-grid settings-choice-grid-${columns}`}
-        role="radiogroup"
         aria-label={label}
+        value={value}
+        onValueChange={onValueChange}
       >
         {children}
-      </div>
+      </RadioGroup>
     </div>
   );
 }
 
 export function SwatchChoice({
   active,
-  option,
-  onClick
+  option
 }: {
   active: boolean;
   option: AppearanceAccentOption;
-  onClick: () => void;
 }) {
   return (
-    <Button
-      className="justify-start"
-      style={{ "--settings-swatch": option.color } as CSSProperties}
-      type="button"
-      role="radio"
-      aria-checked={active}
-      onClick={onClick}
-      variant={active ? "secondary" : "outline"}
-    >
-      <span className="settings-swatch" aria-hidden="true" />
-      <strong className="truncate text-sm font-medium">{option.label}</strong>
-    </Button>
-  );
-}
-
-export function TextChoice({
-  active,
-  label,
-  onClick
-}: {
-  active: boolean;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <Button
-      className="justify-start"
-      type="button"
-      role="radio"
-      aria-checked={active}
-      onClick={onClick}
-      variant={active ? "secondary" : "outline"}
-    >
-      <strong className="truncate text-sm font-medium">{label}</strong>
-    </Button>
+    <RadioGroupPrimitive.Item asChild value={option.value}>
+      <Button
+        className="justify-start"
+        style={{ "--settings-swatch": option.color } as CSSProperties}
+        type="button"
+        variant={active ? "secondary" : "outline"}
+      >
+        <span className="settings-swatch" aria-hidden="true" />
+        <strong className="truncate text-sm font-medium">{option.label}</strong>
+      </Button>
+    </RadioGroupPrimitive.Item>
   );
 }
 
@@ -83,41 +63,23 @@ export function IconChoice({
   active,
   icon: Icon,
   label,
-  onClick
+  value
 }: {
   active: boolean;
   icon: LucideIcon;
   label: string;
-  onClick: () => void;
+  value: string;
 }) {
   return (
-    <Button
-      className="justify-start"
-      type="button"
-      role="radio"
-      aria-checked={active}
-      onClick={onClick}
-      variant={active ? "secondary" : "outline"}
-    >
-      <Icon />
-      <strong className="truncate text-sm font-medium">{label}</strong>
-    </Button>
-  );
-}
-
-export function CheckboxChoice({
-  active,
-  label,
-  onChange
-}: {
-  active: boolean;
-  label: string;
-  onChange: () => void;
-}) {
-  return (
-    <label className="flex items-center gap-2">
-      <Checkbox checked={active} onCheckedChange={onChange} />
-      <span className="truncate text-sm font-medium">{label}</span>
-    </label>
+    <RadioGroupPrimitive.Item asChild value={value}>
+      <Button
+        className="justify-start"
+        type="button"
+        variant={active ? "secondary" : "outline"}
+      >
+        <Icon />
+        <strong className="truncate text-sm font-medium">{label}</strong>
+      </Button>
+    </RadioGroupPrimitive.Item>
   );
 }

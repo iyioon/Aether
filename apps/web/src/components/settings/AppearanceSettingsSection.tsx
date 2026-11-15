@@ -68,24 +68,38 @@ export function AppearanceSettingsSection({
       title="Appearance"
       value={`${themeLabel} · ${accentLabel(accent, accentOptions)}`}
     >
-      <ChoiceGroup label="Mode" columns="three">
+      <ChoiceGroup
+        label="Mode"
+        columns="three"
+        value={theme}
+        onValueChange={(value) => {
+          const option = themeOptions.find((entry) => entry.value === value);
+          if (option) onSetTheme(option.value);
+        }}
+      >
         {themeOptions.map((option) => (
           <IconChoice
             active={theme === option.value}
             icon={themeIcons[option.value]}
             key={option.value}
             label={option.label}
-            onClick={() => onSetTheme(option.value)}
+            value={option.value}
           />
         ))}
       </ChoiceGroup>
-      <ChoiceGroup label="Accent">
+      <ChoiceGroup
+        label="Accent"
+        value={accent}
+        onValueChange={(value) => {
+          const option = accentOptions.find((entry) => entry.value === value);
+          if (option) onSetAccent(option.value);
+        }}
+      >
         {accentOptions.map((option) => (
           <SwatchChoice
             active={accent === option.value}
             key={option.value}
             option={option}
-            onClick={() => onSetAccent(option.value)}
           />
         ))}
       </ChoiceGroup>
@@ -96,9 +110,10 @@ export function AppearanceSettingsSection({
         <Popover>
           <PopoverTrigger asChild>
             <Button
-              className="h-auto w-full justify-between px-3 py-2"
+              className="h-auto w-full min-w-0 justify-between whitespace-normal px-3 py-2"
               type="button"
               variant="outline"
+              aria-pressed={accent === "custom"}
             >
               <span className="flex min-w-0 items-center gap-3">
                 <span
@@ -110,12 +125,9 @@ export function AppearanceSettingsSection({
                   <span className="block text-sm font-medium">
                     Choose a color
                   </span>
-                  <span className="block text-xs font-normal text-muted-foreground">
-                    Used for primary actions and focus rings.
-                  </span>
                 </span>
               </span>
-              <span className="font-mono text-xs font-normal text-muted-foreground">
+              <span className="shrink-0 font-mono text-xs font-normal text-muted-foreground">
                 {customAccent.toUpperCase()}
               </span>
             </Button>

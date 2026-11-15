@@ -1,4 +1,5 @@
 import { Database, Palette, RefreshCw, ServerCog, Volume2 } from "lucide-react";
+import { useEffect, useRef } from "react";
 import type {
   LibraryDataResetOptions,
   LibraryDataResetResult,
@@ -66,12 +67,20 @@ export function SettingsPage({
   onSetCustomAccent,
   onSetTheme
 }: SettingsPageProps) {
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    headingRef.current?.focus({ preventScroll: true });
+  }, []);
   return (
     <section className="settings-page" aria-label="Settings">
       <div className="settings-shell">
         <header className="settings-header">
           <div className="settings-heading">
-            <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+            <h1
+              ref={headingRef}
+              tabIndex={-1}
+              className="text-2xl font-semibold tracking-tight text-foreground outline-none"
+            >
               Settings
             </h1>
           </div>
@@ -83,7 +92,10 @@ export function SettingsPage({
             if (isSettingsTab(value)) onTabChange(value);
           }}
         >
-          <TabsList className="settings-tabs-list flex w-full">
+          <TabsList
+            className="settings-tabs-list flex w-full"
+            aria-label="Settings categories"
+          >
             <TabsTrigger className="px-1 sm:px-2" value="appearance">
               <Palette className="hidden sm:block" />
               Appearance
@@ -173,11 +185,6 @@ export function SettingsPage({
           </TabsContent>
 
           <TabsContent className="settings-tab-panel" value="data">
-            <div className="settings-tab-intro">
-              <p className="text-sm text-muted-foreground">
-                Reset selected media edits, annotations and ranking information.
-              </p>
-            </div>
             <div className="settings-grid settings-grid-single">
               <DataResetSettingsSection
                 presentationEdits={settings?.library.presentationEdits}

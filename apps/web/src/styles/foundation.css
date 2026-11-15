@@ -270,8 +270,7 @@ button:disabled {
   [data-slot="sidebar-menu-button"],
   [data-slot="sidebar-menu-action"],
   [data-slot="sidebar-menu-sub-button"]
-):focus-visible,
-.score-control:focus-within {
+):focus-visible {
   border-color: transparent;
   outline: 2px solid color-mix(in srgb, var(--ring) 78%, transparent);
   outline-offset: -2px;
@@ -291,6 +290,12 @@ button:disabled {
 
 .score-control .aether-button:focus-visible {
   border-color: transparent;
-  outline: none;
+  outline: 2px solid color-mix(in srgb, var(--ring) 78%, transparent);
+  outline-offset: -3px;
   box-shadow: none;
+}
+
+.score-control .aether-button[aria-disabled="true"] {
+  pointer-events: none;
+  opacity: 0.5;
 }

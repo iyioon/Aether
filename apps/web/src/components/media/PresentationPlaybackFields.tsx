@@ -30,6 +30,7 @@ function TimeField({
   minimum,
   maximum,
   disabled,
+  formatHintId,
   onChange,
   onValidityChange
 }: {
@@ -38,10 +39,12 @@ function TimeField({
   minimum: number;
   maximum: number;
   disabled: boolean;
+  formatHintId: string;
   onChange: (value: number) => void;
   onValidityChange: (invalid: boolean) => void;
 }) {
   const id = useId();
+  const errorId = `${id}-error`;
   const [text, setText] = useState(() => formatPresentationTime(value));
   const [invalid, setInvalid] = useState(false);
   const focusedRef = useRef(false);
@@ -61,11 +64,12 @@ function TimeField({
         id={id}
         value={text}
         disabled={disabled}
-        inputMode="decimal"
+        inputMode="text"
         autoComplete="off"
         spellCheck={false}
         aria-invalid={invalid}
         aria-label={`${label} time`}
+        aria-describedby={invalid ? `${formatHintId} ${errorId}` : formatHintId}
         onFocus={() => {
           focusedRef.current = true;
         }}
@@ -89,6 +93,12 @@ function TimeField({
           }
         }}
       />
+      {invalid ? (
+        <p id={errorId} className="text-xs text-destructive">
+          Enter a time from {formatPresentationTime(minimum)} to{" "}
+          {formatPresentationTime(maximum)}.
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -123,6 +133,7 @@ export function PresentationPlaybackFields({
   const speedId = useId();
   const loopId = useId();
   const keyboardHintId = useId();
+  const timeFormatHintId = useId();
   const [startMs, endMs] = presentationRange(draft, durationMs);
   const minimum = Math.min(durationMs, MIN_HIGHLIGHT_DURATION_MS);
   const hasTimeline = durationMs > 0;
@@ -197,6 +208,7 @@ export function PresentationPlaybackFields({
             minimum={0}
             maximum={endMs - minimum}
             disabled={disabled || !hasTimeline}
+            formatHintId={timeFormatHintId}
             onChange={(start) => onRangeChange(start, endMs)}
             onValidityChange={(invalid) => onInvalidChange("start", invalid)}
           />
@@ -207,10 +219,14 @@ export function PresentationPlaybackFields({
             minimum={startMs + minimum}
             maximum={durationMs}
             disabled={disabled || !hasTimeline}
+            formatHintId={timeFormatHintId}
             onChange={(end) => onRangeChange(startMs, end)}
             onValidityChange={(invalid) => onInvalidChange("end", invalid)}
           />
         </div>
+        <p id={timeFormatHintId} className="media-editor-hint">
+          Use m:ss.sss or seconds.
+        </p>
         <div className="media-editor-columns media-editor-markers">
           <Button
             type="button"

@@ -7,6 +7,9 @@ import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import type {
   AssetListResponse,
   AssetRecord,
+  ComparisonDecisionResponse,
+  ComparisonPairResponse,
+  ComparisonSessionResumeResponse,
   PresentationValues,
   ScanJob,
   TreeResponse
@@ -31,6 +34,8 @@ const defaults: PresentationValues = {
 };
 
 interface PlaybackWindow extends Window {
+  comparisonPolicyDeniedSources: string[];
+  publishComparisonVisibilityBatch: (states: boolean[]) => number;
   viewerPlayAttempts: Array<{
     muted: boolean;
     defaultMuted: boolean;
@@ -90,21 +95,36 @@ test.beforeAll(async ({ browser }) => {
       "-y",
       first
     ]);
-    await copyFile(first, path.join(directory, "video-1.mp4"));
-    await copyFile(first, path.join(directory, "video-2.mp4"));
-    const animation = path.join(directory, "animation-0.webp");
-    await sharp(
-      Buffer.concat(
-        [32, 96, 160, 224].map((value) => Buffer.alloc(40 * 40 * 3, value))
-      ),
-      {
-        raw: { width: 40, height: 160, channels: 3, pageHeight: 40 },
-        animated: true
-      }
-    )
-      .webp({ loop: 0, delay: [400, 400, 400, 400], effort: 0 })
-      .toFile(animation);
-    await copyFile(animation, path.join(directory, "animation-1.webp"));
+    await Promise.all(
+      Array.from({ length: 5 }, (_, index) =>
+        copyFile(first, path.join(directory, `video-${index + 1}.mp4`))
+      )
+    );
+    await Promise.all(
+      Array.from({ length: 6 }, async (_, index) => {
+        const frames = [32, 96, 160, 224].map((value) => {
+          const pixels = Buffer.alloc(40 * 40 * 3);
+          for (let pixel = 0; pixel < pixels.length; pixel += 3) {
+            pixels[pixel] = value;
+            pixels[pixel + 1] = value;
+            // A distinct source colour detects an old canvas behind new labels.
+            pixels[pixel + 2] = 32 + index * 32;
+          }
+          return pixels;
+        });
+        await sharp(Buffer.concat(frames), {
+          raw: { width: 40, height: 160, channels: 3, pageHeight: 40 },
+          animated: true
+        })
+          .webp({
+            lossless: true,
+            loop: 0,
+            delay: [400, 400, 400, 400],
+            effort: 0
+          })
+          .toFile(path.join(directory, `animation-${index}.webp`));
+      })
+    );
     await scan(page);
     const tree = (await (
       await page.request.get(`${origin}/api/tree`)
@@ -115,11 +135,11 @@ test.beforeAll(async ({ browser }) => {
     assets = (
       (await (
         await page.request.get(
-          `${origin}/api/folders/${folderId}/assets?sort=filename&limit=10`
+          `${origin}/api/folders/${folderId}/assets?sort=filename&limit=20`
         )
       ).json()) as AssetListResponse
     ).items;
-    expect(assets).toHaveLength(5);
+    expect(assets).toHaveLength(12);
     storageState = await page.context().storageState();
   } finally {
     await page.close();
@@ -138,6 +158,353 @@ test.afterAll(async ({ browser }) => {
 });
 
 for (const phone of [false, true]) {
+  test(`advances decoded animation frames after each acknowledged comparison (${phone ? "phone" : "desktop"})`, async ({
+    browser
+  }) => {
+    const context = await browser.newContext({
+      storageState,
+      viewport: phone
+        ? { width: 393, height: 852 }
+        : { width: 1440, height: 980 },
+      isMobile: phone,
+      hasTouch: phone
+    });
+    try {
+      await observeComparisonVisibilityBatches(context);
+      const page = await context.newPage();
+      const animationIds = assets
+        .filter((asset) => asset.mediaType === "image")
+        .map((asset) => asset.id);
+      let plannedPairs: string[][] = [];
+      let choices = 0;
+      await page.route("**/api/comparisons", async (route) => {
+        const body = route.request().postDataJSON() as {
+          leftAssetId: string;
+          rightAssetId: string;
+        };
+        const nextPairAssetIds = plannedPairs[choices++]!;
+        expect(nextPairAssetIds).toHaveLength(2);
+        expect(
+          nextPairAssetIds.every(
+            (id) => id !== body.leftAssetId && id !== body.rightAssetId
+          )
+        ).toBe(true);
+        const response = await route.fetch({
+          postData: JSON.stringify({ ...body, nextPairAssetIds })
+        });
+        expect(response.ok()).toBe(true);
+        const result = (await response.json()) as ComparisonDecisionResponse;
+        expect(result.nextPair && pairAssetIds(result.nextPair)).toEqual(
+          nextPairAssetIds
+        );
+        await route.fulfill({ response });
+      });
+      await page.goto(
+        `${origin}/?folder=${encodeURIComponent(folderId)}&view=compare&workspace=ranking&type=image`
+      );
+      const initialPair = await pairIds(page);
+      const remaining = animationIds.filter((id) => !initialPair.includes(id));
+      expect(remaining).toHaveLength(4);
+      plannedPairs = [remaining.slice(0, 2), remaining.slice(2), initialPair];
+      await expectComparisonAnimationsAdvance(page, initialPair);
+      for (const expectedPair of plannedPairs) {
+        const acknowledgement = page.waitForResponse(
+          (response) =>
+            new URL(response.url()).pathname === "/api/comparisons" &&
+            response.request().method() === "POST" &&
+            response.ok()
+        );
+        await page.locator(".comparison-choose-surface").first().click();
+        const result = (await (
+          await acknowledgement
+        ).json()) as ComparisonDecisionResponse;
+        expect(result.nextPair && pairAssetIds(result.nextPair)).toEqual(
+          expectedPair
+        );
+        await expect.poll(() => pairIds(page)).toEqual(expectedPair);
+        await publishComparisonVisibilityBatch(page, [false, true]);
+        await expectComparisonAnimationsAdvance(page, expectedPair);
+      }
+      await publishComparisonVisibilityBatch(page, [true, false]);
+      await expect
+        .poll(() =>
+          page.locator(".comparison-card canvas").evaluateAll((nodes) =>
+            nodes.every((node) => {
+              const canvas = node as HTMLCanvasElement;
+              return canvas.width === 0 && canvas.height === 0;
+            })
+          )
+        )
+        .toBe(true);
+      await publishComparisonVisibilityBatch(page, [true]);
+      await expectComparisonAnimationsAdvance(page, plannedPairs.at(-1)!);
+      expect(choices).toBe(3);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test(`preserves authorized muted playback through choices, Skip and Undo (${phone ? "phone" : "desktop"})`, async ({
+    browser
+  }) => {
+    const context = await browser.newContext({
+      storageState,
+      viewport: phone
+        ? { width: 393, height: 852 }
+        : { width: 1440, height: 980 },
+      isMobile: phone,
+      hasTouch: phone
+    });
+    try {
+      await observeComparisonVisibilityBatches(context);
+      await context.addInitScript(() => {
+        const target = window as unknown as PlaybackWindow;
+        target.comparisonPolicyDeniedSources = [];
+        const setAttribute = HTMLMediaElement.prototype.setAttribute;
+        HTMLMediaElement.prototype.setAttribute = function (name, value) {
+          if (name.toLowerCase() !== "autoplay")
+            setAttribute.call(this, name, value);
+        };
+        const autoplay = Object.getOwnPropertyDescriptor(
+          HTMLMediaElement.prototype,
+          "autoplay"
+        )!;
+        Object.defineProperty(HTMLMediaElement.prototype, "autoplay", {
+          ...autoplay,
+          set() {
+            autoplay.set!.call(this, false);
+          }
+        });
+        // WebKit can authorize playback per native media element. A completed
+        // asynchronous choice does not grant replacement elements that permission.
+        const authorized = new Set<HTMLMediaElement>();
+        const play = HTMLMediaElement.prototype.play;
+        HTMLMediaElement.prototype.play = function () {
+          if (this.closest(".comparison-card") && !authorized.has(this)) {
+            if (authorized.size < 2) authorized.add(this);
+            else {
+              target.comparisonPolicyDeniedSources.push(this.src);
+              return Promise.reject(
+                new DOMException(
+                  "This media element is not authorized to autoplay",
+                  "NotAllowedError"
+                )
+              );
+            }
+          }
+          return play.call(this);
+        };
+      });
+      const page = await context.newPage();
+      const videoIds = assets
+        .filter((asset) => asset.mediaType === "video")
+        .map((asset) => asset.id);
+      let plannedPairs: string[][] = [];
+      let choices = 0;
+      await page.route("**/api/comparisons", async (route) => {
+        const body = route.request().postDataJSON() as {
+          leftAssetId: string;
+          rightAssetId: string;
+          mutationId: string;
+          comparisonGeneration: string;
+        };
+        const nextPairAssetIds = plannedPairs[choices++]!;
+        expect(nextPairAssetIds).toHaveLength(2);
+        expect(
+          nextPairAssetIds.every(
+            (id) => id !== body.leftAssetId && id !== body.rightAssetId
+          )
+        ).toBe(true);
+        // Keep the real mutation identifier and generation. The server validates
+        // these deterministic next-pair candidates and returns hydrated records.
+        const response = await route.fetch({
+          postData: JSON.stringify({ ...body, nextPairAssetIds })
+        });
+        expect(response.ok()).toBe(true);
+        const result = (await response.json()) as ComparisonDecisionResponse;
+        expect(result.nextPair && pairAssetIds(result.nextPair)).toEqual(
+          nextPairAssetIds
+        );
+        await route.fulfill({ response });
+      });
+      await page.goto(
+        `${origin}/?folder=${encodeURIComponent(folderId)}&view=compare&workspace=ranking&type=video`
+      );
+      const initialPair = await pairIds(page);
+      const remaining = videoIds.filter((id) => !initialPair.includes(id));
+      expect(remaining).toHaveLength(4);
+      plannedPairs = [remaining.slice(0, 2), remaining.slice(2), initialPair];
+      await expectComparisonPlaying(page);
+      await expectComparisonFramesAdvance(page);
+      const retainedVideos = await page
+        .locator(".comparison-card video")
+        .elementHandles();
+      const expectRetainedVideos = async () => {
+        expect(
+          await Promise.all(
+            retainedVideos.map((video, index) =>
+              video.evaluate(
+                (node, slot) =>
+                  node ===
+                  document.querySelectorAll(".comparison-card video")[slot],
+                index
+              )
+            )
+          )
+        ).toEqual([true, true]);
+      };
+      let lastVotedPair = initialPair;
+      for (const expectedPair of plannedPairs) {
+        lastVotedPair = await pairIds(page);
+        const acknowledgement = page.waitForResponse(
+          (response) =>
+            new URL(response.url()).pathname === "/api/comparisons" &&
+            response.request().method() === "POST" &&
+            response.ok()
+        );
+        await page.locator(".comparison-choose-surface").first().click();
+        const result = (await (
+          await acknowledgement
+        ).json()) as ComparisonDecisionResponse;
+        expect(result.nextPair && pairAssetIds(result.nextPair)).toEqual(
+          expectedPair
+        );
+        await expect.poll(() => pairIds(page)).toEqual(expectedPair);
+        await publishComparisonVisibilityBatch(page, [false, true]);
+        await expectComparisonPlaying(page);
+        await expectComparisonFramesAdvance(page);
+        await expectRetainedVideos();
+      }
+      const expectedSkipPair = plannedPairs[0]!;
+      expect(
+        expectedSkipPair.every(
+          (id) => !initialPair.includes(id) && !lastVotedPair.includes(id)
+        )
+      ).toBe(true);
+      let overrideSkip = true;
+      const csrfToken = (await context.cookies()).find(
+        (cookie) => cookie.name === "aether_csrf"
+      )!.value;
+      await page.route(
+        /\/comparisons\/(?:resume|next)(?:\?|$)/,
+        async (route) => {
+          if (!overrideSkip) {
+            await route.continue();
+            return;
+          }
+          overrideSkip = false;
+          const wasResume = route.request().method() === "POST";
+          const body = wasResume
+            ? (route.request().postDataJSON() as Record<string, unknown>)
+            : {
+                type: "video",
+                recursive: true,
+                search: "",
+                tags: [],
+                score: "all",
+                previousDecision: null
+              };
+          // Validate the deterministic candidate through the real resume endpoint.
+          // Preserve the caller's previous decision when Skip uses a prepared pair.
+          const response = await route.fetch({
+            url: `${origin}/api/folders/${encodeURIComponent(folderId)}/comparisons/resume`,
+            method: "POST",
+            headers: {
+              ...route.request().headers(),
+              "content-type": "application/json",
+              "x-csrf-token": csrfToken
+            },
+            postData: JSON.stringify({
+              ...body,
+              pairAssetIds: expectedSkipPair
+            })
+          });
+          expect(response.ok()).toBe(true);
+          const validated =
+            (await response.json()) as ComparisonSessionResumeResponse;
+          expect(validated.pair && pairAssetIds(validated.pair)).toEqual(
+            expectedSkipPair
+          );
+          await route.fulfill({
+            response,
+            json: wasResume ? validated : validated.pair
+          });
+        }
+      );
+      const skippedPairResponse = page.waitForResponse(
+        (response) =>
+          /\/comparisons\/(?:resume|next)$/.test(
+            new URL(response.url()).pathname
+          ) && response.ok()
+      );
+      await page.getByRole("button", { name: "Skip this pair" }).click();
+      const skipped = (await (await skippedPairResponse).json()) as
+        ComparisonSessionResumeResponse | ComparisonPairResponse;
+      const skippedPair = "pair" in skipped ? skipped.pair : skipped;
+      expect(skippedPair).toBeTruthy();
+      expect(skippedPair && pairAssetIds(skippedPair)).toEqual(
+        expectedSkipPair
+      );
+      await expect
+        .poll(() => pairIds(page))
+        .toEqual(pairAssetIds(skippedPair!));
+      await publishComparisonVisibilityBatch(page, [false, true]);
+      await expectComparisonPlaying(page);
+      await expectComparisonFramesAdvance(page);
+      await expectRetainedVideos();
+
+      const undoAcknowledgement = page.waitForResponse(
+        (response) =>
+          /\/api\/comparisons\/[^/]+\/undo$/.test(
+            new URL(response.url()).pathname
+          ) && response.ok()
+      );
+      const restoredPairResponse = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname.endsWith("/comparisons/resume") &&
+          response.ok()
+      );
+      await page.getByRole("button", { name: "Undo last choice" }).click();
+      await undoAcknowledgement;
+      const restored = (await (
+        await restoredPairResponse
+      ).json()) as ComparisonSessionResumeResponse;
+      expect(restored.pair && pairAssetIds(restored.pair)).toEqual(
+        lastVotedPair
+      );
+      await expect.poll(() => pairIds(page)).toEqual(lastVotedPair);
+      await publishComparisonVisibilityBatch(page, [false, true]);
+      await expectComparisonPlaying(page);
+      await expectComparisonFramesAdvance(page);
+      await expectRetainedVideos();
+      await publishComparisonVisibilityBatch(page, [true, false]);
+      await expect
+        .poll(() =>
+          page.locator(".comparison-card video").evaluateAll((nodes) =>
+            nodes.every((node) => {
+              const video = node as HTMLVideoElement;
+              return video.paused && video.getAttribute("src") === null;
+            })
+          )
+        )
+        .toBe(true);
+      await publishComparisonVisibilityBatch(page, [true]);
+      await expectComparisonPlaying(page);
+      await expectComparisonFramesAdvance(page);
+      await expectRetainedVideos();
+      expect(choices).toBe(3);
+      expect(
+        await page.evaluate(
+          () =>
+            (window as unknown as PlaybackWindow).comparisonPolicyDeniedSources
+        )
+      ).toEqual([]);
+      for (const video of retainedVideos) await video.dispose();
+    } finally {
+      await context.close();
+    }
+  });
+
   test(`recovers muted inline comparison autoplay after interrupted loading and foreground suspension (${phone ? "phone" : "desktop"})`, async ({
     browser
   }) => {
@@ -269,8 +636,8 @@ for (const phone of [false, true]) {
       await expect(
         page.getByRole("button", { name: "Undo last choice", exact: true })
       ).toBeEnabled();
-      await expectComparisonPlaying(page);
       await expect.poll(() => pairIds(page)).not.toEqual(originalPair);
+      await expectComparisonPlaying(page);
       const nextPair = await pairIds(page);
       await page.screenshot({
         path: test
@@ -731,8 +1098,97 @@ async function pairIds(page: Page) {
   const cards = page.locator(".comparison-card[data-asset-id]");
   await expect(cards).toHaveCount(2);
   return cards.evaluateAll((elements) =>
-    elements.map((element) => element.getAttribute("data-asset-id"))
+    elements.map((element) => element.getAttribute("data-asset-id")!)
   );
+}
+
+function pairAssetIds(pair: ComparisonPairResponse): string[] {
+  return [pair.left.id, pair.right.id];
+}
+
+async function observeComparisonVisibilityBatches(context: BrowserContext) {
+  await context.addInitScript(() => {
+    const observers = new Set<ComparisonIntersectionObserver>();
+    const NativeIntersectionObserver = window.IntersectionObserver;
+    class ComparisonIntersectionObserver extends NativeIntersectionObserver {
+      readonly observedTargets = new Set<Element>();
+      readonly callback: IntersectionObserverCallback;
+
+      constructor(
+        callback: IntersectionObserverCallback,
+        options?: IntersectionObserverInit
+      ) {
+        super(callback, options);
+        this.callback = callback;
+      }
+
+      observe(target: Element) {
+        this.observedTargets.add(target);
+        observers.add(this);
+        super.observe(target);
+      }
+
+      unobserve(target: Element) {
+        this.observedTargets.delete(target);
+        super.unobserve(target);
+      }
+
+      disconnect() {
+        this.observedTargets.clear();
+        observers.delete(this);
+        super.disconnect();
+      }
+    }
+    window.IntersectionObserver = ComparisonIntersectionObserver;
+    const target = window as unknown as PlaybackWindow;
+    target.publishComparisonVisibilityBatch = (states) => {
+      let published = 0;
+      for (const observer of observers) {
+        for (const surface of observer.observedTargets) {
+          if (
+            !surface.isConnected ||
+            !surface.closest(".comparison-card") ||
+            !surface.matches(".media-image-shell, .media-video-shell")
+          )
+            continue;
+          // Retain native observation, while draining an older queued delivery
+          // before publishing a valid chronological batch for this same target.
+          observer.takeRecords();
+          const bounds = surface.getBoundingClientRect();
+          const rootBounds = new DOMRectReadOnly(0, 0, innerWidth, innerHeight);
+          const time = performance.now() - states.length;
+          observer.callback(
+            states.map((visible, index): IntersectionObserverEntry => ({
+              target: surface,
+              time: time + index,
+              rootBounds,
+              boundingClientRect: bounds,
+              intersectionRect: visible
+                ? bounds
+                : new DOMRectReadOnly(bounds.x, bounds.y, 0, 0),
+              intersectionRatio: visible ? 1 : 0,
+              isIntersecting: visible
+            })),
+            observer
+          );
+          published += 1;
+        }
+      }
+      return published;
+    };
+  });
+}
+
+async function publishComparisonVisibilityBatch(page: Page, states: boolean[]) {
+  expect(
+    await page.evaluate(
+      (batch) =>
+        (window as unknown as PlaybackWindow).publishComparisonVisibilityBatch(
+          batch
+        ),
+      states
+    )
+  ).toBe(2);
 }
 
 async function expectComparisonPlaying(page: Page) {
@@ -745,7 +1201,13 @@ async function expectComparisonPlaying(page: Page) {
           const video = node as HTMLVideoElement;
           const box = video.getBoundingClientRect();
           const style = getComputedStyle(video);
+          const assetId = video
+            .closest(".comparison-card")
+            ?.getAttribute("data-asset-id");
           return (
+            Boolean(video.currentSrc) &&
+            new URL(video.currentSrc).pathname ===
+              `/api/assets/${assetId}/media` &&
             video.readyState >= 2 &&
             !video.paused &&
             video.currentTime > 0 &&
@@ -767,6 +1229,93 @@ async function expectComparisonPlaying(page: Page) {
       )
     )
     .toBe(true);
+}
+
+async function expectComparisonAnimationsAdvance(
+  page: Page,
+  expectedPair: string[]
+) {
+  const canvases = page.locator(".comparison-card canvas");
+  await expect(canvases).toHaveCount(2);
+  await expect(
+    page.locator(".comparison-card .media-image-shell.animation-ready")
+  ).toHaveCount(2);
+  const expectedBlue = expectedPair.map((id) => {
+    const asset = assets.find((candidate) => candidate.id === id)!;
+    return 32 + Number(/^animation-(\d+)\.webp$/.exec(asset.name)![1]) * 32;
+  });
+  const seen = [new Set<number>(), new Set<number>()];
+  await expect
+    .poll(
+      async () => {
+        const pixels = await canvases.evaluateAll((nodes) =>
+          nodes.map((node) => {
+            const canvas = node as HTMLCanvasElement;
+            const pixel = canvas
+              .getContext("2d")
+              ?.getImageData(0, 0, 1, 1).data;
+            return canvas.width === 40 &&
+              canvas.height === 40 &&
+              getComputedStyle(canvas).opacity === "1" &&
+              pixel
+              ? { red: pixel[0], blue: pixel[2] }
+              : null;
+          })
+        );
+        return pixels.map((pixel, index) => {
+          if (!pixel || pixel.blue !== expectedBlue[index]) return false;
+          seen[index]!.add(pixel.red);
+          return seen[index]!.size >= 3;
+        });
+      },
+      { intervals: [50], timeout: 10_000 }
+    )
+    .toEqual([true, true]);
+}
+
+async function expectComparisonFramesAdvance(page: Page) {
+  const videos = page.locator(".comparison-card video");
+  await expect(
+    page.locator(".comparison-card .media-video-shell.ready")
+  ).toHaveCount(2);
+  const advancing = await videos.evaluateAll((nodes) =>
+    Promise.all(
+      nodes.map(
+        (node) =>
+          new Promise<boolean>((resolve) => {
+            const video = node as HTMLVideoElement;
+            const source = video.currentSrc;
+            let firstTime: number | null = null;
+            let frameId: number | null = null;
+            const timeoutId = window.setTimeout(() => finish(false), 4_000);
+            function finish(success: boolean) {
+              window.clearTimeout(timeoutId);
+              if (frameId !== null) video.cancelVideoFrameCallback(frameId);
+              resolve(success);
+            }
+            function frame(_now: number, metadata: VideoFrameCallbackMetadata) {
+              frameId = null;
+              if (
+                !video.isConnected ||
+                video.paused ||
+                video.currentSrc !== source
+              ) {
+                finish(false);
+                return;
+              }
+              if (firstTime !== null && metadata.mediaTime !== firstTime) {
+                finish(true);
+                return;
+              }
+              firstTime = metadata.mediaTime;
+              frameId = video.requestVideoFrameCallback(frame);
+            }
+            frameId = video.requestVideoFrameCallback(frame);
+          })
+      )
+    )
+  );
+  expect(advancing).toEqual([true, true]);
 }
 
 async function setPresentation(

@@ -37,6 +37,16 @@
   pointer-events: none;
 }
 
+.library-inset.has-library-error > .feed-view-controls {
+  position: relative;
+  top: auto;
+  right: auto;
+  flex-shrink: 0;
+  align-self: flex-end;
+  margin: calc(12px + env(safe-area-inset-top))
+    calc(12px + env(safe-area-inset-right)) 12px;
+}
+
 .feed-view-controls .control-selection-trigger {
   display: none;
 }
@@ -44,6 +54,10 @@
 @media (prefers-reduced-motion: reduce) {
   .feed-view-controls {
     transition: none;
+  }
+
+  .feed-shell .feed-view {
+    scroll-behavior: auto;
   }
 }
 
@@ -75,7 +89,7 @@
   scroll-snap-type: y mandatory;
   scroll-behavior: smooth;
   scrollbar-width: none;
-  touch-action: pan-y;
+  touch-action: pan-y pinch-zoom;
   background: inherit;
 }
 

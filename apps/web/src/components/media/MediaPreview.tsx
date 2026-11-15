@@ -190,6 +190,29 @@ export const MediaPreview = memo(function MediaPreview({
   const [readyAnimationKey, setReadyAnimationKey] = useState<string | null>(
     null
   );
+  const assetIdentity = `${asset.id}:${asset.mtimeMs}:${asset.sizeBytes}`;
+  const [stateAssetIdentity, setStateAssetIdentity] = useState(assetIdentity);
+  if (stateAssetIdentity !== assetIdentity) {
+    // Reset source-owned state before publishing a new source on the same player.
+    setStateAssetIdentity(assetIdentity);
+    setHasError(false);
+    setAnimatedImageFailed(false);
+    setOriginalImageFailed(false);
+    setOriginalVideoFailed(false);
+    setVideoPreviewFailed(false);
+    setVideoPlaybackFailed(false);
+    setBlockedVideoSource(null);
+    setReadyVideoSource(null);
+    setIsVideoHoldPaused(false);
+    setIsVideoUserPaused(false);
+    setIsVideoResumePaused(false);
+    setLoadedVideoPosterSource(null);
+    setFailedVideoPosterSource(null);
+    setLoadedImageSource(null);
+    setLoadedThumbnailSource(null);
+    setFailedThumbnailSource(null);
+    setReadyAnimationKey(null);
+  }
   const animationCandidate =
     asset.mediaType === "image" &&
     /\.(gif|webp|apng|png|avif)$/i.test(asset.name);
@@ -346,6 +369,17 @@ export const MediaPreview = memo(function MediaPreview({
     (loadedVideoPosterSource === posterSource ||
       isMediaImageReady(posterSource));
 
+  const isCurrentVideo = useCallback((video: HTMLVideoElement) => {
+    const source = videoSourceRef.current;
+    return (
+      videoRef.current === video &&
+      Boolean(source) &&
+      video.getAttribute("src") === source &&
+      (!video.currentSrc ||
+        video.currentSrc === new URL(source, video.ownerDocument.baseURI).href)
+    );
+  }, []);
+
   const playVisibleVideo = useCallback(
     (requestedMuted = muted) => {
       if (!shouldAutoplayVideoRef.current) {
@@ -354,7 +388,7 @@ export const MediaPreview = memo(function MediaPreview({
 
       const video = videoRef.current;
 
-      if (!video || video.getAttribute("src") !== videoSourceRef.current) {
+      if (!video || !isCurrentVideo(video)) {
         return;
       }
 
@@ -417,7 +451,13 @@ export const MediaPreview = memo(function MediaPreview({
             });
         });
     },
-    [muted, variant, onAudibleAutoplayBlocked, onAudiblePlaybackStarted]
+    [
+      isCurrentVideo,
+      muted,
+      variant,
+      onAudibleAutoplayBlocked,
+      onAudiblePlaybackStarted
+    ]
   );
 
   const cancelPendingVideoReveal = useCallback(() => {
@@ -427,6 +467,12 @@ export const MediaPreview = memo(function MediaPreview({
 
   const revealVideoAfterPresentedFrame = useCallback(
     (video: HTMLVideoElement) => {
+      if (
+        !isCurrentVideo(video) ||
+        videoSourceRef.current !== videoSource ||
+        video.getAttribute("src") !== videoSource
+      )
+        return;
       cancelPendingVideoReveal();
       const requestSequence = videoFrameRequestSequenceRef.current + 1;
       videoFrameRequestSequenceRef.current = requestSequence;
@@ -435,7 +481,8 @@ export const MediaPreview = memo(function MediaPreview({
         cancelVideoRevealRef.current = null;
         if (
           videoFrameRequestSequenceRef.current === requestSequence &&
-          videoRef.current === video
+          videoRef.current === video &&
+          videoSourceRef.current === videoSource
         ) {
           setReadyVideoSource(videoSource);
         }
@@ -443,7 +490,7 @@ export const MediaPreview = memo(function MediaPreview({
 
       cancelVideoRevealRef.current = requestPresentedVideoFrame(video, reveal);
     },
-    [cancelPendingVideoReveal, videoSource]
+    [cancelPendingVideoReveal, isCurrentVideo, videoSource]
   );
 
   useEffect(
@@ -483,29 +530,18 @@ export const MediaPreview = memo(function MediaPreview({
     setBlockedVideoSource(null);
   }, [cancelPendingVideoReveal, videoSource]);
 
-  useEffect(() => {
-    setHasError(false);
-    setAnimatedImageFailed(false);
-    setOriginalImageFailed(false);
-    setOriginalVideoFailed(false);
-    setVideoPreviewFailed(false);
-    setVideoPlaybackFailed(false);
-    setBlockedVideoSource(null);
-    setIsVisible(false);
-    setReadyVideoSource(null);
-    setIsVideoHoldPaused(false);
-    setIsVideoUserPaused(false);
+  useLayoutEffect(() => {
+    if (holdTimerRef.current !== null) {
+      window.clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+    holdTriggeredRef.current = false;
     userPausedRef.current = false;
-    setIsVideoResumePaused(false);
-    setLoadedVideoPosterSource(null);
-    setFailedVideoPosterSource(null);
-    setLoadedImageSource(null);
-    setLoadedThumbnailSource(null);
-    setFailedThumbnailSource(null);
-    setReadyAnimationKey(null);
+    feedResumePositionRef.current = null;
     cancelPendingVideoReveal();
+    videoPlaybackRequestSequenceRef.current += 1;
     videoFrameRequestSequenceRef.current += 1;
-  }, [asset.id, asset.mtimeMs, asset.sizeBytes, cancelPendingVideoReveal]);
+  }, [assetIdentity, cancelPendingVideoReveal]);
 
   useEffect(() => {
     if (!isActive) {
@@ -576,7 +612,7 @@ export const MediaPreview = memo(function MediaPreview({
       surfaceRef.current ??
       (asset.mediaType === "video" ? videoRef.current : imageRef.current);
     const video = videoRef.current;
-    const key = `${asset.id}:${asset.mtimeMs}:${asset.sizeBytes}:${asset.mediaType}:${animationCandidate}:${staticPreview}`;
+    const key = asset.mediaType;
     const binding = visibilityBindingRef.current;
     if (
       binding?.element === previewElement &&
@@ -600,13 +636,13 @@ export const MediaPreview = memo(function MediaPreview({
     let active = true;
     const observer = new IntersectionObserver(
       (entries) => {
-        const firstEntry = entries[0];
+        const latestEntry = entries.at(-1);
 
-        if (!active || !firstEntry) {
+        if (!active || !latestEntry) {
           return;
         }
 
-        publishVisibility(firstEntry.isIntersecting);
+        publishVisibility(latestEntry.isIntersecting);
       },
       asset.mediaType === "video"
         ? { threshold: 0.45 }
@@ -1123,7 +1159,8 @@ export const MediaPreview = memo(function MediaPreview({
             onError={(event) => {
               if (
                 !event.currentTarget.isConnected ||
-                imageRef.current !== event.currentTarget
+                imageRef.current !== event.currentTarget ||
+                event.currentTarget.getAttribute("src") !== previewSource
               )
                 return;
               if (useOriginalImage && !originalImageFailed) {
@@ -1244,12 +1281,14 @@ export const MediaPreview = memo(function MediaPreview({
                 : "metadata"
               : "none"
           }
-          onLoadStart={() => {
+          onLoadStart={(event) => {
+            if (!isCurrentVideo(event.currentTarget)) return;
             cancelPendingVideoReveal();
             videoFrameRequestSequenceRef.current += 1;
             setReadyVideoSource(null);
           }}
           onLoadedMetadata={(event) => {
+            if (!isCurrentVideo(event.currentTarget)) return;
             onDimensionsKnown?.(
               asset.id,
               event.currentTarget.videoWidth,
@@ -1259,6 +1298,7 @@ export const MediaPreview = memo(function MediaPreview({
               playVisibleVideo();
           }}
           onLoadedData={(event) => {
+            if (!isCurrentVideo(event.currentTarget)) return;
             if (
               isVideoPlaybackVisible &&
               !isPageHidden &&
@@ -1272,7 +1312,7 @@ export const MediaPreview = memo(function MediaPreview({
           onPlaying={(event) => {
             if (
               shouldAutoplayVideo &&
-              videoRef.current === event.currentTarget &&
+              isCurrentVideo(event.currentTarget) &&
               videoSourceRef.current === videoSource
             ) {
               setBlockedVideoSource(null);
@@ -1280,11 +1320,15 @@ export const MediaPreview = memo(function MediaPreview({
             }
           }}
           onCanPlay={(event) => {
-            if (shouldAutoplayVideo && event.currentTarget.paused)
+            if (
+              isCurrentVideo(event.currentTarget) &&
+              shouldAutoplayVideo &&
+              event.currentTarget.paused
+            )
               playVisibleVideo();
           }}
           onSeeked={(event) => {
-            if (isVideoPlaybackAllowed) {
+            if (isCurrentVideo(event.currentTarget) && isVideoPlaybackAllowed) {
               revealVideoAfterPresentedFrame(event.currentTarget);
             }
           }}
@@ -1292,7 +1336,7 @@ export const MediaPreview = memo(function MediaPreview({
             const video = event.currentTarget;
             if (
               !video.isConnected ||
-              videoRef.current !== video ||
+              !isCurrentVideo(video) ||
               video.getAttribute("src") !== videoSource
             )
               return;
@@ -1302,7 +1346,8 @@ export const MediaPreview = memo(function MediaPreview({
             setVideoPlaybackFailed(true);
             playbackFailure.diagnose(video, (failure) => {
               if (
-                videoRef.current !== video ||
+                !isCurrentVideo(video) ||
+                videoSourceRef.current !== videoSource ||
                 !video.isConnected ||
                 !canFallbackFromVideoFailure(failure)
               )

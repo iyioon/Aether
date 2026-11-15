@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowUp, Heart, Minus, Plus } from "lucide-react";
 import { usePressRepeat } from "../hooks/usePressRepeat";
 import { Button } from "./ui/button";
@@ -35,6 +35,8 @@ export function MediaScoreControl({
   const [previewValue, setPreviewValue] = useState<number | undefined>();
   const previewValueRef = useRef<number | undefined>(undefined);
   const scoreGroupRef = useRef<HTMLDivElement | null>(null);
+  const increaseRef = useRef<HTMLButtonElement>(null);
+  const decreaseRef = useRef<HTMLButtonElement>(null);
   const wasDisabledRef = useRef(disabled);
   const displayedValue = previewValue ?? value;
 
@@ -48,7 +50,7 @@ export function MediaScoreControl({
   function commitPreview() {
     const next = previewValueRef.current;
 
-    if (next === undefined) {
+    if (disabled || next === undefined) {
       return;
     }
 
@@ -82,6 +84,15 @@ export function MediaScoreControl({
 
     wasDisabledRef.current = disabled;
   }, [disabled]);
+
+  useLayoutEffect(() => {
+    if (
+      !editor &&
+      value === 0 &&
+      document.activeElement === decreaseRef.current
+    )
+      increaseRef.current?.focus({ preventScroll: true });
+  }, [editor, value]);
 
   if (editor) {
     const numeric = /^\d+$/.test(editor.value)
@@ -141,6 +152,7 @@ export function MediaScoreControl({
       role="group"
     >
       <Button
+        ref={increaseRef}
         className={
           isVertical
             ? "feed-score-increase h-12 w-10 touch-manipulation flex-col gap-0.5 rounded-none px-0 font-semibold tabular-nums select-none focus-visible:border-transparent focus-visible:ring-0"
@@ -150,7 +162,7 @@ export function MediaScoreControl({
         size="xs"
         variant="ghost"
         aria-label={`Increase score for ${mediaName}. Current score: ${displayedValue}`}
-        disabled={disabled}
+        aria-disabled={disabled}
         title="Hold to increase faster"
         {...increasePress}
       >
@@ -160,6 +172,7 @@ export function MediaScoreControl({
       </Button>
 
       <Button
+        ref={decreaseRef}
         className={[
           isVertical
             ? "feed-score-decrement h-8 w-10 touch-manipulation rounded-none px-0 select-none focus-visible:border-transparent focus-visible:ring-0"
@@ -175,7 +188,8 @@ export function MediaScoreControl({
         size="icon-xs"
         variant="ghost"
         aria-label={`Decrease score for ${mediaName}`}
-        disabled={disabled || value === 0}
+        aria-disabled={disabled || value === 0}
+        tabIndex={value === 0 ? -1 : undefined}
         {...decreasePress}
       >
         <Minus />

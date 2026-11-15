@@ -1,5 +1,36 @@
 import type { FileOperation, FileOperationItem } from "../../api/client";
 
+type ActivityEntry = {
+  operation?: Pick<FileOperation, "status" | "createdAt">;
+  transfer?: { state: string; createdAt?: string };
+};
+
+export function activityCreatedAt(entry: ActivityEntry): string | undefined {
+  return entry.transfer?.createdAt ?? entry.operation?.createdAt;
+}
+
+function creationTimestamp(value: string | undefined): number {
+  const timestamp = Date.parse(value ?? "");
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+export function compareActivityEntries(
+  left: ActivityEntry,
+  right: ActivityEntry
+): number {
+  const active = (entry: ActivityEntry) =>
+    entry.operation
+      ? ["queued", "running", "needs_attention"].includes(
+          entry.operation.status
+        )
+      : Boolean(entry.transfer && !isUploadTerminalState(entry.transfer.state));
+  return (
+    Number(active(right)) - Number(active(left)) ||
+    creationTimestamp(activityCreatedAt(right)) -
+      creationTimestamp(activityCreatedAt(left))
+  );
+}
+
 const terminalUploadStates = new Set([
   "completed",
   "failed",
@@ -12,13 +43,17 @@ export function isUploadTerminalState(state: string): boolean {
 }
 
 /** Keep unfinished uploads visible when recent results fill the Activity limit. */
-export function prioritizeUploadTransfers<T extends { state: string }>(
-  transfers: T[]
-): T[] {
+export function prioritizeUploadTransfers<
+  T extends { state: string; createdAt?: string }
+>(transfers: T[]): T[] {
   const active: T[] = [];
   const recent: T[] = [];
   for (const transfer of transfers)
     (isUploadTerminalState(transfer.state) ? recent : active).push(transfer);
+  recent.sort(
+    (left, right) =>
+      creationTimestamp(right.createdAt) - creationTimestamp(left.createdAt)
+  );
   return [...active, ...recent].slice(0, 100);
 }
 

@@ -33,9 +33,13 @@ export function ComparisonSessionFooter({
 
   return (
     <footer className="comparison-session-footer">
-      <div className="comparison-progress" aria-label="Comparison coverage">
+      <div className="comparison-progress">
         <div className="comparison-progress-track">
-          <Progress value={comparedPercent} />
+          <Progress
+            value={comparedPercent}
+            aria-label="Comparison coverage"
+            aria-valuetext={`${progress.comparedCount} of ${progress.candidateCount} items compared`}
+          />
           <span className="comparison-progress-mobile-count">
             {progress.comparedCount}/{progress.candidateCount}
           </span>

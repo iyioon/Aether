@@ -258,7 +258,7 @@ export function LibrarySidebar({
                         ? `${activityCount} operations in progress or needing attention`
                         : undefined
                     }
-                    aria-haspopup="dialog"
+                    aria-current={isActivityOpen ? "page" : undefined}
                     onSelect={() => {
                       pendingAccountActionRef.current = onOpenActivity;
                     }}

@@ -5,7 +5,7 @@ import { MediaPreview } from "../media/MediaPreview";
 import { formatSignedScore } from "../media/score-format";
 import { Card, CardContent } from "../ui/card";
 import { Button } from "../ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import type { AspectMode } from "../library-state";
 import {
   galleryAspectRatio,
@@ -64,7 +64,6 @@ export function ComparisonCard({
     >
       <CardContent className="comparison-media">
         <MediaPreview
-          key={asset.id}
           asset={asset}
           onDimensionsKnown={onMediaDimensionsKnown}
           playbackPaused={playbackPaused || disabled}
@@ -109,18 +108,25 @@ export function ComparisonCard({
 
 function ComparisonScore({ asset }: { asset: AssetRecord }) {
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
+    <Popover key={asset.id} modal>
+      <PopoverTrigger asChild>
         <button
           type="button"
           className="comparison-score"
           aria-label={`Final score ${asset.score}. Show score breakdown.`}
+          title="Score breakdown"
         >
           <span className="sr-only">Score</span>
           <strong>{asset.score}</strong>
         </button>
-      </TooltipTrigger>
-      <TooltipContent className="comparison-score-tooltip" sideOffset={6}>
+      </PopoverTrigger>
+      <PopoverContent
+        className="comparison-score-details w-auto text-sm"
+        side="top"
+        align="end"
+        sideOffset={6}
+        aria-label="Score breakdown"
+      >
         {asset.ranking ? (
           <>
             <span>
@@ -144,7 +150,7 @@ function ComparisonScore({ asset }: { asset: AssetRecord }) {
             </span>
           </>
         )}
-      </TooltipContent>
-    </Tooltip>
+      </PopoverContent>
+    </Popover>
   );
 }

@@ -16,16 +16,22 @@ export function SecuritySettingsSection({
       icon={LockKeyhole}
       title="Security"
       value={
-        settings?.security.passwordConfigured
-          ? "Password protected"
-          : "Password missing"
+        settings
+          ? settings.security.passwordConfigured
+            ? "Password protected"
+            : "Password missing"
+          : undefined
       }
     >
       <SummaryList
         items={[
           [
             "Password",
-            settings?.security.passwordConfigured ? "Configured" : "Missing"
+            settings
+              ? settings.security.passwordConfigured
+                ? "Configured"
+                : "Missing"
+              : "—"
           ],
           [
             "Session",
@@ -59,13 +65,16 @@ export function ServerStatusSettingsSection({
     <SettingsSection
       icon={ServerCog}
       title="Server"
-      value={settings?.server.environment ?? "Loading"}
+      value={settings?.server.environment}
     >
       <SummaryList
         items={[
           ["Environment", settings?.server.environment ?? "-"],
-          ["Version", settings?.server.version ?? "0.1.0"],
-          ["Media roots", String(settings?.library.mediaRootCount ?? 0)],
+          ["Version", settings?.server.version ?? "—"],
+          [
+            "Media roots",
+            settings ? String(settings.library.mediaRootCount) : "—"
+          ],
           [
             "Writable roots",
             mediaRoots.length
@@ -74,7 +83,7 @@ export function ServerStatusSettingsSection({
                 ? "0"
                 : "—"
           ],
-          ["Watcher", settings?.library.watchEnabled ? "Enabled" : "Disabled"],
+          ["Watcher", boolLabel(settings?.library.watchEnabled)],
           [
             "Debounce",
             settings ? `${settings.library.watchDebounceMs} ms` : "-"
@@ -105,7 +114,13 @@ export function AiSettingsSection({ settings }: ServerSettingsSectionsProps) {
     <SettingsSection
       icon={Sparkles}
       title="Tag suggestions"
-      value={settings?.ai.enabled ? settings.ai.provider : "Disabled"}
+      value={
+        settings
+          ? settings.ai.enabled
+            ? settings.ai.provider
+            : "Disabled"
+          : undefined
+      }
     >
       <SummaryList
         items={[

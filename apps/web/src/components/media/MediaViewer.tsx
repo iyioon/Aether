@@ -1255,6 +1255,7 @@ export function MediaViewer({
                 type="button"
                 variant="outline"
                 aria-label={`More options for ${asset.name}`}
+                title="More options"
               >
                 <MoreHorizontal />
               </Button>
@@ -1340,6 +1341,7 @@ export function MediaViewer({
             type="button"
             variant="outline"
             aria-label={`Show info for ${asset.name}`}
+            title="Show info"
             aria-pressed={isInfoOpen}
             onClick={toggleInfo}
           >
@@ -1352,6 +1354,7 @@ export function MediaViewer({
               type="button"
               variant="outline"
               aria-label="Close viewer"
+              title="Close viewer"
             >
               <X />
             </Button>
@@ -1365,6 +1368,7 @@ export function MediaViewer({
             type="button"
             variant="outline"
             aria-label="Previous media"
+            title="Previous media"
             onClick={() => navigateAndPlayViewerVideo(-1)}
           >
             <ChevronLeft />
@@ -1763,6 +1767,7 @@ export function MediaViewer({
             type="button"
             variant="outline"
             aria-label="Next media"
+            title="Next media"
             onClick={() => navigateAndPlayViewerVideo(1)}
           >
             <ChevronRight />

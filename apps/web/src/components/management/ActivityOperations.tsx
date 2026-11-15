@@ -92,12 +92,14 @@ function conflictRetryInstruction(operation: FileOperation): string | null {
 export function ActivityOperation({
   operation,
   primaryName,
+  createdAt,
   children,
   onOperation,
   onRetry
 }: {
   operation: FileOperation;
   primaryName?: string;
+  createdAt?: string;
   children?: ReactNode;
   onOperation: (operation: FileOperation, notify: boolean) => void;
   onRetry: (operation: FileOperation) => Promise<FileOperation>;
@@ -162,7 +164,7 @@ export function ActivityOperation({
         </div>
         <p className="activity-item-meta">
           <span>{operationTitle(operation.type)}</span>
-          <ActivityTime value={operation.createdAt} />
+          <ActivityTime value={createdAt ?? operation.createdAt} />
         </p>
         {activityProgressLabel(operation) ? (
           <p className="activity-item-summary">

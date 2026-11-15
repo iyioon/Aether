@@ -50,6 +50,7 @@ export interface Transfer extends UploadProgress {
   error?: string;
   id?: string;
   operationId: string;
+  createdAt: string;
   file?: File;
   folderId?: string;
   expectedParentVersion?: string;
@@ -178,6 +179,7 @@ export function useMediaUploads({
         return {
           ...transfer,
           id: record.id,
+          createdAt: record.createdAt ?? transfer.createdAt,
           record,
           error: terminal
             ? record.status === "failed"
@@ -208,6 +210,7 @@ export function useMediaUploads({
             key: record.id,
             id: record.id,
             operationId: record.operationId ?? record.requestId ?? "",
+            createdAt: record.createdAt,
             name: record.name ?? "Incomplete upload",
             size: record.size,
             accepted: record.offset,
@@ -291,11 +294,20 @@ export function useMediaUploads({
             (entry) => entry.requestId === transfer.operationId
           );
           if (existing) {
-            update(transfer.key, { id: existing.id, record: existing });
+            update(transfer.key, {
+              id: existing.id,
+              record: existing,
+              createdAt: existing.createdAt ?? transfer.createdAt
+            });
             if (existing.status === "receiving") {
               startingRef.current.delete(transfer.key);
               await proveAndResume(
-                { ...transfer, id: existing.id, record: existing },
+                {
+                  ...transfer,
+                  id: existing.id,
+                  record: existing,
+                  createdAt: existing.createdAt ?? transfer.createdAt
+                },
                 transfer.file
               );
               return;
@@ -473,6 +485,7 @@ export function useMediaUploads({
     const next = files.map(({ file, key, conflict: fileConflict }) => ({
       key,
       operationId: createUuid(),
+      createdAt: new Date().toISOString(),
       name: file.name,
       size: file.size,
       accepted: 0,
@@ -516,7 +529,13 @@ export function useMediaUploads({
     proofRequestsRef.current.set(transfer.key, controller);
     try {
       const status = await getUploads(controller.signal, transfer.operationId);
+      if (controller.signal.aborted || !activeRef.current) return;
       const retained = status.items.find((record) => record.id === transfer.id);
+      if (retained)
+        update(transfer.key, {
+          record: retained,
+          createdAt: retained.createdAt ?? transfer.createdAt
+        });
       if (
         retained &&
         retained.offset === retained.size &&

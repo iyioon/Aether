@@ -28,24 +28,48 @@ export interface ManagedUpload {
   cleanedUp?: boolean;
 }
 
+interface StoredManagedUpload extends ManagedUpload {
+  createdAt: string;
+}
+
+interface ManagedUploadRow {
+  state_json: string;
+  created_at: string;
+}
+
+function hydrateManagedUpload(row: ManagedUploadRow): StoredManagedUpload {
+  return {
+    ...(JSON.parse(row.state_json) as ManagedUpload),
+    createdAt: row.created_at
+  };
+}
+
+function serializeManagedUpload(upload: ManagedUpload): string {
+  const state: ManagedUpload & { createdAt?: string } = { ...upload };
+  delete state.createdAt;
+  return JSON.stringify(state);
+}
+
 export function getManagedUpload(
   db: AetherDatabase,
   id: string
-): ManagedUpload | null {
+): StoredManagedUpload | null {
   const row = db
-    .prepare("SELECT state_json FROM managed_uploads WHERE id = ?")
-    .get(id) as { state_json: string } | undefined;
-  return row ? (JSON.parse(row.state_json) as ManagedUpload) : null;
+    .prepare("SELECT state_json, created_at FROM managed_uploads WHERE id = ?")
+    .get(id) as ManagedUploadRow | undefined;
+  return row ? hydrateManagedUpload(row) : null;
 }
 
 export function getManagedUploadByRequestId(
   db: AetherDatabase,
   requestId: string
-): ManagedUpload | null {
+): StoredManagedUpload | null {
   const row = db
-    .prepare("SELECT state_json FROM managed_uploads WHERE request_id = ?")
-    .get(requestId) as { state_json: string } | undefined;
-  return row ? (JSON.parse(row.state_json) as ManagedUpload) : null;
+    .prepare(
+      "SELECT state_json, created_at FROM managed_uploads WHERE request_id = ?"
+    )
+    .get(requestId) as ManagedUploadRow | undefined;
+  return row ? hydrateManagedUpload(row) : null;
 }
 
 export function createManagedUpload(
@@ -76,7 +100,7 @@ export function createManagedUpload(
     db.prepare(
       `INSERT INTO managed_uploads(id,request_id,state_json,status,size_bytes,received_bytes,created_at,updated_at,expires_at)
       VALUES (@id,@requestId,@stateJson,@status,@size,0,@now,@now,@expiresAt)`
-    ).run({ ...upload, stateJson: JSON.stringify(upload), now });
+    ).run({ ...upload, stateJson: serializeManagedUpload(upload), now });
   })();
 }
 
@@ -147,7 +171,7 @@ export function updateManagedUpload(
   db.prepare(
     "UPDATE managed_uploads SET state_json = ?, status = ?, received_bytes = ?, operation_id = ?, updated_at = ?, expires_at = ? WHERE id = ?"
   ).run(
-    JSON.stringify(upload),
+    serializeManagedUpload(upload),
     upload.status,
     upload.offset,
     upload.operationId ?? null,
@@ -157,26 +181,26 @@ export function updateManagedUpload(
   );
 }
 
-export function listManagedUploads(db: AetherDatabase): ManagedUpload[] {
+export function listManagedUploads(db: AetherDatabase): StoredManagedUpload[] {
   return (
     db
       .prepare(
-        "SELECT state_json FROM managed_uploads ORDER BY CASE WHEN status IN ('receiving','validating','publishing') THEN 0 WHEN COALESCE(json_extract(state_json,'$.cleanedUp'),0) != 1 THEN 1 ELSE 2 END, updated_at DESC,id LIMIT 100"
+        "SELECT state_json, created_at FROM managed_uploads ORDER BY CASE WHEN status IN ('receiving','validating','publishing') THEN 0 WHEN COALESCE(json_extract(state_json,'$.cleanedUp'),0) != 1 THEN 1 ELSE 2 END, updated_at DESC,id LIMIT 100"
       )
-      .all() as Array<{ state_json: string }>
-  ).map((row) => JSON.parse(row.state_json) as ManagedUpload);
+      .all() as ManagedUploadRow[]
+  ).map(hydrateManagedUpload);
 }
 
 export function listUnsettledManagedUploads(
   db: AetherDatabase
-): ManagedUpload[] {
+): StoredManagedUpload[] {
   return (
     db
       .prepare(
-        "SELECT state_json FROM managed_uploads WHERE COALESCE(json_extract(state_json,'$.cleanedUp'),0) != 1 OR status IN ('receiving','validating','publishing') ORDER BY created_at,id"
+        "SELECT state_json, created_at FROM managed_uploads WHERE COALESCE(json_extract(state_json,'$.cleanedUp'),0) != 1 OR status IN ('receiving','validating','publishing') ORDER BY created_at,id"
       )
-      .all() as Array<{ state_json: string }>
-  ).map((row) => JSON.parse(row.state_json) as ManagedUpload);
+      .all() as ManagedUploadRow[]
+  ).map(hydrateManagedUpload);
 }
 
 /** Bytes not yet allocated on disk, including destination publication copies. */

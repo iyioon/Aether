@@ -14,7 +14,12 @@ import { GalleryHorizontalEnd } from "lucide-react";
 import type { AssetRecord } from "../../api/client";
 import type { MediaPlaybackCommands } from "../media/MediaPreview";
 import { useAutoLoadSentinel } from "../../hooks/useAutoLoadSentinel";
-import { feedKeyboardCommand, hasShortcutModifier } from "../../lib/keyboard";
+import {
+  feedKeyboardCommand,
+  hasOpenKeyboardLayer,
+  hasShortcutModifier,
+  isDirectionalKeyboardTarget
+} from "../../lib/keyboard";
 import {
   checkpointScrollPositionOnPageLifecycle,
   flushSessionScrollPositions,
@@ -55,6 +60,7 @@ interface FeedPreviewProps {
   assets: AssetRecord[];
   isLoading: boolean;
   isLoadingMore: boolean;
+  isLoadMoreBlocked?: boolean;
   isContentReady: boolean;
   hasMore: boolean;
   loadMoreRef: MutableRefObject<HTMLDivElement | null>;
@@ -82,6 +88,7 @@ export function FeedPreview({
   assets,
   isLoading,
   isLoadingMore,
+  isLoadMoreBlocked = false,
   isContentReady,
   hasMore,
   loadMoreRef,
@@ -110,6 +117,8 @@ export function FeedPreview({
   const latestScrollTopRef = useRef(0);
   const latestActiveIndexRef = useRef(0);
   const restoredContextRef = useRef<string | null>(null);
+  const deferredRestoreRef = useRef(false);
+  const isBrowsingTouchRef = useRef(false);
   const isRestoringRef = useRef(false);
   const contextKeyRef = useRef(scrollContextKey);
   const assetsRef = useRef(assets);
@@ -183,6 +192,7 @@ export function FeedPreview({
 
   useLayoutEffect(() => {
     lastReportedAssetIdRef.current = null;
+    deferredRestoreRef.current = false;
     setIsScrollPositionReady(false);
   }, [scrollContextKey]);
 
@@ -220,6 +230,14 @@ export function FeedPreview({
       scrollTop: feedElement?.scrollTop ?? latestScrollTopRef.current
     });
   }, []);
+
+  const adoptLoadedPosition = useCallback(() => {
+    if (!deferredRestoreRef.current || hasOpenKeyboardLayer()) return;
+    deferredRestoreRef.current = false;
+    restoredContextRef.current = contextKeyRef.current;
+    pendingSyncedAssetIdRef.current = null;
+    saveFeedPosition();
+  }, [saveFeedPosition]);
 
   useLayoutEffect(() => {
     if (!isContentReady) {
@@ -278,12 +296,17 @@ export function FeedPreview({
     }
 
     if (intendedIndex >= assets.length && hasMore) {
-      if (!isLoadingMore) {
+      if (isLoadMoreBlocked) {
+        // Keep the loaded prefix available while the deep checkpoint awaits Retry.
+        deferredRestoreRef.current = true;
+        setIsScrollPositionReady(true);
+      } else if (!isLoadingMore) {
         onLoadMore();
       }
       return;
     }
 
+    deferredRestoreRef.current = false;
     restoredContextRef.current = scrollContextKey;
     isRestoringRef.current = true;
     let didCompleteRestoration = false;
@@ -326,6 +349,7 @@ export function FeedPreview({
     assets,
     hasMore,
     isContentReady,
+    isLoadMoreBlocked,
     isLoadingMore,
     onLoadMore,
     saveFeedPosition,
@@ -447,13 +471,17 @@ export function FeedPreview({
         return;
       }
 
+      adoptLoadedPosition();
       const currentIndex = nearestFeedIndexFromScroll(
         feedElement,
         itemRefs.current
       );
       const targetTop = feedItemTop(feedElement, nextItem);
 
-      if (shouldJumpFeedImmediately(currentIndex, nextIndex)) {
+      if (
+        shouldJumpFeedImmediately(currentIndex, nextIndex) ||
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      ) {
         setScrollPositionImmediately(feedElement, targetTop);
       } else {
         feedElement.scrollTo({ top: targetTop, behavior: "smooth" });
@@ -472,7 +500,7 @@ export function FeedPreview({
         onLoadMore();
       }
     },
-    [assets, hasMore, onLoadMore]
+    [adoptLoadedPosition, assets, hasMore, onLoadMore]
   );
 
   const toggleFeedChrome = useCallback(() => {
@@ -592,6 +620,7 @@ export function FeedPreview({
   const handleFeedWheel = useCallback(
     (event: ReactWheelEvent<HTMLElement>) => {
       if (
+        hasShortcutModifier(event.nativeEvent) ||
         isInteractiveTarget(event.target) ||
         assets.length === 0 ||
         Math.abs(event.deltaY) <= Math.abs(event.deltaX) ||
@@ -617,7 +646,11 @@ export function FeedPreview({
     (event: ReactTouchEvent<HTMLElement>) => {
       const touch = event.changedTouches[0];
 
-      if (!touch || isInteractiveTarget(event.target)) {
+      if (
+        event.touches.length !== 1 ||
+        !touch ||
+        isInteractiveTarget(event.target)
+      ) {
         touchStartRef.current = null;
         return;
       }
@@ -638,7 +671,13 @@ export function FeedPreview({
       const touch = event.changedTouches[0];
       touchStartRef.current = null;
 
-      if (!start || !touch || assets.length === 0) {
+      if (
+        !start ||
+        !touch ||
+        event.touches.length > 0 ||
+        event.changedTouches.length !== 1 ||
+        assets.length === 0
+      ) {
         return;
       }
 
@@ -697,7 +736,7 @@ export function FeedPreview({
     prewarmPriority.allowed;
 
   useAutoLoadSentinel({
-    enabled: hasMore && !isLoading && !isLoadingMore,
+    enabled: hasMore && !isLoading && !isLoadingMore && !isLoadMoreBlocked,
     onLoadMore,
     rootMargin: "620px 0px",
     rootRef: feedRef,
@@ -758,9 +797,50 @@ export function FeedPreview({
       inert={!isScrollPositionReady}
       tabIndex={0}
       onKeyDown={handleFeedKeyDown}
-      onTouchEnd={handleFeedTouchEnd}
-      onTouchStart={handleFeedTouchStart}
+      onKeyDownCapture={(event) => {
+        if (
+          !event.nativeEvent.isComposing &&
+          !hasShortcutModifier(event.nativeEvent) &&
+          !isDirectionalKeyboardTarget(event.target) &&
+          [
+            "ArrowDown",
+            "ArrowUp",
+            "Home",
+            "End",
+            "PageDown",
+            "PageUp"
+          ].includes(event.key)
+        )
+          adoptLoadedPosition();
+      }}
+      onTouchEnd={(event) => {
+        isBrowsingTouchRef.current = false;
+        handleFeedTouchEnd(event);
+      }}
+      onTouchStart={(event) => {
+        isBrowsingTouchRef.current =
+          event.touches.length === 1 && isFeedBrowsingTarget(event.target);
+        handleFeedTouchStart(event);
+      }}
+      onTouchMove={(event) => {
+        if (event.touches.length !== 1) {
+          touchStartRef.current = null;
+          isBrowsingTouchRef.current = false;
+        } else if (isBrowsingTouchRef.current) adoptLoadedPosition();
+      }}
+      onTouchCancel={() => {
+        touchStartRef.current = null;
+        isBrowsingTouchRef.current = false;
+      }}
       onWheel={handleFeedWheel}
+      onWheelCapture={(event) => {
+        if (
+          !hasShortcutModifier(event.nativeEvent) &&
+          event.deltaY &&
+          !isDirectionalKeyboardTarget(event.target)
+        )
+          adoptLoadedPosition();
+      }}
     >
       <div
         className={[
@@ -771,6 +851,9 @@ export function FeedPreview({
           .join(" ")}
         ref={feedRef}
         onScroll={handleFeedScroll}
+        onPointerDown={(event) => {
+          if (event.target === event.currentTarget) adoptLoadedPosition();
+        }}
       >
         {assets.map((asset, index) => (
           <FeedItem
@@ -808,7 +891,7 @@ export function FeedPreview({
         activeMediaName={activeAsset.name}
         activeScore={activeAsset.score}
         assetCount={assets.length}
-        hasMore={hasMore}
+        hasMore={hasMore && !isLoadMoreBlocked}
         isScoreSaving={savingScoreAssetIds.has(activeAsset.id)}
         isHidden={isFeedChromeHidden}
         onEditAsset={onEditAsset ? () => onEditAsset(activeAsset) : undefined}
@@ -827,6 +910,14 @@ export function FeedPreview({
       />
     </section>
   );
+}
+
+function isFeedBrowsingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  const control = target.closest(
+    "a, button, input, select, textarea, [contenteditable='true'], [role='slider']"
+  );
+  return !control || control.matches(".feed-image-tap-surface");
 }
 
 function setScrollPositionImmediately(element: HTMLElement, top: number) {

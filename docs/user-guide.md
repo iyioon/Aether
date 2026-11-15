@@ -27,6 +27,8 @@ Use the view buttons beside search, or open **Change view** in a narrow window.
 
 The sidebar’s **Account** menu contains Trash, Activity, User guide, Settings and
 Sign out. A count on Account shows operations in progress or needing attention.
+For a deep folder, open **Show parent folders** in the breadcrumb to return to
+an ancestor.
 
 Open **View options** for Filters, Sort and Layout. Compare has Filters and
 Layout. **Clear filters** keeps search, sort and layout. Gallery and Ranking
@@ -37,6 +39,9 @@ sorting or filters, cards stay in place until you choose **Update results** or
 change the view. This lets you adjust a score several times without moving its
 controls. **Update results** is above the search bar. Loading more results pauses
 while sorting or filtering changes are waiting.
+
+If a library request fails, choose **Retry** beside the error. Already loaded
+media stays available when a refresh or another page fails.
 
 Completed uploads, restores, moves, renames and deletions update the Gallery
 automatically. Aether keeps your browsing position where possible and waits for
@@ -249,6 +254,8 @@ items needing attention. Activity opens as a page. Each result identifies its
 media or folder, action, time and status. Use **Needs attention** to find paused
 uploads and operations that need recovery. **Refresh Activity** checks for the
 latest results. Leaving the page does not cancel accepted work.
+Unfinished work appears first, followed by recent results. Upload times show
+when the transfer began.
 
 Routine file actions keep the current view open and report their result in a
 notification. Use **View activity** for details.

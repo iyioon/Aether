@@ -1206,6 +1206,7 @@ export interface UploadRecord {
   size: number;
   name?: string;
   folderId?: string;
+  createdAt: string;
   expiresAt: string;
 }
 export interface UploadLimits {

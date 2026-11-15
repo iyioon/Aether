@@ -397,12 +397,113 @@ function activityFixtures() {
     folderId: "photos-root",
     offset: 1024,
     size: 4096,
+    createdAt: "2026-01-01T00:00:00.000Z",
     expiresAt: "2099-01-01T00:00:00.000Z"
   }));
   return { operations, uploads };
 }
 
 for (const phone of [false, true]) {
+  test(`orders recent uploads with file-operation results and preserves their start times on ${phone ? "phone" : "desktop"}`, async ({
+    browser
+  }) => {
+    const context = await browser.newContext({
+      baseURL: productionBaseURL,
+      viewport: phone
+        ? { width: 320, height: 760 }
+        : { width: 1440, height: 980 },
+      isMobile: phone,
+      hasTouch: phone,
+      serviceWorkers: "block"
+    });
+    try {
+      const page = await context.newPage();
+      const operations: FileOperation[] = [
+        {
+          id: "older-result",
+          type: "rename-media",
+          status: "completed",
+          revision: "1",
+          createdAt: "2025-01-01T00:00:00.000Z",
+          items: [{ name: "older-result.jpg", status: "completed" }]
+        },
+        {
+          id: "unfinished",
+          type: "move-media",
+          status: "running",
+          revision: "1",
+          createdAt: "2022-01-01T00:00:00.000Z",
+          items: [{ name: "unfinished.jpg", status: "running" }]
+        },
+        {
+          id: "published-upload",
+          type: "add-media",
+          status: "completed",
+          revision: "1",
+          createdAt: "2027-01-01T00:00:00.000Z",
+          items: [{ name: "published.jpg", status: "completed" }]
+        }
+      ];
+      const uploads: UploadRecord[] = [
+        {
+          id: "failed-upload",
+          requestId: "failed-upload-request",
+          name: "recent-failure.jpg",
+          status: "failed",
+          errorCode: "upload_changed",
+          offset: 1024,
+          size: 1024,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          expiresAt: "2099-01-01T00:00:00.000Z"
+        },
+        {
+          id: "finished-upload",
+          operationId: "published-upload",
+          requestId: "finished-upload-request",
+          name: "published.jpg",
+          status: "completed",
+          offset: 1024,
+          size: 1024,
+          createdAt: "2024-01-01T00:00:00.000Z",
+          expiresAt: "2099-01-01T00:00:00.000Z"
+        }
+      ];
+      const requests = await mockApi(page, { operations, uploads });
+      await page.goto("/?page=activity");
+      const activity = page.getByRole("region", {
+        name: "Activity",
+        exact: true
+      });
+      const names = activity.locator(".activity-item-name");
+      const order = [
+        "unfinished.jpg",
+        "recent-failure.jpg",
+        "older-result.jpg",
+        "published.jpg"
+      ];
+      await expect(names).toHaveText(order);
+      await expect(
+        activity
+          .getByRole("region", {
+            name: "Upload recent-failure.jpg",
+            exact: true
+          })
+          .locator("time")
+      ).toHaveAttribute("datetime", uploads[0]!.createdAt);
+      await expect(
+        activity
+          .getByRole("region", { name: "Upload published.jpg", exact: true })
+          .locator("time")
+      ).toHaveAttribute("datetime", uploads[1]!.createdAt);
+      await page.reload();
+      await expect(names).toHaveText(order);
+      expect(requests.writes).toEqual([]);
+      expect(requests.unhandled).toEqual([]);
+    } finally {
+      await context.close();
+    }
+  });
+
   test(`loads pending restores when opening Trash directly on ${phone ? "phone" : "desktop"}`, async ({
     browser
   }) => {

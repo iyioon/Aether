@@ -15,6 +15,10 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowUp, SlidersHorizontal } from "lucide-react";
 import type { AssetRecord } from "../../api/client";
 import { useAutoLoadSentinel } from "../../hooks/useAutoLoadSentinel";
+import {
+  hasOpenKeyboardLayer,
+  isDirectionalKeyboardTarget
+} from "../../lib/keyboard";
 import type { AspectMode, GridSize } from "../library-state";
 import { GalleryCardCuration } from "../GalleryCardCuration";
 import { MediaPreview } from "../media/MediaPreview";
@@ -56,6 +60,7 @@ interface GalleryGridProps {
   resultsPending?: boolean;
   isLoading: boolean;
   isLoadingMore: boolean;
+  isLoadMoreBlocked?: boolean;
   isContentReady: boolean;
   isSelectionMode: boolean;
   loadMoreRef: MutableRefObject<HTMLDivElement | null>;
@@ -122,6 +127,7 @@ export function GalleryGrid({
   resultsPending = false,
   isLoading,
   isLoadingMore,
+  isLoadMoreBlocked = false,
   isContentReady,
   isSelectionMode,
   loadMoreRef,
@@ -155,6 +161,8 @@ export function GalleryGrid({
   const layoutFrameRef = useRef<number | null>(null);
   const latestScrollTopRef = useRef(0);
   const restoredContextRef = useRef<string | null>(null);
+  const deferredRestoreRef = useRef(false);
+  const isBrowsingTouchRef = useRef(false);
   const isRestoringRef = useRef(false);
   const contextKeyRef = useRef(scrollContextKey);
   const assetsRef = useRef(assets);
@@ -369,6 +377,7 @@ export function GalleryGrid({
   useLayoutEffect(() => {
     // Returning to an earlier query must run restoration again.
     restoredContextRef.current = null;
+    deferredRestoreRef.current = false;
     lastReportedAnchorIdRef.current = null;
     scrollTopVisibleRef.current = false;
     setIsScrollTopVisible(false);
@@ -414,6 +423,14 @@ export function GalleryGrid({
     });
   }, []);
 
+  const adoptLoadedPosition = useCallback(() => {
+    if (!deferredRestoreRef.current || hasOpenKeyboardLayer()) return;
+    deferredRestoreRef.current = false;
+    restoredContextRef.current = contextKeyRef.current;
+    pendingSyncedAssetIdRef.current = null;
+    saveScrollPosition();
+  }, [saveScrollPosition]);
+
   const handleScroll = useCallback(
     (event: ReactUIEvent<HTMLElement>) => {
       const scrollElement = event.currentTarget;
@@ -446,6 +463,7 @@ export function GalleryGrid({
       return;
     }
 
+    adoptLoadedPosition();
     const prefersReducedMotion = window.matchMedia(
       "(prefers-reduced-motion: reduce)"
     ).matches;
@@ -454,7 +472,7 @@ export function GalleryGrid({
       behavior: prefersReducedMotion ? "auto" : "smooth"
     });
     scrollElement.focus({ preventScroll: true });
-  }, []);
+  }, [adoptLoadedPosition]);
 
   useLayoutEffect(() => {
     if (!isContentReady) {
@@ -539,12 +557,17 @@ export function GalleryGrid({
           : 0;
 
     if (intendedIndex >= assets.length && hasMore) {
-      if (!isLoadingMore) {
+      if (isLoadMoreBlocked) {
+        // Let the loaded prefix remain usable without replacing the deep checkpoint.
+        deferredRestoreRef.current = true;
+        setIsScrollPositionReady(true);
+      } else if (!isLoadingMore) {
         onLoadMore();
       }
       return;
     }
 
+    deferredRestoreRef.current = false;
     restoredContextRef.current = scrollContextKey;
     isRestoringRef.current = true;
     let didCompleteRestoration = false;
@@ -647,6 +670,7 @@ export function GalleryGrid({
     estimateRowSize,
     hasMore,
     isContentReady,
+    isLoadMoreBlocked,
     isLoadingMore,
     onLoadMore,
     rowVirtualizer,
@@ -899,7 +923,7 @@ export function GalleryGrid({
   );
 
   useAutoLoadSentinel({
-    enabled: hasMore && !isLoading && !isLoadingMore,
+    enabled: hasMore && !isLoading && !isLoadingMore && !isLoadMoreBlocked,
     onLoadMore,
     rootMargin: "380px 0px",
     rootRef: scrollParentRef,
@@ -1095,6 +1119,60 @@ export function GalleryGrid({
         aria-label="Gallery view"
         aria-busy={isRefreshing || !isScrollPositionReady}
         onFocusCapture={trackFocusedCard}
+        onClickCapture={(event) => {
+          if (
+            event.target instanceof Element &&
+            event.target.closest(
+              ".media-preview-button, .tile-selection-surface"
+            )
+          )
+            adoptLoadedPosition();
+        }}
+        onKeyDownCapture={(event) => {
+          if (
+            !event.nativeEvent.isComposing &&
+            !isDirectionalKeyboardTarget(event.target) &&
+            !event.altKey &&
+            !event.ctrlKey &&
+            !event.metaKey &&
+            [
+              "ArrowDown",
+              "ArrowUp",
+              "Home",
+              "End",
+              "PageDown",
+              "PageUp"
+            ].includes(event.key)
+          )
+            adoptLoadedPosition();
+        }}
+        onPointerDownCapture={(event) => {
+          if (event.target === event.currentTarget) adoptLoadedPosition();
+        }}
+        onTouchMoveCapture={(event) => {
+          if (event.touches.length !== 1) isBrowsingTouchRef.current = false;
+          else if (isBrowsingTouchRef.current) adoptLoadedPosition();
+        }}
+        onTouchStartCapture={(event) => {
+          isBrowsingTouchRef.current =
+            event.touches.length === 1 && isGalleryBrowsingTarget(event.target);
+        }}
+        onTouchEndCapture={() => {
+          isBrowsingTouchRef.current = false;
+        }}
+        onTouchCancelCapture={() => {
+          isBrowsingTouchRef.current = false;
+        }}
+        onWheelCapture={(event) => {
+          if (
+            !event.altKey &&
+            !event.ctrlKey &&
+            !event.metaKey &&
+            event.deltaY &&
+            !isDirectionalKeyboardTarget(event.target)
+          )
+            adoptLoadedPosition();
+        }}
         onScroll={handleScroll}
         tabIndex={-1}
       >
@@ -1162,11 +1240,13 @@ export function GalleryGrid({
             <Button
               type="button"
               variant="outline"
-              disabled={isLoadingMore || resultsPending}
+              disabled={isLoadingMore || resultsPending || isLoadMoreBlocked}
               title={
-                resultsPending
-                  ? "Update results above before loading more"
-                  : undefined
+                isLoadMoreBlocked
+                  ? "Use Retry above to load more media"
+                  : resultsPending
+                    ? "Update results above before loading more"
+                    : undefined
               }
               onClick={onLoadMore}
             >
@@ -1189,6 +1269,17 @@ export function GalleryGrid({
         <ArrowUp />
       </Button>
     </div>
+  );
+}
+
+function isGalleryBrowsingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  const control = target.closest(
+    "a, button, input, select, textarea, [contenteditable='true'], [role='slider']"
+  );
+  return (
+    !control ||
+    control.matches(".media-preview-button, .tile-selection-surface")
   );
 }
 

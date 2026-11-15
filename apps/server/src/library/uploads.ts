@@ -911,6 +911,7 @@ export async function registerUploadRoutes(
         status: upload.status,
         offset: upload.offset,
         size: upload.size,
+        createdAt: upload.createdAt,
         expiresAt: upload.expiresAt,
         errorCode: upload.errorCode
       })),

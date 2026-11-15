@@ -177,6 +177,10 @@ for (const phone of [false, true]) {
       await expect(first.getByRole("alert")).toHaveText(
         unsupportedMediaMessage
       );
+      const firstCreatedAt = await first
+        .locator("time")
+        .getAttribute("datetime");
+      expect(Number.isFinite(Date.parse(firstCreatedAt!))).toBe(true);
       const activity = page.getByRole("region", {
         name: "Activity",
         exact: true
@@ -194,6 +198,10 @@ for (const phone of [false, true]) {
       await expect(first.getByRole("alert")).toHaveText(
         unsupportedMediaMessage
       );
+      await expect(first.locator("time")).toHaveAttribute(
+        "datetime",
+        firstCreatedAt!
+      );
       await expect(activity.getByText("No recent activity.")).toHaveCount(0);
 
       await page.getByRole("button", { name: "Library", exact: true }).click();
@@ -210,6 +218,10 @@ for (const phone of [false, true]) {
         unsupportedMediaMessage
       );
       await expect(activity.locator(".activity-item")).toHaveCount(2);
+      await expect(activity.locator(".activity-item-name")).toHaveText([
+        "second-photo.png",
+        "first-photo.png"
+      ]);
       await expect(activity).toBeInViewport();
       expect(
         await page.evaluate(() => document.documentElement.scrollWidth)
@@ -248,6 +260,7 @@ for (const phone of [false, true]) {
           errorCode: "heic_decoder_unavailable",
           offset: 1024,
           size: 1024,
+          createdAt: "2026-01-01T00:00:00.000Z",
           expiresAt: "2030-01-01T00:00:00.000Z"
         }
       ]);

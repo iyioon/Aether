@@ -30,6 +30,7 @@ import {
   createManagedUpload,
   getManagedUploadByRequestId,
   listManagedUploads,
+  listUnsettledManagedUploads,
   pruneUploadCancellations,
   uploadVolumeReservations
 } from "../src/library/repository-uploads.js";
@@ -1382,6 +1383,65 @@ describe.skipIf(!["linux", "darwin"].includes(process.platform))(
       expect(await readFile(path.join(config.dataDir, "uploads", id))).toEqual(
         chunk
       );
+    });
+
+    it("hydrates the original upload creation time from the journal column for legacy records and API status", async () => {
+      const requestId = randomUUID();
+      const created = await create("timestamp.jpg", jpeg.length, requestId);
+      expect(created.statusCode).toBe(201);
+      const id = created.headers.location!.split("/").at(-1)!;
+      const createdAt = "2025-03-04T05:06:07.000Z";
+      db.prepare(
+        "UPDATE managed_uploads SET state_json = json_remove(state_json, '$.createdAt'), created_at = ?, updated_at = ? WHERE id = ?"
+      ).run(createdAt, "2026-01-01T00:00:00.000Z", id);
+      expect(
+        db
+          .prepare(
+            "SELECT json_extract(state_json, '$.createdAt') AS value FROM managed_uploads WHERE id = ?"
+          )
+          .get(id)
+      ).toEqual({ value: null });
+      expect(getManagedUpload(db, id)?.createdAt).toBe(createdAt);
+      expect(getManagedUploadByRequestId(db, requestId)?.createdAt).toBe(
+        createdAt
+      );
+      expect(
+        listManagedUploads(db).find((upload) => upload.id === id)?.createdAt
+      ).toBe(createdAt);
+      expect(
+        listUnsettledManagedUploads(db).find((upload) => upload.id === id)
+          ?.createdAt
+      ).toBe(createdAt);
+      db.prepare(
+        "UPDATE managed_uploads SET state_json = json_set(state_json, '$.createdAt', ?) WHERE id = ?"
+      ).run("2099-01-01T00:00:00.000Z", id);
+      expect(getManagedUpload(db, id)?.createdAt).toBe(createdAt);
+      updateManagedUpload(db, {
+        ...getManagedUpload(db, id)!,
+        expiresAt: "2099-02-01T00:00:00.000Z"
+      });
+      expect(
+        db
+          .prepare(
+            "SELECT json_extract(state_json, '$.createdAt') AS value FROM managed_uploads WHERE id = ?"
+          )
+          .get(id)
+      ).toEqual({ value: null });
+      for (const url of [
+        "/api/uploads/status",
+        `/api/uploads/status?requestId=${requestId}`
+      ]) {
+        const response = await app.inject({ url, headers });
+        expect(response.statusCode).toBe(200);
+        expect(
+          response
+            .json<{ items: Array<{ id: string; createdAt: string }> }>()
+            .items.find((upload) => upload.id === id)?.createdAt
+        ).toBe(createdAt);
+        expect(response.body).not.toContain(directory);
+        expect(response.body).not.toContain("stagingIdentity");
+      }
+      expect(getManagedUpload(db, id)?.createdAt).toBe(createdAt);
     });
 
     it("keeps an older paused upload visible ahead of terminal history and supports targeted reconciliation", async () => {

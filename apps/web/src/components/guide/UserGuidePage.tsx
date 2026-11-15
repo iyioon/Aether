@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { guideTopics, parseGuideTopic, type GuideTopic } from "./guide-topics";
 
@@ -31,6 +31,10 @@ export function UserGuidePage({
 }) {
   const [localTopic, setLocalTopic] = useState<GuideTopic>("browse");
   const root = useRef<HTMLElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    headingRef.current?.focus({ preventScroll: true });
+  }, []);
   const changeTopic = (value: string) => {
     const next = parseGuideTopic(value);
     setLocalTopic(next);
@@ -41,7 +45,14 @@ export function UserGuidePage({
   return (
     <section ref={root} className="guide-page" aria-labelledby="guide-title">
       <div className="guide-shell">
-        <h1 id="guide-title">User guide</h1>
+        <h1
+          ref={headingRef}
+          id="guide-title"
+          tabIndex={-1}
+          className="outline-none"
+        >
+          User guide
+        </h1>
         <Tabs
           className="guide-tabs"
           value={topic ?? localTopic}
@@ -81,6 +92,10 @@ export function UserGuidePage({
               Activity, User guide, Settings and Sign out. Its count shows
               operations in progress or needing attention.
             </p>
+            <p>
+              For a deep folder, open Show parent folders in the breadcrumb to
+              return to an ancestor.
+            </p>
             <h2>Filter and sort</h2>
             <p>
               Open View options for Filters, Sort and Layout. Compare has
@@ -94,6 +109,10 @@ export function UserGuidePage({
               you choose Update results or change the view. Update results is
               above the search bar. Loading more results pauses while sorting or
               filtering changes are waiting.
+            </p>
+            <p>
+              If a library request fails, choose Retry beside the error. Already
+              loaded media stays available when a refresh or another page fails.
             </p>
             <p>
               Completed uploads, restores, moves, renames and deletions update
@@ -336,6 +355,10 @@ export function UserGuidePage({
               status. Use Needs attention to find paused uploads and operations
               that need recovery. Refresh Activity checks for the latest
               results. Leaving the page does not cancel accepted work.
+            </p>
+            <p>
+              Unfinished work appears first, followed by recent results. Upload
+              times show when the transfer began.
             </p>
             <p>
               Routine file actions keep the current view open and report their

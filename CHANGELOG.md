@@ -6,6 +6,27 @@ Notable changes to Aether are recorded here.
 
 ### Fixed
 
+- Keep comparison video players mounted between pairs so muted playback can
+  continue after choices, Skip and Undo without losing per-element authorization.
+- Reset preview errors and pause intent before changing assets, cancel stale
+  hold timers and frame callbacks, and retain visibility across source changes.
+- Use the latest queued visibility observation for video and animation playback,
+  and restart animation work after coalesced background and foreground events.
+- Show recoverable library read errors with Retry, retain loaded media on
+  refresh or paging failures, and stop automatic paging retries after failure.
+- Keep deep folder breadcrumbs usable on narrow screens, preserve focus after
+  tag removal and score changes, and distinguish focused score actions.
+- Use standard radio-group keyboard navigation in appearance settings, align
+  compact layouts and touch targets, keep custom color controls within narrow screens,
+  and avoid false missing-configuration warnings while server settings are unavailable.
+- Make comparison score details available by click or tap, name comparison
+  coverage, and preserve pinch zoom and reduced-motion paging in Feed.
+- Show tag loading and saving feedback with stable dialog controls and focus;
+  match playback time entry to its keyboard and format guidance.
+- Keep recent upload results in chronological Activity order with their start
+  times, and make Trash search clearing preserve focus and text composition.
+- Focus Settings and User guide on entry, label viewer icons on hover, and
+  remove repeated Settings and leaderboard copy.
 - Accept unchanged uploads when macOS changes only their file change timestamp
   during validation, using content hashes and exact file identity checks.
 - Keep status inspections exclusive with upload writes, and preserve newer

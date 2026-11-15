@@ -9,8 +9,15 @@ import { Progress } from "../ui/progress";
 import { Skeleton } from "../ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { formatBytes } from "../media/media-format";
-import { ActivityOperation, ActivityStatus } from "./ActivityOperations";
-import { activityNeedsAttention } from "./activity-model";
+import {
+  ActivityOperation,
+  ActivityStatus,
+  ActivityTime
+} from "./ActivityOperations";
+import {
+  activityNeedsAttention,
+  compareActivityEntries
+} from "./activity-model";
 
 type Uploads = ReturnType<typeof useMediaUploads>;
 const uploadStatusLabels: Record<Transfer["state"], string> = {
@@ -194,21 +201,7 @@ export function ActivityPage({
           ? activityNeedsAttention(operation)
           : transferNeedsAttention(transfer!))
     )
-    .sort((left, right) => {
-      const active = (entry: typeof left) =>
-        entry.operation
-          ? ["queued", "running", "needs_attention"].includes(
-              entry.operation.status
-            )
-          : !["completed", "cancelled", "failed", "expired"].includes(
-              entry.transfer!.state
-            );
-      return (
-        Number(active(right)) - Number(active(left)) ||
-        (Date.parse(right.operation?.createdAt ?? "") || 0) -
-          (Date.parse(left.operation?.createdAt ?? "") || 0)
-      );
-    });
+    .sort(compareActivityEntries);
   return (
     <section
       className="activity-page mx-auto w-full max-w-5xl p-4 md:p-6"
@@ -277,6 +270,7 @@ export function ActivityPage({
                     key={key}
                     operation={operation}
                     primaryName={transfer?.name}
+                    createdAt={transfer?.createdAt}
                     onOperation={onOperation}
                     onRetry={onRetry}
                   >
@@ -313,7 +307,10 @@ export function ActivityPage({
                           completed={transfer!.state === "completed"}
                         />
                       </div>
-                      <p className="activity-item-meta">Upload</p>
+                      <p className="activity-item-meta">
+                        <span>Upload</span>
+                        <ActivityTime value={transfer!.createdAt} />
+                      </p>
                       <UploadDetails transfer={transfer!} uploads={uploads} />
                     </div>
                   </section>

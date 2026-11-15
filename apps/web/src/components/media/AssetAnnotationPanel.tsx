@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Plus, ScanSearch, Sparkles, X } from "lucide-react";
 import {
@@ -63,7 +63,9 @@ export function AssetAnnotationPanel({
   const [isRunningScoreAction, setIsRunningScoreAction] = useState(false);
   const [isResetComparisonOpen, setIsResetComparisonOpen] = useState(false);
   const [isSavingTags, setIsSavingTags] = useState(false);
+  const [hasLoadedTags, setHasLoadedTags] = useState(false);
   const [isLoadingTags, setIsLoadingTags] = useState(true);
+  const [hasTagLoadFailed, setHasTagLoadFailed] = useState(false);
   const [tagReloadToken, setTagReloadToken] = useState(0);
   const [isLoadingSmartTags, setIsLoadingSmartTags] = useState(false);
   const [isLoadingAiTags, setIsLoadingAiTags] = useState(false);
@@ -73,6 +75,16 @@ export function AssetAnnotationPanel({
     contextRef.current = { assetId: asset.id };
   const pendingTagsRef = useRef(new Set<string>());
   const pendingScoresRef = useRef(new Set<string>());
+  const tagEditorRef = useRef<HTMLDivElement>(null);
+  const tagInputRef = useRef<HTMLInputElement>(null);
+  const tagRemoveRefs = useRef(new Map<string, HTMLButtonElement>());
+  const pendingTagFocusRef = useRef<{
+    context: object;
+    origin: HTMLElement;
+    target: string | null;
+    restore: boolean;
+    saved: boolean;
+  } | null>(null);
   const callbacksRef = useRef({
     onAssetUpdated,
     onAssetTagsUpdated,
@@ -95,7 +107,9 @@ export function AssetAnnotationPanel({
 
   useEffect(() => {
     setTags([]);
+    setHasLoadedTags(false);
     setIsLoadingTags(true);
+    setHasTagLoadFailed(false);
     setIsSavingTags(pendingTagsRef.current.has(asset.id));
     setIsRunningScoreAction(pendingScoresRef.current.has(asset.id));
     setIsLoadingSmartTags(false);
@@ -108,6 +122,25 @@ export function AssetAnnotationPanel({
     setIsResetComparisonOpen(false);
   }, [asset.id]);
 
+  useLayoutEffect(() => {
+    const focus = pendingTagFocusRef.current;
+    if (!focus || isSavingTags) return;
+    pendingTagFocusRef.current = null;
+    if (
+      focus.context !== contextRef.current ||
+      !focus.restore ||
+      (document.activeElement !== focus.origin &&
+        document.activeElement !== document.body)
+    )
+      return;
+    const target = focus.saved
+      ? ((focus.target ? tagRemoveRefs.current.get(focus.target) : null) ??
+        tagInputRef.current)
+      : focus.origin;
+    if (target?.isConnected && !target.matches(":disabled"))
+      target.focus({ preventScroll: true });
+  }, [hasLoadedTags, isSavingTags, tags]);
+
   useEffect(() => {
     const controller = new AbortController();
     setIsLoadingTags(true);
@@ -116,11 +149,15 @@ export function AssetAnnotationPanel({
       .then((response) => {
         if (!controller.signal.aborted) {
           setTags(response.tags);
+          setHasLoadedTags(true);
           setIsLoadingTags(false);
+          setHasTagLoadFailed(false);
         }
       })
       .catch(() => {
         if (!controller.signal.aborted) {
+          setIsLoadingTags(false);
+          setHasTagLoadFailed(true);
           setAnnotationError("Tags could not be loaded. Try again.");
         }
       });
@@ -237,8 +274,12 @@ export function AssetAnnotationPanel({
     }
   }
 
-  async function saveTags(nextTagNames: string[]) {
-    if (isLoadingTags || pendingTagsRef.current.has(asset.id)) return;
+  async function saveTags(
+    nextTagNames: string[],
+    nextFocusTagId: string | null = null
+  ) {
+    if (!hasLoadedTags || isLoadingTags || pendingTagsRef.current.has(asset.id))
+      return;
     const names = uniqueTagNames(nextTagNames);
     const previous = new Set(tags.map((tag) => tag.normalizedName));
     if (
@@ -247,6 +288,22 @@ export function AssetAnnotationPanel({
     )
       return;
     const context = contextRef.current;
+    const origin = document.activeElement;
+    const focus =
+      origin instanceof HTMLElement && tagEditorRef.current?.contains(origin)
+        ? {
+            context,
+            origin,
+            target: nextFocusTagId,
+            restore: true,
+            saved: false
+          }
+        : null;
+    const trackFocus = (event: FocusEvent) => {
+      if (focus && event.target !== origin && event.target !== document.body)
+        focus.restore = false;
+    };
+    if (focus) document.addEventListener("focusin", trackFocus);
     pendingTagsRef.current.add(asset.id);
     setIsSavingTags(true);
     setAnnotationError(null);
@@ -260,6 +317,7 @@ export function AssetAnnotationPanel({
         { id: `tags-save-${asset.id}:${createUuid()}` }
       );
       if (contextRef.current !== context) return;
+      if (focus) focus.saved = true;
       setTags(response.tags);
       setSmartTagSuggestions((currentSuggestions) =>
         filterSavedSuggestions(currentSuggestions, response.tags)
@@ -276,9 +334,12 @@ export function AssetAnnotationPanel({
           "Tag changes could not be confirmed. Close and reopen Info to check tags before trying again."
         );
     } finally {
+      document.removeEventListener("focusin", trackFocus);
       pendingTagsRef.current.delete(asset.id);
-      if (activeRef.current && contextRef.current === context)
+      if (activeRef.current && contextRef.current === context) {
+        pendingTagFocusRef.current = focus;
         setIsSavingTags(false);
+      }
     }
   }
 
@@ -293,8 +354,11 @@ export function AssetAnnotationPanel({
   }
 
   function removeTag(tagId: string) {
+    const index = tags.findIndex((tag) => tag.id === tagId);
+    const nextFocusTagId = tags[index + 1]?.id ?? tags[index - 1]?.id ?? null;
     void saveTags(
-      tags.filter((tag) => tag.id !== tagId).map((tag) => tag.displayName)
+      tags.filter((tag) => tag.id !== tagId).map((tag) => tag.displayName),
+      nextFocusTagId
     );
   }
 
@@ -352,7 +416,14 @@ export function AssetAnnotationPanel({
   return (
     <section className="annotation-panel" aria-label="Media annotations">
       <div className="annotation-row">
-        <span className="annotation-label">Score</span>
+        <span className="annotation-label">
+          Score
+          <span className="block text-xs font-normal" role="status">
+            {isRunningScoreAction && !isResetComparisonOpen
+              ? "Saving score…"
+              : ""}
+          </span>
+        </span>
         <div className="annotation-curation-controls">
           <MediaScoreControl
             disabled={isScoreSaving || isRunningScoreAction}
@@ -389,9 +460,16 @@ export function AssetAnnotationPanel({
         </p>
       ) : null}
 
-      <div className="tag-editor">
+      <div className="tag-editor" ref={tagEditorRef}>
         <div className="tag-editor-heading">
           <span className="annotation-label">Tags</span>
+          <span className="text-xs text-muted-foreground" role="status">
+            {isSavingTags
+              ? "Saving tags…"
+              : isLoadingTags && !annotationError
+                ? "Loading tags…"
+                : ""}
+          </span>
           <div className="tag-editor-heading-actions">
             <Tooltip>
               <TooltipTrigger asChild>
@@ -402,7 +480,9 @@ export function AssetAnnotationPanel({
                   aria-label={
                     isLoadingSmartTags ? "Suggesting tags" : "Suggest tags"
                   }
-                  disabled={isLoadingSmartTags || isSavingTags || isLoadingTags}
+                  disabled={
+                    isLoadingSmartTags || isSavingTags || !hasLoadedTags
+                  }
                   onClick={() => void loadSmartTagSuggestions()}
                 >
                   <Sparkles />
@@ -422,7 +502,7 @@ export function AssetAnnotationPanel({
                         ? "Analyzing image for tags"
                         : "Analyze image for tags"
                     }
-                    disabled={isLoadingAiTags || isSavingTags || isLoadingTags}
+                    disabled={isLoadingAiTags || isSavingTags || !hasLoadedTags}
                     onClick={() => void loadAiTagSuggestions()}
                   >
                     <ScanSearch />
@@ -434,18 +514,22 @@ export function AssetAnnotationPanel({
           </div>
         </div>
         {tags.length > 0 ? (
-          <div className="tag-chip-list">
+          <div className="tag-chip-list" aria-busy={isSavingTags}>
             {tags.map((tag) => (
               <span className="tag-chip" key={tag.id}>
                 <span className="tag-chip-label" title={tag.displayName}>
                   {tag.displayName}
                 </span>
                 <Button
+                  ref={(node) => {
+                    if (node) tagRemoveRefs.current.set(tag.id, node);
+                    else tagRemoveRefs.current.delete(tag.id);
+                  }}
                   size="icon-xs"
                   type="button"
                   variant="ghost"
                   aria-label={`Remove ${tag.displayName}`}
-                  disabled={isSavingTags || isLoadingTags}
+                  disabled={isSavingTags || !hasLoadedTags}
                   onClick={() => removeTag(tag.id)}
                 >
                   <X size={13} />
@@ -455,13 +539,20 @@ export function AssetAnnotationPanel({
           </div>
         ) : null}
 
-        <div className="tag-entry-row">
+        <div
+          className="tag-entry-row"
+          role="group"
+          aria-label="Add tag"
+          aria-busy={isLoadingTags || isSavingTags}
+        >
           <Input
+            ref={tagInputRef}
             aria-label="Add a tag"
             value={tagInput}
             maxLength={48}
             placeholder="Add a tag"
-            disabled={isSavingTags || isLoadingTags}
+            disabled={!hasLoadedTags}
+            readOnly={isSavingTags}
             onChange={(event) => setTagInput(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.nativeEvent.isComposing) {
@@ -476,7 +567,7 @@ export function AssetAnnotationPanel({
             variant="outline"
             aria-label="Add tag"
             title="Add tag"
-            disabled={isSavingTags || isLoadingTags || !tagInput.trim()}
+            disabled={isSavingTags || !hasLoadedTags || !tagInput.trim()}
             onClick={() => addTag(tagInput)}
           >
             <Plus size={15} />
@@ -497,7 +588,7 @@ export function AssetAnnotationPanel({
                 title={`${suggestion.reason}; confidence ${Math.round(
                   suggestion.confidence * 100
                 )}%`}
-                disabled={isSavingTags || isLoadingTags}
+                disabled={isSavingTags || !hasLoadedTags}
                 onClick={() => addTag(suggestion.displayName)}
               >
                 <Sparkles size={13} />
@@ -515,7 +606,7 @@ export function AssetAnnotationPanel({
                 type="button"
                 variant="outline"
                 key={tag.id}
-                disabled={isSavingTags || isLoadingTags}
+                disabled={isSavingTags || !hasLoadedTags}
                 onClick={() => addTag(tag.displayName)}
               >
                 {tag.displayName}
@@ -525,22 +616,42 @@ export function AssetAnnotationPanel({
         ) : null}
 
         {annotationError ? (
-          <>
-            <span className="annotation-error" role="alert">
-              {annotationError}
-            </span>
-            {isLoadingTags ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="justify-self-start"
-                onClick={() => setTagReloadToken((current) => current + 1)}
-              >
-                Retry tags
-              </Button>
-            ) : null}
-          </>
+          <span className="annotation-error" role="alert">
+            {annotationError}
+          </span>
+        ) : null}
+        {hasTagLoadFailed && !hasLoadedTags ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className={`justify-self-start${isLoadingTags ? " pointer-events-none opacity-50" : ""}`}
+            aria-disabled={isLoadingTags}
+            onBlur={(event) => {
+              const focus = pendingTagFocusRef.current;
+              if (
+                focus?.origin === event.currentTarget &&
+                event.relatedTarget instanceof HTMLElement &&
+                event.relatedTarget !== document.body
+              )
+                focus.restore = false;
+            }}
+            onClick={(event) => {
+              if (isLoadingTags) return;
+              if (document.activeElement === event.currentTarget)
+                pendingTagFocusRef.current = {
+                  context: contextRef.current,
+                  origin: event.currentTarget,
+                  target: null,
+                  restore: true,
+                  saved: true
+                };
+              setIsLoadingTags(true);
+              setTagReloadToken((current) => current + 1);
+            }}
+          >
+            Retry tags
+          </Button>
         ) : null}
       </div>
     </section>

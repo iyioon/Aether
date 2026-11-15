@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { Plus, X } from "lucide-react";
 import type { MediaTypeFilter, ScoreFilter, TagRecord } from "../../api/client";
 import { Button } from "../ui/button";
@@ -40,6 +40,21 @@ export function FilterControls({
   onSetTagFilterDraft
 }: FilterControlsProps) {
   const tagInputRef = useRef<HTMLInputElement>(null);
+  const tagButtonsRef = useRef(new Map<string, HTMLButtonElement>());
+  const removedTagRef = useRef<{ removed: string; neighbor?: string } | null>(
+    null
+  );
+  useLayoutEffect(() => {
+    const pending = removedTagRef.current;
+    if (!pending || tagFilters.includes(pending.removed)) return;
+    removedTagRef.current = null;
+    if (document.activeElement && document.activeElement !== document.body)
+      return;
+    const target = pending.neighbor
+      ? tagButtonsRef.current.get(pending.neighbor)
+      : null;
+    (target ?? tagInputRef.current)?.focus({ preventScroll: true });
+  }, [tagFilters]);
   const normalizedSelectedTags = new Set(tagFilters.map(normalizeTagIdentity));
   const normalizedDraft = normalizeTagIdentity(tagFilterDraft);
   const isAtTagLimit = tagFilters.length >= MAX_TAG_FILTERS;
@@ -102,15 +117,26 @@ export function FilterControls({
         </div>
         {tagFilters.length ? (
           <div className="view-options-tag-list" aria-label="Selected tags">
-            {tagFilters.map((tag) => (
+            {tagFilters.map((tag, index) => (
               <Button
+                ref={(button) => {
+                  if (button) tagButtonsRef.current.set(tag, button);
+                  else tagButtonsRef.current.delete(tag);
+                }}
                 className="view-options-tag"
                 type="button"
                 size="sm"
                 variant="secondary"
                 aria-label={`Remove ${tag} tag filter`}
                 key={tag}
-                onClick={() => onRemoveTagFilter(tag)}
+                onClick={(event) => {
+                  if (document.activeElement === event.currentTarget)
+                    removedTagRef.current = {
+                      removed: tag,
+                      neighbor: tagFilters[index + 1] ?? tagFilters[index - 1]
+                    };
+                  onRemoveTagFilter(tag);
+                }}
               >
                 <span>#{tag}</span>
                 <X aria-hidden="true" />

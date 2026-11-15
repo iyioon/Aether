@@ -636,6 +636,15 @@ playback.
 When the browser reports data-saving mode, a 2G connection, or an estimated
 downlink below 1 Mb/s, only the first queued pair's thumbnails are prepared;
 video bytes are not requested. Hidden pages cancel preparation.
+Ranking keeps each side's native video element mounted across consecutive video
+pairs and changes its source after acknowledgement. This preserves per-element
+playback authorization across asynchronous transitions. Asset-owned preview state
+resets before the new source reaches the DOM; layout cleanup cancels old holds
+and frame requests. Intersection state belongs to the rendered surface rather
+than the asset; callbacks use the latest queued observation for that surface.
+Native media events must match the current source. Controlled animations use a
+foreground epoch to restart aborted work even when background and foreground
+events are batched before React commits the hidden state.
 Changing filters, undoing, resetting comparisons, or restoring the session
 discards outdated candidates. Prefetched records and media are not persisted
 in ranking checkpoints or the service worker's public cache; media uses the
@@ -718,6 +727,13 @@ revision change can retry after a consistent read confirms the exact loaded IDs
 and order, with bounded retries and query/mutation guards. Preview metadata can
 therefore update without interrupting ordinary scrolling. Scroll anchors,
 stable selection and viewer neighbors survive result replacement.
+Library read errors are separate from mutation errors and scoped to their
+query. Failed initial or changed-query reads replace loading placeholders with
+Retry; refresh and paging failures retain accepted records. Automatic paging
+pauses while a read error awaits recovery, without discarding a deeper saved
+anchor or treating the failed page as the end of the library.
+If restoration needs a failed page, loaded media remains usable. Retry resumes
+the saved position unless the user has deliberately browsed elsewhere.
 Folder-tree context menus target the clicked or focused folder without navigating.
 They share the header menu's actions and derive write capabilities from root and
 folder records; configured roots cannot be renamed or moved.
@@ -744,6 +760,9 @@ Activity presents one entry per transfer/publication, with inline recovery and
 an attention filter. Its URL and resume checkpoint use `page=activity`, with
 normal browser history and a focused page heading. Reads are aborted when
 obsolete and reject results superseded by accepted operations.
+Upload status exposes creation time from the journal's `created_at` column.
+Activity keeps unfinished work first and sorts recent results by creation time;
+publication receipts retain the transfer's start time when joined to an upload.
 Upload reselection stays inside the affected transfer. The upload controller
 remains mounted across page changes, so leaving either page does not cancel
 accepted work.

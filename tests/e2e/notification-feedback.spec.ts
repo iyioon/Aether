@@ -125,10 +125,14 @@ test("keeps a failed tag draft in Info and announces only the acknowledged retry
 
     await info.getByRole("button", { name: "Add tag", exact: true }).click();
     await expect.poll(() => heldResponse).toBe(true);
-    await expect(input).toBeDisabled();
+    await expect(input).toBeEnabled();
+    await expect(input).toHaveAttribute("readonly", "");
     await expect(
       info.getByRole("button", { name: "Close", exact: true })
-    ).toHaveCount(0);
+    ).toBeVisible();
+    await expect(
+      info.getByRole("button", { name: "Close", exact: true })
+    ).toBeDisabled();
     await page.keyboard.press("Escape");
     await expect(info).toBeVisible();
     await expect(success).toHaveCount(0);

@@ -322,6 +322,11 @@
 
   .settings-tabs-list {
     max-width: none;
+    height: 50px;
+  }
+
+  .settings-tabs-list [data-slot="tabs-trigger"] {
+    min-height: 44px;
   }
 
   .settings-tab-panel {

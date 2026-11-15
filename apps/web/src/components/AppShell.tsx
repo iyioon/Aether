@@ -57,6 +57,7 @@ import { useGalleryMetadataFields } from "./gallery/useGalleryMetadataFields";
 import { useMeasuredAspectRatios } from "./gallery/useMeasuredAspectRatios";
 import { useMediaActions } from "./media/useMediaActions";
 import type { AppearanceSettings } from "./settings/useAppearanceSettings";
+import { usePlaybackSettings } from "./settings/usePlaybackSettings";
 import { LibraryPathBar } from "./sidebar/LibraryPathBar";
 import { LibrarySidebar } from "./sidebar/LibrarySidebar";
 import { readSidebarDefaultOpen } from "./sidebar/sidebar-state";
@@ -160,6 +161,16 @@ function WorkspaceLoadingFallback() {
 }
 
 export function AppShell({ appearance, onLogout }: AppShellProps) {
+  const playbackSettings = usePlaybackSettings();
+  const { rememberSound } = playbackSettings;
+  const rememberFullViewSound = useCallback(
+    (muted: boolean) => rememberSound("fullView", muted),
+    [rememberSound]
+  );
+  const rememberFeedSound = useCallback(
+    (muted: boolean) => rememberSound("feed", muted),
+    [rememberSound]
+  );
   const [initialLocation] = useState(readInitialAppLocation);
   const initialLibraryState = initialLocation.library;
   const sidebarDefaultOpen = useMemo(() => readSidebarDefaultOpen(), []);
@@ -1206,6 +1217,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
               {activePage === "add-media" ||
               activityOpen ? null : activePage === "settings" ? (
                 <SettingsPage
+                  playback={playbackSettings}
                   tab={settingsTab}
                   onTabChange={setSettingsTab}
                   accent={accent}
@@ -1358,6 +1370,8 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
                     />
                   ) : view === "feed" ? (
                     <FeedPreview
+                      soundPreference={playbackSettings.feed}
+                      onRememberSound={rememberFeedSound}
                       hasQueryFilters={Boolean(
                         search ||
                         tagFilters.length ||
@@ -1422,10 +1436,11 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
         {activePage === "library" && selectedAsset ? (
           <Suspense fallback={null}>
             <MediaViewer
+              soundPreference={playbackSettings.fullView}
+              onRememberSound={rememberFullViewSound}
               useSavedFraming={viewerUsesSavedFraming}
               onFramingChange={setViewerUsesSavedFraming}
               framingAspect={aspect}
-              applyPlaybackPreferences={view !== "compare"}
               onHighlightsOnlyChange={setHighlightsOnly}
               onEditAsset={setEditingAsset}
               onManageAsset={

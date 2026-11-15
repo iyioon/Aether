@@ -23,6 +23,8 @@ import {
   writeSessionScrollPosition
 } from "../scroll-restoration";
 import { FeedItem, type FeedSoundState } from "./FeedItem";
+import { useMediaSound } from "../media/useMediaSound";
+import type { SoundPreference } from "../settings/playback-settings";
 import { FeedNavRail } from "./FeedNavRail";
 import { observeFeedPrewarmPriority } from "./feed-prewarm";
 import type { GalleryMetadataField } from "../gallery/gallery-metadata";
@@ -47,6 +49,8 @@ interface FeedTouchStart {
 }
 
 interface FeedPreviewProps {
+  soundPreference: SoundPreference;
+  onRememberSound: (muted: boolean) => void;
   metadataFields: ReadonlySet<GalleryMetadataField>;
   assets: AssetRecord[];
   isLoading: boolean;
@@ -72,6 +76,8 @@ interface FeedPreviewProps {
 }
 
 export function FeedPreview({
+  soundPreference,
+  onRememberSound,
   metadataFields,
   assets,
   isLoading,
@@ -130,17 +136,23 @@ export function FeedPreview({
   const touchStartRef = useRef<FeedTouchStart | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [isScrollPositionReady, setIsScrollPositionReady] = useState(false);
-  const [isFeedMuted, setIsFeedMuted] = useState(true);
-  const [isFeedAudioBlocked, setIsFeedAudioBlocked] = useState(false);
+  const activeSoundKey = assets[activeIndex]?.id ?? "";
+  const { muted: isFeedMuted, setMuted: setIsFeedMuted } = useMediaSound(
+    activeSoundKey,
+    soundPreference,
+    onRememberSound
+  );
+  const [blockedSoundKey, setBlockedSoundKey] = useState<string | null>(null);
   const [prewarmPriority, setPrewarmPriority] = useState({
     session: null as object | null,
     allowed: false
   });
-  const feedSoundState: FeedSoundState = isFeedAudioBlocked
-    ? "blocked"
-    : isFeedMuted
-      ? "muted"
-      : "on";
+  const feedSoundState: FeedSoundState =
+    blockedSoundKey === activeSoundKey
+      ? "blocked"
+      : isFeedMuted
+        ? "muted"
+        : "on";
 
   const handleOpenAnnotations = useCallback((assetId: string) => {
     onOpenAnnotationsRef.current(assetId);
@@ -468,12 +480,12 @@ export function FeedPreview({
   }, [isFeedChromeHidden, onFeedChromeHiddenChange]);
 
   const handleAudibleAutoplayBlocked = useCallback(() => {
-    setIsFeedAudioBlocked(true);
+    setBlockedSoundKey(activeSoundKey);
     setIsFeedMuted(true);
-  }, []);
+  }, [activeSoundKey, setIsFeedMuted]);
 
   const handleAudiblePlaybackStarted = useCallback(() => {
-    setIsFeedAudioBlocked(false);
+    setBlockedSoundKey(null);
   }, []);
 
   const playActiveFeedVideoAudibly = useCallback(() => {
@@ -484,15 +496,15 @@ export function FeedPreview({
 
   const handleFeedSoundToggle = useCallback(() => {
     if (isFeedMuted) {
-      setIsFeedAudioBlocked(false);
-      setIsFeedMuted(false);
+      setBlockedSoundKey(null);
+      setIsFeedMuted(false, true);
       playActiveFeedVideoAudibly();
       return;
     }
 
-    setIsFeedAudioBlocked(false);
-    setIsFeedMuted(true);
-  }, [isFeedMuted, playActiveFeedVideoAudibly]);
+    setBlockedSoundKey(null);
+    setIsFeedMuted(true, true);
+  }, [isFeedMuted, playActiveFeedVideoAudibly, setIsFeedMuted]);
 
   const pageFeedBy = useCallback(
     (delta: number) => {

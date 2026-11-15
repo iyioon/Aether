@@ -104,14 +104,17 @@
   opacity: 0;
 }
 
+.viewer-media-frame > .viewer-video-poster {
+  z-index: 1;
+}
+
 .viewer-media-frame .viewer-video {
-  opacity: 0;
+  opacity: 1;
   pointer-events: none;
   transition: none;
 }
 
 .viewer-media-frame.is-video-ready .viewer-video {
-  opacity: 1;
   pointer-events: auto;
   transition: none;
 }

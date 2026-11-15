@@ -1,4 +1,4 @@
-import { Database, Palette, RefreshCw, ServerCog } from "lucide-react";
+import { Database, Palette, RefreshCw, ServerCog, Volume2 } from "lucide-react";
 import type {
   LibraryDataResetOptions,
   LibraryDataResetResult,
@@ -10,6 +10,8 @@ import { isSettingsTab, type SettingsTab } from "../app-location-state";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { AppearanceSettingsSection } from "./AppearanceSettingsSection";
 import { DataResetSettingsSection } from "./DataResetSettingsSection";
+import { PlaybackSettingsSection } from "./PlaybackSettingsSection";
+import type { PlaybackSettings } from "./usePlaybackSettings";
 import {
   AiSettingsSection,
   SecuritySettingsSection,
@@ -23,6 +25,7 @@ import type {
 } from "./useAppearanceSettings";
 
 interface SettingsPageProps {
+  playback: PlaybackSettings;
   tab: SettingsTab;
   onTabChange: (tab: SettingsTab) => void;
   accent: AppearanceAccent;
@@ -45,6 +48,7 @@ interface SettingsPageProps {
 }
 
 export function SettingsPage({
+  playback,
   tab,
   onTabChange,
   accent,
@@ -79,17 +83,21 @@ export function SettingsPage({
             if (isSettingsTab(value)) onTabChange(value);
           }}
         >
-          <TabsList className="settings-tabs-list grid w-full grid-cols-3">
-            <TabsTrigger value="appearance">
-              <Palette />
+          <TabsList className="settings-tabs-list flex w-full">
+            <TabsTrigger className="px-1 sm:px-2" value="appearance">
+              <Palette className="hidden sm:block" />
               Appearance
             </TabsTrigger>
-            <TabsTrigger value="server">
-              <ServerCog />
+            <TabsTrigger className="px-1 sm:px-2" value="playback">
+              <Volume2 className="hidden sm:block" />
+              Playback
+            </TabsTrigger>
+            <TabsTrigger className="px-1 sm:px-2" value="server">
+              <ServerCog className="hidden sm:block" />
               Server
             </TabsTrigger>
-            <TabsTrigger value="data">
-              <Database />
+            <TabsTrigger className="px-1 sm:px-2" value="data">
+              <Database className="hidden sm:block" />
               Database
             </TabsTrigger>
           </TabsList>
@@ -111,6 +119,17 @@ export function SettingsPage({
                 theme={theme}
                 themeOptions={themeOptions}
               />
+            </div>
+          </TabsContent>
+
+          <TabsContent className="settings-tab-panel" value="playback">
+            <div className="settings-tab-intro">
+              <p className="text-sm text-muted-foreground">
+                Playback preferences are saved in this browser.
+              </p>
+            </div>
+            <div className="settings-grid settings-grid-single">
+              <PlaybackSettingsSection playback={playback} />
             </div>
           </TabsContent>
 

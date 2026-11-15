@@ -349,7 +349,9 @@
   transition: opacity var(--aether-motion-fast) ease;
 }
 
+/* Keep native autoplay visible beneath the poster until a frame is presented. */
 .media-video-poster {
+  z-index: 1;
   background: #18181b;
   opacity: 1;
   transition: none;
@@ -357,23 +359,9 @@
 
 .media-video {
   background: transparent;
-  opacity: 0;
+  opacity: 1;
   pointer-events: none;
   transition: none;
-}
-
-.media-video-shell.ready .media-video {
-  opacity: 1;
-}
-
-.media-playback-recovery {
-  position: absolute;
-  z-index: 3;
-  top: 50%;
-  left: 50%;
-  min-height: 44px;
-  transform: translate(-50%, -50%);
-  pointer-events: auto;
 }
 
 .media-video-shell.poster-ready .media-video-poster {

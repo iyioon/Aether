@@ -17,7 +17,7 @@ export function SettingsSection({
   children: ReactNode;
   icon: LucideIcon;
   title: string;
-  value: string;
+  value?: string;
 }) {
   return (
     <Card className="settings-card">
@@ -26,7 +26,7 @@ export function SettingsSection({
           <Icon className="mt-0.5 size-5 text-muted-foreground" />
           <div>
             <CardTitle>{title}</CardTitle>
-            <CardDescription>{value}</CardDescription>
+            {value ? <CardDescription>{value}</CardDescription> : null}
           </div>
         </div>
       </CardHeader>

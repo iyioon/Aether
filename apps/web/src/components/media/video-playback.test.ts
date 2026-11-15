@@ -1,11 +1,29 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   formatVideoTime,
+  isAutoplayDenied,
   observeVideoPlayback,
   readVideoPlayback,
   videoSeekTarget,
   type VideoPlaybackState
 } from "./video-playback";
+
+describe("autoplay policy failures", () => {
+  it("distinguishes policy denial from aborted loads and media failures", () => {
+    expect(isAutoplayDenied(new DOMException("", "NotAllowedError"))).toBe(
+      true
+    );
+    expect(isAutoplayDenied({ name: "NotAllowedError" })).toBe(true);
+    for (const error of [
+      new DOMException("", "AbortError"),
+      new DOMException("", "NotSupportedError"),
+      new Error("Network failure"),
+      "NotAllowedError",
+      null
+    ])
+      expect(isAutoplayDenied(error)).toBe(false);
+  });
+});
 
 function timeRanges(ranges: [number, number][]): TimeRanges {
   return {

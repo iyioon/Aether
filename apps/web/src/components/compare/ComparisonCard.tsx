@@ -71,7 +71,7 @@ export function ComparisonCard({
           applyPlaybackPreferences={false}
           defaultFit={aspect === "Original" ? "contain" : "cover"}
           framingAspect={aspect}
-          showPlaybackRecovery
+          muted
           useOriginalVideo
         />
         <button

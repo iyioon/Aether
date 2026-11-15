@@ -20,6 +20,15 @@ export const EMPTY_VIDEO_PLAYBACK_STATE: VideoPlaybackState = {
   error: false
 };
 
+export function isAutoplayDenied(error: unknown): boolean {
+  return (
+    error !== null &&
+    typeof error === "object" &&
+    "name" in error &&
+    error.name === "NotAllowedError"
+  );
+}
+
 function finiteDuration(value: number): number {
   return Number.isFinite(value) && value > 0 ? value : 0;
 }

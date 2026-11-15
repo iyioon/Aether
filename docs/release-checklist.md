@@ -89,6 +89,13 @@ Never test rebuild or wipe against the only copy of a real library database.
 
 ## Presentation Acceptance
 
+- Check Settings → Playback on desktop and phones. Full view and Feed start
+  muted and keep independent Muted, Sound on and Remember last choices. Fixed
+  choices apply to each new item; Remember last follows the user's sound choice
+  through navigation, close/reopen and reload. Verify native iPhone controls,
+  unavailable storage, and browser denial of audible autoplay. Muted fallback
+  and silent Bounce must not replace the remembered choice; Gallery and Compare
+  previews remain muted.
 - Check rounded accent segments within Feed/viewer seek tracks for video and
   animation: full playback locates the saved section; highlight-only playback
   and unhighlighted media have no marker. The editor follows unsaved range
@@ -227,10 +234,15 @@ Never test rebuild or wipe against the only copy of a real library database.
   failures after reload, including missing tools and unsupported HDR/color.
 - On macOS/APFS, add JPEG and PNG files and verify exact published bytes,
   including a JPEG whose change timestamp changes during decoder inspection.
-- In Rank media on an actual iPhone Home Screen installation, block automatic
-  playback, including with Low Power Mode. Play starts each video muted and
-  inline without choosing a card or changing Undo. Verify returning from the
-  background and changing pairs cannot restore an obsolete Play control.
+- In Rank media on an actual iPhone Home Screen installation, verify automatic
+  muted inline playback for videos with audio tracks, including after reopening,
+  backgrounding, changing pairs and returning from the full viewer. Retain the
+  poster until the first frame without hiding the native video. Check normal
+  device settings and Low Power Mode separately; record device-policy blocking
+  separately from application failures.
+- Open saved Bounce videos and animations from ranking and the leaderboard.
+  Full view must retain Bounce and saved speed; cards remain forward at 1×.
+  Closing full view must preserve the ordered pair and Undo.
 - Check one toast per acknowledged operation/batch, inline form errors, quiet
   score increments, Undo/Activity alternatives and no old-session notifications.
 - Back up and restore with retained Trash and matching filesystem payloads;

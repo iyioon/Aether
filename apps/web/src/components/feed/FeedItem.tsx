@@ -84,7 +84,7 @@ export const FeedItem = memo(function FeedItem({
               controlsContainer={controlsContainer}
               framingAspect="Portrait"
               isActive={isActive}
-              muted={isFeedMuted}
+              muted={!isActive || isFeedMuted}
               onAudibleAutoplayBlocked={onAudibleAutoplayBlocked}
               onAudiblePlaybackStarted={onAudiblePlaybackStarted}
               onExpand={() => onOpenAsset(asset.id)}

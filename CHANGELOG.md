@@ -14,8 +14,14 @@ Notable changes to Aether are recorded here.
   uploads in affected WebKit versions.
 - Show specific upload rejection and HEIC decoding errors in Activity, and keep
   recent failed uploads visible when another batch starts.
-- Offer Play on ranking previews when the browser blocks automatic video
-  playback, without recording a comparison choice.
+- Start comparison videos muted and inline, retry playback after source and
+  readiness changes, and resume after coalesced Home Screen lifecycle events.
+- Keep the native video visible beneath its retained poster during first-frame
+  preparation, and remove the comparison Play overlay.
+- Preserve saved Bounce and playback speed when opening videos or animations
+  in full view from Compare.
+- Resume eligible muted full-view videos on foreground return and release
+  detached video sources after closing or changing media.
 - Keep Activity refreshes from failing uploads admitted before their staging
   files are created.
 - Retain filenames in Activity after moving media to Trash, restoring it or
@@ -30,6 +36,8 @@ Notable changes to Aether are recorded here.
 
 ### Added
 
+- Separate Full view and Feed sound defaults in Settings, with Muted, Sound on
+  and Remember last choices stored in the browser.
 - Add removal instructions covering media recovery, local and Docker data
   removal, data kept for another server, and optional tool and cache cleanup.
 - Folder-tree context actions for New folder, Rename and Move to, available

@@ -16,7 +16,7 @@ import {
   type LibraryUrlState
 } from "./library-state";
 
-export type SettingsTab = "appearance" | "server" | "data";
+export type SettingsTab = "appearance" | "playback" | "server" | "data";
 export interface AppLocationState {
   library: LibraryUrlState;
   navigation: AppNavigationState & {
@@ -202,7 +202,12 @@ export function clearAppResumeState(): void {
 }
 
 export function isSettingsTab(value: unknown): value is SettingsTab {
-  return value === "appearance" || value === "server" || value === "data";
+  return (
+    value === "appearance" ||
+    value === "playback" ||
+    value === "server" ||
+    value === "data"
+  );
 }
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;

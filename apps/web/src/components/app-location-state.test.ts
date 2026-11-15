@@ -97,6 +97,30 @@ describe("application resume and explicit locations", () => {
       resolveAppLocation(new URL(url, "https://aether.test").search, stored)
     ).toEqual(stored);
   });
+  it("opens and resumes the Playback settings tab", () => {
+    const values = new Map<string, string>();
+    const replaceState = vi.fn();
+    vi.stubGlobal("window", {
+      location: { pathname: "/", search: "", hash: "" },
+      history: { replaceState },
+      localStorage: {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => values.set(key, value)
+      }
+    });
+    const playback = resolveAppLocation("?page=settings&tab=playback", stored);
+    expect(playback.navigation.settingsTab).toBe("playback");
+    saveAppLocation(playback);
+    expect(readStoredAppLocation()).toEqual(playback);
+    expect(
+      resolveAppLocation("?launch=resume", readStoredAppLocation())
+    ).toEqual(playback);
+    writeAppLocationToUrl(playback);
+    const url = String(replaceState.mock.calls[0]?.[2]);
+    expect(new URL(url, "https://aether.test").searchParams.get("tab")).toBe(
+      "playback"
+    );
+  });
   it("restores validated viewer IDs only on the library page", () => {
     expect(
       resolveAppLocation("?view=feed&asset=asset-1", stored).navigation

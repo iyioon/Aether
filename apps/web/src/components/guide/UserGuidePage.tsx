@@ -114,6 +114,15 @@ export function UserGuidePage({
               prepares. A slim bar shows loading or buffering. Use Retry if
               loading fails.
             </p>
+            <p>
+              In Settings → Playback, set Full view and Feed separately to
+              Muted, Sound on or Remember last. Muted is the default. Remember
+              last keeps your last sound choice from the playback controls,
+              including after closing or reloading. These preferences stay in
+              this browser. Browser restrictions may start a video muted even
+              with Sound on; this does not change your preference. Bounce
+              playback remains silent.
+            </p>
             <h2>Use Aether on iPhone</h2>
             <p>
               In Safari, choose Share → Add to Home Screen. Aether resumes your
@@ -152,7 +161,7 @@ export function UserGuidePage({
             <p>
               Bounce and framing do not rewrite source bytes. Download returns
               the source file. Use Play highlights only in View options to play
-              the saved section. Compare plays forward at 1×.
+              the saved section. Comparison cards play forward at 1×.
             </p>
             <h2>Adjust framing</h2>
             <p>
@@ -200,8 +209,10 @@ export function UserGuidePage({
               preference.
             </p>
             <p>
-              If automatic video playback is blocked, choose Play on each
-              preview. Playing a video does not choose it or change the pair.
+              Comparison videos start muted and play forward at 1×. Play
+              highlights only changes their range. Opening an item in full view
+              uses its saved playback mode and speed, including Bounce.
+              Returning to the pair preserves the pair and Undo.
             </p>
             <h2>Read scores and progress</h2>
             <p>

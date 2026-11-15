@@ -48,6 +48,10 @@ import {
   thumbnailUrl
 } from "./media-urls";
 import { requestPresentedVideoFrame } from "./video-frame-presentation";
+import { releaseDetachedMedia } from "./detached-media";
+import { useMediaSound } from "./useMediaSound";
+import { isAutoplayDenied } from "./video-playback";
+import type { SoundPreference } from "../settings/playback-settings";
 import { VideoControls } from "./VideoControls";
 import { useVideoPlayback, type VideoPlayback } from "./useVideoPlayback";
 import { useVideoBuffering } from "./useVideoBuffering";
@@ -82,7 +86,8 @@ import {
 
 interface MediaViewerProps {
   asset: AssetRecord;
-  applyPlaybackPreferences?: boolean;
+  soundPreference: SoundPreference;
+  onRememberSound: (muted: boolean) => void;
   framingAspect?: PresentationAspect;
   useSavedFraming: boolean;
   onFramingChange: (enabled: boolean) => void;
@@ -133,7 +138,8 @@ const SWIPE_DISTANCE_PX = 56;
 
 export function MediaViewer({
   asset,
-  applyPlaybackPreferences = true,
+  soundPreference,
+  onRememberSound,
   framingAspect = "Original",
   useSavedFraming,
   onFramingChange,
@@ -164,8 +170,7 @@ export function MediaViewer({
   const capabilityState = usePresentationCapabilities(
     asset,
     (asset.mediaType === "video" &&
-      ((applyPlaybackPreferences &&
-        playbackVariant(asset, highlightsOnly) === "bounce") ||
+      (playbackVariant(asset, highlightsOnly) === "bounce" ||
         originalVideoFailed)) ||
       isAnimationCandidate
   );
@@ -196,11 +201,7 @@ export function MediaViewer({
         : asset,
     [asset, capabilityState.capabilities]
   );
-  const variant = applyPlaybackPreferences
-    ? playbackVariant(effectiveAsset, highlightsOnly)
-    : highlightsOnly && effectiveAsset.presentation?.highlight
-      ? "highlight"
-      : "full";
+  const variant = playbackVariant(effectiveAsset, highlightsOnly);
   const bounceOverBudget =
     variant === "bounce" &&
     (capabilityState.capabilities?.bounceOverBudget ||
@@ -271,6 +272,7 @@ export function MediaViewer({
   const touchStartRef = useRef<ViewerTouchStart | null>(null);
   const suppressMediaClickRef = useRef(false);
   const videoFrameRequestSequenceRef = useRef(0);
+  const videoPlayRequestSequenceRef = useRef(0);
   const previousViewedAssetRef = useRef({
     id: asset.id,
     videoSource: "",
@@ -279,7 +281,11 @@ export function MediaViewer({
   });
   const [isOpen, setIsOpen] = useState(true);
   const [controlsVisible, setControlsVisible] = useState(true);
-  const [isViewerVideoMuted, setIsViewerVideoMuted] = useState(true);
+  const {
+    muted: isViewerVideoMuted,
+    mutedRef: viewerSoundRef,
+    setMuted: setIsViewerVideoMuted
+  } = useMediaSound(asset.id, soundPreference, onRememberSound);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [useNativeControls, setUseNativeControls] = useState(false);
   const [readyImageSource, setReadyImageSource] = useState<string | null>(null);
@@ -358,7 +364,7 @@ export function MediaViewer({
     playback,
     effectiveAsset,
     variant,
-    applyPlaybackPreferences,
+    true,
     capabilityState.capabilities?.bounceTimeline
   );
   const viewerPosterSource =
@@ -537,6 +543,7 @@ export function MediaViewer({
 
     if (
       !video ||
+      !video.getAttribute("src") ||
       userPausedRef.current ||
       document.hidden ||
       playbackBlockedRef.current ||
@@ -545,22 +552,32 @@ export function MediaViewer({
       return;
     }
 
+    const requestSequence = ++videoPlayRequestSequenceRef.current;
+    const requestedMuted = video.muted;
     const stillAllowed = () =>
       viewerVideoRef.current === video &&
       !userPausedRef.current &&
       !document.hidden &&
       !playbackBlockedRef.current &&
       !isClosingRef.current;
+    video.defaultMuted = video.muted;
     video
       .play()
       .then(() => {
         if (!stillAllowed()) video.pause();
       })
-      .catch(() => {
-        if (!stillAllowed() || video.muted) {
+      .catch((error: unknown) => {
+        if (
+          !stillAllowed() ||
+          videoPlayRequestSequenceRef.current !== requestSequence ||
+          requestedMuted ||
+          video.muted ||
+          !isAutoplayDenied(error)
+        ) {
           return;
         }
 
+        video.defaultMuted = true;
         video.muted = true;
         setIsViewerVideoMuted(true);
         video
@@ -570,7 +587,7 @@ export function MediaViewer({
           })
           .catch(() => undefined);
       });
-  }, []);
+  }, [setIsViewerVideoMuted]);
 
   useEffect(() => {
     const video = viewerVideoRef.current;
@@ -606,6 +623,7 @@ export function MediaViewer({
 
     revealControls();
 
+    videoPlayRequestSequenceRef.current += 1;
     resumeMutedPlaybackRef.current = false;
     const paused = togglePlaybackCommand();
     if (paused !== null) {
@@ -622,13 +640,15 @@ export function MediaViewer({
     }
 
     if (variant === "bounce") return;
+    videoPlayRequestSequenceRef.current += 1;
     toggleMutedCommand();
+    setIsViewerVideoMuted(video.muted || video.volume === 0, true);
 
     revealControls();
     setKeyboardAnnouncement(
       video.muted || video.volume === 0 ? "Sound muted" : "Sound on"
     );
-  }, [toggleMutedCommand, revealControls, variant]);
+  }, [toggleMutedCommand, revealControls, variant, setIsViewerVideoMuted]);
 
   const handleControlsInteraction = useCallback(
     (active: boolean) => {
@@ -695,6 +715,8 @@ export function MediaViewer({
       viewerVideoRef.current = video;
       nativeFullscreenRef.current = false;
       if (!video) return;
+      video.defaultMuted = video.muted;
+      video.playsInline = true;
       const begin = () => {
         nativeFullscreenRef.current = true;
       };
@@ -705,9 +727,17 @@ export function MediaViewer({
       };
       video.addEventListener("webkitbeginfullscreen", begin);
       video.addEventListener("webkitendfullscreen", end);
-      nativeFullscreenCleanupRef.current = () => {
+      const cleanup = () => {
         video.removeEventListener("webkitbeginfullscreen", begin);
         video.removeEventListener("webkitendfullscreen", end);
+      };
+      nativeFullscreenCleanupRef.current = cleanup;
+      return () => {
+        cleanup();
+        if (nativeFullscreenCleanupRef.current === cleanup)
+          nativeFullscreenCleanupRef.current = null;
+        if (viewerVideoRef.current === video) viewerVideoRef.current = null;
+        releaseDetachedMedia(video);
       };
     },
     [revealControls]
@@ -963,7 +993,12 @@ export function MediaViewer({
       if (video && video.readyState >= 2 && presentedPlayback.isReady)
         revealVideoAfterPresentedFrame(video, asset.id);
       if (playbackBlockedRef.current) return;
-      if (resumeMutedPlaybackRef.current && viewerVideoRef.current?.muted) {
+      if (
+        video?.muted &&
+        !userPausedRef.current &&
+        (resumeMutedPlaybackRef.current ||
+          (!useNativeControls && !nativeFullscreenRef.current))
+      ) {
         resumeMutedPlaybackRef.current = false;
         playViewerVideo();
       }
@@ -983,6 +1018,7 @@ export function MediaViewer({
     playViewerVideo,
     videoSource,
     retryAttempt,
+    useNativeControls,
     presentedPlayback.isReady,
     revealVideoAfterPresentedFrame
   ]);
@@ -1414,15 +1450,7 @@ export function MediaViewer({
                   renditionKey={
                     effectiveAsset.presentation?.renditionKeys.full ?? ""
                   }
-                  presentation={
-                    applyPlaybackPreferences
-                      ? presentation
-                      : {
-                          ...presentation,
-                          playbackRate: 1,
-                          loopMode: "repeat"
-                        }
-                  }
+                  presentation={presentation}
                   highlightsOnly={highlightsOnly}
                   paused={playbackBlocked || !isOpen}
                   controls
@@ -1555,27 +1583,40 @@ export function MediaViewer({
                     key={`${videoSource}:${retryAttempt}`}
                     ref={bindViewerVideo}
                     className="viewer-video"
+                    muted={variant === "bounce" || isViewerVideoMuted}
+                    playsInline
                     src={videoSource || undefined}
                     style={mediaStyle}
                     width={asset.width ?? undefined}
                     height={asset.height ?? undefined}
                     controls={useNativeControls}
                     autoPlay
-                    muted={variant === "bounce" || isViewerVideoMuted}
                     data-presentation-timeline={
                       variant === "highlight" && originalVideoFailed
                         ? "local"
                         : "source"
                     }
                     loop={variant !== "highlight"}
-                    playsInline
                     preload="auto"
                     onPlay={() => {
                       if (nativeFullscreenRef.current || useNativeControls)
                         userPausedRef.current = false;
                     }}
                     onVolumeChange={(event) => {
-                      setIsViewerVideoMuted(event.currentTarget.muted);
+                      const video = event.currentTarget;
+                      if (
+                        variant === "bounce" ||
+                        viewerVideoRef.current !== video ||
+                        activeAssetIdRef.current !== asset.id
+                      )
+                        return;
+                      const muted = video.muted || video.volume === 0;
+                      // App changes update this ref synchronously. Native or
+                      // system controls can deliver their event after exit.
+                      if (muted !== viewerSoundRef.current.muted) {
+                        videoPlayRequestSequenceRef.current += 1;
+                        setIsViewerVideoMuted(muted, true);
+                      }
                     }}
                     onLoadStart={() => {
                       cancelPendingVideoReveal();

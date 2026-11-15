@@ -102,8 +102,8 @@ jobs, including active work, sharing two processing slots. Cached results and
 requests joining an existing job remain available at that limit. Additional
 work receives `503 processing_busy` with `Retry-After`, without creating cache
 directories for rejected jobs.
-Removed preview nodes release native image/video sources after the DOM commit;
-connected nodes retain playback. Feed neighbors retain thumbnails and only the
+Detached preview media and full-view videos release native sources after the
+DOM commit; connected nodes retain playback. Feed neighbors retain thumbnails and only the
 current still image loads its original. Retry uses the same versioned URLs and
 does not bypass authenticated caching. A failed video is diagnosed before any
 codec/source fallback; transient overload, network errors and processing limits
@@ -156,12 +156,12 @@ The browser application is split by feature:
 - **media**: previews, fullscreen viewing, and annotations
 - **folders**: folder tree and navigation
 - **toolbar**: sorting, layout, search, and filters
-- **settings**: appearance, status, and selective database resets
+- **settings**: appearance, playback defaults, status, and selective database resets
 
 The server remains authoritative for library data. The browser cancels obsolete
 reads and uses records returned by the server after a change. Scroll position
-and appearance choices are browser-local conveniences, not part of the library
-database.
+and appearance/playback choices are browser-local conveniences, not part of the
+library database.
 
 `LibraryPathBar` keeps folder navigation and result status above the library
 search and action row. View switching ends the search row behind a vertical
@@ -283,13 +283,30 @@ and never reloads, seeks or restarts the video to handle a wait.
 
 Explicit pause intent is separate from temporary hold, background, and panel
 pauses. Lifecycle events pause media synchronously; foreground autoplay is
-limited to muted media and preserves explicit pause. Ranking previews expose a
-Play control when the current source's play request is rejected by browser
-policy. The control starts playback within the user gesture without recording
-a comparison choice; stale requests cannot restore the control over a new
-source or successful playback. The viewer uses container fullscreen where
+limited to muted media and preserves explicit pause. Preview resume events
+advance a playback epoch even when hide/show events coalesce before React
+commits, so a paused native element cannot retain a disabled autoplay ref.
+Source publication and metadata/can-play readiness retry eligible playback
+without depending on `loadeddata`. Attempts validate the current source and
+retain explicit user, hold and audible-resume pause intent. Native mute defaults
+and inline playback are initialized before source activation. The video remains
+visible beneath its poster until a current frame is presented, avoiding a
+visibility-dependent autoplay/first-frame cycle. These requirements follow
+[Safari's media guidance](https://developer.apple.com/documentation/webkit/delivering-video-content-for-safari).
+The full viewer also rechecks eligible muted playback on foreground return,
+including when no preceding hidden event was delivered, without clearing explicit pause intent.
+The viewer uses container fullscreen where
 available, native iPhone video fullscreen otherwise, and native controls if a
 fullscreen request fails.
+
+Settings keeps independent sound policies for Full view and Feed: muted by
+default, sound on, or remember last. Fixed policies apply when a new item opens;
+remember last uses the last explicit user sound choice for that surface. Policy
+and remembered choices are validated browser-local preferences and survive
+close/reopen and reload, with muted defaults when storage is unavailable.
+Automatic muted fallback after an audible autoplay rejection does not change
+the saved choice. Bounce remains silent without changing it. Gallery and Compare
+previews remain muted, and the editor keeps its own preview behavior.
 
 The shared transport owns its bottom safe-area spacing. Feed metadata reserves
 its height, with one continuous gradient behind the title and transparent
@@ -571,7 +588,10 @@ The highlight-only preference follows validated URL/resume state and is also
 available in the viewer View options menu, alongside the independent framing
 choice. The highlight option is disabled for items without a saved section
 without clearing the remembered preference. Comparison applies that range
-selection while keeping 1×/repeat and its saved View options framing. Layout changes leave the ordered pair
+selection while keeping 1×/repeat and its saved View options framing. The full
+viewer always applies saved playback mode and speed, including when opened
+from ranking or the leaderboard; only comparison cards bypass those values.
+Layout changes leave the ordered pair
 and Undo untouched; comparison cards do not expose Edit. Presentation-only reset leaves navigation,
 ranking and Undo intact. Per-asset edits remain server-owned; private in-memory
 capability/atlas caches are cleared on sign-out.

@@ -7,7 +7,7 @@ import {
   useState
 } from "react";
 import { createPortal } from "react-dom";
-import { Image, Play, Video } from "lucide-react";
+import { Image, Video } from "lucide-react";
 import type { AssetRecord, PresentationAspect } from "../../api/client";
 import { isMediaImageReady, markMediaImageReady } from "./media-image-cache";
 import {
@@ -45,18 +45,9 @@ import { useVideoPlaybackFailure } from "./useVideoPlaybackFailure";
 import { canFallbackFromVideoFailure } from "./video-playback-failure";
 import { useVideoRangePreload } from "./useVideoRangePreload";
 import { releaseDetachedMedia } from "./detached-media";
-import { Button } from "../ui/button";
+import { isAutoplayDenied } from "./video-playback";
 
 const VIDEO_HOLD_DELAY_MS = 320;
-
-function isAutoplayDenied(error: unknown): boolean {
-  return (
-    error !== null &&
-    typeof error === "object" &&
-    "name" in error &&
-    error.name === "NotAllowedError"
-  );
-}
 
 export interface MediaPlaybackCommands {
   togglePlayback: () => void;
@@ -85,7 +76,6 @@ interface MediaPreviewProps {
   playbackPaused?: boolean;
   preloadPreview?: boolean;
   showVideoTimeline?: boolean;
-  showPlaybackRecovery?: boolean;
   staticPreview?: boolean;
   tall?: boolean;
   thumbnailSize?: number;
@@ -112,7 +102,6 @@ export const MediaPreview = memo(function MediaPreview({
   playbackPaused = false,
   preloadPreview = false,
   showVideoTimeline = false,
-  showPlaybackRecovery = false,
   staticPreview = false,
   tall = false,
   thumbnailSize = 640,
@@ -128,6 +117,8 @@ export const MediaPreview = memo(function MediaPreview({
   const attachVideo = useCallback((video: HTMLVideoElement | null) => {
     videoRef.current = video;
     if (!video) return;
+    video.defaultMuted = video.muted;
+    video.playsInline = true;
     return () => {
       if (videoRef.current === video) videoRef.current = null;
       releaseDetachedMedia(video);
@@ -180,6 +171,7 @@ export const MediaPreview = memo(function MediaPreview({
   const [isPageHidden, setIsPageHidden] = useState(
     () => document.visibilityState === "hidden"
   );
+  const [playbackResumeEpoch, setPlaybackResumeEpoch] = useState(0);
   const [loadedVideoPosterSource, setLoadedVideoPosterSource] = useState<
     string | null
   >(null);
@@ -362,7 +354,7 @@ export const MediaPreview = memo(function MediaPreview({
 
       const video = videoRef.current;
 
-      if (!video) {
+      if (!video || video.getAttribute("src") !== videoSourceRef.current) {
         return;
       }
 
@@ -374,6 +366,7 @@ export const MediaPreview = memo(function MediaPreview({
         videoSourceRef.current === requestedSource &&
         shouldAutoplayVideoRef.current;
 
+      video.defaultMuted = variant === "bounce" || requestedMuted;
       video.muted = variant === "bounce" || requestedMuted;
       if (!requestedMuted && video.volume === 0) {
         video.volume = 1;
@@ -393,16 +386,15 @@ export const MediaPreview = memo(function MediaPreview({
           setBlockedVideoSource(null);
         })
         .catch((error: unknown) => {
-          if (!isCurrentRequest()) {
+          if (!isCurrentRequest() || !isAutoplayDenied(error)) {
             return;
           }
           if (requestedMuted) {
-            if (isAutoplayDenied(error)) {
-              setBlockedVideoSource(requestedSource);
-            }
+            setBlockedVideoSource(requestedSource);
             return;
           }
 
+          video.defaultMuted = true;
           video.muted = true;
           onAudibleAutoplayBlocked?.();
           video
@@ -547,7 +539,10 @@ export const MediaPreview = memo(function MediaPreview({
       setIsPageHidden(true);
     };
     const resume = () => {
-      if (document.visibilityState !== "hidden") setIsPageHidden(false);
+      if (document.visibilityState === "hidden") return;
+      setIsPageHidden(false);
+      // Suspension can batch hide/show without committing the hidden state.
+      setPlaybackResumeEpoch((epoch) => epoch + 1);
     };
     const visibility = () => {
       if (document.visibilityState === "hidden") hide();
@@ -649,7 +644,7 @@ export const MediaPreview = memo(function MediaPreview({
       return;
     }
 
-    if (shouldAutoplayVideo) {
+    if (shouldLoadVideo && shouldAutoplayVideo) {
       playVisibleVideo();
     } else {
       videoPlaybackRequestSequenceRef.current += 1;
@@ -659,8 +654,11 @@ export const MediaPreview = memo(function MediaPreview({
     asset.id,
     asset.mediaType,
     playVisibleVideo,
+    playbackResumeEpoch,
+    shouldLoadVideo,
     shouldAutoplayVideo,
-    retryAttempt
+    retryAttempt,
+    videoSource
   ]);
 
   const toggleVideoPlayback = useCallback(() => {
@@ -1209,6 +1207,8 @@ export const MediaPreview = memo(function MediaPreview({
         <video
           key={retryAttempt}
           ref={attachVideo}
+          muted={variant === "bounce" || muted}
+          playsInline
           style={mediaStyle}
           className={tall ? "media-video tall" : "media-video"}
           src={shouldLoadVideo ? videoSource : undefined}
@@ -1236,9 +1236,7 @@ export const MediaPreview = memo(function MediaPreview({
               ? "local"
               : "source"
           }
-          muted={variant === "bounce" || muted}
           loop={variant !== "highlight"}
-          playsInline
           preload={
             shouldLoadVideo
               ? showVideoTimeline || preloadPreview
@@ -1257,6 +1255,8 @@ export const MediaPreview = memo(function MediaPreview({
               event.currentTarget.videoWidth,
               event.currentTarget.videoHeight
             );
+            if (shouldAutoplayVideo && event.currentTarget.paused)
+              playVisibleVideo();
           }}
           onLoadedData={(event) => {
             if (
@@ -1278,6 +1278,10 @@ export const MediaPreview = memo(function MediaPreview({
               setBlockedVideoSource(null);
               revealVideoAfterPresentedFrame(event.currentTarget);
             }
+          }}
+          onCanPlay={(event) => {
+            if (shouldAutoplayVideo && event.currentTarget.paused)
+              playVisibleVideo();
           }}
           onSeeked={(event) => {
             if (isVideoPlaybackAllowed) {
@@ -1326,33 +1330,6 @@ export const MediaPreview = memo(function MediaPreview({
         : didVideoPosterFail && !isVideoReady
           ? errorNotice("Preview unavailable.")
           : null}
-      {showPlaybackRecovery &&
-      blockedVideoSource === videoSource &&
-      isVideoPlaybackAllowed &&
-      !videoPlaybackFailed &&
-      !capabilitiesError &&
-      !bounceUnavailable &&
-      !bounceOverBudget ? (
-        <Button
-          className="media-playback-recovery"
-          type="button"
-          variant="secondary"
-          aria-label={`Play ${asset.name}`}
-          onPointerDown={(event) => event.stopPropagation()}
-          onPointerUp={(event) => event.stopPropagation()}
-          onClick={(event) => {
-            event.stopPropagation();
-            userPausedRef.current = false;
-            setIsVideoUserPaused(false);
-            setIsVideoResumePaused(false);
-            shouldAutoplayVideoRef.current = true;
-            playVisibleVideo();
-          }}
-        >
-          <Play aria-hidden="true" />
-          Play
-        </Button>
-      ) : null}
       {showVideoTimeline && !staticPreview ? (
         <>
           {controlsContainer ? (

@@ -89,9 +89,11 @@ browser history.
 
 Saved navigation and ranking state includes filters, asset IDs, and scroll
 positions in local storage. Signing out clears that state, pending image
-preloads, readiness hints, decoded animation atlases and capability caches. Appearance
-preferences remain in this browser. The viewer's Use saved framing preference
-stores only a boolean in localStorage and remains after signing out; it contains
+preloads, readiness hints, decoded animation atlases and capability caches.
+Appearance and playback preferences remain in this browser. Sound preferences
+contain only the playback mode and a mute boolean for Full view and Feed.
+The viewer's Use saved framing preference stores only a boolean in localStorage
+and remains after signing out; it contains
 no asset IDs, media paths or media content. Each browser/device keeps its own
 choice. The service worker caches only public application files; private API
 responses and media bypass it.
@@ -107,8 +109,8 @@ Metadata responses are marked `no-store`. Media files and generated previews
 use private browser caching with `no-cache`: the browser must authenticate and
 revalidate them before reuse, including conditional requests. Versioned media
 URLs also separate changed source versions. Secure sign-out requests browser
-cache clearing where supported, while retaining appearance preferences. This
-does not guarantee removal of previously cached bytes, downloads, browser
+cache clearing where supported, while retaining appearance and playback
+preferences. This does not guarantee removal of previously cached bytes, downloads, browser
 history, restored tabs or mobile app-switcher screenshots, which the device
 controls.
 

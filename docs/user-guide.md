@@ -54,10 +54,17 @@ Saved framing initially stays off and follows your remembered browser choice;
 toggling it does not edit saved frames. Native iPhone fullscreen uses system
 controls and original proportions.
 
-Videos start muted. An explicit pause survives leaving and returning to the
-app; audible playback waits for Play. In Feed, holding a video pauses it until
-release. Focused seek controls use arrows for one second, Page keys for ten
-seconds, and Home/End for the limits.
+In **Settings → Playback**, set **Full view** and **Feed** separately to **Muted**,
+**Sound on** or **Remember last**. Muted is the default. Remember last uses your
+last sound choice from the playback controls, including after closing or
+reloading. These preferences stay in this browser. Browser restrictions may
+start a video muted even with Sound on; this does not change your preference.
+Bounce playback remains silent.
+
+An explicit pause survives leaving and returning to the app; audible playback
+waits for Play. In Feed, holding a video pauses it until release. Focused seek
+controls use arrows for one second, Page keys for ten seconds, and Home/End for
+the limits.
 
 A preview remains visible while the full photo or first playback frame loads.
 A slim bar shows loading, preparation or buffering. An accent segment in the
@@ -136,12 +143,11 @@ retain them; replacing source contents clears source-dependent presentation.
 3. Use **Undo** to reverse the last choice. Return to the leaderboard for the order.
 
 The active folder, search and filters determine the pool. Choosing the same pair
-again replaces its earlier preference. Comparison plays forward at 1× using the
-selected saved framing; Play highlights only changes its range. Layout changes
-preserve the pair and Undo.
-
-If automatic video playback is blocked, choose **Play** on each preview.
-Playing a video does not choose it or change the pair.
+again replaces its earlier preference. Comparison videos start muted and play
+forward at 1× using the selected saved framing; Play highlights only changes
+their range. Opening an item in full view uses its saved playback mode and
+speed, including Bounce. Returning to the pair or changing the layout preserves
+the pair and Undo.
 
 Zero means unranked; a positive score means ranked. Info separates comparison
 score, manual adjustment and final score. **Use comparison score** removes the

@@ -1049,7 +1049,7 @@ test("saves and cancels framing and keeps the comparison pair while changing its
         .poll(() =>
           video.evaluate((node: HTMLVideoElement) => node.playbackRate)
         )
-        .toBe(1);
+        .toBe(2);
       await expect
         .poll(() => video.evaluate((node: HTMLVideoElement) => node.duration))
         .toBeGreaterThan(5.9);

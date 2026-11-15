@@ -148,11 +148,10 @@ retain them; replacing source contents clears source-dependent presentation.
 3. Use **Undo** to reverse the last choice. Return to the leaderboard for the order.
 
 The active folder, search and filters determine the pool. Choosing the same pair
-again replaces its earlier preference. Comparison videos start muted and play
-forward at 1× using the selected saved framing; Play highlights only changes
-their range. Opening an item in full view uses its saved playback mode and
-speed, including Bounce. Returning to the pair or changing the layout preserves
-the pair and Undo.
+again replaces its earlier preference. Comparison uses the saved playback mode
+and speed, including Bounce, with the selected saved framing. Videos start
+muted. **Play highlights only** uses saved sections. Returning from full view or
+changing the layout preserves the pair and Undo.
 
 Zero means unranked; a positive score means ranked. Info separates comparison
 score, manual adjustment and final score. **Use comparison score** removes the

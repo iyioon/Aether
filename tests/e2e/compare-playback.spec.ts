@@ -833,7 +833,7 @@ for (const phone of [false, true]) {
   });
 
   for (const mediaType of ["video", "image"] as const) {
-    test(`uses saved ${mediaType === "video" ? "video" : "animation"} Bounce in full view from Ranking and Leaderboard (${phone ? "phone" : "desktop"})`, async ({
+    test(`uses saved ${mediaType === "video" ? "video" : "animation"} Bounce on Ranking cards and in full view (${phone ? "phone" : "desktop"})`, async ({
       browser
     }) => {
       const context = await browser.newContext({
@@ -857,8 +857,6 @@ for (const phone of [false, true]) {
         )) {
           await setPresentation(page, asset, {
             ...defaults,
-            highlight:
-              mediaType === "video" ? { startMs: 500, endMs: 2000 } : null,
             loopMode: "bounce",
             playbackRate: 1.5
           });
@@ -873,26 +871,108 @@ for (const phone of [false, true]) {
         });
         for (const workspace of ["ranking", "leaderboard"]) {
           await page.goto(
-            `${origin}/?folder=${encodeURIComponent(folderId)}&view=compare&workspace=${workspace}&type=${mediaType}&highlight=1`
+            `${origin}/?folder=${encodeURIComponent(folderId)}&view=compare&workspace=${workspace}&type=${mediaType}&highlight=${workspace === "ranking" ? "0" : "1"}`
           );
           const cards = page.locator(".comparison-card");
           const before = workspace === "ranking" ? await pairIds(page) : [];
-          if (workspace === "ranking" && mediaType === "video") {
-            await expectComparisonPlaying(page);
-            await expect(
-              cards.locator("video[data-preview-source='original']")
-            ).toHaveCount(2);
-            await expect
-              .poll(() =>
-                cards
-                  .locator("video")
-                  .evaluateAll((videos) =>
-                    videos.every(
-                      (video) => (video as HTMLVideoElement).playbackRate === 1
-                    )
-                  )
+          if (workspace === "ranking") {
+            // A full-range Bounce also applies with highlights switched off.
+            await expectComparisonBounce(page, mediaType);
+            const nextPairIds = assets
+              .filter(
+                (asset) =>
+                  asset.mediaType === mediaType && !before.includes(asset.id)
               )
-              .toBe(true);
+              .slice(0, 2)
+              .map((asset) => asset.id);
+            expect(nextPairIds).toHaveLength(2);
+            await page.route("**/api/comparisons", async (route) => {
+              const body = route.request().postDataJSON() as Record<
+                string,
+                unknown
+              >;
+              const response = await route.fetch({
+                postData: JSON.stringify({
+                  ...body,
+                  nextPairAssetIds: nextPairIds
+                })
+              });
+              expect(response.ok()).toBe(true);
+              const result =
+                (await response.json()) as ComparisonDecisionResponse;
+              expect(result.nextPair && pairAssetIds(result.nextPair)).toEqual(
+                nextPairIds
+              );
+              await route.fulfill({ response });
+            });
+            const acknowledgement = page.waitForResponse(
+              (response) =>
+                new URL(response.url()).pathname === "/api/comparisons" &&
+                response.request().method() === "POST" &&
+                response.ok()
+            );
+            await cards.first().locator(".comparison-choose-surface").click();
+            await acknowledgement;
+            await expect.poll(() => pairIds(page)).toEqual(nextPairIds);
+            await expectComparisonBounce(page, mediaType);
+            const undo = page.waitForResponse(
+              (response) =>
+                /\/api\/comparisons\/[^/]+\/undo$/.test(
+                  new URL(response.url()).pathname
+                ) && response.ok()
+            );
+            await page
+              .getByRole("button", { name: "Undo last choice", exact: true })
+              .click();
+            await undo;
+            await expect.poll(() => pairIds(page)).toEqual(before);
+            await expectComparisonBounce(page, mediaType);
+
+            if (mediaType === "video") {
+              for (const asset of assets.filter(
+                (item) => item.mediaType === "video"
+              )) {
+                await setPresentation(page, asset, {
+                  ...defaults,
+                  highlight: { startMs: 500, endMs: 2000 },
+                  loopMode: "bounce",
+                  playbackRate: 1.5
+                });
+              }
+              await page.goto(
+                `${origin}/?folder=${encodeURIComponent(folderId)}&view=compare&workspace=ranking&type=video&highlight=1`
+              );
+              await expect.poll(() => pairIds(page)).toEqual(before);
+              await expectComparisonBounce(page, mediaType);
+              await expect
+                .poll(() =>
+                  cards.locator("video").evaluateAll((nodes) =>
+                    nodes.every((node) => {
+                      const video = node as HTMLVideoElement;
+                      return video.duration > 2.5 && video.duration < 3.1;
+                    })
+                  )
+                )
+                .toBe(true);
+              await setComparisonHighlights(page, false);
+              await expect.poll(() => pairIds(page)).toEqual(before);
+              await expectComparisonPlaying(page);
+              await expect
+                .poll(() =>
+                  cards
+                    .locator("video")
+                    .evaluateAll((nodes) =>
+                      nodes.every(
+                        (node) =>
+                          (node as HTMLVideoElement).playbackRate === 1.5
+                      )
+                    )
+                )
+                .toBe(true);
+              await setComparisonHighlights(page, true);
+              await expect.poll(() => pairIds(page)).toEqual(before);
+              await expectComparisonBounce(page, mediaType);
+            }
           }
           const opener =
             workspace === "ranking"
@@ -981,12 +1061,21 @@ for (const phone of [false, true]) {
                 exact: true
               })
             ).toBeDisabled();
-            if (mediaType === "video") await expectComparisonPlaying(page);
+            await expectComparisonBounce(page, mediaType);
           }
         }
-        expect(choices).toBe(0);
+        expect(choices).toBe(1);
       } finally {
-        await context.close();
+        try {
+          const cleanup = await context.newPage();
+          for (const asset of assets.filter(
+            (item) => item.mediaType === mediaType
+          )) {
+            await setPresentation(cleanup, asset, defaults);
+          }
+        } finally {
+          await context.close();
+        }
       }
     });
   }
@@ -1316,6 +1405,132 @@ async function expectComparisonFramesAdvance(page: Page) {
     )
   );
   expect(advancing).toEqual([true, true]);
+}
+
+async function expectComparisonBounce(
+  page: Page,
+  mediaType: "video" | "image"
+) {
+  const cards = page.locator(".comparison-card");
+  if (mediaType === "video") {
+    await expect(
+      cards.locator("video[data-preview-source='bounce']")
+    ).toHaveCount(2);
+    await expect
+      .poll(() =>
+        cards.locator("video").evaluateAll((nodes) =>
+          nodes.every((node) => {
+            const video = node as HTMLVideoElement;
+            const assetId = video
+              .closest(".comparison-card")!
+              .getAttribute("data-asset-id");
+            const source = video.currentSrc ? new URL(video.currentSrc) : null;
+            return (
+              source?.pathname === `/api/assets/${assetId}/playback` &&
+              source.searchParams.get("variant") === "bounce" &&
+              video.readyState >= 2 &&
+              !video.paused &&
+              video.currentTime > 0 &&
+              video.muted &&
+              video.defaultMuted &&
+              video.playsInline &&
+              video.playbackRate === 1.5
+            );
+          })
+        )
+      )
+      .toBe(true);
+    await expectComparisonFramesAdvance(page);
+    return;
+  }
+  const canvases = cards.locator("canvas");
+  await expect(canvases).toHaveCount(2);
+  await expect(cards.locator(".media-image-shell.animation-ready")).toHaveCount(
+    2
+  );
+  await canvases.evaluateAll((nodes) => {
+    for (const node of nodes)
+      (node as HTMLCanvasElement).dataset.observedLevels = "[]";
+  });
+  const expectedAnimations: Record<string, { name: string; blue: number }> =
+    Object.fromEntries(
+      assets
+        .filter((asset) => asset.mediaType === "image")
+        .map((asset) => [
+          asset.id,
+          {
+            name: asset.name,
+            blue:
+              32 + Number(/^animation-(\d+)\.webp$/.exec(asset.name)![1]) * 32
+          }
+        ])
+    );
+  await expect
+    .poll(
+      () =>
+        canvases.evaluateAll(
+          (nodes, expected) =>
+            nodes
+              .map((node) => {
+                const canvas = node as HTMLCanvasElement;
+                const assetId = canvas
+                  .closest(".comparison-card")
+                  ?.getAttribute("data-asset-id");
+                const asset = assetId ? expected[assetId] : undefined;
+                const pixel = canvas
+                  .getContext("2d")
+                  ?.getImageData(0, 0, 1, 1).data;
+                if (
+                  !asset ||
+                  !pixel ||
+                  canvas.getAttribute("aria-label") !== asset.name ||
+                  pixel[2] !== asset.blue
+                )
+                  return false;
+                const levels = JSON.parse(
+                  canvas.dataset.observedLevels ?? "[]"
+                ) as number[];
+                const level = Math.round((pixel[0]! - 32) / 64);
+                if (levels.at(-1) !== level) levels.push(level);
+                canvas.dataset.observedLevels = JSON.stringify(
+                  levels.slice(-24)
+                );
+                return (
+                  levels.some(
+                    (value, index) =>
+                      value === 0 &&
+                      levels[index + 1] === 1 &&
+                      levels[index + 2] === 2 &&
+                      levels[index + 3] === 3
+                  ) &&
+                  levels.some(
+                    (value, index) =>
+                      value === 3 &&
+                      levels[index + 1] === 2 &&
+                      levels[index + 2] === 1
+                  )
+                );
+              })
+              .every(Boolean),
+          expectedAnimations
+        ),
+      { intervals: [50], timeout: 10_000 }
+    )
+    .toBe(true);
+}
+
+async function setComparisonHighlights(page: Page, checked: boolean) {
+  await page.getByRole("button", { name: /^View options/ }).click();
+  const options = page.getByRole("dialog", {
+    name: "View options",
+    exact: true
+  });
+  await options
+    .getByRole("checkbox", { name: "Play highlights only", exact: true })
+    .setChecked(checked);
+  await options
+    .getByRole("button", { name: "Close view options", exact: true })
+    .click();
 }
 
 async function setPresentation(

@@ -63,7 +63,7 @@ HEIC uses the shared media surfaces and preserves the original download.
   fullscreen retains original proportions and system controls. With highlights off,
   items with highlights play their full source in Repeat; saved speed/framing
   still apply. Without a highlight, Bounce applies to the full item.
-- Comparison uses normal-speed forward repeat with selected aspect framing and
+- Comparison uses saved playback mode and speed with selected aspect framing and
   the shared Play highlights only preference. View options → Layout changes shape and card info
   without changing pair selection or Undo. Each view remembers these choices;
   Feed stays Portrait; Ranking defaults to Original. Both start with no card info. Feed metadata uses compact icon/value rows and a

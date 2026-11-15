@@ -180,7 +180,7 @@ export function UserGuidePage({
             <p>
               Bounce and framing do not rewrite source bytes. Download returns
               the source file. Use Play highlights only in View options to play
-              the saved section. Comparison cards play forward at 1×.
+              the saved section.
             </p>
             <h2>Adjust framing</h2>
             <p>
@@ -228,10 +228,10 @@ export function UserGuidePage({
               preference.
             </p>
             <p>
-              Comparison videos start muted and play forward at 1×. Play
-              highlights only changes their range. Opening an item in full view
-              uses its saved playback mode and speed, including Bounce.
-              Returning to the pair preserves the pair and Undo.
+              Comparison uses the saved playback mode and speed, including
+              Bounce, with the selected saved framing. Videos start muted. Play
+              highlights only uses saved sections. Returning from full view or
+              changing the layout preserves the pair and Undo.
             </p>
             <h2>Read scores and progress</h2>
             <p>

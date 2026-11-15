@@ -67,7 +67,6 @@ export function ComparisonCard({
           asset={asset}
           onDimensionsKnown={onMediaDimensionsKnown}
           playbackPaused={playbackPaused || disabled}
-          applyPlaybackPreferences={false}
           defaultFit={aspect === "Original" ? "contain" : "cover"}
           framingAspect={aspect}
           muted

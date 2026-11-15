@@ -162,7 +162,7 @@ Never test rebuild or wipe against the only copy of a real library database.
   original proportions and system controls.
 - Gallery/Ranking remember shape and each view remembers card info. Feed stays
   Portrait; Ranking starts with Original, and both initially hide info.
-  Comparison layout changes retain pair/Undo and 1×/repeat while toggling full
+  Comparison layout changes retain pair/Undo and saved playback while toggling full
   source/highlights.
 - Click/tap viewer media to hide/show controls, check idle hiding and keyboard
   focus, and keep video/animation playing while opening and closing Info. Use the
@@ -240,9 +240,10 @@ Never test rebuild or wipe against the only copy of a real library database.
   poster until the first frame without hiding the native video. Check normal
   device settings and Low Power Mode separately; record device-policy blocking
   separately from application failures.
-- Open saved Bounce videos and animations from ranking and the leaderboard.
-  Full view must retain Bounce and saved speed; cards remain forward at 1×.
-  Closing full view must preserve the ordered pair and Undo.
+- Play saved Bounce videos and animations in ranking and open them in full view
+  from ranking and the leaderboard. Cards and full view must retain Bounce and
+  saved speed, following Play highlights only. Check playback after choices,
+  Skip and Undo. Closing full view must preserve the ordered pair and Undo.
 - Check one toast per acknowledged operation/batch, inline form errors, quiet
   score increments, Undo/Activity alternatives and no old-session notifications.
 - Back up and restore with retained Trash and matching filesystem payloads;

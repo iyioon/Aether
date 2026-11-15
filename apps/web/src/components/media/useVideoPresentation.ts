@@ -23,10 +23,9 @@ export function useVideoPresentation(
   playback: VideoPlayback,
   asset: AssetRecord,
   variant: PresentationVariant,
-  enabled = true,
   bounceTimeline?: PresentationMediaCapabilities["bounceTimeline"]
 ) {
-  const rate = enabled ? (asset.presentation?.playbackRate ?? 1) : 1;
+  const rate = asset.presentation?.playbackRate ?? 1;
   const range = asset.presentation?.highlight;
   const start = variant === "full" ? 0 : (range?.startMs ?? 0) / 1000;
   const end =

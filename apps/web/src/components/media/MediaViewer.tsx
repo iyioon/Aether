@@ -364,7 +364,6 @@ export function MediaViewer({
     playback,
     effectiveAsset,
     variant,
-    true,
     capabilityState.capabilities?.bounceTimeline
   );
   const viewerPosterSource =

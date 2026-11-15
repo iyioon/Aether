@@ -6,6 +6,8 @@ Notable changes to Aether are recorded here.
 
 ### Fixed
 
+- Honor saved Bounce and playback speed in comparison cards for videos and
+  animated images instead of forcing forward Repeat at 1×.
 - Keep comparison video players mounted between pairs so muted playback can
   continue after choices, Skip and Undo without losing per-element authorization.
 - Reset preview errors and pause intent before changing assets, cancel stale

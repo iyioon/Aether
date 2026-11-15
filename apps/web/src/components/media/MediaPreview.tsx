@@ -58,7 +58,6 @@ interface MediaPreviewProps {
   controlsContainer?: HTMLElement | null;
   noticeContainer?: HTMLElement | null;
   asset: AssetRecord;
-  applyPlaybackPreferences?: boolean;
   framingAspect?: PresentationAspect;
   defaultFit?: "contain" | "cover";
   isActive?: boolean;
@@ -87,7 +86,6 @@ export const MediaPreview = memo(function MediaPreview({
   asset,
   controlsContainer,
   noticeContainer,
-  applyPlaybackPreferences = true,
   defaultFit = "cover",
   framingAspect = "Original",
   isActive = true,
@@ -216,11 +214,7 @@ export const MediaPreview = memo(function MediaPreview({
   const animationCandidate =
     asset.mediaType === "image" &&
     /\.(gif|webp|apng|png|avif)$/i.test(asset.name);
-  const variant = applyPlaybackPreferences
-    ? playbackVariant(asset, highlightsOnly)
-    : highlightsOnly && asset.presentation?.highlight
-      ? "highlight"
-      : "full";
+  const variant = playbackVariant(asset, highlightsOnly);
   const {
     capabilities,
     error: capabilitiesError,
@@ -358,7 +352,6 @@ export const MediaPreview = memo(function MediaPreview({
     playback,
     playbackAsset,
     variant,
-    applyPlaybackPreferences,
     capabilities?.bounceTimeline
   );
   const isVideoReady =
@@ -1081,15 +1074,7 @@ export const MediaPreview = memo(function MediaPreview({
               setReadyAnimationKey(ready ? animationDisplayKey : null)
             }
             renditionKey={capabilities.renditionKeys.full}
-            presentation={
-              applyPlaybackPreferences
-                ? framedValues
-                : {
-                    ...framedValues,
-                    playbackRate: 1,
-                    loopMode: "repeat"
-                  }
-            }
+            presentation={framedValues}
             highlightsOnly={highlightsOnly}
             active={isActive && isVisible}
             paused={playbackPaused}

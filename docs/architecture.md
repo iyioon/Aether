@@ -587,10 +587,10 @@ the canvas component's duplicate notice.
 The highlight-only preference follows validated URL/resume state and is also
 available in the viewer View options menu, alongside the independent framing
 choice. The highlight option is disabled for items without a saved section
-without clearing the remembered preference. Comparison applies that range
-selection while keeping 1×/repeat and its saved View options framing. The full
-viewer always applies saved playback mode and speed, including when opened
-from ranking or the leaderboard; only comparison cards bypass those values.
+without clearing the remembered preference. Comparison applies the same range,
+saved playback mode and speed as other previews, with its selected View options
+framing. Comparison videos start muted. The full viewer retains those playback
+settings when opened from ranking or the leaderboard.
 Layout changes leave the ordered pair
 and Undo untouched; comparison cards do not expose Edit. Presentation-only reset leaves navigation,
 ranking and Undo intact. Per-asset edits remain server-owned; private in-memory

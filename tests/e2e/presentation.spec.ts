@@ -4197,7 +4197,7 @@ test("loops original video sections in Feed and Comparison, with an explicit cod
       .poll(() =>
         comparisonVideo.evaluate((node: HTMLVideoElement) => node.playbackRate)
       )
-      .toBe(1);
+      .toBe(1.5);
     await expect
       .poll(() =>
         comparisonVideo.evaluate((node: HTMLVideoElement) => node.currentTime)

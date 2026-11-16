@@ -71,6 +71,8 @@ import { Skeleton } from "./ui/skeleton";
 import { Button } from "./ui/button";
 import { LibraryControlStrip } from "./toolbar/LibraryControlStrip";
 import { LibraryResultStatus } from "./toolbar/LibraryResultStatus";
+import { LibrarySearchDialog } from "./toolbar/LibrarySearchDialog";
+import type { LibrarySearchValues } from "./toolbar/search-state";
 import { useLibraryControls } from "./toolbar/useLibraryControls";
 import { PresentationContext } from "./media/presentation-context";
 import { clearPresentationCapabilities } from "./media/usePresentationCapabilities";
@@ -260,31 +262,24 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
   );
   const {
     applyLibraryState,
-    addTagFilter,
     aspect,
     clearTagFilters,
-    clearFilters,
-    filterTagSuggestions,
     gridSize,
     highlightsOnly,
     setHighlightsOnly,
     mediaType,
     isOptionsOpen,
+    isSearchOpen,
+    setSearchOpen,
+    applySearch,
     scoreFilter,
-    removeTagFilter,
     search,
-    searchDraft,
     setAspect,
     setGridSize,
-    setMediaType,
     setOptionsOpen,
     setScoreFilter,
-    setSearchDraft,
     setSort,
     setSortCriteria,
-    setTagMatch,
-    setTagStatus,
-    setTagFilterDraft,
     setView,
     sort,
     sortDirection,
@@ -292,13 +287,32 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     tagMatch,
     tagStatus,
     tagFilters,
-    tagFilterDraft,
     view
   } = useLibraryControls({
-    initialState: initialLibraryState,
-    selectedFolderId,
-    tree
+    initialState: initialLibraryState
   });
+  const searchTriggerRef = useRef<HTMLButtonElement>(null);
+  const searchOpenRef = useRef(isSearchOpen);
+  searchOpenRef.current = isSearchOpen;
+  const searchValues: LibrarySearchValues = {
+    folderId: selectedFolderId,
+    search,
+    tags: tagFilters,
+    tagMatch,
+    tagStatus,
+    mediaType,
+    scoreFilter
+  };
+  const hasSearchCriteria = Boolean(
+    search ||
+    tagFilters.length ||
+    tagStatus !== "all" ||
+    mediaType !== "all" ||
+    scoreFilter !== "all"
+  );
+  useEffect(() => {
+    if (activePage !== "library") setSearchOpen(false);
+  }, [activePage, setSearchOpen]);
   const {
     clearFields: clearGalleryMetadataFields,
     fields: galleryMetadataFields,
@@ -525,14 +539,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
   }, [location, tree]);
   usePageLifecycle({
     onHidden: () => {
-      if (tree)
-        saveAppLocation({
-          ...location,
-          library: {
-            ...location.library,
-            search: searchDraft.trim().slice(0, 160)
-          }
-        });
+      if (tree) saveAppLocation(location);
     },
     onResume: () => {
       void refreshTree().catch(() => undefined);
@@ -1051,6 +1058,41 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     setActivePage("library");
   }
 
+  function openSearch() {
+    setIsMobileSidebarOpen(false);
+    setIsFeedChromeHidden(false);
+    setOptionsOpen(false);
+    setSearchOpen(true);
+  }
+
+  function submitSearch(values: LibrarySearchValues) {
+    if (
+      values.folderId &&
+      !tree?.roots.some((root) => root.folderId === values.folderId) &&
+      !tree?.folders.some((folder) => folder.id === values.folderId)
+    )
+      return;
+    pushLocationRef.current = true;
+    closeSelectionMode();
+    setSelectedFolderId(values.folderId);
+    applySearch(values);
+  }
+
+  function restoreSearchFocus(event: Event) {
+    event.preventDefault();
+    if (searchOpenRef.current) return;
+    const active = document.activeElement;
+    if (
+      active instanceof HTMLElement &&
+      active !== document.body &&
+      !active.closest(".library-search-dialog") &&
+      !active.closest('[inert], [aria-hidden="true"]') &&
+      active.getClientRects().length > 0
+    )
+      return;
+    searchTriggerRef.current?.focus({ preventScroll: true });
+  }
+
   async function handleLogout() {
     const clearResume = () => {
       clearSessionScrollPositions();
@@ -1105,7 +1147,6 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     activePage === "library" ? (
       <LibraryControlStrip
         aspect={aspect}
-        filterTagSuggestions={filterTagSuggestions}
         galleryMetadataFields={galleryMetadataFields}
         gridSize={gridSize}
         highlightsOnly={highlightsOnly}
@@ -1115,33 +1156,19 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
           loadedQueryKey === listQueryKey ? availableAssetCount : 0
         }
         onAddMedia={openAddMedia}
-        mediaType={mediaType}
         isOpen={isOptionsOpen}
-        scoreFilter={scoreFilter}
         sort={sort}
         sortDirection={sortDirection}
         sortCriteria={sortCriteria}
         onSetSortCriteria={setSortCriteria}
-        tagMatch={tagMatch}
-        tagStatus={tagStatus}
-        onSetTagMatch={setTagMatch}
-        onSetTagStatus={setTagStatus}
-        tagFilters={tagFilters}
-        tagFilterDraft={tagFilterDraft}
         view={view}
-        onAddTagFilter={addTagFilter}
         onClearGalleryMetadataFields={clearGalleryMetadataFields}
-        onClearFilters={clearFilters}
-        onRemoveTagFilter={removeTagFilter}
         onResetGalleryMetadataFields={resetGalleryMetadataFields}
         onSetSelectionMode={setSelectionMode}
         onSetAspect={setAspect}
         onSetGridSize={setGridSize}
-        onSetMediaType={setMediaType}
         onOpenChange={setOptionsOpen}
-        onSetScoreFilter={setScoreFilter}
         onSetSort={setSort}
-        onSetTagFilterDraft={setTagFilterDraft}
         onToggleGalleryMetadataField={toggleGalleryMetadataField}
       />
     ) : null;
@@ -1245,12 +1272,14 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
             isTrashOpen={activePage === "trash"}
             isActivityOpen={activityOpen}
             isAddMediaOpen={activePage === "add-media"}
-            searchDraft={searchDraft}
+            hasSearchCriteria={hasSearchCriteria}
+            isSearchOpen={isSearchOpen}
+            searchTriggerRef={searchTriggerRef}
             selectedFolderId={selectedFolderId}
             tree={tree}
             view={view}
             onBackToLibrary={backToLibrary}
-            onSearchDraftChange={setSearchDraft}
+            onOpenSearch={openSearch}
             onSelectFolder={selectFolder}
             onPreloadView={preloadView}
             onSwitchView={switchView}
@@ -1646,6 +1675,16 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
             />
           </Suspense>
         ) : null}
+        <LibrarySearchDialog
+          isOpen={isSearchOpen}
+          onOpenChange={setSearchOpen}
+          value={searchValues}
+          tree={tree}
+          isLoadingTree={isLoadingTree}
+          onRefreshFolders={refreshTree}
+          onSearch={submitSearch}
+          onCloseAutoFocus={restoreSearchFocus}
+        />
         {editingAsset ? (
           <PresentationEditorDialog
             key={editingAsset.id}

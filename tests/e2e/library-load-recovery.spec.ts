@@ -1,3 +1,4 @@
+import { setLibrarySearch } from "./library-search";
 import { expect, test, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
@@ -14,10 +15,10 @@ const png = Buffer.from(
   "base64"
 );
 
-async function prepareFolder(page: Page, fixtureName: string) {
+async function prepareFolder(page: Page, fixtureName: string, count = 82) {
   const directory = path.resolve(".e2e", "media", fixtureName);
   await mkdir(directory);
-  for (let index = 0; index < 82; index++)
+  for (let index = 0; index < count; index++)
     await writeFile(
       path.join(directory, `${String(index).padStart(4, "0")}.png`),
       png
@@ -71,6 +72,71 @@ async function expectLoadedCount(page: Page, count: number) {
 }
 
 for (const phone of [false, true]) {
+  test(`announces a delayed initial Feed load on ${phone ? "phone" : "desktop"}`, async ({
+    browser
+  }) => {
+    const context = await browser.newContext({
+      baseURL: productionBaseURL,
+      viewport: phone
+        ? { width: 393, height: 852 }
+        : { width: 1440, height: 980 },
+      isMobile: phone,
+      hasTouch: phone,
+      serviceWorkers: "block"
+    });
+    const page = await context.newPage();
+    const fixtureName = `Feed-loading-${randomUUID()}`;
+    const directory = path.resolve(".e2e", "media", fixtureName);
+    let releaseResponse = () => {};
+    const responseGate = new Promise<void>((resolve) => {
+      releaseResponse = resolve;
+    });
+    try {
+      const folder = await prepareFolder(page, fixtureName, 2);
+      await page.route(
+        `**/api/folders/${folder.id}/assets?*`,
+        async (route) => {
+          await responseGate;
+          await route.continue();
+        }
+      );
+      await page.goto(
+        `/?folder=${folder.id}&view=feed&sort=filename&order=asc`
+      );
+      const feed = page.getByRole("region", {
+        name: "Feed view",
+        exact: true
+      });
+      const loadingStatus = page
+        .getByRole("status")
+        .filter({ hasText: /^Loading feed$/ });
+      await expect(feed).toHaveAttribute("aria-busy", "true");
+      await expect(loadingStatus).toHaveCount(1);
+      await expect(loadingStatus).toHaveAttribute("aria-atomic", "true");
+      // The busy region must not defer its own loading announcement.
+      await expect(feed.getByRole("status")).toHaveCount(0);
+      await expect(feed.getByRole("article")).toHaveCount(0);
+      await expect(feed.locator(".media-skeleton")).toBeVisible();
+      await expect(page.locator(".empty-library")).toHaveCount(0);
+
+      releaseResponse();
+      await expect(feed).toHaveAttribute("aria-busy", "false");
+      await expect(loadingStatus).toHaveCount(0);
+      await expect(feed.locator(".media-skeleton")).toHaveCount(0);
+      await expect(
+        feed.getByRole("article", { name: "image: 0000.png", exact: true })
+      ).toBeInViewport();
+      await feed.press("ArrowDown");
+      await expect(
+        feed.getByRole("article", { name: "image: 0001.png", exact: true })
+      ).toBeInViewport();
+    } finally {
+      releaseResponse();
+      await context.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   test(`recovers failed initial and changed-query gallery loads on ${phone ? "phone" : "desktop"}`, async ({
     browser
   }) => {
@@ -136,9 +202,7 @@ for (const phone of [false, true]) {
         page.getByRole("button", { name: /^View options/ })
       ).toBeFocused();
 
-      await page
-        .getByRole("searchbox", { name: "Search", exact: true })
-        .fill("0001");
+      await setLibrarySearch(page, "0001");
       await expect(failure).toContainText("Unable to load media.");
       await expect(page.locator(".gallery-loading-layer")).toHaveCount(0);
       await expect(page.locator(".empty-library")).toHaveCount(0);
@@ -442,6 +506,54 @@ for (const phone of [false, true]) {
         await page.waitForTimeout(350);
         expect(appendRequests).toBe(1);
 
+        if (!phone && view === "gallery") {
+          const card = content.getByRole("button", { name: /^Open / }).first();
+          const ignoredKeys = await card.evaluate((element) => {
+            const before =
+              element.closest<HTMLElement>(".gallery-viewport")!.scrollTop;
+            const prevented = ["Home", "End"].flatMap((key) =>
+              [
+                { isComposing: true },
+                { altKey: true },
+                { ctrlKey: true },
+                { metaKey: true },
+                { shiftKey: true }
+              ].map((modifiers) => {
+                const event = new KeyboardEvent("keydown", {
+                  key,
+                  code: key,
+                  bubbles: true,
+                  cancelable: true,
+                  ...modifiers
+                });
+                element.dispatchEvent(event);
+                return event.defaultPrevented;
+              })
+            );
+            return {
+              prevented,
+              scrolled:
+                element.closest<HTMLElement>(".gallery-viewport")!.scrollTop !==
+                before
+            };
+          });
+          expect(ignoredKeys).toEqual({
+            prevented: Array(10).fill(false),
+            scrolled: false
+          });
+          await expect
+            .poll(() =>
+              page.evaluate(
+                () =>
+                  JSON.parse(
+                    localStorage.getItem("aether.scroll.v3.library-content") ??
+                      "{}"
+                  ).anchorId
+              )
+            )
+            .toBe(last.id);
+        }
+
         rejectAppend = false;
         await failure
           .getByRole("button", { name: "Retry", exact: true })
@@ -489,6 +601,12 @@ for (const phone of [false, true]) {
               )
             )
             .toBe(0);
+          if (view === "gallery") {
+            await expect(content).toBeFocused();
+            await expect
+              .poll(() => content.evaluate((element) => element.scrollTop))
+              .toBe(0);
+          }
           rejectAppend = false;
           await failure
             .getByRole("button", { name: "Retry", exact: true })
@@ -510,6 +628,28 @@ for (const phone of [false, true]) {
                 });
           await expect(first).toBeInViewport();
           await expect(restoredItem).not.toBeInViewport();
+
+          if (view === "gallery") {
+            await content.press("End");
+            await expect(content).toBeFocused();
+            // Fractional row measurements can round the loaded extent by one pixel.
+            await expect
+              .poll(() =>
+                content.evaluate(
+                  (element) =>
+                    element.scrollHeight -
+                    element.clientHeight -
+                    element.scrollTop
+                )
+              )
+              .toBeLessThanOrEqual(1);
+            await expect(restoredItem).toBeInViewport();
+            await content.press("Home");
+            await expect
+              .poll(() => content.evaluate((element) => element.scrollTop))
+              .toBe(0);
+            await expect(first).toBeInViewport();
+          }
 
           rejectAppend = true;
           await page.reload();

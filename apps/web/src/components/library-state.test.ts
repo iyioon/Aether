@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   buildLibraryStateSearch,
   defaultLibraryState,
+  MAX_SEARCH_LENGTH,
   MAX_TAG_FILTERS,
+  normalizeLibrarySearch,
   parseLibraryStateSearch,
   parseStoredLibraryState,
   serializeLibraryState
@@ -108,6 +110,59 @@ describe("library state URL helpers", () => {
     expect(state.tags).toHaveLength(MAX_TAG_FILTERS);
     expect(state.tags[0]).toBe("Tag 0");
     expect(state.tags.at(-1)).toBe(`Tag ${MAX_TAG_FILTERS - 1}`);
+  });
+
+  it("normalizes and bounds search in links without reducing folder ID limits", () => {
+    const folderId = "f".repeat(160);
+    const search = `  Ａ${"b".repeat(150)}  `;
+    const expected = `A${"b".repeat(MAX_SEARCH_LENGTH - 1)}`;
+    const state = { ...defaultLibraryState, folderId, search };
+
+    expect(normalizeLibrarySearch(search)).toBe(expected);
+    expect(normalizeLibrarySearch("  서울 여행  ")).toBe("서울 여행");
+    expect(normalizeLibrarySearch("x".repeat(MAX_SEARCH_LENGTH))).toHaveLength(
+      MAX_SEARCH_LENGTH
+    );
+    expect(
+      parseLibraryStateSearch(
+        `?q=${encodeURIComponent(search)}&folder=${folderId}`
+      )
+    ).toMatchObject({ folderId, search: expected });
+    expect(new URLSearchParams(buildLibraryStateSearch(state)).get("q")).toBe(
+      expected
+    );
+    expect(buildLibraryStateSearch({ ...state, search: "   " })).not.toContain(
+      "q="
+    );
+  });
+
+  it("retains legacy checkpoints while shortening their search to the API limit", () => {
+    const legacyState = {
+      ...defaultLibraryState,
+      folderId: "f".repeat(160),
+      search: "x".repeat(160)
+    };
+    const expected = {
+      ...legacyState,
+      search: "x".repeat(MAX_SEARCH_LENGTH)
+    };
+    expect(
+      parseStoredLibraryState(
+        JSON.stringify({ version: 1, state: legacyState })
+      )
+    ).toEqual(expected);
+    expect(JSON.parse(serializeLibraryState(legacyState)) as unknown).toEqual({
+      version: 1,
+      state: expected
+    });
+    expect(
+      parseStoredLibraryState(
+        JSON.stringify({
+          version: 1,
+          state: { ...legacyState, search: "x".repeat(161) }
+        })
+      )
+    ).toBeNull();
   });
 
   it("rejects old, malformed, and invalid stored state", () => {

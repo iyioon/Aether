@@ -1130,12 +1130,15 @@ export function GalleryGrid({
         }}
         onKeyDownCapture={(event) => {
           if (
-            !event.nativeEvent.isComposing &&
-            !isDirectionalKeyboardTarget(event.target) &&
-            !event.altKey &&
-            !event.ctrlKey &&
-            !event.metaKey &&
-            [
+            event.defaultPrevented ||
+            event.nativeEvent.isComposing ||
+            isDirectionalKeyboardTarget(event.target) ||
+            event.altKey ||
+            event.ctrlKey ||
+            event.metaKey ||
+            (event.shiftKey && (event.key === "Home" || event.key === "End")) ||
+            hasOpenKeyboardLayer() ||
+            ![
               "ArrowDown",
               "ArrowUp",
               "Home",
@@ -1144,7 +1147,19 @@ export function GalleryGrid({
               "PageUp"
             ].includes(event.key)
           )
-            adoptLoadedPosition();
+            return;
+
+          adoptLoadedPosition();
+          if (event.key === "Home" || event.key === "End") {
+            event.preventDefault();
+            const viewport = event.currentTarget;
+            // The focused virtual card may unmount during the jump.
+            viewport.focus({ preventScroll: true });
+            viewport.scrollTo({
+              top: event.key === "Home" ? 0 : viewport.scrollHeight,
+              behavior: "instant"
+            });
+          }
         }}
         onPointerDownCapture={(event) => {
           if (event.target === event.currentTarget) adoptLoadedPosition();

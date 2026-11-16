@@ -58,18 +58,32 @@ Never test rebuild or wipe against the only copy of a real library database.
   history.
 - Test portrait and short landscape layouts, safe areas, keyboard entry and
   zoom on an actual iPhone Home Screen installation.
-- Open View options, switch tabs, add and remove tags with the keyboard open,
-  and clear filters. Confirm Gallery search and controls fit one row and the
-  compact view menu switches views. Confirm the sheet stays above the Home
+- Open Search from the icon beside the folder path and with `/`. Enter a
+  filename/path, change folder scope, and add/remove tags with the keyboard open.
+  Check read-only roots, All/Any matching, Tagged/Untagged, media and score
+  filters. Draft changes and Clear must leave results, history and checkpoints
+  unchanged until Search; Cancel, Escape and closing must discard them.
+  Backgrounding keeps the in-memory draft, while reload restores only the
+  committed criteria.
+  Reopen and verify the committed criteria, active-criteria indicator and focus
+  return. Test short landscape, long paths, tag suggestion cancellation and the
+  128-character query limit. Search must remain available in compact Feed.
+  With the software keyboard open, verify Search and Cancel remain above it
+  through viewport panning and rotation. In the Folder chooser, Tab closes the
+  chooser and continues to the next field; Shift+Tab returns to Folder without
+  choosing an option. Reopen with a folder beyond the first page of choices;
+  its selection stays visible and Enter keeps that scope. Delay or fail the initial folder load and confirm drafts
+  survive until the folder can be checked and Search becomes available.
+- Open View options and switch Sort/Layout tabs. Confirm the compact view menu
+  switches views. Confirm the sheet stays above the Home
   indicator, its header and playback footer remain reachable while scrolling,
   and settings survive reopening. Close and quickly reopen the panel, then use
   Escape; focus returns to View options. Outside dismissal keeps focus on the
-  selected control. Clear filters with the keyboard; focus returns to **All** under **Media**
-  and Tab continues within the panel.
+  selected control.
 - Test both an existing Home Screen icon after closing and reopening the app
   for an update, and a fresh installation. Open Feed on a later item: media
   should fill the viewport iOS exposes, with a readable clock, and retain the
-  item through rotation. Check that the top-right view selector and View options
+  item through rotation. Check that top-right Search, the view selector and View options
   hide and return with details on a media tap. Change filters and sorting directly
   in Feed, including recovery from an empty result. Switch views and confirm
   filters and browsing position are retained. Check header, sidebar, viewer,
@@ -218,6 +232,10 @@ Never test rebuild or wipe against the only copy of a real library database.
 - Create empty folders, rename media without changing extensions, rename/move
   subtrees with sidecars and hidden files, and rescan. Preserve IDs, scores,
   presentation and history; recreated old names receive new identities.
+- In destination pickers, start a new-folder entry and confirm that Create or
+  Cancel resolves it before Move here or Use folder becomes available. Confirming
+  composed text must not create the folder. Remove upload selections with the
+  keyboard and check focus moves to a remaining file or Choose files.
 - Exercise collision/Keep both, source/parent replacement, symlinks, special
   entries, unsupported metadata, quota/disk-full, disconnected drives, partial
   batches and server shutdown at durable boundaries. Never use a real library.

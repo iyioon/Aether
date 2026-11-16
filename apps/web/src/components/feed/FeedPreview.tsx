@@ -745,15 +745,20 @@ export function FeedPreview({
 
   if (isLoading && assets.length === 0) {
     return (
-      <section className="feed-shell" aria-label="Feed view">
-        <div className="feed-view">
-          <article className="feed-item">
-            <div className="feed-frame">
-              <div className="media-skeleton" />
-            </div>
-          </article>
-        </div>
-      </section>
+      <>
+        <section className="feed-shell" aria-label="Feed view" aria-busy="true">
+          <div className="feed-view" aria-hidden="true">
+            <article className="feed-item">
+              <div className="feed-frame">
+                <div className="media-skeleton" />
+              </div>
+            </article>
+          </div>
+        </section>
+        <span className="sr-only" role="status" aria-atomic="true">
+          Loading feed
+        </span>
+      </>
     );
   }
 

@@ -1,6 +1,7 @@
 import { useId, useRef, useState } from "react";
 import { SlidersHorizontal, X } from "lucide-react";
 import { useIsMobile } from "../../hooks/use-mobile";
+import { restoreFocusAfterClose } from "../../lib/focus-restoration";
 import type { ViewMode } from "../library-state";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
@@ -9,12 +10,11 @@ import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "../ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
-import { FilterControls, type FilterControlsProps } from "./FilterControls";
 import { LayoutControls, type LayoutControlsProps } from "./LayoutControls";
 import { SortControls, type SortControlsProps } from "./SortControls";
 
 export interface LibraryViewOptionsProps
-  extends FilterControlsProps, LayoutControlsProps, SortControlsProps {
+  extends LayoutControlsProps, SortControlsProps {
   isOpen: boolean;
   view: ViewMode;
   onOpenChange: (isOpen: boolean) => void;
@@ -23,29 +23,13 @@ export interface LibraryViewOptionsProps
 }
 
 export function LibraryViewOptions(props: LibraryViewOptionsProps) {
-  const {
-    isOpen,
-    view,
-    onOpenChange,
-    mediaType,
-    scoreFilter,
-    tagFilters,
-    tagStatus
-  } = props;
+  const { isOpen, view, onOpenChange } = props;
   const isMobile = useIsMobile();
   const titleId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const restoreTriggerFocusRef = useRef(false);
-  const [tab, setTab] = useState("filters");
-  const activeTab = view === "compare" && tab === "sort" ? "filters" : tab;
-  const filterCount =
-    Number(mediaType !== "all") +
-    Number(scoreFilter !== "all") +
-    tagFilters.length +
-    Number(tagStatus !== "all");
-  const label = filterCount
-    ? `View options, ${filterCount} active ${filterCount === 1 ? "filter" : "filters"}`
-    : "View options";
+  const [tab, setTab] = useState("sort");
+  const label = "View options";
   function changeOpen(open: boolean) {
     if (open) restoreTriggerFocusRef.current = false;
     onOpenChange(open);
@@ -57,7 +41,7 @@ export function LibraryViewOptions(props: LibraryViewOptionsProps) {
   function restoreTriggerFocus(event: Event) {
     if (restoreTriggerFocusRef.current && !isOpen) {
       event.preventDefault();
-      triggerRef.current?.focus({ preventScroll: true });
+      restoreFocusAfterClose(triggerRef.current);
     }
     restoreTriggerFocusRef.current = false;
   }
@@ -71,13 +55,9 @@ export function LibraryViewOptions(props: LibraryViewOptionsProps) {
       aria-label={label}
     >
       <SlidersHorizontal aria-hidden="true" />
-      {filterCount ? (
-        <span className="view-options-count" aria-hidden="true">
-          {filterCount}
-        </span>
-      ) : null}
     </Button>
   );
+  const layoutControls = <LayoutControls {...props} />;
   const content = (
     <>
       <div className="view-options-heading">
@@ -96,30 +76,22 @@ export function LibraryViewOptions(props: LibraryViewOptionsProps) {
           <X aria-hidden="true" />
         </Button>
       </div>
-      <Tabs
-        className="view-options-tabs"
-        value={activeTab}
-        onValueChange={setTab}
-      >
-        <TabsList aria-label="View options sections">
-          <TabsTrigger value="filters">Filters</TabsTrigger>
-          {view !== "compare" ? (
+      {view === "compare" ? (
+        <div className="view-options-body">{layoutControls}</div>
+      ) : (
+        <Tabs className="view-options-tabs" value={tab} onValueChange={setTab}>
+          <TabsList aria-label="View options sections">
             <TabsTrigger value="sort">Sort</TabsTrigger>
-          ) : null}
-          <TabsTrigger value="layout">Layout</TabsTrigger>
-        </TabsList>
-        <div className="view-options-body" key={activeTab}>
-          <TabsContent value="filters">
-            <FilterControls {...props} />
-          </TabsContent>
-          <TabsContent value="sort">
-            <SortControls {...props} />
-          </TabsContent>
-          <TabsContent value="layout">
-            <LayoutControls {...props} />
-          </TabsContent>
-        </div>
-      </Tabs>
+            <TabsTrigger value="layout">Layout</TabsTrigger>
+          </TabsList>
+          <div className="view-options-body" key={tab}>
+            <TabsContent value="sort">
+              <SortControls {...props} />
+            </TabsContent>
+            <TabsContent value="layout">{layoutControls}</TabsContent>
+          </div>
+        </Tabs>
+      )}
       <Label className="view-options-playback">
         <Checkbox
           checked={props.highlightsOnly}

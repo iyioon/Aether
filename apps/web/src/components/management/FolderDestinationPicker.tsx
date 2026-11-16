@@ -49,6 +49,7 @@ export interface FolderDestinationPickerProps {
   allowOriginal?: boolean;
   onCreateFolder?: (input: FileOperationInput) => Promise<FileOperation>;
   onBusyChange?: (busy: boolean) => void;
+  onDraftChange?: (hasDraft: boolean) => void;
 }
 
 /** Folder navigation embedded in the task's existing Dialog or Sheet. */
@@ -60,7 +61,8 @@ export function FolderDestinationPicker({
   sourceFolderId,
   allowOriginal = false,
   onCreateFolder,
-  onBusyChange
+  onBusyChange,
+  onDraftChange
 }: FolderDestinationPickerProps) {
   const [added, setAdded] = useState<DestinationFolder[]>([]);
   const [creating, setCreating] = useState(false);
@@ -113,6 +115,15 @@ export function FolderDestinationPicker({
       controllerRef.current?.abort();
     };
   }, []);
+  useEffect(() => {
+    onDraftChange?.(creating || unconfirmed);
+  }, [creating, unconfirmed, onDraftChange]);
+  useEffect(
+    () => () => {
+      onDraftChange?.(false);
+    },
+    [onDraftChange]
+  );
   useEffect(() => {
     if (listRef.current) listRef.current.scrollTop = 0;
     if (breadcrumbRef.current)
@@ -363,7 +374,7 @@ export function FolderDestinationPicker({
             maxLength={200}
             onChange={(event) => setName(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter") {
+              if (event.key === "Enter" && !event.nativeEvent.isComposing) {
                 event.preventDefault();
                 void createFolder();
               }

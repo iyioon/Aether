@@ -1,3 +1,4 @@
+import { setLibrarySearch } from "./library-search";
 import { execFile } from "node:child_process";
 import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
@@ -712,10 +713,6 @@ for (const phone of [false, true]) {
       await page.goto(url("gallery", "all", photo.name), {
         waitUntil: "domcontentloaded"
       });
-      const search = page.getByRole("searchbox", {
-        name: "Search",
-        exact: true
-      });
       const oldImage = (await page.locator(".media-tile img").elementHandle())!;
       const imageSource = (await oldImage.getAttribute("src"))!;
       await expect
@@ -725,7 +722,7 @@ for (const phone of [false, true]) {
           )
         )
         .toBe(true);
-      await search.fill(removedVideo.name);
+      await setLibrarySearch(page, removedVideo.name);
       const videoCard = page.locator(".media-tile").filter({
         has: page.getByRole("button", {
           name: `Open ${removedVideo.name}`,
@@ -751,7 +748,7 @@ for (const phone of [false, true]) {
           )
           .toBe(true);
       await expect.poll(() => oldImage.getAttribute("src")).toBeNull();
-      await search.fill(retainedVideo.name);
+      await setLibrarySearch(page, retainedVideo.name);
       const activeVideo = page.locator(".media-tile video");
       await expect(
         page.locator(".media-tile").getByRole("button", {

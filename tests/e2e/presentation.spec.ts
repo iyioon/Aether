@@ -1087,7 +1087,7 @@ test("saves and cancels framing and keeps the comparison pair while changing its
       name: "View options",
       exact: true
     });
-    await options.getByRole("tab", { name: "Layout", exact: true }).click();
+    await expect(options.getByRole("tab")).toHaveCount(0);
     await options
       .getByRole("combobox", { name: "Media layout", exact: true })
       .click();

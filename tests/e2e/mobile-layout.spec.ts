@@ -1,3 +1,4 @@
+import { openLibrarySearch, setLibrarySearch } from "./library-search";
 import { expect, test, type Page } from "@playwright/test";
 
 const password = "aether-e2e-password";
@@ -156,7 +157,7 @@ test("uses a working drawer on wide touch landscape screens", async ({
   }
 });
 
-test("keeps gallery search and toolbar controls on one row on narrow phones", async ({
+test("keeps the search icon on the path row and toolbar controls reachable on narrow phones", async ({
   browser,
   page
 }) => {
@@ -198,6 +199,12 @@ test("keeps gallery search and toolbar controls on one row on narrow phones", as
             center: rect.y + rect.height / 2
           };
         })(),
+        heading: (() => {
+          const rect = document
+            .querySelector(".library-path-heading")!
+            .getBoundingClientRect();
+          return { top: rect.top, bottom: rect.bottom };
+        })(),
         targets: [
           ...document.querySelectorAll<HTMLButtonElement>(
             ".library-path-actions button"
@@ -221,37 +228,40 @@ test("keeps gallery search and toolbar controls on one row on narrow phones", as
           })
       }));
 
-      expect(geometry.search.width).toBeGreaterThanOrEqual(80);
+      expect(geometry.search.width).toBeGreaterThanOrEqual(44);
+      expect(geometry.search.right).toBeLessThanOrEqual(geometry.width);
+      expect(geometry.search.center).toBeGreaterThan(geometry.heading.top);
+      expect(geometry.search.center).toBeLessThan(geometry.heading.bottom);
+      let actionCenter: number | undefined;
       expect(geometry.targets).toHaveLength(4);
       for (const target of geometry.targets) {
-        expect(target.left).toBeGreaterThanOrEqual(geometry.search.right);
-        expect(
-          Math.abs(target.center - geometry.search.center)
-        ).toBeLessThanOrEqual(1);
+        expect(target.left).toBeGreaterThanOrEqual(0);
+        expect(target.center).toBeGreaterThan(geometry.heading.bottom);
+        actionCenter ??= target.center;
+        expect(Math.abs(target.center - actionCenter)).toBeLessThanOrEqual(1);
         expect(target.right).toBeLessThanOrEqual(geometry.width);
         expect(target.width).toBeGreaterThanOrEqual(44);
         expect(target.height).toBeGreaterThanOrEqual(44);
         expect(target.reachable).toBe(true);
       }
-      const search = phone.getByRole("searchbox", { name: "Search" });
+      const search = phone.getByRole("button", { name: "Search", exact: true });
       const viewMenu = phone.getByRole("button", {
         name: "Change view, Gallery selected"
       });
-      const searchBounds = await search.boundingBox();
-      const viewBounds = await viewMenu.boundingBox();
-      expect(
-        Math.abs(
-          viewBounds!.y +
-            viewBounds!.height / 2 -
-            (searchBounds!.y + searchBounds!.height / 2)
-        )
-      ).toBeLessThanOrEqual(1);
-      expect(viewBounds!.x).toBeGreaterThanOrEqual(
-        searchBounds!.x + searchBounds!.width
+      const searchBounds = (await search.boundingBox())!;
+      const viewBounds = (await viewMenu.boundingBox())!;
+      expect(viewBounds.y).toBeGreaterThanOrEqual(
+        searchBounds.y + searchBounds.height
       );
       await phone.keyboard.press("/");
-      await expect(search).toBeFocused();
-      await search.fill("beach-walk");
+      const dialog = phone.getByRole("dialog", { name: "Search", exact: true });
+      const input = dialog.getByRole("searchbox", {
+        name: "Filename or path",
+        exact: true
+      });
+      await expect(input).toBeFocused();
+      await input.fill("beach-walk");
+      await dialog.getByRole("button", { name: "Search", exact: true }).tap();
       await expect(
         phone.getByRole("img", { name: "beach-walk.png" })
       ).toBeVisible();
@@ -271,7 +281,17 @@ test("keeps gallery search and toolbar controls on one row on narrow phones", as
       await phone
         .getByRole("button", { name: "Gallery view", exact: true })
         .tap();
-      await expect(search).toHaveValue("beach-walk");
+      expect(new URL(phone.url()).searchParams.get("q")).toBe("beach-walk");
+      const restoredSearch = await openLibrarySearch(phone);
+      await expect(
+        restoredSearch.getByRole("searchbox", {
+          name: "Filename or path",
+          exact: true
+        })
+      ).toHaveValue("beach-walk");
+      await restoredSearch
+        .getByRole("button", { name: "Cancel", exact: true })
+        .tap();
     } finally {
       await context.close();
     }
@@ -370,8 +390,11 @@ test("groups mobile Feed view options and navigation with media visibility", asy
       await phone.setViewportSize(viewport);
       await expect(phone.getByRole("banner")).toHaveCount(0);
       await expect(
-        phone.getByRole("searchbox", { name: "Search" })
+        phone.getByRole("searchbox", { name: "Filename or path" })
       ).toHaveCount(0);
+      await expect(
+        phone.getByRole("button", { name: "Search", exact: true })
+      ).toBeVisible();
       await expect(
         phone.getByRole("button", { name: "Toggle Sidebar" })
       ).toHaveCount(0);
@@ -413,24 +436,31 @@ test("groups mobile Feed view options and navigation with media visibility", asy
       name: "View options",
       exact: true
     });
-    await expect(panel.getByRole("tab")).toHaveText([
-      "Filters",
-      "Sort",
-      "Layout"
-    ]);
-    await panel.getByRole("radio", { name: "Videos", exact: true }).check();
+    await expect(panel.getByRole("tab")).toHaveText(["Sort", "Layout"]);
     await panel.getByRole("button", { name: "Close view options" }).tap();
+    const searchPanel = await openLibrarySearch(phone);
+    await searchPanel
+      .getByRole("radio", { name: "Videos", exact: true })
+      .check();
+    await searchPanel
+      .getByRole("button", { name: "Search", exact: true })
+      .tap();
     await expect(
       phone.getByText("No media matches this search or filter", { exact: true })
     ).toBeVisible();
-    await expect(options).toBeFocused();
+    await openLibrarySearch(phone);
+    await searchPanel
+      .getByRole("radio", { name: "Images", exact: true })
+      .check();
+    await searchPanel
+      .getByRole("button", { name: "Search", exact: true })
+      .tap();
     await options.tap();
-    await panel.getByRole("radio", { name: "Images", exact: true }).check();
     await panel.getByRole("tab", { name: "Sort", exact: true }).tap();
     await panel.getByRole("combobox", { name: "Sort direction 1" }).tap();
     await phone.getByRole("option", { name: "Z to A", exact: true }).tap();
     await panel.getByRole("button", { name: "Close view options" }).tap();
-    await expect(options).toHaveAccessibleName("View options, 1 active filter");
+    await expect(options).toHaveAccessibleName("View options");
     expect(new URL(phone.url()).searchParams.get("order")).toBe("desc");
     expect(new URL(phone.url()).searchParams.get("sortBy")).toBe(
       "filename:desc"
@@ -469,12 +499,11 @@ test("groups mobile Feed view options and navigation with media visibility", asy
     await switcher
       .getByRole("button", { name: "Gallery view", exact: true })
       .press("Enter");
-    const search = phone.getByRole("searchbox", { name: "Search" });
-    await expect(search).toHaveValue("beach-walk");
+    expect(new URL(phone.url()).searchParams.get("q")).toBe("beach-walk");
     expect(new URL(phone.url()).searchParams.get("type")).toBe("image");
     expect(new URL(phone.url()).searchParams.get("sort")).toBe("filename");
 
-    await search.fill("no-matching-feed-item");
+    await setLibrarySearch(phone, "no-matching-feed-item");
     await expect
       .poll(() => new URL(phone.url()).searchParams.get("q"))
       .toBe("no-matching-feed-item");
@@ -485,14 +514,18 @@ test("groups mobile Feed view options and navigation with media visibility", asy
     await switcher
       .getByRole("button", { name: "Gallery view", exact: true })
       .tap();
-    await expect(search).toHaveValue("no-matching-feed-item");
+    expect(new URL(phone.url()).searchParams.get("q")).toBe(
+      "no-matching-feed-item"
+    );
   } finally {
     await context.close();
   }
 
   await page.getByRole("button", { name: "Feed view", exact: true }).click();
   await expect(page.getByRole("banner")).toBeVisible();
-  await expect(page.getByRole("searchbox", { name: "Search" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Search", exact: true })
+  ).toBeVisible();
   await expect(page.locator(".feed-view-controls")).toHaveCount(0);
 });
 

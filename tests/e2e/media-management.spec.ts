@@ -1110,6 +1110,114 @@ test("initializes the upload destination after an early file selection while the
   }
 });
 
+for (const phone of [false, true]) {
+  test(`keeps upload review focus and destination drafts explicit on ${phone ? "phone" : "desktop"}`, async ({
+    browser
+  }) => {
+    const context = await browser.newContext({
+      baseURL: productionBaseURL,
+      viewport: phone
+        ? { width: 320, height: 760 }
+        : { width: 1440, height: 980 },
+      isMobile: phone,
+      hasTouch: phone
+    });
+    try {
+      const page = await context.newPage();
+      await signInAndScan(page);
+      await page
+        .getByRole("region", { name: "Library controls" })
+        .getByRole("button", { name: "Add media", exact: true })
+        .click();
+      const addMedia = page.getByRole("region", {
+        name: "Add media",
+        exact: true
+      });
+      await addMedia.getByLabel("Choose media", { exact: true }).setInputFiles(
+        ["first", "second", "third", "fourth"].map((name) => ({
+          name: `${name}.png`,
+          mimeType: "image/png",
+          buffer: Buffer.from([1, 2, 3])
+        }))
+      );
+      const remove = (name: string) =>
+        addMedia.getByRole("button", {
+          name: `Remove ${name}.png`,
+          exact: true
+        });
+      await remove("second").focus();
+      await page.keyboard.press("Enter");
+      await expect(remove("third")).toBeFocused();
+      const chooseMore = addMedia.getByRole("button", {
+        name: "Choose more files",
+        exact: true
+      });
+      await chooseMore.focus();
+      await remove("fourth").evaluate((button: HTMLButtonElement) =>
+        button.click()
+      );
+      await expect(chooseMore).toBeFocused();
+      await remove("third").focus();
+      await page.keyboard.press("Enter");
+      await expect(remove("first")).toBeFocused();
+      await page.keyboard.press("Enter");
+      await expect(
+        addMedia.getByRole("button", {
+          name: "Choose files or drop photos and videos",
+          exact: true
+        })
+      ).toBeFocused();
+      await expect(
+        addMedia.getByRole("list", { name: "Files to add" })
+      ).toHaveCount(0);
+
+      await addMedia
+        .getByRole("button", { name: "Change", exact: true })
+        .click();
+      const useFolder = addMedia.getByRole("button", {
+        name: "Use folder",
+        exact: true
+      });
+      await expect(useFolder).toBeEnabled();
+      await addMedia
+        .getByRole("button", { name: "New folder", exact: true })
+        .click();
+      const folderName = addMedia.getByRole("textbox", {
+        name: "Folder name",
+        exact: true
+      });
+      await folderName.fill("Uncommitted folder");
+      await expect(folderName).toBeEditable();
+      await expect(useFolder).toBeDisabled();
+      const cancelDestination = addMedia
+        .locator(".add-media-footer")
+        .getByRole("button", { name: "Cancel", exact: true });
+      await expect(cancelDestination).toBeEnabled();
+      await addMedia
+        .locator(".destination-new-folder")
+        .getByRole("button", { name: "Cancel", exact: true })
+        .click();
+      await expect(useFolder).toBeEnabled();
+      await addMedia
+        .getByRole("button", { name: "New folder", exact: true })
+        .click();
+      await folderName.fill("Another uncommitted folder");
+      await cancelDestination.click();
+      await expect(
+        addMedia.getByRole("button", { name: "Change", exact: true })
+      ).toBeVisible();
+      await expect(folderName).toHaveCount(0);
+      await addMedia
+        .locator(".add-media-footer")
+        .getByRole("button", { name: "Cancel", exact: true })
+        .click();
+      await expect(addMedia).toBeHidden();
+    } finally {
+      await context.close();
+    }
+  });
+}
+
 for (const layout of ["desktop", "phone", "landscape"] as const) {
   const compact = layout !== "desktop";
   test(`keeps Add media focused and cancellation explicit on ${layout}`, async ({

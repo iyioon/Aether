@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from "react";
+import { useId, useLayoutEffect, useRef } from "react";
 import { Plus, X } from "lucide-react";
 import type {
   MediaTypeFilter,
@@ -36,7 +36,6 @@ export interface FilterControlsProps {
   onSetTagStatus: (value: TagStatus) => void;
   tagFilterDraft: string;
   onAddTagFilter: (tagName: string) => void;
-  onClearFilters: () => void;
   onSetMediaType: (mediaType: MediaTypeFilter) => void;
   onRemoveTagFilter: (tagName: string) => void;
   onSetScoreFilter: (scoreFilter: ScoreFilter) => void;
@@ -54,15 +53,13 @@ export function FilterControls({
   onSetTagStatus,
   tagFilterDraft,
   onAddTagFilter,
-  onClearFilters,
   onSetMediaType,
   onRemoveTagFilter,
   onSetScoreFilter,
   onSetTagFilterDraft
 }: FilterControlsProps) {
-  const mediaAllRef = useRef<HTMLButtonElement>(null);
+  const tagInputId = useId();
   const tagInputRef = useRef<HTMLInputElement>(null);
-  const clearFocusRef = useRef(false);
   const tagButtonsRef = useRef(new Map<string, HTMLButtonElement>());
   const removedTagRef = useRef<{ removed: string; neighbor?: string } | null>(
     null
@@ -91,19 +88,6 @@ export function FilterControls({
         (tag) =>
           !normalizedSelectedTags.has(normalizeTagIdentity(tag.displayName))
       );
-  const hasFilters =
-    mediaType !== "all" ||
-    scoreFilter !== "all" ||
-    tagFilters.length > 0 ||
-    tagStatus !== "all";
-
-  useLayoutEffect(() => {
-    if (!clearFocusRef.current || hasFilters) return;
-    clearFocusRef.current = false;
-    if (document.activeElement && document.activeElement !== document.body)
-      return;
-    mediaAllRef.current?.focus({ preventScroll: true });
-  }, [hasFilters]);
 
   function addTagFilter(tagName: string) {
     onAddTagFilter(tagName);
@@ -112,44 +96,9 @@ export function FilterControls({
 
   return (
     <div className="view-options-fields">
-      <fieldset>
-        <legend>Media</legend>
-        <RadioGroup
-          className="view-options-choices view-options-media"
-          aria-label="Media filters"
-          value={mediaType}
-          onValueChange={(value) => onSetMediaType(value as MediaTypeFilter)}
-        >
-          {mediaFilters.map((filter) => (
-            <Label className="view-options-choice" key={filter.value}>
-              <RadioGroupItem
-                ref={filter.value === "all" ? mediaAllRef : undefined}
-                value={filter.value}
-              />
-              {filter.label}
-            </Label>
-          ))}
-        </RadioGroup>
-      </fieldset>
-      <fieldset>
-        <legend>Score</legend>
-        <RadioGroup
-          className="view-options-choices"
-          aria-label="Score filters"
-          value={scoreFilter}
-          onValueChange={(value) => onSetScoreFilter(value as ScoreFilter)}
-        >
-          {scoreFilters.map((filter) => (
-            <Label className="view-options-choice" key={filter.value}>
-              <RadioGroupItem value={filter.value} />
-              {filter.label}
-            </Label>
-          ))}
-        </RadioGroup>
-      </fieldset>
       <div className="view-options-tags">
         <div className="view-options-field-heading">
-          <Label htmlFor="library-tag-filter-input">Tags</Label>
+          <Label htmlFor={tagInputId}>Tags</Label>
         </div>
         <Select
           value={tagStatus}
@@ -218,7 +167,7 @@ export function FilterControls({
             ) : null}
             <div className="view-options-tag-input">
               <Input
-                id="library-tag-filter-input"
+                id={tagInputId}
                 ref={tagInputRef}
                 value={tagFilterDraft}
                 placeholder={isAtTagLimit ? "Tag limit reached" : "Type a tag"}
@@ -226,9 +175,10 @@ export function FilterControls({
                 disabled={isAtTagLimit}
                 onChange={(event) => onSetTagFilterDraft(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                  if (event.key === "Enter") {
                     event.preventDefault();
-                    if (canAddTag) addTagFilter(tagFilterDraft);
+                    if (!event.nativeEvent.isComposing && canAddTag)
+                      addTagFilter(tagFilterDraft);
                   }
                 }}
               />
@@ -266,20 +216,38 @@ export function FilterControls({
           </>
         ) : null}
       </div>
-      {hasFilters ? (
-        <Button
-          className="view-options-clear"
-          type="button"
-          variant="ghost"
-          onClick={(event) => {
-            clearFocusRef.current =
-              document.activeElement === event.currentTarget;
-            onClearFilters();
-          }}
+      <fieldset>
+        <legend>Media</legend>
+        <RadioGroup
+          className="view-options-choices view-options-media"
+          aria-label="Media filters"
+          value={mediaType}
+          onValueChange={(value) => onSetMediaType(value as MediaTypeFilter)}
         >
-          Clear filters
-        </Button>
-      ) : null}
+          {mediaFilters.map((filter) => (
+            <Label className="view-options-choice" key={filter.value}>
+              <RadioGroupItem value={filter.value} />
+              {filter.label}
+            </Label>
+          ))}
+        </RadioGroup>
+      </fieldset>
+      <fieldset>
+        <legend>Score</legend>
+        <RadioGroup
+          className="view-options-choices"
+          aria-label="Score filters"
+          value={scoreFilter}
+          onValueChange={(value) => onSetScoreFilter(value as ScoreFilter)}
+        >
+          {scoreFilters.map((filter) => (
+            <Label className="view-options-choice" key={filter.value}>
+              <RadioGroupItem value={filter.value} />
+              {filter.label}
+            </Label>
+          ))}
+        </RadioGroup>
+      </fieldset>
     </div>
   );
 }

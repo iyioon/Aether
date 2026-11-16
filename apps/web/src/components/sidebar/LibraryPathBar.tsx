@@ -1,4 +1,10 @@
-import { Fragment, useEffect, useMemo, useRef, type ReactNode } from "react";
+import {
+  Fragment,
+  useEffect,
+  useMemo,
+  type ReactNode,
+  type RefObject
+} from "react";
 import {
   ChevronDown,
   GalleryHorizontalEnd,
@@ -31,9 +37,9 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger
 } from "../ui/dropdown-menu";
-import { Input } from "../ui/input";
 import { Separator } from "../ui/separator";
 import { SidebarTrigger, useSidebar } from "../ui/sidebar";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 
 interface LibraryPathBarProps {
   isFeedChromeHidden: boolean;
@@ -44,13 +50,15 @@ interface LibraryPathBarProps {
   isActivityOpen?: boolean;
   controls?: ReactNode;
   status?: ReactNode;
-  searchDraft: string;
+  hasSearchCriteria: boolean;
+  isSearchOpen: boolean;
+  searchTriggerRef: RefObject<HTMLButtonElement | null>;
   selectedFolderId: string | null;
   tree: TreeResponse | null;
   view: ViewMode;
   onBackToLibrary: () => void;
   onPreloadView: (view: ViewMode) => void;
-  onSearchDraftChange: (value: string) => void;
+  onOpenSearch: () => void;
   onSelectFolder: (folderId: string) => void;
   onSwitchView: (view: ViewMode) => void;
 }
@@ -85,13 +93,15 @@ export function LibraryPathBar({
   isActivityOpen = false,
   controls,
   status,
-  searchDraft,
+  hasSearchCriteria,
+  isSearchOpen,
+  searchTriggerRef,
   selectedFolderId,
   tree,
   view,
   onBackToLibrary,
   onPreloadView,
-  onSearchDraftChange,
+  onOpenSearch,
   onSelectFolder,
   onSwitchView
 }: LibraryPathBarProps) {
@@ -101,7 +111,6 @@ export function LibraryPathBar({
     [selectedFolderId, tree]
   );
   const collapsedParents = path.length > 2 ? path.slice(1, -1) : [];
-  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const currentView = libraryViews.find((option) => option.value === view)!;
   const isLibraryOpen =
     !isSettingsOpen &&
@@ -124,19 +133,54 @@ export function LibraryPathBar({
         return;
       }
 
-      const searchInput = searchInputRef.current;
+      const searchButton = searchTriggerRef.current;
 
-      if (!searchInput || searchInput.disabled) {
+      if (!searchButton || searchButton.disabled) {
         return;
       }
 
       event.preventDefault();
-      searchInput.focus({ preventScroll: true });
+      searchButton.click();
     }
 
     window.addEventListener("keydown", focusSearch);
     return () => window.removeEventListener("keydown", focusSearch);
-  }, []);
+  }, [searchTriggerRef]);
+
+  const searchButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          className="library-search-trigger"
+          type="button"
+          ref={searchTriggerRef}
+          size="icon"
+          variant="ghost"
+          aria-label="Search"
+          aria-description={
+            hasSearchCriteria ? "Search criteria are active" : undefined
+          }
+          aria-keyshortcuts="/"
+          aria-haspopup="dialog"
+          aria-expanded={isSearchOpen}
+          data-active={hasSearchCriteria}
+          onClick={onOpenSearch}
+        >
+          <Search aria-hidden="true" />
+          {hasSearchCriteria ? (
+            <span className="library-search-indicator" aria-hidden="true" />
+          ) : null}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent
+        className="library-search-tooltip"
+        side="left"
+        sideOffset={8}
+      >
+        {hasSearchCriteria ? "Search criteria are active (/)" : "Search (/)"}
+      </TooltipContent>
+    </Tooltip>
+  );
 
   const viewSwitcher = (
     <div
@@ -180,6 +224,7 @@ export function LibraryPathBar({
       >
         {status}
         {controls}
+        {searchButton}
         {viewSwitcher}
       </div>
     );
@@ -312,23 +357,10 @@ export function LibraryPathBar({
         {isLibraryOpen ? (
           <div className="library-path-status">{status}</div>
         ) : null}
+        {isLibraryOpen ? searchButton : null}
       </div>
       {isLibraryOpen ? (
         <div className="library-path-actions">
-          <div className="topbar-search">
-            <Search aria-hidden="true" />
-            <Input
-              className="h-9 pl-9"
-              aria-label="Search"
-              aria-keyshortcuts="/"
-              placeholder="Search"
-              aria-description="Search names and paths in this folder and its subfolders"
-              ref={searchInputRef}
-              type="search"
-              value={searchDraft}
-              onChange={(event) => onSearchDraftChange(event.target.value)}
-            />
-          </div>
           {controls}
           <div className="library-path-view-actions">
             <Separator

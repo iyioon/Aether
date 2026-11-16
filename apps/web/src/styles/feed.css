@@ -10,10 +10,27 @@
 }
 
 .feed-view-controls .library-view-switcher,
+.feed-view-controls .library-search-trigger,
 .feed-view-controls .view-options-trigger {
   border-color: rgba(255, 255, 255, 0.18);
   background: rgba(3, 4, 4, 0.58);
   backdrop-filter: blur(12px) saturate(1.12);
+}
+
+.feed-view-controls .library-search-trigger {
+  flex-basis: 44px;
+  width: 44px;
+  height: 44px;
+}
+
+@media (max-width: 380px) {
+  .feed-view-controls {
+    gap: 4px;
+  }
+  .feed-view-controls .library-view-switcher {
+    gap: 0;
+    padding-inline: 0;
+  }
 }
 
 .feed-view-controls .aether-button {

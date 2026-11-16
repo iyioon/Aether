@@ -3,10 +3,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { guideTopics, parseGuideTopic, type GuideTopic } from "./guide-topics";
 
 const shortcuts = [
-  ["/", "Focus search"],
+  ["/", "Open Search"],
   ["⌘/Ctrl + B", "Show or hide the sidebar"],
   ["↑ / ↓ or Page keys", "Previous or next Feed item"],
   ["Home / End", "First or last loaded Feed item"],
+  ["Home / End in Gallery", "Start or end of loaded results"],
   ["Enter in Feed", "Open the current item"],
   ["← / → in viewer", "Previous or next item"],
   ["↑ / ↓ in viewer", "Increase or decrease score"],
@@ -73,12 +74,34 @@ export function UserGuidePage({
                 Use the refresh button beside Folders to scan for new or changed
                 media.
               </li>
-              <li>Choose a folder, or search by name and path.</li>
+              <li>Choose a folder to browse its media.</li>
             </ol>
+            <h2>Search</h2>
+            <ol>
+              <li>Open Search at the right of the folder path, or press /.</li>
+              <li>
+                Enter a Filename or path, choose a Folder, or set tags, media
+                and score filters.
+              </li>
+              <li>Choose Search to apply your changes together.</li>
+            </ol>
+            <p>
+              The selected folder includes its subfolders. Search matches word
+              beginnings and partial Korean text in indexed filenames and folder
+              paths. Tag filters match all selected tags or any selected tag.
+              Choose Tagged or Untagged to find items with or without tags.
+              Choosing Untagged clears selected tag filters.
+            </p>
+            <p>
+              Clear resets the text and filters while keeping the selected
+              folder; choose Search to apply it. Cancel or Escape discards
+              unsaved changes. A dot on the search icon indicates active text or
+              filters.
+            </p>
             <h2>Choose a view</h2>
             <p>
-              Use the view buttons beside search, or open Change view in a
-              narrow window. Gallery shows a grid. Select a card to open the
+              Use the view buttons below the folder path, or open Change view in
+              a narrow window. Gallery shows a grid. Select a card to open the
               viewer. Right-click or long-press its preview for actions;
               selection and the viewer’s More menu provide the same file
               commands.
@@ -96,12 +119,12 @@ export function UserGuidePage({
               For a deep folder, open Show parent folders in the breadcrumb to
               return to an ancestor.
             </p>
-            <h2>Filter and sort</h2>
+            <h2>Sort and layout</h2>
             <p>
-              Open View options for Filters, Sort and Layout. Compare has
-              Filters and Layout. Clear filters keeps search, sort and layout.
-              Gallery and Compare remember their own layouts; Feed uses
-              Portrait.
+              Open View options for sorting and layout controls. Gallery and
+              Ranking remember their card shape and details separately; Feed
+              uses Portrait. Search filters do not change sort or layout
+              settings.
             </p>
             <p>
               In Sort, add up to five rules. The first takes priority; later
@@ -112,16 +135,11 @@ export function UserGuidePage({
               scores appear last. Random order uses a stable shuffle.
             </p>
             <p>
-              Tag filters can match all selected tags or any selected tag.
-              Choose Tagged or Untagged to find items with or without tags.
-              Choosing Untagged clears selected tag filters.
-            </p>
-            <p>
               Saved score, favorite or tag changes appear immediately. If they
               affect the current sorting or filters, cards stay in place until
               you choose Update results or change the view. Update results is
-              above the search bar. Loading more results pauses while sorting or
-              filtering changes are waiting.
+              beside the folder path. Loading more results pauses while sorting
+              or filtering changes are waiting.
             </p>
             <p>
               If a library request fails, choose Retry beside the error. Already
@@ -319,6 +337,10 @@ export function UserGuidePage({
                 and choose Move here.
               </li>
             </ol>
+            <p>
+              In a destination picker, New folder creates a child of the open
+              folder. Choose Create or Cancel before confirming the destination.
+            </p>
             <p>
               Use a folder’s actions to move the entire folder, including
               unindexed files and empty subfolders. Check Activity for progress

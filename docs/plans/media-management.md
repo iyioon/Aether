@@ -65,13 +65,14 @@ it is not the first documentation pass.
 
 ### Surfaces And Navigation
 
-Keep management separate from View options, which continues to control filtering,
-sorting and presentation. Extend the existing interface rather than adding a
-file-manager mode or controls over every thumbnail.
+Keep management separate from Search and View options. Search controls folder
+scope, text and filters; View options controls sorting, layout and playback.
+Extend the existing interface rather than adding a file-manager mode or controls
+over every thumbnail.
 
 | Surface         | Presentation and actions                                                                                                                                                                                                                                                                                                                                                                  |
 | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Gallery toolbar | Keep search and controls on one row. Place view switching at the far right after a vertical separator. Show Add media only in Gallery, beside Select and View options; use a named icon button on narrow screens. Keep Add media in the Gallery empty state.                                                                                                                              |
+| Gallery toolbar | Place Search at the far right of the folder-path row. Place view switching at the far right of the action row after a vertical separator. Show Add media only in Gallery, beside Select and View options; use a named icon button on narrow screens. Keep Add media in the Gallery empty state.                                                                                           |
 | Gallery card    | Extend the existing right-click/long-press menu with Rename…, Move to… and Move to Trash. Keep Info, Edit media and Download. Do not restore hover buttons.                                                                                                                                                                                                                               |
 | Selection       | Replace the large persistent batch editor with a compact strip: count, Move to…, Edit details, Trash and Done. Edit details separates Score and Tags into tabs with bottom-right Cancel and Apply actions. Selection checkboxes appear only in selection mode; Select loaded retains its explicit scope.                                                                                  |
 | Media viewer    | Introduce More for Edit media, Download, Rename…, Move to… and Move to Trash; retain View options, Info and Close directly. Keep controls visible while a menu or action is open. Feed uses these viewer actions; its rail and comparison voting cards gain no management icons.                                                                                                          |

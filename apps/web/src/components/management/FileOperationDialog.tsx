@@ -123,6 +123,7 @@ export function FileOperationDialog({
   const requestRef = useRef<FileOperationInput | null>(null);
   const [unknown, setUnknown] = useState(false);
   const [pickerBusy, setPickerBusy] = useState(false);
+  const [pickerHasDraft, setPickerHasDraft] = useState(false);
   const [inventory, setInventory] = useState<FolderInventory | null>(null);
   const [inventoryLoading, setInventoryLoading] = useState(false);
   const [inventoryError, setInventoryError] = useState<string | null>(null);
@@ -179,6 +180,7 @@ export function FileOperationDialog({
   const canSubmit =
     !isSaving &&
     !pickerBusy &&
+    !pickerHasDraft &&
     !conflictReview.busy &&
     (!reviewing || !conflictReview.error) &&
     !exceedsItemLimit &&
@@ -389,6 +391,7 @@ export function FileOperationDialog({
           allowOriginal={target.type === "restore"}
           onCreateFolder={onCreateFolder}
           onBusyChange={setPickerBusy}
+          onDraftChange={setPickerHasDraft}
         />
       ) : null}
       {!reviewing && ineligibleCount > 0 ? (

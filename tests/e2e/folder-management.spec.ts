@@ -1,4 +1,10 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import {
+  expect,
+  test,
+  type Locator,
+  type Page,
+  type Request
+} from "@playwright/test";
 import { chooseAccountAction } from "./account-menu";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -417,6 +423,11 @@ for (const phone of [false, true]) {
       await move
         .getByRole("button", { name: "Open Destination", exact: true })
         .click();
+      const moveHere = move.getByRole("button", {
+        name: "Move here",
+        exact: true
+      });
+      await expect(moveHere).toBeEnabled();
       await move
         .getByRole("button", { name: "New folder", exact: true })
         .click();
@@ -425,20 +436,65 @@ for (const phone of [false, true]) {
         exact: true
       });
       await expect(name).toBeFocused();
+      await expect(moveHere).toBeDisabled();
+      await expect(
+        move.locator(".management-footer").getByRole("button", {
+          name: "Cancel",
+          exact: true
+        })
+      ).toBeEnabled();
       await name.fill("Nested");
-      await submitDialog(
-        page,
-        move.getByRole("button", { name: "Create", exact: true })
+      let creationRequests = 0;
+      const observeCreation = (request: Request) => {
+        if (
+          request.method() === "POST" &&
+          new URL(request.url()).pathname === "/api/file-operations"
+        )
+          creationRequests += 1;
+      };
+      page.on("request", observeCreation);
+      await name.dispatchEvent("compositionstart");
+      await name.dispatchEvent("keydown", {
+        key: "Enter",
+        code: "Enter",
+        isComposing: true
+      });
+      await name.dispatchEvent("compositionend", { data: "Nested" });
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
       );
+      expect(creationRequests).toBe(0);
+      await expect(name).toBeEditable();
+      await move
+        .locator(".destination-new-folder")
+        .getByRole("button", { name: "Cancel", exact: true })
+        .click();
+      await expect(moveHere).toBeEnabled();
+      await expect(
+        move.getByRole("button", { name: "New folder", exact: true })
+      ).toBeFocused();
+      await move
+        .getByRole("button", { name: "New folder", exact: true })
+        .click();
+      await name.fill("Nested");
+      const acceptedCreation = page.waitForResponse(
+        (response) =>
+          response.url().endsWith("/api/file-operations") &&
+          response.request().method() === "POST"
+      );
+      await name.press("Enter");
+      const createdResponse = await acceptedCreation;
+      expect(createdResponse.status()).toBe(202);
+      const createdOperation = (await createdResponse.json()) as FileOperation;
+      await waitForOperation(page, createdOperation.id);
+      page.off("request", observeCreation);
+      expect(creationRequests).toBe(1);
       await expect(move).toBeVisible();
       await expect(page.getByRole("dialog")).toHaveCount(1);
       await expect(move.locator('[data-slot="breadcrumb-page"]')).toHaveText(
         "Nested"
       );
-      const moveHere = move.getByRole("button", {
-        name: "Move here",
-        exact: true
-      });
       await expect(moveHere).toBeEnabled();
       await expectDestinationContained(page, move);
       if (!phone) {

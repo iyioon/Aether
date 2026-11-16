@@ -6,6 +6,16 @@ Notable changes to Aether are recorded here.
 
 ### Fixed
 
+- Preserve deliberately moved focus while View options finishes closing.
+- Keep Gallery Home and End scrolling reliable while virtual rows are measured.
+- Keep the selected folder visible and focused when reopening Search's folder
+  chooser, and group tags before media and score refinements.
+- Prevent unfinished destination-folder entries from being bypassed, avoid folder
+  creation during text composition, and retain keyboard focus after removing
+  selected upload files.
+- Announce initial Feed loading to assistive technology.
+- Bound restored and submitted search text to the API's 128-character limit
+  while retaining older navigation checkpoints.
 - Keep toast actions clickable and keyboard accessible over the full-view media
   dialog and mobile sidebar, retain retry errors when a fast response updates the same toast, and
   provide touch-sized phone controls clear of safe areas.
@@ -74,6 +84,9 @@ Notable changes to Aether are recorded here.
 
 ### Added
 
+- A search dialog opened from the folder-path row, with filename/path text,
+  searchable folder scope, tag matching, media and score filters. Search applies
+  the complete draft; cancelling leaves the current results unchanged.
 - Ordered sorting rules for date modified, filename, score, favorites, tags,
   file size, duration and media type, with independent directions and accessible
   priority controls.

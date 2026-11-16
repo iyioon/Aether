@@ -9,15 +9,28 @@ sections below.
 
 1. Sign in with the server’s shared password.
 2. Use the refresh button beside **Folders** to find new or changed media.
-3. Choose a folder or search by filename and path.
+3. Choose a folder to browse its media.
 
-Search includes partial words and Korean text. Tag filters can match all selected
-tags or any selected tag. Choose Tagged or Untagged to find items with or without
-tags. Choosing Untagged clears selected tag filters.
+### Search
+
+1. Open **Search** at the right of the folder path, or press `/`.
+2. Enter a **Filename or path**, choose a **Folder**, or set tags, media and score
+   filters.
+3. Choose **Search** to apply your changes together.
+
+The selected folder includes its subfolders. Search matches word beginnings and
+partial Korean text in indexed filenames and folder paths. Tag filters match all
+selected tags or any selected tag. Choose Tagged or Untagged to find items with
+or without tags. Choosing Untagged clears selected tag filters.
+
+**Clear** resets the text and filters while keeping the selected folder; choose
+**Search** to apply it. **Cancel** or Escape discards unsaved changes. A dot on
+the search icon indicates active text or filters.
 
 ### Choose a view
 
-Use the view buttons beside search, or open **Change view** in a narrow window.
+Use the view buttons below the folder path, or open **Change view** in a narrow
+window.
 
 - **Gallery** shows a grid. Open a card to use the viewer. Right-click or
   long-press its preview for actions. Scrolling cancels a touch hold; score
@@ -31,9 +44,9 @@ Sign out. A count on Account shows operations in progress or needing attention.
 For a deep folder, open **Show parent folders** in the breadcrumb to return to
 an ancestor.
 
-Open **View options** for Filters, Sort and Layout. Compare has Filters and
-Layout. **Clear filters** keeps search, sort and layout. Gallery and Ranking
-remember their card shape and details separately; Feed uses Portrait.
+Open **View options** for sorting and layout controls. Gallery and
+Ranking remember their card shape and details separately; Feed uses Portrait.
+Search filters do not change sort or layout settings.
 
 In **Sort**, add up to five rules. The first rule takes priority; later rules
 order items with equal values. Drag a rule by its handle, or use **Move up** and
@@ -47,7 +60,7 @@ these rules. Sorting and filters are kept when you reload or return to the app.
 Scores, favorites and tags update when saved. If a change affects the current
 sorting or filters, cards stay in place until you choose **Update results** or
 change the view. This lets you adjust a score several times without moving its
-controls. **Update results** is above the search bar. Loading more results pauses
+controls. **Update results** is beside the folder path. Loading more results pauses
 while sorting or filtering changes are waiting.
 
 If a library request fails, choose **Retry** beside the error. Already loaded
@@ -217,6 +230,9 @@ renamed or moved. A folder rename includes its contents.
 3. For a rename, enter a name and choose **Rename**. The media extension stays
    fixed. For a move, open the destination folder and choose **Move here**.
 
+In a destination picker, **New folder** creates a child of the open folder.
+Choose **Create** or **Cancel** before confirming the destination.
+
 Use a folder’s actions to move its whole subtree, including unindexed files and
 empty subfolders. Unsupported filesystem metadata or special entries can prevent
 a move.
@@ -351,10 +367,11 @@ Focused fields, menus and dialogs keep their own keys.
 
 | Keys                         | Action                           |
 | ---------------------------- | -------------------------------- |
-| `/`                          | Focus search                     |
+| `/`                          | Open Search                      |
 | Ctrl/⌘ + B                   | Toggle sidebar                   |
 | Up/Down or Page keys in Feed | Previous/next item               |
 | Home/End in Feed             | First/last loaded item           |
+| Home/End in Gallery          | Start/end of loaded results      |
 | Enter in Feed                | Open viewer                      |
 | Left/Right in viewer         | Previous/next item               |
 | Up/Down in viewer            | Increase/decrease score          |

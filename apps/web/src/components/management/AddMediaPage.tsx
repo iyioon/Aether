@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState
+} from "react";
 import type {
   FileOperation,
   FileOperationInput,
@@ -72,11 +78,18 @@ export function AddMediaPage({
   const [browsingDestination, setBrowsingDestination] = useState(false);
   const [destinationDraft, setDestinationDraft] = useState(destination);
   const [creatingFolder, setCreatingFolder] = useState(false);
+  const [folderHasDraft, setFolderHasDraft] = useState(false);
   const [retryingFolders, setRetryingFolders] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const [draggingFiles, setDraggingFiles] = useState(false);
   const destinationInitializedRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const chooseFilesButtonRef = useRef<HTMLButtonElement>(null);
+  const removeFileButtonRefs = useRef(new Map<string, HTMLButtonElement>());
+  const removedFileFocusRef = useRef<{
+    origin: HTMLButtonElement;
+    nextKey: string | null;
+  } | null>(null);
   const pageOpenRef = useRef(open);
   pageOpenRef.current = open;
   const previewGenerationRef = useRef(0);
@@ -104,6 +117,20 @@ export function AddMediaPage({
     if (open) headingRef.current?.focus({ preventScroll: true });
     else setDraggingFiles(false);
   }, [open, browsingDestination, reviewing]);
+  useLayoutEffect(() => {
+    const focus = removedFileFocusRef.current;
+    if (!focus) return;
+    removedFileFocusRef.current = null;
+    if (
+      document.activeElement !== focus.origin &&
+      document.activeElement !== document.body
+    )
+      return;
+    const target = focus.nextKey
+      ? removeFileButtonRefs.current.get(focus.nextKey)
+      : chooseFilesButtonRef.current;
+    target?.focus({ preventScroll: true });
+  }, [draft]);
   const incomingIdRef = useRef<number | null>(null);
   const submittedDraftRef = useRef<string | null>(null);
   const submittingRef = useRef(false);
@@ -297,6 +324,7 @@ export function AddMediaPage({
                 value={destinationDraft}
                 onChange={setDestinationDraft}
                 onBusyChange={setCreatingFolder}
+                onDraftChange={setFolderHasDraft}
                 onCreateFolder={onSubmit}
               />
             ) : reviewing && conflictReview.value ? (
@@ -397,6 +425,7 @@ export function AddMediaPage({
                   onDrop={() => setDraggingFiles(false)}
                 >
                   <Button
+                    ref={chooseFilesButtonRef}
                     type="button"
                     variant="outline"
                     className="add-media-dropzone"
@@ -483,16 +512,35 @@ export function AddMediaPage({
                               ) : null}
                             </div>
                             <Button
+                              ref={(node) => {
+                                if (node)
+                                  removeFileButtonRefs.current.set(key, node);
+                                else removeFileButtonRefs.current.delete(key);
+                              }}
                               type="button"
                               size="sm"
                               variant="ghost"
                               disabled={conflictReview.busy}
                               aria-label={`Remove ${file.name}`}
-                              onClick={() =>
+                              onClick={(event) => {
+                                if (
+                                  document.activeElement === event.currentTarget
+                                ) {
+                                  const index = draft.findIndex(
+                                    (item) => item.key === key
+                                  );
+                                  removedFileFocusRef.current = {
+                                    origin: event.currentTarget,
+                                    nextKey:
+                                      draft[index + 1]?.key ??
+                                      draft[index - 1]?.key ??
+                                      null
+                                  };
+                                }
                                 setDraft((current) =>
                                   current.filter((item) => item.key !== key)
-                                )
-                              }
+                                );
+                              }}
                             >
                               Remove
                             </Button>
@@ -534,6 +582,7 @@ export function AddMediaPage({
                   <Button
                     disabled={
                       creatingFolder ||
+                      folderHasDraft ||
                       !folderIsWritable(tree, destinationDraft)
                     }
                     onClick={() => {

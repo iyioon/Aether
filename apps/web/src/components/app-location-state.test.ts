@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { defaultLibraryState, serializeLibraryState } from "./library-state";
+import {
+  defaultLibraryState,
+  MAX_SEARCH_LENGTH,
+  serializeLibraryState
+} from "./library-state";
 import {
   clearAppResumeState,
   readInitialAppLocation,
@@ -132,6 +136,42 @@ describe("application resume and explicit locations", () => {
     });
     location.search = "?launch=resume&view=gallery";
     expect(readInitialAppLocation()).toEqual(stored);
+  });
+  it("bounds legacy and new resume searches without discarding navigation", () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal("window", {
+      location: { search: "?launch=resume" },
+      localStorage: {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => values.set(key, value)
+      }
+    });
+    const legacy = {
+      ...stored,
+      library: { ...stored.library, search: "x".repeat(160) }
+    };
+    values.set("aether.resume.v1", JSON.stringify({ version: 1, ...legacy }));
+    expect(readInitialAppLocation()).toEqual({
+      ...stored,
+      library: { ...stored.library, search: "x".repeat(MAX_SEARCH_LENGTH) }
+    });
+
+    const next = {
+      ...stored,
+      library: { ...stored.library, search: `  Ａ${"b".repeat(150)}  ` }
+    };
+    saveAppLocation(next);
+    const expectedSearch = `A${"b".repeat(MAX_SEARCH_LENGTH - 1)}`;
+    expect(
+      JSON.parse(values.get("aether.resume.v1")!) as unknown
+    ).toMatchObject({ library: { search: expectedSearch } });
+    expect(
+      JSON.parse(values.get("aether.library-state.v1")!) as unknown
+    ).toMatchObject({ state: { search: expectedSearch } });
+    expect(readInitialAppLocation()).toEqual({
+      ...stored,
+      library: { ...stored.library, search: expectedSearch }
+    });
   });
   it("round trips Settings tab and ordered workspace through the URL", () => {
     const replaceState = vi.fn();

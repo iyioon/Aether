@@ -1,3 +1,4 @@
+import { openLibrarySearch } from "./library-search";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
@@ -137,11 +138,7 @@ for (const phone of [false, true]) {
       await page.goto(
         `${origin}/?folder=${folderId}&view=gallery&sort=filename&size=compact`
       );
-      await page.getByRole("button", { name: /^View options/ }).click();
-      const panel = page.getByRole("dialog", {
-        name: "View options",
-        exact: true
-      });
+      const panel = await openLibrarySearch(page);
       const input = panel.getByRole("textbox", { name: "Tags", exact: true });
       for (const tag of ["alpha", "shared"]) {
         await input.fill(tag);
@@ -151,17 +148,17 @@ for (const phone of [false, true]) {
         panel.getByRole("combobox", { name: "Tag matching" })
       ).toHaveText("Match all tags");
       await choose(page, "Tag matching", "Match any tag");
-      await panel.getByRole("button", { name: "Close view options" }).click();
+      await panel.getByRole("button", { name: "Search", exact: true }).click();
       await expectNames(page, ["a.png", "b.png", "c.png"]);
       await page.reload();
-      await page.getByRole("button", { name: /^View options/ }).click();
+      await openLibrarySearch(page);
       await expect(
         panel.getByRole("combobox", { name: "Tag matching" })
       ).toHaveText("Match any tag");
       await choose(page, "Tag matching", "Match all tags");
-      await panel.getByRole("button", { name: "Close view options" }).click();
+      await panel.getByRole("button", { name: "Search", exact: true }).click();
       await expectNames(page, ["a.png"]);
-      await page.getByRole("button", { name: /^View options/ }).click();
+      await openLibrarySearch(page);
       await choose(page, "Tag status", "Untagged");
       await expect(
         panel.getByRole("button", { name: /^Remove .* tag filter$/ })
@@ -169,14 +166,12 @@ for (const phone of [false, true]) {
       await expect(
         panel.getByRole("textbox", { name: "Tags", exact: true })
       ).toHaveCount(0);
-      await panel.getByRole("button", { name: "Close view options" }).click();
+      await panel.getByRole("button", { name: "Search", exact: true }).click();
       await expectNames(page, ["d.png"]);
       expect(new URL(page.url()).searchParams.getAll("tag")).toEqual([]);
-      await page.getByRole("button", { name: /^View options/ }).click();
-      await panel
-        .getByRole("button", { name: "Clear filters", exact: true })
-        .click();
-      await panel.getByRole("button", { name: "Close view options" }).click();
+      await openLibrarySearch(page);
+      await panel.getByRole("button", { name: "Clear", exact: true }).click();
+      await panel.getByRole("button", { name: "Search", exact: true }).click();
       await expectNames(page, ["a.png", "b.png", "c.png", "d.png"]);
     } finally {
       await context.close();

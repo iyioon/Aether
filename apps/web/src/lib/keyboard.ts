@@ -35,7 +35,8 @@ const OPEN_KEYBOARD_LAYER_SELECTOR = [
   "[data-slot='dropdown-menu-content'][data-state='open']",
   "[data-slot='context-menu-content'][data-state='open']",
   "[data-slot='popover-content'][data-state='open']",
-  "[data-slot='sheet-content'][data-state='open']"
+  "[data-slot='sheet-content'][data-state='open']",
+  "[data-slot='sidebar'][data-mobile='true'][data-state='open']"
 ].join(", ");
 
 export type FeedKeyboardCommand =

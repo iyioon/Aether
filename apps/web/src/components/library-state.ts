@@ -79,11 +79,13 @@ export const scoreFilterValues: readonly ScoreFilter[] = [
 
 export const MAX_TAG_FILTERS = 20;
 export const MAX_TAG_FILTER_LENGTH = 48;
+export const MAX_SEARCH_LENGTH = 128;
 
 export const LIBRARY_STATE_STORAGE_KEY = "aether.library-state.v1";
 
 const LIBRARY_STATE_VERSION = 1;
 const MAX_STORED_LIBRARY_STATE_LENGTH = 8_192;
+const MAX_LEGACY_SEARCH_LENGTH = 160;
 const libraryQueryKeys = [
   "folder",
   "view",
@@ -192,7 +194,7 @@ export function parseStoredLibraryState(
         : {}),
       aspect: normalizeAspectForView(parsed.state.view, parsed.state.aspect),
       folderId: normalizeStoredText(parsed.state.folderId, 160) || null,
-      search: normalizeStoredText(parsed.state.search, 160),
+      search: normalizeLibrarySearch(parsed.state.search),
       tags: parsed.state.tags.map(normalizeStoredTag)
     };
   } catch {
@@ -201,7 +203,14 @@ export function parseStoredLibraryState(
 }
 
 export function serializeLibraryState(state: LibraryUrlState): string {
-  return JSON.stringify({ version: LIBRARY_STATE_VERSION, state });
+  return JSON.stringify({
+    version: LIBRARY_STATE_VERSION,
+    state: { ...state, search: normalizeLibrarySearch(state.search) }
+  });
+}
+
+export function normalizeLibrarySearch(value: string): string {
+  return value.normalize("NFKC").trim().slice(0, MAX_SEARCH_LENGTH);
 }
 
 export function writeLibraryStateToStorage(state: LibraryUrlState): void {
@@ -268,7 +277,7 @@ export function parseLibraryStateSearch(search: string): LibraryUrlState {
       scoreFilterValues,
       defaultLibraryState.scoreFilter
     ),
-    search: readTextParam(params, "q", 160),
+    search: normalizeLibrarySearch(params.get("q") ?? ""),
     tags: readTagParams(params),
     ...(["0", "1"].includes(params.get("highlight") ?? "")
       ? { highlightsOnly: params.get("highlight") === "1" }
@@ -319,8 +328,9 @@ export function buildLibraryStateSearch(state: LibraryUrlState): string {
     params.set("score", state.scoreFilter);
   }
 
-  if (state.search) {
-    params.set("q", state.search);
+  const search = normalizeLibrarySearch(state.search);
+  if (search) {
+    params.set("q", search);
   }
 
   for (const criterion of state.sort === "random"
@@ -478,7 +488,7 @@ function isLibraryUrlState(value: unknown): value is StoredLibraryUrlState {
     isAllowedValue(value.mediaType, mediaFilterValues) &&
     isAllowedValue(value.scoreFilter, scoreFilterValues) &&
     typeof value.search === "string" &&
-    value.search.length <= 160 &&
+    value.search.length <= MAX_LEGACY_SEARCH_LENGTH &&
     isValidStoredTags(value.tags) &&
     (value.highlightsOnly === undefined ||
       typeof value.highlightsOnly === "boolean")

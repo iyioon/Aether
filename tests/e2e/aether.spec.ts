@@ -1,3 +1,4 @@
+import { openLibrarySearch } from "./library-search";
 import { chooseAccountAction } from "./account-menu";
 import { expect, test } from "@playwright/test";
 
@@ -95,9 +96,12 @@ test("supports login, scan, batch annotation, fullscreen, and feed", async ({
   await batchActions.getByRole("button", { name: "Done", exact: true }).click();
   await expect(batchActions).toHaveCount(0);
 
-  await page.getByRole("button", { name: /^View options/ }).click();
-  await page.getByRole("textbox", { name: "Tags" }).fill("Trip");
+  const searchDialog = await openLibrarySearch(page);
+  await searchDialog.getByRole("textbox", { name: "Tags" }).fill("Trip");
   await page.keyboard.press("Enter");
+  await searchDialog
+    .getByRole("button", { name: "Search", exact: true })
+    .click();
   const filteredGallery = page.getByRole("region", { name: "Gallery view" });
   await expect(
     filteredGallery.getByRole("img", { name: "family-photo.png" })

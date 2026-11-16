@@ -163,10 +163,14 @@ reads and uses records returned by the server after a change. Scroll position
 and appearance/playback choices are browser-local conveniences, not part of the
 library database.
 
-`LibraryPathBar` keeps folder navigation and result status above the library
-search and action row. View switching ends the search row behind a vertical
-separator; Add media is available in Gallery. `LibraryResultStatus` owns the pending-result
-control in the navigation row, keeping search and viewport geometry stable.
+`LibraryPathBar` keeps folder navigation, result status and one Search icon in
+the top row, with Search at the far right. View switching ends the action row
+behind a vertical separator; Add media is available in Gallery.
+`LibraryResultStatus` owns the pending-result control beside the folder path,
+keeping viewport geometry stable.
+Gallery handles Home and End with immediate scrolling to the loaded bounds so
+virtual-row measurements cannot interrupt a native animated scroll. Focused
+fields, menus and modified shortcuts retain their own keys.
 Folder navigation scrolls above the sidebar’s Account menu, which groups Trash,
 Activity, User guide, Settings and Sign out.
 Collapsed offcanvas navigation is inert and hidden from assistive technology.
@@ -176,10 +180,30 @@ preserves focus already moved to the destination page or a new dialog.
 `AppShell` controls the mobile drawer so explicit navigation closes it even
 when the destination page is already open.
 
-`LibraryViewOptions` groups the existing library controls behind one toolbar
-button, using the shared shadcn Popover on desktop and Sheet at the mobile
-breakpoint. Tabs separate Filters, Sort, and Layout (Compare omits Sort); only controls that
-affect the current view are shown. The panel owns its active tab, while
+Search uses the shared shadcn Dialog with a staged filename/path query, folder
+scope and tag, media and score filters. Folder choices include read-only roots
+and folders, display public labels and relative paths, and include descendants.
+Text queries normalize to NFKC, trim and stop at the API's 128-character limit;
+legacy checkpoints accept their previous 160-character bound before truncating.
+Search submits all criteria together through the existing list, detail-membership
+and comparison contracts. The dialog follows the visual viewport so its actions
+remain reachable when the software keyboard opens or pans the page; viewport
+units provide the fallback. Cancel, Escape, closing and navigation discard drafts;
+reopening starts from the committed criteria. Backgrounding keeps the draft in
+memory but checkpoints only the committed criteria, so reload restores the
+applied search. Clear resets text and facets in the draft while retaining its
+selected folder. Draft editing never updates query identity, history or resume
+checkpoints, and does not read source files or start a scan. The trigger exposes
+active criteria and retains the `/`
+shortcut. Explicit folder scope and combined criteria follow
+[Finder's search model](https://support.apple.com/guide/mac-help/narrow-search-results-mh15155/mac);
+focus containment, Escape and trigger focus restoration follow the
+[WAI-ARIA modal dialog pattern](https://www.w3.org/WAI/ARIA/apg/patterns/dialog-modal/).
+
+`LibraryViewOptions` groups sort and layout controls behind one toolbar button,
+using the shared shadcn Popover on desktop and Sheet at the mobile breakpoint.
+Tabs separate Sort and Layout; Compare shows layout controls directly. Only
+controls that affect the current view are shown. The panel owns its active tab, while
 `useLibraryControls` continues to own query settings and open/close state.
 Changes use the existing query, URL, and restoration paths. The bounded
 `toolbar/view-layout-state.ts` cache retains independent aspect choices for
@@ -187,10 +211,8 @@ Gallery and Ranking, migrating the older Comparison preference and normalizing
 older Feed preferences to Portrait. Explicit
 URL and restored active-view state take precedence. Card-info visibility is
 stored separately per view; Feed and Ranking default to none. Feed stays Portrait
-and Ranking defaults to Original proportions. Grid size remains Gallery-only. Clearing filters
-leaves search, sort, and layout untouched.
-Keyboard clearing returns focus to **All** under **Media** after its Clear filters
-button disappears.
+and Ranking defaults to Original proportions. Grid size remains Gallery-only.
+Search filters leave sort and layout settings unchanged.
 
 Ordered sorting uses up to five unique field/direction rules through repeated
 `sortBy=field:direction` parameters. The server applies the ordered SQL expressions
@@ -237,12 +259,12 @@ not force a running session to reload. Development runs do not register it.
 The iPhone Home Screen shell uses `viewport-fit=cover` and Apple's
 [`black-translucent` status-bar setting](https://developer.apple.com/library/archive/documentation/AppleApplications/Reference/SafariHTMLRef/Articles/MetaTags.html).
 Mobile Feed fills the dynamic viewport without a header or top padding.
-`LibraryPathBar` uses the sidebar's shared mobile breakpoint to render only the
-view selector and existing library options over the media, with top/right
-safe-area spacing. Both follow the shared Feed visibility state and become
+`LibraryPathBar` uses the sidebar's shared mobile breakpoint to render Search,
+the view selector and library options over the media, with top/right safe-area
+spacing. They follow the shared Feed visibility state and become
 inert while hidden. An empty feed keeps them available. Other views and desktop
 Feed retain the complete header. At narrow workspace widths, a shadcn radio menu
-replaces the header's segmented view selector so search and controls fit one row.
+replaces the header's segmented view selector so actions fit one row.
 Headers and interactive controls retain their safe-area insets. A pointer-transparent
 gradient covers only the top safe area in standalone mode, including light
 pages and offline recovery. The layout uses the viewport iOS exposes, without
@@ -754,7 +776,9 @@ superseded mutation/query responses and mixed-revision pages. Scores and tags
 patch immediately while explicit Update results controls affected order/filter
 changes. That control appears only in the navigation row; pagination remains
 separate. Confirmed management commits coalesce into a tree refresh so open
-destination pickers can use newly created folders. Gallery reconciliation waits
+destination pickers can use newly created folders. An open new-folder draft
+blocks destination confirmation until Create or Cancel resolves it.
+Gallery reconciliation waits
 until selection, editing and keyboard layers finish. These reads update membership,
 counts and ordering automatically. Pending curation keeps the relative order of
 surviving records while inserting new records near their server-ordered neighbors.

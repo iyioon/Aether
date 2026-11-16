@@ -1,3 +1,4 @@
+import { openLibrarySearch } from "./library-search";
 import { expect, test, type Page } from "@playwright/test";
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
@@ -137,7 +138,7 @@ for (const phone of [false, true]) {
 
       await page.goto(`/?folder=${folder.id}&view=gallery`);
       const options = page.getByRole("button", { name: /^View options/ });
-      await options.click();
+      const searchDialog = await openLibrarySearch(page);
       const tagInput = page.getByLabel("Tags", { exact: true });
       for (const tag of ["ux-first", "ux-second"]) {
         await tagInput.fill(tag);
@@ -157,6 +158,10 @@ for (const phone of [false, true]) {
       await secondTag.press("Enter");
       await expect(secondTag).toHaveCount(0);
       await expect(tagInput).toBeFocused();
+      await searchDialog
+        .getByRole("button", { name: "Search", exact: true })
+        .click();
+      await options.click();
       await page.getByRole("tab", { name: "Layout", exact: true }).click();
       await page.getByRole("checkbox", { name: "Score", exact: true }).check();
       await page.getByRole("button", { name: "Close view options" }).click();
@@ -210,7 +215,7 @@ for (const phone of [false, true]) {
       await expect(decrease).toBeEnabled();
       await decrease.press("Enter");
       await expect(decrease).toBeDisabled();
-      const search = page.getByRole("searchbox", {
+      const search = page.getByRole("button", {
         name: "Search",
         exact: true
       });

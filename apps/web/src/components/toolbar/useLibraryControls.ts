@@ -1,20 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type {
-  MediaTypeFilter,
   ScoreFilter,
   SortCriterion,
-  TagMatch,
-  TagStatus,
   SortDirection,
-  SortMode,
-  TreeResponse
+  SortMode
 } from "../../api/client";
 import {
   defaultSortDirectionForSort,
-  MAX_TAG_FILTER_LENGTH,
-  MAX_TAG_FILTERS,
-  normalizeTagDraft,
-  normalizeTagIdentity,
+  normalizeLibrarySearch,
   type AspectMode,
   layoutOptionsForView,
   normalizeAspectForView,
@@ -23,21 +16,18 @@ import {
   type ViewMode
 } from "../library-state";
 import { readViewAspects, writeViewAspects } from "./view-layout-state";
-import { useTagSuggestions } from "../tags/useTagSuggestions";
+import type { LibrarySearchValues } from "./search-state";
 
 interface UseLibraryControlsOptions {
   initialState: LibraryUrlState;
-  selectedFolderId: string | null;
-  tree: TreeResponse | null;
 }
 
 export function useLibraryControls({
-  initialState,
-  selectedFolderId,
-  tree
+  initialState
 }: UseLibraryControlsOptions) {
   const [view, setView] = useState<ViewMode>(initialState.view);
   const [isOptionsOpen, setOptionsOpen] = useState(false);
+  const [isSearchOpen, setSearchOpen] = useState(false);
   const [highlightsOnly, setHighlightsOnly] = useState(
     initialState.highlightsOnly ?? false
   );
@@ -62,23 +52,36 @@ export function useLibraryControls({
   const [sortCriteria, setSortCriteriaState] = useState<
     SortCriterion[] | undefined
   >(initialState.sortCriteria);
-  const [tagMatch, setTagMatch] = useState<TagMatch>(
-    initialState.tagMatch ?? "all"
-  );
-  const [tagStatus, setTagStatusState] = useState<TagStatus>(
-    initialState.tagStatus ?? "all"
-  );
-  const [mediaType, setMediaType] = useState<MediaTypeFilter>(
-    initialState.mediaType
-  );
-  const [scoreFilter, setScoreFilter] = useState<ScoreFilter>(
-    initialState.scoreFilter
-  );
-  const [searchDraft, setSearchDraft] = useState(initialState.search);
-  const [search, setSearch] = useState(initialState.search);
-  const [tagFilterDraft, setTagFilterDraft] = useState("");
-  const [tagFilters, setTagFilters] = useState(initialState.tags);
-  const filterTagSuggestions = useTagSuggestions({ query: tagFilterDraft });
+  const [searchFilters, setSearchFilters] = useState<
+    Omit<LibrarySearchValues, "folderId">
+  >(() => ({
+    search: normalizeLibrarySearch(initialState.search),
+    tags: initialState.tags,
+    tagMatch: initialState.tagMatch ?? "all",
+    tagStatus: initialState.tagStatus ?? "all",
+    mediaType: initialState.mediaType,
+    scoreFilter: initialState.scoreFilter
+  }));
+  const {
+    search,
+    tags: tagFilters,
+    tagMatch,
+    tagStatus,
+    mediaType,
+    scoreFilter
+  } = searchFilters;
+
+  const applySearch = useCallback((values: LibrarySearchValues) => {
+    setSearchFilters({
+      search: normalizeLibrarySearch(values.search),
+      tags: values.tagStatus === "untagged" ? [] : values.tags,
+      tagMatch: values.tagMatch,
+      tagStatus: values.tagStatus,
+      mediaType: values.mediaType,
+      scoreFilter: values.scoreFilter
+    });
+    setSearchOpen(false);
+  }, []);
 
   const applyLibraryState = useCallback((state: LibraryUrlState) => {
     setView(state.view);
@@ -91,75 +94,29 @@ export function useLibraryControls({
     setSort(state.sort);
     setSortDirection(state.sortDirection);
     setSortCriteriaState(state.sortCriteria);
-    setTagMatch(state.tagMatch ?? "all");
-    setTagStatusState(state.tagStatus ?? "all");
-    setMediaType(state.mediaType);
-    setScoreFilter(state.scoreFilter);
-    setSearchDraft(state.search);
-    setSearch(state.search);
-    setTagFilters(state.tags);
+    setSearchFilters({
+      search: normalizeLibrarySearch(state.search),
+      tags: state.tags,
+      tagMatch: state.tagMatch ?? "all",
+      tagStatus: state.tagStatus ?? "all",
+      mediaType: state.mediaType,
+      scoreFilter: state.scoreFilter
+    });
     setOptionsOpen(false);
+    setSearchOpen(false);
   }, []);
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setSearch(searchDraft.trim());
-    }, 220);
-
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [searchDraft]);
-
-  const selectedLabel = useMemo(() => {
-    const root = tree?.roots.find(
-      (entry) => entry.folderId === selectedFolderId
-    );
-    if (root) {
-      return root.label;
-    }
-
-    return (
-      tree?.folders.find((entry) => entry.id === selectedFolderId)?.label ??
-      "Library"
-    );
-  }, [selectedFolderId, tree]);
-
-  function addTagFilter(rawTagName: string) {
-    const nextTagFilter = normalizeTagDraft(rawTagName).slice(
-      0,
-      MAX_TAG_FILTER_LENGTH
-    );
-    const normalizedTag = normalizeTagIdentity(nextTagFilter);
-
-    if (
-      !nextTagFilter ||
-      tagFilters.length >= MAX_TAG_FILTERS ||
-      tagFilters.some((tag) => normalizeTagIdentity(tag) === normalizedTag)
-    ) {
-      return;
-    }
-
-    if (tagStatus === "untagged") setTagStatusState("all");
-    setTagFilters((current) => [...current, nextTagFilter]);
-    setTagFilterDraft("");
-  }
-
-  function removeTagFilter(tagToRemove: string) {
-    setTagFilters((current) => current.filter((tag) => tag !== tagToRemove));
-  }
-
   function clearTagFilters() {
-    setTagFilters([]);
-    setTagFilterDraft("");
+    setSearchFilters((current) => ({
+      ...current,
+      tags: [],
+      tagMatch: "all",
+      tagStatus: "all"
+    }));
   }
 
-  function clearFilters() {
-    setTagMatch("all");
-    setTagStatusState("all");
-    setMediaType("all");
-    setScoreFilter("all");
-    clearTagFilters();
+  function setScoreFilter(next: ScoreFilter) {
+    setSearchFilters((current) => ({ ...current, scoreFilter: next }));
   }
 
   function selectSort(nextSort: SortMode) {
@@ -183,47 +140,33 @@ export function useLibraryControls({
     setSortDirection(primary.direction);
   }
 
-  function setTagStatus(status: TagStatus) {
-    setTagStatusState(status);
-    if (status === "untagged") clearTagFilters();
-  }
-
   return {
     sortCriteria,
     setSortCriteria,
     tagMatch,
-    setTagMatch,
     tagStatus,
-    setTagStatus,
     highlightsOnly,
     setHighlightsOnly,
     applyLibraryState,
-    addTagFilter,
     aspect,
     clearTagFilters,
-    clearFilters,
-    filterTagSuggestions,
     gridSize,
     mediaType,
     isOptionsOpen,
+    isSearchOpen,
+    setSearchOpen,
+    applySearch,
     scoreFilter,
-    removeTagFilter,
     search,
-    searchDraft,
-    selectedLabel,
     setAspect,
     setGridSize,
-    setMediaType,
     setOptionsOpen,
     setScoreFilter,
-    setSearchDraft,
     setSort: selectSort,
-    setTagFilterDraft,
     setView,
     sort,
     sortDirection,
     tagFilters,
-    tagFilterDraft,
     view
   };
 }

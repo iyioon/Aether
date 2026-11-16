@@ -10,6 +10,7 @@ import {
   hasExplicitLibraryStateQuery,
   isResumeLaunch,
   LIBRARY_STATE_STORAGE_KEY,
+  normalizeLibrarySearch,
   parseLibraryStateSearch,
   parseStoredLibraryState,
   writeLibraryStateToStorage,
@@ -164,7 +165,14 @@ export function saveAppLocation(state: AppLocationState): void {
   try {
     window.localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ version: 1, ...state })
+      JSON.stringify({
+        version: 1,
+        ...state,
+        library: {
+          ...state.library,
+          search: normalizeLibrarySearch(state.library.search)
+        }
+      })
     );
   } catch {
     // Keep the current in-memory location usable if storage is unavailable.

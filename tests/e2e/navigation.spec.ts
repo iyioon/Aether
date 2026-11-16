@@ -15,26 +15,38 @@ async function signIn(page: Page) {
   ).toBeVisible();
 }
 
-test("keeps view switching at the end of search and limits creation to Gallery", async ({
+test("places search at the end of the folder path and limits creation to Gallery", async ({
   page
 }) => {
   await signIn(page);
-  const search = page.getByRole("searchbox", { name: "Search", exact: true });
+  const search = page.getByRole("button", { name: "Search", exact: true });
+  const path = page.locator(".library-folder-breadcrumb");
   const switcher = page.getByRole("group", {
     name: "Library view",
     exact: true
   });
   const searchBounds = (await search.boundingBox())!;
   const switcherBounds = (await switcher.boundingBox())!;
+  const pathBounds = (await path.boundingBox())!;
   expect(
     Math.abs(
       searchBounds.y +
         searchBounds.height / 2 -
-        switcherBounds.y -
-        switcherBounds.height / 2
+        pathBounds.y -
+        pathBounds.height / 2
     )
   ).toBeLessThanOrEqual(1);
-  expect(switcherBounds.x).toBeGreaterThan(searchBounds.x + searchBounds.width);
+  expect(searchBounds.x).toBeGreaterThanOrEqual(
+    pathBounds.x + pathBounds.width
+  );
+  expect(searchBounds.width).toBeGreaterThanOrEqual(32);
+  expect(switcherBounds.y).toBeGreaterThanOrEqual(
+    searchBounds.y + searchBounds.height
+  );
+  const actions = (await page.locator(".library-path-actions").boundingBox())!;
+  expect(switcherBounds.x + switcherBounds.width).toBeGreaterThanOrEqual(
+    actions.x + actions.width - 1
+  );
   await expect(
     page.locator(".library-path-actions .library-view-separator")
   ).toBeVisible();

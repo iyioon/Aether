@@ -1,4 +1,9 @@
-import type { AssetListOptions, FolderRecord } from "./repository-types.js";
+import type {
+  AssetListOptions,
+  AssetSortCriterion,
+  AssetSortField,
+  FolderRecord
+} from "./repository-types.js";
 import { normalizeTagSearch } from "./repository-tags.js";
 import { assetSearchQuery } from "./search-text.js";
 
@@ -36,7 +41,14 @@ export const ASSET_SOURCE_SELECT_COLUMNS = `
 
 export type AssetFilterOptions = Pick<
   AssetListOptions,
-  "folderId" | "recursive" | "scoreFilter" | "search" | "tags" | "type"
+  | "folderId"
+  | "recursive"
+  | "scoreFilter"
+  | "search"
+  | "tags"
+  | "tagMatch"
+  | "tagStatus"
+  | "type"
 >;
 
 export interface AssetFilterQuery {
@@ -82,18 +94,30 @@ export function buildAssetFilterQuery(
   const normalizedTags = [
     ...new Set((options.tags ?? []).map(normalizeTagSearch).filter(Boolean))
   ];
-  normalizedTags.forEach((tagFilter, index) => {
+  const tagFilters = normalizedTags.map((tagFilter, index) => {
     const parameterName = `tagFilter${index}`;
     parameters[parameterName] = tagFilter;
-    filters.push(
-      `EXISTS (
+    return `EXISTS (
          SELECT 1
          FROM asset_tags at
          JOIN tags t ON t.id = at.tag_id
          WHERE at.asset_id = a.id AND t.normalized_name = @${parameterName}
-       )`
-    );
+       )`;
   });
+  if (tagFilters.length) {
+    filters.push(
+      `(${tagFilters.join(options.tagMatch === "any" ? " OR " : " AND ")})`
+    );
+  }
+  if (options.tagStatus === "tagged") {
+    filters.push(
+      "EXISTS (SELECT 1 FROM asset_tags at WHERE at.asset_id = a.id)"
+    );
+  } else if (options.tagStatus === "untagged") {
+    filters.push(
+      "NOT EXISTS (SELECT 1 FROM asset_tags at WHERE at.asset_id = a.id)"
+    );
+  }
 
   switch (options.scoreFilter ?? "all") {
     case "favorites":
@@ -113,4 +137,84 @@ export function buildAssetFilterQuery(
     parameters,
     whereClause: filters.join(" AND ")
   };
+}
+
+// Hex encoding keeps the separator distinct even for existing tags containing
+// control characters, while preserving the normalized UTF-8 byte ordering.
+const TAG_SEQUENCE_SQL = `(SELECT group_concat(hex(t.normalized_name), char(0) ORDER BY t.normalized_name)
+  FROM asset_tags at JOIN tags t ON t.id = at.tag_id WHERE at.asset_id = a.id)`;
+
+const SORT_FIELD_SQL: Record<AssetSortField, string> = {
+  date: "a.mtime_ms",
+  filename: "a.name COLLATE NOCASE",
+  score: FINAL_SCORE_SQL,
+  favorite: "COALESCE(aa.favorite, 0)",
+  tags: TAG_SEQUENCE_SQL,
+  size: "a.size_bytes",
+  duration: "a.duration_ms",
+  type: "a.media_type"
+};
+
+export function defaultAssetSortDirection(
+  field: AssetListOptions["sort"]
+): "desc" | "asc" {
+  return field === "filename" || field === "tags" || field === "type"
+    ? "asc"
+    : "desc";
+}
+
+export function buildAssetOrderClause(
+  options: Pick<AssetListOptions, "sort" | "sortDirection" | "sortCriteria">
+): string {
+  if (options.sortCriteria !== undefined) {
+    if (
+      options.sort === "random" ||
+      options.sortCriteria.length < 1 ||
+      options.sortCriteria.length > 5 ||
+      new Set(options.sortCriteria.map((criterion) => criterion.field)).size !==
+        options.sortCriteria.length
+    ) {
+      throw new RangeError("Invalid asset sort criteria");
+    }
+    return [
+      ...options.sortCriteria.flatMap(orderTermsForCriterion),
+      "a.id ASC"
+    ].join(", ");
+  }
+
+  const direction =
+    options.sortDirection ?? defaultAssetSortDirection(options.sort);
+  const sqlDirection = direction === "asc" ? "ASC" : "DESC";
+  switch (options.sort) {
+    case "filename":
+      return `a.name COLLATE NOCASE ${sqlDirection}, a.mtime_ms DESC, a.id ASC`;
+    case "score":
+      return `${FINAL_SCORE_SQL} = 0 ASC, ${FINAL_SCORE_SQL} ${sqlDirection}, COALESCE(aa.favorite, 0) DESC, a.mtime_ms DESC, a.id ASC`;
+    case "random":
+      return "aether_seeded_rank(a.id, @randomSeed) ASC, a.id ASC";
+    case "date":
+      return `a.mtime_ms ${sqlDirection}, a.name COLLATE NOCASE ASC, a.id ASC`;
+    default:
+      return [
+        ...orderTermsForCriterion({ field: options.sort, direction }),
+        "a.id ASC"
+      ].join(", ");
+  }
+}
+
+function orderTermsForCriterion(criterion: AssetSortCriterion): string[] {
+  if (
+    !Object.hasOwn(SORT_FIELD_SQL, criterion.field) ||
+    (criterion.direction !== "asc" && criterion.direction !== "desc")
+  ) {
+    throw new RangeError("Invalid asset sort criterion");
+  }
+  const direction = criterion.direction === "asc" ? "ASC" : "DESC";
+  const expression = SORT_FIELD_SQL[criterion.field];
+  if (criterion.field === "score") {
+    return [`${FINAL_SCORE_SQL} = 0 ASC`, `${expression} ${direction}`];
+  }
+  return [
+    `${expression} ${direction}${criterion.field === "tags" || criterion.field === "duration" ? " NULLS LAST" : ""}`
+  ];
 }

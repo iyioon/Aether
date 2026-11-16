@@ -1,0 +1,83 @@
+.sort-random-choice {
+  display: flex;
+  min-height: 44px;
+  gap: 10px;
+  align-items: center;
+}
+
+.sort-criteria-list {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sort-criterion {
+  position: relative;
+  min-width: 0;
+  padding: 4px 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.sort-criterion[data-sort-drop]::after {
+  position: absolute;
+  right: 0;
+  left: 0;
+  height: 2px;
+  content: "";
+  border-radius: 1px;
+  background: var(--primary);
+  pointer-events: none;
+}
+
+.sort-criterion[data-sort-drop="before"]::after {
+  top: -7px;
+}
+
+.sort-criterion[data-sort-drop="after"]::after {
+  bottom: -7px;
+}
+
+.sort-criterion-heading {
+  display: flex;
+  align-items: center;
+}
+
+.sort-priority {
+  min-width: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.sort-reorder-handle {
+  cursor: grab;
+  touch-action: none;
+}
+
+.sort-reorder-handle:active {
+  cursor: grabbing;
+}
+
+.sort-criterion-actions {
+  display: flex;
+  margin-left: auto;
+}
+
+.sort-criterion-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.sort-criterion-fields [data-slot="select-trigger"] {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding-inline: 8px;
+}
+
+.sort-add-criterion {
+  justify-self: start;
+}

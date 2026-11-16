@@ -6,6 +6,10 @@ import {
   PLAYBACK_SETTINGS_STORAGE_KEY,
   readPlaybackPreferences,
   rememberPlaybackSound,
+  resolvePlaybackFraming,
+  resolvePlaybackHighlights,
+  setPlaybackFramingMode,
+  setPlaybackHighlightsMode,
   setPlaybackSoundMode,
   writePlaybackPreferences
 } from "./playback-settings";
@@ -79,6 +83,7 @@ describe("playback sound preferences", () => {
         })
       )
     ).toEqual({
+      ...defaultPlaybackPreferences(),
       fullView: { mode: "remember", lastMuted: false },
       feed: { mode: "muted", lastMuted: true }
     });
@@ -91,6 +96,7 @@ describe("playback sound preferences", () => {
         })
       )
     ).toEqual({
+      ...defaultPlaybackPreferences(),
       fullView: { mode: "muted", lastMuted: true },
       feed: { mode: "sound-on", lastMuted: false }
     });
@@ -106,6 +112,7 @@ describe("playback sound preferences", () => {
     });
     expect(readPlaybackPreferences()).toEqual(defaultPlaybackPreferences());
     const preferences = {
+      ...defaultPlaybackPreferences(),
       fullView: { mode: "remember" as const, lastMuted: false },
       feed: { mode: "muted" as const, lastMuted: true }
     };
@@ -139,5 +146,116 @@ describe("playback sound preferences", () => {
     expect(writePlaybackPreferences(preferences)).toBe(false);
     expect(setItem).toHaveBeenCalledTimes(1);
     expect(defaultPlaybackMuted(preferences.feed)).toBe(false);
+  });
+});
+
+describe("playback display defaults", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("migrates sound-only preferences without replacing remembered display choices", () => {
+    const preferences = parsePlaybackPreferences(
+      JSON.stringify({
+        version: 1,
+        fullView: { mode: "sound-on", lastMuted: false },
+        feed: { mode: "remember", lastMuted: false }
+      })
+    );
+    expect(preferences).toEqual({
+      fullView: { mode: "sound-on", lastMuted: false },
+      feed: { mode: "remember", lastMuted: false },
+      framingMode: "remember",
+      highlightsMode: "remember"
+    });
+    expect(resolvePlaybackFraming(preferences.framingMode, true)).toBe(true);
+    expect(resolvePlaybackHighlights(preferences.highlightsMode, true)).toBe(
+      true
+    );
+  });
+
+  it("resolves fixed defaults without changing remembered selections", () => {
+    for (const remembered of [false, true]) {
+      expect(resolvePlaybackFraming("original", remembered)).toBe(false);
+      expect(resolvePlaybackFraming("saved", remembered)).toBe(true);
+      expect(resolvePlaybackFraming("remember", remembered)).toBe(remembered);
+      expect(resolvePlaybackHighlights("full", remembered)).toBe(false);
+      expect(resolvePlaybackHighlights("highlights", remembered)).toBe(true);
+      expect(resolvePlaybackHighlights("remember", remembered)).toBe(
+        remembered
+      );
+    }
+  });
+
+  it("validates framing and range separately from each other and sound", () => {
+    expect(
+      parsePlaybackPreferences(
+        JSON.stringify({
+          version: 1,
+          fullView: { mode: "remember", lastMuted: false },
+          feed: { mode: "invalid", lastMuted: false },
+          framingMode: "saved",
+          highlightsMode: "highlights",
+          ignored: "value"
+        })
+      )
+    ).toEqual({
+      ...defaultPlaybackPreferences(),
+      fullView: { mode: "remember", lastMuted: false },
+      framingMode: "saved",
+      highlightsMode: "highlights"
+    });
+    expect(
+      parsePlaybackPreferences(
+        JSON.stringify({
+          version: 1,
+          framingMode: true,
+          highlightsMode: "full"
+        })
+      )
+    ).toEqual({ ...defaultPlaybackPreferences(), highlightsMode: "full" });
+    expect(
+      parsePlaybackPreferences(
+        JSON.stringify({
+          version: 1,
+          framingMode: "original",
+          highlightsMode: { mode: "highlights" }
+        })
+      )
+    ).toEqual({ ...defaultPlaybackPreferences(), framingMode: "original" });
+  });
+
+  it("updates display defaults independently and preserves no-op identity", () => {
+    const original = defaultPlaybackPreferences();
+    const framed = setPlaybackFramingMode(original, "saved");
+    const highlighted = setPlaybackHighlightsMode(framed, "highlights");
+    expect(original.framingMode).toBe("remember");
+    expect(original.highlightsMode).toBe("remember");
+    expect(highlighted.framingMode).toBe("saved");
+    expect(highlighted.highlightsMode).toBe("highlights");
+    expect(highlighted.fullView).toBe(original.fullView);
+    expect(highlighted.feed).toBe(original.feed);
+    expect(setPlaybackFramingMode(highlighted, "saved")).toBe(highlighted);
+    expect(setPlaybackHighlightsMode(highlighted, "highlights")).toBe(
+      highlighted
+    );
+  });
+
+  it("persists display defaults with sound preferences for the next launch", () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal("window", {
+      localStorage: {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => values.set(key, value)
+      }
+    });
+    const preferences = setPlaybackHighlightsMode(
+      setPlaybackFramingMode(defaultPlaybackPreferences(), "original"),
+      "highlights"
+    );
+    expect(writePlaybackPreferences(preferences)).toBe(true);
+    expect(readPlaybackPreferences()).toEqual(preferences);
+    expect(JSON.parse(values.get(PLAYBACK_SETTINGS_STORAGE_KEY)!)).toEqual({
+      version: 1,
+      ...preferences
+    });
   });
 });

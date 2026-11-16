@@ -427,10 +427,14 @@ test("groups mobile Feed view options and navigation with media visibility", asy
     await options.tap();
     await panel.getByRole("radio", { name: "Images", exact: true }).check();
     await panel.getByRole("tab", { name: "Sort", exact: true }).tap();
-    await panel.getByRole("radio", { name: "Descending", exact: true }).check();
+    await panel.getByRole("combobox", { name: "Sort direction 1" }).tap();
+    await phone.getByRole("option", { name: "Z to A", exact: true }).tap();
     await panel.getByRole("button", { name: "Close view options" }).tap();
     await expect(options).toHaveAccessibleName("View options, 1 active filter");
     expect(new URL(phone.url()).searchParams.get("order")).toBe("desc");
+    expect(new URL(phone.url()).searchParams.get("sortBy")).toBe(
+      "filename:desc"
+    );
 
     await feed
       .getByRole("button", {

@@ -57,6 +57,8 @@ function SidebarProvider({
   defaultOpen = true,
   open: openProp,
   onOpenChange: setOpenProp,
+  openMobile: openMobileProp,
+  onOpenMobileChange: setOpenMobileProp,
   className,
   style,
   children,
@@ -65,9 +67,20 @@ function SidebarProvider({
   defaultOpen?: boolean;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  openMobile?: boolean;
+  onOpenMobileChange?: (open: boolean) => void;
 }) {
   const isMobile = useIsMobile();
-  const [openMobile, setOpenMobile] = React.useState(false);
+  const [_openMobile, _setOpenMobile] = React.useState(false);
+  const openMobile = openMobileProp ?? _openMobile;
+  const setOpenMobile = React.useCallback(
+    (value: boolean | ((open: boolean) => boolean)) => {
+      const openState = typeof value === "function" ? value(openMobile) : value;
+      if (setOpenMobileProp) setOpenMobileProp(openState);
+      else _setOpenMobile(openState);
+    },
+    [setOpenMobileProp, openMobile]
+  );
 
   // This is the internal state of the sidebar.
   // We use openProp and setOpenProp for control from outside the component.
@@ -76,6 +89,15 @@ function SidebarProvider({
   const setOpen = React.useCallback(
     (value: boolean | ((value: boolean) => boolean)) => {
       const openState = typeof value === "function" ? value(open) : value;
+      if (!openState && document.activeElement instanceof HTMLElement) {
+        const panel = document.activeElement.closest(
+          '[data-slot="sidebar-container"]'
+        );
+        panel
+          ?.closest('[data-slot="sidebar-wrapper"]')
+          ?.querySelector<HTMLButtonElement>('[data-sidebar="trigger"]')
+          ?.focus({ preventScroll: true });
+      }
       if (setOpenProp) {
         setOpenProp(openState);
       } else {
@@ -155,6 +177,7 @@ function SidebarProvider({
 }
 
 function Sidebar({
+  id,
   side = "left",
   variant = "sidebar",
   collapsible = "offcanvas",
@@ -167,10 +190,12 @@ function Sidebar({
   collapsible?: "offcanvas" | "icon" | "none";
 }) {
   const { isMobile, state, openMobile, setOpenMobile } = useSidebar();
+  const isOffscreen = state === "collapsed" && collapsible === "offcanvas";
 
   if (collapsible === "none") {
     return (
       <div
+        id={id}
         data-slot="sidebar"
         className={cn(
           "flex h-full w-(--sidebar-width) flex-col bg-sidebar text-sidebar-foreground",
@@ -187,6 +212,7 @@ function Sidebar({
     return (
       <Sheet open={openMobile} onOpenChange={setOpenMobile} {...props}>
         <SheetContent
+          id={id}
           data-sidebar="sidebar"
           data-slot="sidebar"
           data-mobile="true"
@@ -198,6 +224,27 @@ function Sidebar({
             } as React.CSSProperties
           }
           side={side}
+          onCloseAutoFocus={(event) => {
+            const activeElement = document.activeElement;
+            if (
+              activeElement instanceof HTMLElement &&
+              activeElement !== document.body &&
+              event.target instanceof HTMLElement &&
+              !event.target.contains(activeElement)
+            ) {
+              // Navigation may focus its destination during the exit animation.
+              event.preventDefault();
+              return;
+            }
+            const trigger = Array.from(
+              document.querySelectorAll<HTMLButtonElement>(
+                '[data-sidebar="trigger"]'
+              )
+            ).find((element) => element.getAttribute("aria-controls") === id);
+            if (!trigger || trigger.getClientRects().length === 0) return;
+            event.preventDefault();
+            trigger.focus({ preventScroll: true });
+          }}
         >
           <SheetHeader className="sr-only">
             <SheetTitle>Sidebar</SheetTitle>
@@ -231,7 +278,10 @@ function Sidebar({
         )}
       />
       <div
+        id={id}
         data-slot="sidebar-container"
+        aria-hidden={isOffscreen ? true : undefined}
+        inert={isOffscreen}
         className={cn(
           "fixed inset-y-0 z-10 flex h-dvh w-(--sidebar-width) transition-[left,right,width] duration-200 ease-linear",
           side === "left"
@@ -262,11 +312,12 @@ function SidebarTrigger({
   onClick,
   ...props
 }: React.ComponentProps<typeof Button>) {
-  const { toggleSidebar } = useSidebar();
+  const { toggleSidebar, isMobile, open, openMobile } = useSidebar();
 
   return (
     <Button
       aria-keyshortcuts="Control+B Meta+B"
+      aria-expanded={isMobile ? openMobile : open}
       data-sidebar="trigger"
       data-slot="sidebar-trigger"
       variant="ghost"

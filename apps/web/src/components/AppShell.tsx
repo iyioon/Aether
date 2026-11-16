@@ -17,6 +17,7 @@ import {
   type LibraryDataResetOptions,
   type FileOperation,
   type FileOperationInput,
+  type SortField,
   type SettingsSummary
 } from "../api/client";
 import { hasOpenKeyboardLayer } from "../lib/keyboard";
@@ -26,6 +27,7 @@ import type { AppPage, ComparisonWorkspace } from "./app-navigation-state";
 import {
   clearAppResumeState,
   readInitialAppLocation,
+  readStoredAppLocation,
   resolveAppLocation,
   saveAppLocation,
   writeAppLocationToUrl,
@@ -35,6 +37,8 @@ import { clearRankingResumeState } from "./compare/ranking-resume-state";
 import { clearRandomOrderState } from "./assets/random-order-state";
 import { usePageLifecycle } from "../hooks/usePageLifecycle";
 import { useLibraryTree } from "./app/useLibraryTree";
+import { useViewerFraming } from "./media/useViewerFraming";
+import { resolvePlaybackHighlights } from "./settings/playback-settings";
 import { useAssetList } from "./assets/useAssetList";
 import {
   FileOperationDialog,
@@ -172,9 +176,24 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     (muted: boolean) => rememberSound("feed", muted),
     [rememberSound]
   );
-  const [initialLocation] = useState(readInitialAppLocation);
+  const [initialLocation] = useState(() => {
+    const initial = readInitialAppLocation();
+    return {
+      ...initial,
+      library: {
+        ...initial.library,
+        highlightsOnly:
+          initial.library.highlightsOnly ??
+          resolvePlaybackHighlights(
+            playbackSettings.highlightsMode,
+            readStoredAppLocation().library.highlightsOnly ?? false
+          )
+      }
+    };
+  });
   const initialLibraryState = initialLocation.library;
   const sidebarDefaultOpen = useMemo(() => readSidebarDefaultOpen(), []);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [activePage, setActivePage] = useState<AppPage>(
     initialLocation.navigation.page
   );
@@ -249,8 +268,6 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     gridSize,
     highlightsOnly,
     setHighlightsOnly,
-    viewerUsesSavedFraming,
-    setViewerUsesSavedFraming,
     mediaType,
     isOptionsOpen,
     scoreFilter,
@@ -264,11 +281,16 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     setScoreFilter,
     setSearchDraft,
     setSort,
-    setSortDirection,
+    setSortCriteria,
+    setTagMatch,
+    setTagStatus,
     setTagFilterDraft,
     setView,
     sort,
     sortDirection,
+    sortCriteria,
+    tagMatch,
+    tagStatus,
     tagFilters,
     tagFilterDraft,
     view
@@ -285,11 +307,19 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
   } = useGalleryMetadataFields(view);
   const currentViewRef = useRef(view);
   currentViewRef.current = view;
+  const hasSortField = (field: SortField) =>
+    sort !== "random" &&
+    (sortCriteria?.some((criterion) => criterion.field === field) ??
+      sort === field);
+  const tagsAffectResults =
+    tagFilters.length > 0 || tagStatus !== "all" || hasSortField("tags");
   const shouldReloadAfterScoreChange = (input: {
     score?: number;
     favorite?: boolean;
   }) =>
-    sort === "score" ||
+    (input.score !== undefined && hasSortField("score")) ||
+    (input.favorite !== undefined &&
+      (hasSortField("favorite") || (!sortCriteria && sort === "score"))) ||
     (input.score !== undefined &&
       (scoreFilter === "ranked" || scoreFilter === "unranked")) ||
     (input.favorite !== undefined && scoreFilter === "favorites");
@@ -323,6 +353,9 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     search,
     sort,
     sortDirection,
+    sortCriteria,
+    tagMatch,
+    tagStatus,
     tagFilters,
     tree
   });
@@ -355,7 +388,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     listQueryKey,
     onAssetsUpdated: mergeUpdatedAssets,
     onReloadAssets: markResultsPending,
-    shouldReloadAfterTagChange: tagFilters.length > 0,
+    shouldReloadAfterTagChange: tagsAffectResults,
     shouldReloadAfterScoreChange
   });
 
@@ -417,11 +450,25 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     onAssetsUpdated: mergeMediaActionAssets,
     onAssetTagsUpdated: (id, tags) => {
       updateAssetTags(id, tags);
-      if (tagFilters.length > 0) markResultsPending();
+      if (tagsAffectResults) markResultsPending();
     },
     onReloadAssets: markResultsPending,
     shouldReloadAfterScoreChange
   });
+  const { viewerUsesSavedFraming, setViewerUsesSavedFraming } =
+    useViewerFraming({
+      mode: playbackSettings.framingMode,
+      isOpen: selectedAssetId !== null
+    });
+  const previousHighlightsMode = useRef(playbackSettings.highlightsMode);
+  useEffect(() => {
+    const mode = playbackSettings.highlightsMode;
+    if (previousHighlightsMode.current === mode) return;
+    previousHighlightsMode.current = mode;
+    if (mode !== "remember")
+      setHighlightsOnly(resolvePlaybackHighlights(mode, false));
+  }, [playbackSettings.highlightsMode, setHighlightsOnly]);
+
   const location = useMemo(
     () => ({
       library: {
@@ -431,11 +478,14 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
         aspect,
         sort,
         sortDirection,
+        ...(sortCriteria ? { sortCriteria } : {}),
+        ...(tagMatch !== "all" ? { tagMatch } : {}),
+        ...(tagStatus !== "all" ? { tagStatus } : {}),
         mediaType,
         scoreFilter,
         search,
         tags: tagFilters,
-        ...(highlightsOnly ? { highlightsOnly: true } : {})
+        highlightsOnly
       },
       navigation: {
         page: activePage,
@@ -452,6 +502,9 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
       aspect,
       sort,
       sortDirection,
+      sortCriteria,
+      tagMatch,
+      tagStatus,
       mediaType,
       scoreFilter,
       search,
@@ -489,12 +542,21 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     const restore = () => {
       const next = resolveAppLocation(window.location.search, location);
       pushLocationRef.current = false;
+      setIsMobileSidebarOpen(false);
       setActivePage(next.navigation.page);
       setComparisonWorkspace(next.navigation.comparisonWorkspace);
       setSettingsTab(next.navigation.settingsTab);
       setGuideTopic(next.navigation.guideTopic ?? "browse");
       setSelectedFolderId(next.library.folderId);
-      applyLibraryState(next.library);
+      applyLibraryState({
+        ...next.library,
+        highlightsOnly:
+          next.library.highlightsOnly ??
+          resolvePlaybackHighlights(
+            playbackSettings.highlightsMode,
+            highlightsOnly
+          )
+      });
       setSelectedAssetId(next.navigation.viewerAssetId);
       setAnnotationAssetId(null);
     };
@@ -502,6 +564,8 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     return () => window.removeEventListener("popstate", restore);
   }, [
     applyLibraryState,
+    highlightsOnly,
+    playbackSettings.highlightsMode,
     location,
     setAnnotationAssetId,
     setSelectedAssetId,
@@ -521,6 +585,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
   }, [listQueryKey]);
   const selectFolder = useCallback(
     (folderId: string) => {
+      setIsMobileSidebarOpen(false);
       setActivePage("library");
       setSelectedFolderId(folderId);
       setOptionsOpen(false);
@@ -586,6 +651,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
       clearSelectedAssets();
       setHasOpenedAddMedia(true);
       pushLocationRef.current = true;
+      setIsMobileSidebarOpen(false);
       setActivePage("add-media");
       setAnnotationAssetId(null);
       setSelectedAssetId(null);
@@ -612,6 +678,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     [assets, tree]
   );
   const undoTrashRequestsRef = useRef(new Map<string, FileOperationInput>());
+  const undoTrashInFlightRef = useRef(new Map<string, number>());
   const managedRemovalIdsRef = useRef(new Set<string>());
   const managementSessionRef = useRef(0);
   const managementRefreshFailedRef = useRef(false);
@@ -657,6 +724,8 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
   );
   async function undoTrash(operation: FileOperation) {
     const session = managementSessionRef.current;
+    if (undoTrashInFlightRef.current.get(operation.id) === session) return;
+    undoTrashInFlightRef.current.set(operation.id, session);
     try {
       let input = undoTrashRequestsRef.current.get(operation.id);
       if (!input) {
@@ -681,6 +750,8 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
         undoTrashRequestsRef.current.set(operation.id, input);
       }
       await fileOperations.submit(input);
+      if (session === managementSessionRef.current)
+        toast.dismiss(`undo-trash-${operation.id}`);
     } catch (error) {
       if (
         session !== managementSessionRef.current ||
@@ -691,12 +762,16 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
         id: `undo-trash-${operation.id}`,
         action: {
           label: "Retry",
-          onClick: () => {
+          onClick: (event) => {
+            event.preventDefault();
             if (session === managementSessionRef.current)
               void undoTrash(operation);
           }
         }
       });
+    } finally {
+      if (undoTrashInFlightRef.current.get(operation.id) === session)
+        undoTrashInFlightRef.current.delete(operation.id);
     }
   }
   const fileOperations = useFileOperations(
@@ -809,6 +884,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
 
   function switchView(nextView: ViewMode) {
     pushLocationRef.current = true;
+    setIsMobileSidebarOpen(false);
     setActivePage("library");
     setSyncedMediaAnchorId(activeMediaAnchorIdRef.current);
     setView(nextView);
@@ -899,6 +975,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
 
   function openSettings() {
     pushLocationRef.current = true;
+    setIsMobileSidebarOpen(false);
     setActivePage("settings");
     closeSelectionMode();
     setOptionsOpen(false);
@@ -908,6 +985,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
 
   function openGuide() {
     pushLocationRef.current = true;
+    setIsMobileSidebarOpen(false);
     setActivePage("guide");
     closeSelectionMode();
     setOptionsOpen(false);
@@ -916,6 +994,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
 
   function openActivity() {
     pushLocationRef.current = true;
+    setIsMobileSidebarOpen(false);
     setHasOpenedAddMedia(true);
     setActivePage("activity");
     closeSelectionMode();
@@ -926,6 +1005,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
 
   function openAddMedia() {
     pushLocationRef.current = true;
+    setIsMobileSidebarOpen(false);
     setHasOpenedAddMedia(true);
     setActivePage("add-media");
     closeSelectionMode();
@@ -967,6 +1047,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
 
   function backToLibrary() {
     pushLocationRef.current = true;
+    setIsMobileSidebarOpen(false);
     setActivePage("library");
   }
 
@@ -1039,6 +1120,12 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
         scoreFilter={scoreFilter}
         sort={sort}
         sortDirection={sortDirection}
+        sortCriteria={sortCriteria}
+        onSetSortCriteria={setSortCriteria}
+        tagMatch={tagMatch}
+        tagStatus={tagStatus}
+        onSetTagMatch={setTagMatch}
+        onSetTagStatus={setTagStatus}
         tagFilters={tagFilters}
         tagFilterDraft={tagFilterDraft}
         view={view}
@@ -1054,7 +1141,6 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
         onOpenChange={setOptionsOpen}
         onSetScoreFilter={setScoreFilter}
         onSetSort={setSort}
-        onSetSortDirection={setSortDirection}
         onSetTagFilterDraft={setTagFilterDraft}
         onToggleGalleryMetadataField={toggleGalleryMetadataField}
       />
@@ -1076,7 +1162,12 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
 
   return (
     <PresentationContext.Provider value={presentationPreferences}>
-      <SidebarProvider className="app-shell" defaultOpen={sidebarDefaultOpen}>
+      <SidebarProvider
+        className="app-shell"
+        defaultOpen={sidebarDefaultOpen}
+        openMobile={isMobileSidebarOpen}
+        onOpenMobileChange={setIsMobileSidebarOpen}
+      >
         <LibrarySidebar
           error={error}
           expandableFolderIds={expandableFolderIds}
@@ -1131,6 +1222,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
           onOpenActivity={openActivity}
           onOpenTrash={() => {
             pushLocationRef.current = true;
+            setIsMobileSidebarOpen(false);
             setActivePage("trash");
             closeSelectionMode();
             setAnnotationAssetId(null);
@@ -1393,6 +1485,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
                       hasQueryFilters={Boolean(
                         search ||
                         tagFilters.length ||
+                        tagStatus !== "all" ||
                         scoreFilter !== "all" ||
                         mediaType !== "all"
                       )}
@@ -1439,6 +1532,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
                       hasQueryFilters={Boolean(
                         search ||
                         tagFilters.length ||
+                        tagStatus !== "all" ||
                         scoreFilter !== "all" ||
                         mediaType !== "all"
                       )}
@@ -1489,6 +1583,8 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
                       scoreFilter={scoreFilter}
                       search={search}
                       tagFilters={tagFilters}
+                      tagMatch={tagMatch}
+                      tagStatus={tagStatus}
                       onAssetsUpdated={mergeUpdatedAssets}
                       onOpenFullscreen={openComparisonAsset}
                       onRankingChanged={handleComparisonRankingChanged}

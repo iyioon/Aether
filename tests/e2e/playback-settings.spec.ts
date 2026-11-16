@@ -49,6 +49,14 @@ interface SoundTestWindow extends Window {
   };
 }
 
+interface ViewerGestureTestWindow extends Window {
+  viewerGestureTest: {
+    holdFrames: boolean;
+    pendingFrames: Array<() => void>;
+    touchStarted: boolean;
+  };
+}
+
 test.beforeAll(async ({ browser }) => {
   const page = await browser.newPage();
   try {
@@ -347,7 +355,232 @@ for (const phone of [false, true]) {
       await context.close();
     }
   });
+
+  test(`applies framing defaults on open and keeps temporary viewer choices during navigation (${layout})`, async ({
+    browser
+  }) => {
+    const context = await newContext(browser, phone);
+    const page = await context.newPage();
+    try {
+      for (const asset of assets)
+        await setPresentation(page, asset, {
+          ...presentation,
+          fit: "cover",
+          zoom: 1.6,
+          focalX: 0.3,
+          aspectFraming: {
+            Square: { fit: "cover", zoom: 1.6, focalX: 0.3, focalY: 0.5 }
+          }
+        });
+      await openGallery(page);
+      await openSettings(page);
+      await chooseDisplayMode(page, "Full view framing", "Original");
+      await page.reload();
+      await expect(
+        page.getByRole("combobox", { name: "Full view framing", exact: true })
+      ).toHaveText("Original");
+      await openGallery(page);
+      const viewer = await openViewer(page, 0);
+      await expectViewerFraming(viewer, false);
+      await setViewerOption(page, "Use saved framing", true);
+      await expectViewerFraming(viewer, true);
+      await nextViewerMedia(page, "sound-1.mp4");
+      await expectViewerFraming(viewer, true);
+      await page.keyboard.press("ArrowLeft");
+      await expect(
+        viewer.getByRole("heading", { name: "sound-0.mp4", exact: true })
+      ).toBeVisible();
+      await expectViewerFraming(viewer, true);
+      await closeViewer(page);
+      await openViewer(page, 2);
+      await expectViewerFraming(viewer, false);
+      await closeViewer(page);
+
+      await openSettings(page);
+      await chooseDisplayMode(page, "Full view framing", "Saved framing");
+      await openGallery(page);
+      await openViewer(page, 0);
+      await expectViewerFraming(viewer, true);
+      await setViewerOption(page, "Use saved framing", false);
+      await expectViewerFraming(viewer, false);
+      await nextViewerMedia(page, "sound-1.mp4");
+      await expectViewerFraming(viewer, false);
+      await closeViewer(page);
+      await openViewer(page, 2);
+      await expectViewerFraming(viewer, true);
+      await closeViewer(page);
+
+      await openSettings(page);
+      await chooseDisplayMode(page, "Full view framing", "Remember last");
+      await openGallery(page);
+      await openViewer(page, 0);
+      // Applying a fixed default does not overwrite the last explicit choice.
+      await expectViewerFraming(viewer, false);
+      await setViewerOption(page, "Use saved framing", true);
+      await closeViewer(page);
+      await page.reload();
+      await openViewer(page, 1);
+      await expectViewerFraming(viewer, true);
+      await setViewerOption(page, "Use saved framing", false);
+      await nextViewerMedia(page, "sound-2.mp4");
+      await expectViewerFraming(viewer, false);
+      await closeViewer(page);
+      await openViewer(page, 0);
+      await expectViewerFraming(viewer, false);
+    } finally {
+      for (const asset of assets)
+        await setPresentation(page, asset, presentation);
+      await context.close();
+    }
+  });
+
+  test(`persists playback range defaults without replacing explicit links or resumed choices (${layout})`, async ({
+    browser
+  }) => {
+    const context = await newContext(browser, phone);
+    const page = await context.newPage();
+    try {
+      await setPresentation(page, assets[0]!, {
+        ...presentation,
+        highlight: { startMs: 1000, endMs: 2000 }
+      });
+      await setPresentation(page, assets[2]!, {
+        ...presentation,
+        highlight: { startMs: 500, endMs: 1500 }
+      });
+      await openGallery(page);
+      await openSettings(page);
+      await chooseDisplayMode(page, "Playback range", "Highlights only");
+      await page.reload();
+      await expect(
+        page.getByRole("combobox", { name: "Playback range", exact: true })
+      ).toHaveText("Highlights only");
+      await openGallery(page);
+      const viewer = await openViewer(page, 0);
+      await expectPlaybackRange(viewer, 1, 2);
+      await nextViewerMedia(page, "sound-1.mp4");
+      await expectPlaybackRange(viewer, 0, 4);
+      await nextViewerMedia(page, "sound-2.mp4");
+      await expectPlaybackRange(viewer, 0.5, 1.5);
+      await closeViewer(page);
+
+      const feed = await openFeed(page, 0);
+      await expectPlaybackRange(feed, 1, 2);
+      await openGallery(page);
+      await openViewer(page, 0);
+      await setViewerOption(page, "Play highlights only", false);
+      await expectPlaybackRange(viewer, 0, 4);
+      await page.reload();
+      await expect(viewer).toBeVisible();
+      await expectPlaybackRange(viewer, 0, 4);
+      await page.goto(`${origin}/?launch=resume`);
+      await expect(viewer).toBeVisible();
+      await expectPlaybackRange(viewer, 0, 4);
+      await page.goto(
+        `${libraryUrl("gallery")}&highlight=0&asset=${encodeURIComponent(assets[0]!.id)}`
+      );
+      await expect(viewer).toBeVisible();
+      await expectPlaybackRange(viewer, 0, 4);
+      await closeViewer(page);
+
+      await openSettings(page);
+      await chooseDisplayMode(page, "Playback range", "Remember last");
+      await openGallery(page);
+      await openViewer(page, 0);
+      await expectPlaybackRange(viewer, 0, 4);
+      await setViewerOption(page, "Play highlights only", true);
+      await expectPlaybackRange(viewer, 1, 2);
+      await page.reload();
+      await expectPlaybackRange(viewer, 1, 2);
+      await closeViewer(page);
+
+      await openSettings(page);
+      await chooseDisplayMode(page, "Playback range", "Full media");
+      await openGallery(page);
+      await openViewer(page, 0);
+      await expectPlaybackRange(viewer, 0, 4);
+    } finally {
+      for (const asset of assets)
+        await setPresentation(page, asset, presentation);
+      await context.close();
+    }
+  });
 }
+
+test("keeps an in-progress phone swipe when the first video frame replaces its poster", async ({
+  browser
+}) => {
+  const context = await newContext(browser, true);
+  await context.addInitScript(() => {
+    const target = window as unknown as ViewerGestureTestWindow;
+    target.viewerGestureTest = {
+      holdFrames: true,
+      pendingFrames: [],
+      touchStarted: false
+    };
+    const requestFrame = HTMLVideoElement.prototype.requestVideoFrameCallback;
+    HTMLVideoElement.prototype.requestVideoFrameCallback = function (callback) {
+      return requestFrame.call(this, (now, metadata) => {
+        if (
+          target.viewerGestureTest.holdFrames &&
+          this.closest(".viewer-dialog")
+        )
+          target.viewerGestureTest.pendingFrames.push(() =>
+            callback(now, metadata)
+          );
+        else callback(now, metadata);
+      });
+    };
+    document.addEventListener(
+      "touchstart",
+      (event) => {
+        if (
+          event.target instanceof Element &&
+          event.target.closest(".viewer-fit-area")
+        )
+          target.viewerGestureTest.touchStarted = true;
+      },
+      { capture: true }
+    );
+  });
+  try {
+    const page = await context.newPage();
+    await openGallery(page);
+    const viewer = await openViewer(page, 0);
+    const poster = viewer.locator(".viewer-video-poster");
+    await expect(poster).toBeVisible();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (window as unknown as ViewerGestureTestWindow).viewerGestureTest
+              .pendingFrames.length
+        )
+      )
+      .toBeGreaterThan(0);
+    await nextViewerMedia(page, "sound-1.mp4", async () => {
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () =>
+              (window as unknown as ViewerGestureTestWindow).viewerGestureTest
+                .touchStarted
+          )
+        )
+        .toBe(true);
+      await page.evaluate(() => {
+        const state = (window as unknown as ViewerGestureTestWindow)
+          .viewerGestureTest;
+        state.holdFrames = false;
+        for (const present of state.pendingFrames.splice(0)) present();
+      });
+      await expect(poster).toHaveCount(0);
+    });
+    await expectSound(viewer.locator("video"), true);
+  } finally {
+    await context.close();
+  }
+});
 
 test("keeps newer viewer sound choices when an obsolete play request fails and preserves sound after an interrupted request", async ({
   browser
@@ -504,7 +737,11 @@ async function closeViewer(page: Page) {
   await expect(page.locator(".viewer-dialog")).toHaveCount(0);
 }
 
-async function nextViewerMedia(page: Page, name: string) {
+async function nextViewerMedia(
+  page: Page,
+  name: string,
+  afterTouchStart?: () => Promise<void>
+) {
   const viewer = page.locator(".viewer-dialog");
   const next = viewer.getByRole("button", { name: "Next media", exact: true });
   if (await next.isVisible()) {
@@ -518,6 +755,7 @@ async function nextViewerMedia(page: Page, name: string) {
         type: "touchStart",
         touchPoints: [{ x: bounds.x + bounds.width * 0.8, y }]
       });
+      await afterTouchStart?.();
       await session.send("Input.dispatchTouchEvent", {
         type: "touchMove",
         touchPoints: [{ x: bounds.x + bounds.width * 0.2, y }]
@@ -588,6 +826,61 @@ async function chooseMode(
   await page.getByRole("option", { name: mode, exact: true }).click();
 }
 
+async function chooseDisplayMode(
+  page: Page,
+  label: "Full view framing" | "Playback range",
+  mode: string
+) {
+  await page.getByRole("combobox", { name: label, exact: true }).click();
+  await page.getByRole("option", { name: mode, exact: true }).click();
+}
+
+async function setViewerOption(
+  page: Page,
+  name: "Use saved framing" | "Play highlights only",
+  enabled: boolean
+) {
+  const viewer = page.locator(".viewer-dialog");
+  await viewer.getByRole("button", { name: "Viewer view options" }).click();
+  const menu = viewer.locator(".viewer-view-options");
+  const option = menu.getByRole("menuitemcheckbox", { name, exact: true });
+  await expect(option).toBeEnabled();
+  if ((await option.getAttribute("aria-checked")) !== String(enabled))
+    await option.click();
+  await expect(option).toHaveAttribute("aria-checked", String(enabled));
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
+}
+
+async function expectViewerFraming(viewer: Locator, saved: boolean) {
+  await expect(viewer.locator("video")).toHaveCSS(
+    "object-fit",
+    saved ? "cover" : "contain"
+  );
+  await expect
+    .poll(() =>
+      viewer
+        .locator("video")
+        .evaluate(
+          (video) => new DOMMatrixReadOnly(getComputedStyle(video).transform).a
+        )
+    )
+    .toBeCloseTo(saved ? 1.6 : 1, 4);
+}
+
+async function expectPlaybackRange(
+  surface: Locator,
+  minimum: number,
+  maximum: number
+) {
+  const slider = surface.getByRole("slider");
+  await expect(slider).toBeEnabled();
+  await expect(slider).toHaveAttribute("min", String(minimum));
+  await expect
+    .poll(async () => Number(await slider.getAttribute("max")))
+    .toBeCloseTo(maximum, 1);
+}
+
 async function setModes(page: Page, fullView: SoundMode, feed: SoundMode) {
   await openSettings(page);
   await chooseMode(page, "Full view", fullView);
@@ -617,6 +910,7 @@ async function expectSettingsLayout(page: Page) {
     )
     .toBe(true);
   for (const control of await settings.getByRole("combobox").all()) {
+    await control.scrollIntoViewIfNeeded();
     await expect(control).toBeInViewport();
     const bounds = (await control.boundingBox())!;
     expect(bounds.height).toBeGreaterThanOrEqual(44);

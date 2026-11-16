@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent
+} from "react";
 import { toast } from "sonner";
 import {
   ApiError,
@@ -62,8 +68,18 @@ export function useFileOperations(
     if (!batch.count) return;
     const viewActivity = {
       label: "View activity",
-      onClick: () => {
-        if (activeRef.current) viewActivityRef.current();
+      onClick: (event: MouseEvent<HTMLButtonElement>) => {
+        if (!activeRef.current) return;
+        const focused = document.activeElement;
+        if (
+          focused instanceof HTMLElement &&
+          event.currentTarget
+            .closest("[data-sonner-toaster]")
+            ?.contains(focused)
+        )
+          focused.blur();
+        // Finish Sonner's return-focus work before the destination takes focus.
+        viewActivityRef.current();
       }
     };
     if (batch.count > 1) {

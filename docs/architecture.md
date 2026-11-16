@@ -169,6 +169,12 @@ separator; Add media is available in Gallery. `LibraryResultStatus` owns the pen
 control in the navigation row, keeping search and viewport geometry stable.
 Folder navigation scrolls above the sidebar’s Account menu, which groups Trash,
 Activity, User guide, Settings and Sign out.
+Collapsed offcanvas navigation is inert and hidden from assistive technology.
+The sidebar trigger reports its expanded state on desktop and mobile, and
+keyboard dismissal returns focus to that trigger. Closing after navigation
+preserves focus already moved to the destination page or a new dialog.
+`AppShell` controls the mobile drawer so explicit navigation closes it even
+when the destination page is already open.
 
 `LibraryViewOptions` groups the existing library controls behind one toolbar
 button, using the shared shadcn Popover on desktop and Sheet at the mobile
@@ -183,6 +189,24 @@ URL and restored active-view state take precedence. Card-info visibility is
 stored separately per view; Feed and Ranking default to none. Feed stays Portrait
 and Ranking defaults to Original proportions. Grid size remains Gallery-only. Clearing filters
 leaves search, sort, and layout untouched.
+Keyboard clearing returns focus to **All** under **Media** after its Clear filters
+button disappears.
+
+Ordered sorting uses up to five unique field/direction rules through repeated
+`sortBy=field:direction` parameters. The server applies the ordered SQL expressions
+and a final asset-ID tie-breaker before paging; the client never sorts a loaded
+window independently. Legacy single-sort links preserve their existing tie
+ordering. The bounded rules, tag matching mode and tagged/untagged filter are
+part of URL, restoration and request identities. Canonical filters apply equally
+to list membership, detail reconciliation and comparison pools. Score/favorite
+or tag edits affecting any sort rule defer reordering through Update results.
+Drag priority changes commit on release; Move up/down provides keyboard and
+single-pointer alternatives. The interaction follows
+[Airtable’s ordered sorts](https://support.airtable.com/docs/sorting-records-in-airtable-views)
+and [WCAG dragging alternatives](https://www.w3.org/WAI/WCAG22/Understanding/dragging-movements).
+View options restores its trigger after Escape or Close, including a quick
+reopen during its exit animation. Outside dismissal retains the clicked control's
+focus.
 
 The web app saves the page, library query, comparison workspace, Settings tab
 and optional viewer asset ID. Explicit links take precedence; Home Screen
@@ -192,6 +216,12 @@ preserve loaded depth and anchors; `visibilitychange` and `pagehide` save pendin
 position changes when the page is hidden.
 Leaderboard unmount checkpoints retain the last measured position when a
 header resize would clamp the departing viewport's scroll position.
+Leaderboard restoration and pagination reuse the Gallery's bounded asset-window
+reader. Each later page requires the accepted library revision; a changed order
+replaces the window instead of joining incompatible pages. An unchanged prefix
+can accept a refreshed revision, while ordinary paging failures retain accepted
+records for retry. Query keys use structured encoding for legacy separator-bearing
+text without changing existing keys for ordinary filters.
 
 Ranking saves ordered asset IDs, the last choice that can be undone, and IDs for
 requests with an unknown result. The server validates resumed IDs against
@@ -254,6 +284,10 @@ is persisted outside the existing authenticated browser cache.
 
 Poster failures are independent of video playback. Failed decorative images
 are removed, and valid posters remain until the first video frame is presented.
+Viewer video posters ignore pointer input so their removal cannot detach an
+active swipe target.
+Locally decoded current images remain ready independently of shared speculative
+cache hints, which may be reset while another consumer prepares the same URL.
 The viewer never inherits a previous item's poster during navigation.
 The preview grid constrains its layers to the card's dimensions so intrinsic
 poster sizes cannot enlarge the video or interfere with visibility tracking.
@@ -584,6 +618,14 @@ bounded, cancelled on hide, exit, retry or source replacement, and cannot
 publish results for a stale source. A viewer-owned animation error suppresses
 the canvas component's duplicate notice.
 
+Browser playback preferences include full-view framing (original, saved or
+remember) and playback range (full, highlights or remember). Existing preferences
+migrate to remember. A new viewer opening resolves its framing default once;
+adjacent navigation retains temporary changes. Fresh library state and changes
+to the range default resolve highlights without replacing an explicit URL or
+resumed range. Explicit off is serialized as `highlight=0` so it survives a
+Highlights-only default.
+
 The highlight-only preference follows validated URL/resume state and is also
 available in the viewer View options menu, alongside the independent framing
 choice. The highlight option is disabled for items without a saved section
@@ -740,6 +782,17 @@ folder records; configured roots cannot be renamed or moved.
 Activity retains individual operation results. A bounded notification buffer
 coalesces results received while hidden into a foreground summary, preserving
 request/result deduplication and a route back to Activity.
+The single application Toaster keeps one persistent portal host. Its DOM host
+moves into the current modal, including the mobile sidebar, or container-fullscreen subtree, so notifications
+remain within the active focus and pointer boundary without remounting Sonner.
+Toast interactions do not dismiss the viewer or invoke its media shortcuts.
+View activity releases toast focus before navigation so notification focus
+restoration finishes before the destination page takes focus. Portal relocation
+preserves an intentional focus change made during the move.
+Offsets include the shared safe-area insets; coarse-pointer action buttons and
+the Close hit area provide at least 44 pixels in each dimension.
+Native iPhone video fullscreen uses the system player and cannot display custom
+HTML notification overlays.
 
 Add media is a separate application page for destination and file review, with
 a visually hidden task heading, one scrolling body and persistent actions.

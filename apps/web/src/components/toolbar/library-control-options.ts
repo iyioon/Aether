@@ -2,22 +2,72 @@ import type {
   MediaTypeFilter,
   ScoreFilter,
   SortDirection,
-  SortMode
+  SortField
 } from "../../api/client";
 
-export const sortOptions: Array<{ label: string; value: SortMode }> = [
-  { label: "Date", value: "date" },
-  { label: "Filename", value: "filename" },
-  { label: "Score", value: "score" },
-  { label: "Random", value: "random" }
-];
-
-export const sortDirectionOptions: Array<{
+export const sortFieldOptions: Array<{
   label: string;
-  value: SortDirection;
+  value: SortField;
+  defaultDirection: SortDirection;
+  asc: string;
+  desc: string;
 }> = [
-  { label: "Descending", value: "desc" },
-  { label: "Ascending", value: "asc" }
+  {
+    label: "Date modified",
+    value: "date",
+    defaultDirection: "desc",
+    asc: "Oldest first",
+    desc: "Newest first"
+  },
+  {
+    label: "Filename",
+    value: "filename",
+    defaultDirection: "asc",
+    asc: "A to Z",
+    desc: "Z to A"
+  },
+  {
+    label: "Score",
+    value: "score",
+    defaultDirection: "desc",
+    asc: "Lowest first",
+    desc: "Highest first"
+  },
+  {
+    label: "Favorites",
+    value: "favorite",
+    defaultDirection: "desc",
+    asc: "Not favorites first",
+    desc: "Favorites first"
+  },
+  {
+    label: "Tags",
+    value: "tags",
+    defaultDirection: "asc",
+    asc: "A to Z",
+    desc: "Z to A"
+  },
+  {
+    label: "File size",
+    value: "size",
+    defaultDirection: "desc",
+    asc: "Smallest first",
+    desc: "Largest first"
+  },
+  {
+    label: "Duration",
+    value: "duration",
+    defaultDirection: "desc",
+    asc: "Shortest first",
+    desc: "Longest first"
+  },
+  {
+    label: "Media type",
+    value: "type",
+    defaultDirection: "asc",
+    asc: "Images first",
+    desc: "Videos first"
+  }
 ];
 
 export const mediaFilters: Array<{

@@ -1,4 +1,9 @@
-import type { MediaTypeFilter, ScoreFilter } from "../../api/client";
+import type {
+  MediaTypeFilter,
+  ScoreFilter,
+  TagMatch,
+  TagStatus
+} from "../../api/client";
 import type { SessionScrollPosition } from "../scroll-restoration";
 
 export const LEADERBOARD_PAGE_LIMIT = 48;
@@ -10,14 +15,20 @@ export function leaderboardScrollContextKey(query: {
   scoreFilter: ScoreFilter;
   search: string;
   tagFilters: string[];
+  tagMatch?: TagMatch;
+  tagStatus?: TagStatus;
 }): string {
-  return JSON.stringify([
+  const context: unknown[] = [
     query.folderId,
     query.mediaType,
     query.scoreFilter,
     query.search,
     [...query.tagFilters].sort()
-  ]);
+  ];
+  const match = query.tagMatch ?? "all";
+  const status = query.tagStatus ?? "all";
+  if (match !== "all" || status !== "all") context.push(match, status);
+  return JSON.stringify(context);
 }
 
 export function leaderboardRestoreCount(

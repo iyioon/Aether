@@ -128,17 +128,35 @@ export interface AssetMediaMetadataInput {
   codec: string | null;
 }
 
+export type AssetSortField =
+  | "date"
+  | "filename"
+  | "score"
+  | "favorite"
+  | "tags"
+  | "size"
+  | "duration"
+  | "type";
+
+export interface AssetSortCriterion {
+  field: AssetSortField;
+  direction: "desc" | "asc";
+}
+
 export interface AssetListOptions {
   folderId: string;
   offset: number;
   limit: number;
   randomSeed?: number;
-  sort: "date" | "filename" | "score" | "random";
+  sort: AssetSortField | "random";
   sortDirection?: "desc" | "asc";
+  sortCriteria?: AssetSortCriterion[];
   type: "all" | MediaType;
   recursive: boolean;
   search?: string;
   tags?: string[];
+  tagMatch?: "all" | "any";
+  tagStatus?: "all" | "tagged" | "untagged";
   scoreFilter?: "all" | "favorites" | "ranked" | "unranked";
 }
 
@@ -270,7 +288,14 @@ export interface ComparisonPairResult {
 
 export type ComparisonPairOptions = Pick<
   AssetListOptions,
-  "folderId" | "type" | "recursive" | "search" | "tags" | "scoreFilter"
+  | "folderId"
+  | "type"
+  | "recursive"
+  | "search"
+  | "tags"
+  | "tagMatch"
+  | "tagStatus"
+  | "scoreFilter"
 >;
 
 export interface DerivativeRow {

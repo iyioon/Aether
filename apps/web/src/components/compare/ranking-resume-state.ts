@@ -1,4 +1,33 @@
 import { createUuid } from "../../lib/uuid";
+import type {
+  MediaTypeFilter,
+  ScoreFilter,
+  TagMatch,
+  TagStatus
+} from "../../api/client";
+
+export function rankingContextKey(query: {
+  folderId: string | null;
+  mediaType: MediaTypeFilter;
+  scoreFilter: ScoreFilter;
+  search: string;
+  tagFilters: string[];
+  tagMatch?: TagMatch;
+  tagStatus?: TagStatus;
+}): string {
+  const context: unknown[] = [
+    query.folderId,
+    query.mediaType,
+    query.scoreFilter,
+    query.search,
+    query.tagFilters
+  ];
+  const match = query.tagMatch ?? "all";
+  const status = query.tagStatus ?? "all";
+  // Keep existing default-filter checkpoints, including uncertain mutations.
+  if (match !== "all" || status !== "all") context.push(match, status);
+  return JSON.stringify(context);
+}
 
 export interface RankingPairIds {
   pairAssetIds: [string, string];

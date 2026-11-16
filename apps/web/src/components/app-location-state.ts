@@ -52,8 +52,14 @@ export function resolveAppLocation(
   const workspace = params.get("workspace");
   const tab = params.get("tab");
   const asset = params.get("asset");
+  const library = explicitLibrary
+    ? parseLibraryStateSearch(search)
+    : stored.library;
   return {
-    library: explicitLibrary ? parseLibraryStateSearch(search) : stored.library,
+    library:
+      library.sort === "random" && stored.library.sortCriteria
+        ? { ...library, sortCriteria: stored.library.sortCriteria }
+        : library,
     navigation: {
       page:
         page === "settings" ||
@@ -117,7 +123,10 @@ export function readStoredAppLocation(): AppLocationState {
           nav.comparisonWorkspace === "leaderboard")
       ) {
         return {
-          library,
+          library: {
+            ...library,
+            highlightsOnly: library.highlightsOnly ?? false
+          },
           navigation: {
             page: nav.page,
             comparisonWorkspace: nav.comparisonWorkspace,
@@ -135,10 +144,15 @@ export function readStoredAppLocation(): AppLocationState {
         };
       }
     }
-    fallback.library =
-      parseStoredLibraryState(
-        window.localStorage.getItem(LIBRARY_STATE_STORAGE_KEY)
-      ) ?? defaultLibraryState;
+    const legacyLibrary = parseStoredLibraryState(
+      window.localStorage.getItem(LIBRARY_STATE_STORAGE_KEY)
+    );
+    fallback.library = legacyLibrary
+      ? {
+          ...legacyLibrary,
+          highlightsOnly: legacyLibrary.highlightsOnly ?? false
+        }
+      : defaultLibraryState;
   } catch {
     // Optional browser persistence must not block opening the application.
   }

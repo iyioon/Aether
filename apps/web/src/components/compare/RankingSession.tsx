@@ -4,7 +4,9 @@ import { CornerUpLeft, RefreshCw } from "lucide-react";
 import type {
   AssetRecord,
   MediaTypeFilter,
-  ScoreFilter
+  ScoreFilter,
+  TagMatch,
+  TagStatus
 } from "../../api/client";
 import {
   hasOpenKeyboardLayer,
@@ -45,6 +47,8 @@ interface RankingSessionProps {
   scoreFilter: ScoreFilter;
   search: string;
   tagFilters: string[];
+  tagMatch?: TagMatch;
+  tagStatus?: TagStatus;
   onAssetsUpdated: (assets: AssetRecord[]) => void;
   onExit: () => void;
   onOpenFullscreen: (asset: AssetRecord) => void;
@@ -63,6 +67,8 @@ export function RankingSession({
   scoreFilter,
   search,
   tagFilters,
+  tagMatch = "all",
+  tagStatus = "all",
   onAssetsUpdated,
   onExit,
   onOpenFullscreen,
@@ -87,6 +93,8 @@ export function RankingSession({
     scoreFilter,
     search,
     tagFilters,
+    tagMatch,
+    tagStatus,
     onAssetsUpdated,
     onRankingChanged
   });

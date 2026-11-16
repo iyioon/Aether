@@ -359,8 +359,7 @@ export const MediaPreview = memo(function MediaPreview({
   const didVideoPosterFail = failedVideoPosterSource === posterSource;
   const isVideoPosterReady =
     !didVideoPosterFail &&
-    (loadedVideoPosterSource === posterSource ||
-      isMediaImageReady(posterSource));
+    isMediaImageReady(posterSource, loadedVideoPosterSource);
 
   const isCurrentVideo = useCallback((video: HTMLVideoElement) => {
     const source = videoSourceRef.current;
@@ -962,12 +961,12 @@ export const MediaPreview = memo(function MediaPreview({
       : posterSource;
     const isImageReady =
       loadedImageSource === previewSource ||
-      (!shouldUseOriginalImage && isMediaImageReady(previewSource));
+      (!shouldUseOriginalImage &&
+        isMediaImageReady(previewSource, loadedThumbnailSource));
     const isThumbnailReady =
       hasImagePoster &&
       failedThumbnailSource !== posterSource &&
-      (loadedThumbnailSource === posterSource ||
-        isMediaImageReady(posterSource));
+      isMediaImageReady(posterSource, loadedThumbnailSource);
 
     if (
       hasImagePoster &&

@@ -5,6 +5,8 @@ import {
 
 export type PlaybackSurface = "fullView" | "feed";
 export type PlaybackSoundMode = "muted" | "sound-on" | "remember";
+export type PlaybackFramingMode = "original" | "saved" | "remember";
+export type PlaybackHighlightsMode = "full" | "highlights" | "remember";
 
 export interface SoundPreference {
   mode: PlaybackSoundMode;
@@ -14,6 +16,8 @@ export interface SoundPreference {
 export interface PlaybackPreferences {
   fullView: SoundPreference;
   feed: SoundPreference;
+  framingMode: PlaybackFramingMode;
+  highlightsMode: PlaybackHighlightsMode;
 }
 
 export const PLAYBACK_SETTINGS_STORAGE_KEY = "aether.playback.v1";
@@ -22,7 +26,9 @@ const MAX_STORED_LENGTH = 512;
 export function defaultPlaybackPreferences(): PlaybackPreferences {
   return {
     fullView: { mode: "muted", lastMuted: true },
-    feed: { mode: "muted", lastMuted: true }
+    feed: { mode: "muted", lastMuted: true },
+    framingMode: "remember",
+    highlightsMode: "remember"
   };
 }
 
@@ -38,6 +44,32 @@ export function isPlaybackSoundMode(
   return value === "muted" || value === "sound-on" || value === "remember";
 }
 
+export function isPlaybackFramingMode(
+  value: unknown
+): value is PlaybackFramingMode {
+  return value === "original" || value === "saved" || value === "remember";
+}
+
+export function isPlaybackHighlightsMode(
+  value: unknown
+): value is PlaybackHighlightsMode {
+  return value === "full" || value === "highlights" || value === "remember";
+}
+
+export function resolvePlaybackFraming(
+  mode: PlaybackFramingMode,
+  remembered: boolean
+): boolean {
+  return mode === "remember" ? remembered : mode === "saved";
+}
+
+export function resolvePlaybackHighlights(
+  mode: PlaybackHighlightsMode,
+  remembered: boolean
+): boolean {
+  return mode === "remember" ? remembered : mode === "highlights";
+}
+
 export function parsePlaybackPreferences(
   raw: string | null
 ): PlaybackPreferences {
@@ -50,7 +82,13 @@ export function parsePlaybackPreferences(
 
     return {
       fullView: parseSoundPreference(parsed.fullView) ?? defaults.fullView,
-      feed: parseSoundPreference(parsed.feed) ?? defaults.feed
+      feed: parseSoundPreference(parsed.feed) ?? defaults.feed,
+      framingMode: isPlaybackFramingMode(parsed.framingMode)
+        ? parsed.framingMode
+        : defaults.framingMode,
+      highlightsMode: isPlaybackHighlightsMode(parsed.highlightsMode)
+        ? parsed.highlightsMode
+        : defaults.highlightsMode
     };
   } catch {
     return defaults;
@@ -71,7 +109,9 @@ export function writePlaybackPreferences(
     JSON.stringify({
       version: 1,
       fullView: preferences.fullView,
-      feed: preferences.feed
+      feed: preferences.feed,
+      framingMode: preferences.framingMode,
+      highlightsMode: preferences.highlightsMode
     })
   );
 }
@@ -98,6 +138,24 @@ export function rememberPlaybackSound(
     ...preferences,
     [surface]: { ...preferences[surface], lastMuted: muted }
   };
+}
+
+export function setPlaybackFramingMode(
+  preferences: PlaybackPreferences,
+  framingMode: PlaybackFramingMode
+): PlaybackPreferences {
+  return preferences.framingMode === framingMode
+    ? preferences
+    : { ...preferences, framingMode };
+}
+
+export function setPlaybackHighlightsMode(
+  preferences: PlaybackPreferences,
+  highlightsMode: PlaybackHighlightsMode
+): PlaybackPreferences {
+  return preferences.highlightsMode === highlightsMode
+    ? preferences
+    : { ...preferences, highlightsMode };
 }
 
 function parseSoundPreference(value: unknown): SoundPreference | null {

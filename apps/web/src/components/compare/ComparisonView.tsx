@@ -2,7 +2,9 @@ import { lazy, Suspense, useCallback, useState } from "react";
 import type {
   AssetRecord,
   MediaTypeFilter,
-  ScoreFilter
+  ScoreFilter,
+  TagMatch,
+  TagStatus
 } from "../../api/client";
 import { LeaderboardView } from "./LeaderboardView";
 import { Card } from "../ui/card";
@@ -40,6 +42,8 @@ interface ComparisonViewProps {
   scoreFilter: ScoreFilter;
   search: string;
   tagFilters: string[];
+  tagMatch?: TagMatch;
+  tagStatus?: TagStatus;
   onAssetsUpdated: (assets: AssetRecord[]) => void;
   onOpenFullscreen: (asset: AssetRecord) => void;
   onRankingChanged: () => void;
@@ -80,6 +84,8 @@ export function ComparisonView(props: ComparisonViewProps) {
       scoreFilter={props.scoreFilter}
       search={props.search}
       tagFilters={props.tagFilters}
+      tagMatch={props.tagMatch}
+      tagStatus={props.tagStatus}
       onOpenFullscreen={props.onOpenFullscreen}
       onPrepareRanking={preloadRankingSession}
       onStartRanking={() => onWorkspaceChange("ranking")}

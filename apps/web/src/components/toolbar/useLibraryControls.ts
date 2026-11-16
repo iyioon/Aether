@@ -2,6 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   MediaTypeFilter,
   ScoreFilter,
+  SortCriterion,
+  TagMatch,
+  TagStatus,
   SortDirection,
   SortMode,
   TreeResponse
@@ -19,12 +22,7 @@ import {
   type LibraryUrlState,
   type ViewMode
 } from "../library-state";
-import {
-  readViewAspects,
-  writeViewAspects,
-  readViewerUsesSavedFraming,
-  writeViewerUsesSavedFraming
-} from "./view-layout-state";
+import { readViewAspects, writeViewAspects } from "./view-layout-state";
 import { useTagSuggestions } from "../tags/useTagSuggestions";
 
 interface UseLibraryControlsOptions {
@@ -43,13 +41,6 @@ export function useLibraryControls({
   const [highlightsOnly, setHighlightsOnly] = useState(
     initialState.highlightsOnly ?? false
   );
-  const [viewerUsesSavedFraming, setViewerUsesSavedFramingState] = useState(
-    readViewerUsesSavedFraming
-  );
-  const setViewerUsesSavedFraming = useCallback((enabled: boolean) => {
-    setViewerUsesSavedFramingState(enabled);
-    writeViewerUsesSavedFraming(enabled);
-  }, []);
   const [gridSize, setGridSize] = useState<GridSize>(initialState.gridSize);
   const [viewAspects, setViewAspects] = useState(() => ({
     ...readViewAspects(),
@@ -67,6 +58,15 @@ export function useLibraryControls({
   const [sort, setSort] = useState<SortMode>(initialState.sort);
   const [sortDirection, setSortDirection] = useState<SortDirection>(
     initialState.sortDirection
+  );
+  const [sortCriteria, setSortCriteriaState] = useState<
+    SortCriterion[] | undefined
+  >(initialState.sortCriteria);
+  const [tagMatch, setTagMatch] = useState<TagMatch>(
+    initialState.tagMatch ?? "all"
+  );
+  const [tagStatus, setTagStatusState] = useState<TagStatus>(
+    initialState.tagStatus ?? "all"
   );
   const [mediaType, setMediaType] = useState<MediaTypeFilter>(
     initialState.mediaType
@@ -90,6 +90,9 @@ export function useLibraryControls({
     }));
     setSort(state.sort);
     setSortDirection(state.sortDirection);
+    setSortCriteriaState(state.sortCriteria);
+    setTagMatch(state.tagMatch ?? "all");
+    setTagStatusState(state.tagStatus ?? "all");
     setMediaType(state.mediaType);
     setScoreFilter(state.scoreFilter);
     setSearchDraft(state.search);
@@ -137,6 +140,7 @@ export function useLibraryControls({
       return;
     }
 
+    if (tagStatus === "untagged") setTagStatusState("all");
     setTagFilters((current) => [...current, nextTagFilter]);
     setTagFilterDraft("");
   }
@@ -151,19 +155,46 @@ export function useLibraryControls({
   }
 
   function clearFilters() {
+    setTagMatch("all");
+    setTagStatusState("all");
     setMediaType("all");
     setScoreFilter("all");
     clearTagFilters();
   }
 
   function selectSort(nextSort: SortMode) {
+    setSortCriteriaState((current) =>
+      nextSort === "random"
+        ? (current ??
+          (sort === "random"
+            ? undefined
+            : [{ field: sort, direction: sortDirection }]))
+        : undefined
+    );
     setSort(nextSort);
     setSortDirection(defaultSortDirectionForSort(nextSort));
   }
 
+  function setSortCriteria(criteria: SortCriterion[]) {
+    const primary = criteria[0];
+    if (!primary) return;
+    setSortCriteriaState(criteria);
+    setSort(primary.field);
+    setSortDirection(primary.direction);
+  }
+
+  function setTagStatus(status: TagStatus) {
+    setTagStatusState(status);
+    if (status === "untagged") clearTagFilters();
+  }
+
   return {
-    viewerUsesSavedFraming,
-    setViewerUsesSavedFraming,
+    sortCriteria,
+    setSortCriteria,
+    tagMatch,
+    setTagMatch,
+    tagStatus,
+    setTagStatus,
     highlightsOnly,
     setHighlightsOnly,
     applyLibraryState,
@@ -187,7 +218,6 @@ export function useLibraryControls({
     setScoreFilter,
     setSearchDraft,
     setSort: selectSort,
-    setSortDirection,
     setTagFilterDraft,
     setView,
     sort,

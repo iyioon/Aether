@@ -106,6 +106,7 @@
 
 .viewer-media-frame > .viewer-video-poster {
   z-index: 1;
+  pointer-events: none;
 }
 
 .viewer-media-frame .viewer-video {

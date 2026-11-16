@@ -6,6 +6,21 @@ Notable changes to Aether are recorded here.
 
 ### Fixed
 
+- Keep toast actions clickable and keyboard accessible over the full-view media
+  dialog and mobile sidebar, retain retry errors when a fast response updates the same toast, and
+  provide touch-sized phone controls clear of safe areas.
+- Keep restored and appended ranking pages on one library revision, and avoid
+  saved filter-key collisions for tags containing legacy separator characters.
+- Read batch score state in one bounded query, preserve requested order, and
+  roll back the complete batch if any write fails.
+- Use a patched development-only minimatch dependency in TypeScript lint tooling.
+- Keep a locally decoded thumbnail ready when later prefetch work resets shared
+  cache hints, avoiding a loading bar over an already visible image.
+- Exclude collapsed desktop navigation from keyboard focus and expose the
+  sidebar's expanded state to assistive technology. Explicit page navigation
+  closes the mobile sidebar and preserves destination focus.
+- Preserve phone swipes while the first video frame replaces its poster, and
+  return focus after quickly closing and reopening View options or clearing filters.
 - Honor saved Bounce and playback speed in comparison cards for videos and
   animated images instead of forcing forward Repeat at 1×.
 - Keep comparison video players mounted between pairs so muted playback can
@@ -58,6 +73,14 @@ Notable changes to Aether are recorded here.
   volumes with large inode numbers.
 
 ### Added
+
+- Ordered sorting rules for date modified, filename, score, favorites, tags,
+  file size, duration and media type, with independent directions and accessible
+  priority controls.
+- Match-all or match-any tag filters and Tagged/Untagged filtering, preserved
+  across library views, comparisons and resumed sessions.
+- Browser playback defaults for full-view framing and full media or highlights,
+  with Remember last choices.
 
 - Separate Full view and Feed sound defaults in Settings, with Muted, Sound on
   and Remember last choices stored in the browser.

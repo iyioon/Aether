@@ -189,7 +189,7 @@ export function LibraryPathBar({
     <header className="library-path-bar">
       <div className="library-path-heading">
         <div className="library-path-navigation">
-          <SidebarTrigger />
+          <SidebarTrigger aria-controls="library-sidebar" />
           <Separator
             className="library-path-separator"
             orientation="vertical"

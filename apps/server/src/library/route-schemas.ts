@@ -5,24 +5,76 @@ const TagListQuery = z.preprocess(
   z.array(z.string().max(64)).max(20)
 );
 
-export const AssetListQuery = z.object({
+const AssetSortField = z.enum([
+  "date",
+  "filename",
+  "score",
+  "favorite",
+  "tags",
+  "size",
+  "duration",
+  "type"
+]);
+const AssetSortCriterion = z.object({
+  field: AssetSortField,
+  direction: z.enum(["desc", "asc"])
+});
+const SortCriterionQuery = z
+  .string()
+  .max(32)
+  .transform((value, context) => {
+    const [field, direction, extra] = value.split(":");
+    const result = AssetSortCriterion.safeParse({ field, direction });
+    if (!result.success || extra !== undefined) {
+      context.addIssue({ code: "custom", message: "Invalid sort criterion" });
+      return z.NEVER;
+    }
+    return result.data;
+  });
+const SortCriteriaQuery = z
+  .preprocess(
+    normalizeArrayQueryValue,
+    z
+      .array(SortCriterionQuery)
+      .min(1)
+      .max(5)
+      .refine(
+        (criteria) =>
+          new Set(criteria.map((criterion) => criterion.field)).size ===
+          criteria.length,
+        "Sort fields must be unique"
+      )
+  )
+  .optional();
+const TagMatch = z.enum(["all", "any"]).default("all");
+const TagStatus = z.enum(["all", "tagged", "untagged"]).default("all");
+
+const AssetListQueryFields = z.object({
   expectedRevision: z.string().regex(/^\d+$/).max(32).optional(),
   offset: z.coerce.number().int().min(0).default(0),
   limit: z.coerce.number().int().min(1).max(250).default(80),
   seed: z.coerce.number().int().min(0).max(4_294_967_295).default(0),
   sort: z
-    .enum(["date", "filename", "score", "random", "newest", "oldest"])
+    .enum([...AssetSortField.options, "random", "newest", "oldest"])
     .default("date"),
   order: z.enum(["desc", "asc"]).optional(),
+  sortBy: SortCriteriaQuery,
   type: z.enum(["all", "image", "video"]).default("all"),
   search: z.string().max(128).default(""),
   tag: TagListQuery,
+  tagMatch: TagMatch,
+  tagStatus: TagStatus,
   score: z.enum(["all", "favorites", "ranked", "unranked"]).default("all"),
   recursive: z
     .enum(["true", "false"])
     .optional()
     .transform((value) => value !== "false")
 });
+
+export const AssetListQuery = AssetListQueryFields.refine(
+  (query) => query.sort !== "random" || query.sortBy === undefined,
+  "Random ordering cannot be combined with sort criteria"
+);
 
 export const AssetParams = z.object({
   assetId: z.string().min(1).max(256)
@@ -36,10 +88,12 @@ export const ComparisonEventParams = z.object({
   eventId: z.uuid()
 });
 
-export const ComparisonPairQuery = AssetListQuery.pick({
+export const ComparisonPairQuery = AssetListQueryFields.pick({
   type: true,
   search: true,
   tag: true,
+  tagMatch: true,
+  tagStatus: true,
   score: true,
   recursive: true
 }).extend({
@@ -55,6 +109,8 @@ const ComparisonPairContext = z.object({
   recursive: z.boolean().default(true),
   search: z.string().max(128).default(""),
   tags: z.array(z.string().max(64)).max(20).default([]),
+  tagMatch: TagMatch,
+  tagStatus: TagStatus,
   score: z.enum(["all", "favorites", "ranked", "unranked"]).default("all")
 });
 
@@ -143,9 +199,11 @@ export const TagsBody = z.object({
 
 const BatchAssetIds = z.array(z.string().min(1).max(256)).min(1).max(500);
 
-const AssetDetailsFilter = AssetListQuery.pick({
+const AssetDetailsFilter = AssetListQueryFields.pick({
   type: true,
-  search: true
+  search: true,
+  tagMatch: true,
+  tagStatus: true
 }).extend({
   folderId: FolderParams.shape.folderId,
   recursive: ComparisonPairContext.shape.recursive,

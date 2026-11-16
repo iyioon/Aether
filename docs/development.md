@@ -65,10 +65,19 @@ Run the required checks locally before pushing. The GitHub workflow is disabled
 and has no automatic push or pull-request triggers. It is retained for optional
 manual checks after re-enabling it in Actions.
 
+The root package overrides typescript-estree's development-only minimatch
+dependency to 11.0.1 or newer for
+[GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249).
+Its caller uses the retained `minimatch()` API. Remove the override when
+typescript-estree requires a patched version itself; retain the lockfile and
+lint check when changing it.
+
 The optional workflow uses Ubuntu 26.04 for the native decoder tools and
 separately verifies the Debian Trixie production image. Keep both toolchains
 covered when changing media processing; an OS package upgrade can change codec
 metadata or fixture timing.
+Run Docker builds and container checks separately from browser tests to keep
+network-interface and resource changes out of browser observations.
 
 Presentation video processing needs the libx264 and libx265 encoders. Synthetic
 animated AVIF fixtures also need libaom-av1. Use disposable fixtures to verify

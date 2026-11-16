@@ -138,6 +138,44 @@ describe("leaderboardUpdateRequiresReload", () => {
       )
     ).toBe(false);
   });
+
+  it("revalidates tag changes when selected tags or tag status affect membership", () => {
+    const current = {
+      ...asset("entry", 12),
+      tags: [
+        {
+          id: "travel",
+          normalizedName: "travel",
+          displayName: "Travel",
+          usageCount: 1
+        }
+      ]
+    };
+    expect(
+      leaderboardUpdateRequiresReload(
+        current,
+        { ...current, tags: [] },
+        "all",
+        true
+      )
+    ).toBe(true);
+    expect(
+      leaderboardUpdateRequiresReload(
+        current,
+        { ...current, tags: [...current.tags] },
+        "all",
+        true
+      )
+    ).toBe(false);
+    expect(
+      leaderboardUpdateRequiresReload(
+        current,
+        { ...current, tags: [] },
+        "all",
+        false
+      )
+    ).toBe(false);
+  });
 });
 
 function asset(id: string, score: number, mtimeMs = 1): AssetRecord {

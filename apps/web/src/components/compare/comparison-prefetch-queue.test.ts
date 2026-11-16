@@ -192,6 +192,8 @@ describe("comparison prefetch queue", () => {
     { recursive: false },
     { search: "different" },
     { tags: ["new"] },
+    { tagMatch: "any" as const },
+    { tagStatus: "untagged" as const },
     { score: "unranked" as const }
   ])("discards a superseded context response for %j", async (change) => {
     const { queue, fetchPairs, pending, media } = fixture();

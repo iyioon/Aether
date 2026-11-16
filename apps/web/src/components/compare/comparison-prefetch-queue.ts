@@ -75,7 +75,9 @@ export function createComparisonPrefetchQueue({
       context.recursive,
       context.search,
       [...new Set(context.tags)].sort(),
-      context.score
+      context.score,
+      context.tagMatch ?? "all",
+      context.tagStatus ?? "all"
     ]);
     if (
       contextKey !== nextContextKey ||

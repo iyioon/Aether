@@ -185,6 +185,7 @@ describe.skipIf(!["linux", "darwin"].includes(process.platform))(
           AETHER_MEDIA_ROOTS: `source=./source,target=./target,cross=${externalDirectory}`,
           AETHER_WRITABLE_ROOTS: "source,target,cross",
           AETHER_DATA_DIR: "./data",
+          AETHER_MIN_FREE_BYTES: "0",
           NODE_ENV: "test"
         },
         directory
@@ -2104,7 +2105,13 @@ describe.skipIf(!["linux", "darwin"].includes(process.platform))(
         name: "Added.jpg",
         conflict: "skip"
       });
-      expect((await finished(operation.id)).status).toBe("needs_attention");
+      expect(await finished(operation.id)).toMatchObject({
+        status: "needs_attention",
+        items: [{ errorCode: "filesystem_error" }]
+      });
+      expect(
+        await readFile(path.join(targetRoot.realPath, "Added.jpg"), "utf8")
+      ).toBe("upload original");
       const state = JSON.parse(
         getManagedOperation(db, operation.id)!.stateJson
       ) as { items: Array<{ sourceAssetId: string }> };
@@ -2118,6 +2125,53 @@ describe.skipIf(!["linux", "darwin"].includes(process.platform))(
       expect(
         await readFile(path.join(targetRoot.realPath, "Added.jpg"), "utf8")
       ).toBe("upload original");
+    });
+
+    it("retains a space-blocked upload and recovers after the reserve is reduced", async () => {
+      await manager.close();
+      manager = new FileOperationManager(
+        {
+          ...config,
+          fileManagement: {
+            ...config.fileManagement!,
+            minFreeBytes: Number.MAX_SAFE_INTEGER
+          }
+        },
+        db
+      );
+      await manager.initialize();
+      const uploadId = randomUUID();
+      const source = path.join(config.dataDir, "uploads", uploadId);
+      await mkdir(path.join(config.dataDir, "uploads"), { mode: 0o700 });
+      await writeFile(source, "retained upload", { mode: 0o600 });
+      const operation = manager.publishUpload({
+        requestId: randomUUID(),
+        uploadId,
+        destinationFolderId: targetFolderId,
+        expectedParentVersion: folderVersion(targetFolderId),
+        name: "Added.jpg",
+        conflict: "skip"
+      });
+
+      expect(await finished(operation.id)).toMatchObject({
+        status: "needs_attention",
+        items: [{ errorCode: "insufficient_space" }]
+      });
+      expect(await readFile(source, "utf8")).toBe("retained upload");
+      await expect(
+        stat(path.join(targetRoot.realPath, "Added.jpg"))
+      ).rejects.toMatchObject({
+        code: "ENOENT"
+      });
+
+      await manager.close();
+      manager = new FileOperationManager(config, db);
+      await manager.initialize();
+      expect(manager.get(operation.id)).toMatchObject({ status: "completed" });
+      expect(await readFile(source, "utf8")).toBe("retained upload");
+      expect(
+        await readFile(path.join(targetRoot.realPath, "Added.jpg"), "utf8")
+      ).toBe("retained upload");
     });
 
     it.skipIf(!hasCrossDevice)(

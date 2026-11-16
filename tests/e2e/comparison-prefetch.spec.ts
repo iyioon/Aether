@@ -182,7 +182,17 @@ test("decodes upcoming comparisons before a choice and swaps only after the vote
         ) {
           target.comparisonFirstSwapReady = [
             ...document.querySelectorAll(".comparison-card .media-image-shell")
-          ].every((shell) => shell.classList.contains("ready"));
+          ].every(
+            (shell) =>
+              (shell.classList.contains("ready") ||
+                shell.classList.contains("thumbnail-ready")) &&
+              [...shell.querySelectorAll<HTMLImageElement>("img")].some(
+                (image) =>
+                  image.complete &&
+                  image.naturalWidth > 0 &&
+                  getComputedStyle(image).opacity === "1"
+              )
+          );
           observer.disconnect();
         }
       });
@@ -216,6 +226,9 @@ test("decodes upcoming comparisons before a choice and swaps only after the vote
     )
     .toBe(true);
   await expect.poll(() => batches.length).toBe(2);
+  await expect(
+    page.locator(".comparison-card .media-image-shell.ready")
+  ).toHaveCount(2);
   await finishFrames(page);
   expect(resumeRequests).toBe(resumesBeforeVote);
   await expect(

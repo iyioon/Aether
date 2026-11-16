@@ -39,6 +39,8 @@ export function registerComparisonRoutes(
       recursive: query.data.recursive,
       search: query.data.search,
       tags: query.data.tag,
+      tagMatch: query.data.tagMatch,
+      tagStatus: query.data.tagStatus,
       scoreFilter: query.data.score,
       excludeAssetIds: query.data.exclude
     });
@@ -64,6 +66,8 @@ export function registerComparisonRoutes(
         recursive: body.data.recursive,
         search: body.data.search,
         tags: body.data.tags,
+        tagMatch: body.data.tagMatch,
+        tagStatus: body.data.tagStatus,
         scoreFilter: body.data.score,
         count: body.data.count,
         excludePairs: body.data.excludePairs
@@ -102,6 +106,8 @@ export function registerComparisonRoutes(
         recursive: body.data.recursive,
         search: body.data.search,
         tags: body.data.tags,
+        tagMatch: body.data.tagMatch,
+        tagStatus: body.data.tagStatus,
         scoreFilter: body.data.score,
         pairAssetIds: body.data.pairAssetIds,
         previousDecision: body.data.previousDecision
@@ -154,6 +160,8 @@ export function registerComparisonRoutes(
           recursive: pairContext.recursive,
           search: pairContext.search,
           tags: pairContext.tags,
+          tagMatch: pairContext.tagMatch,
+          tagStatus: pairContext.tagStatus,
           scoreFilter: pairContext.score,
           preferredPairAssetIds: nextPairAssetIds,
           excludeAssetIds: [decision.leftAssetId, decision.rightAssetId]

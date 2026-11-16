@@ -47,7 +47,8 @@ function compareIds(left: string, right: string): number {
 export function leaderboardUpdateRequiresReload(
   currentAsset: AssetRecord | undefined,
   updatedAsset: AssetRecord,
-  scoreFilter: ScoreFilter
+  scoreFilter: ScoreFilter,
+  hasTagFilter = false
 ): boolean {
   if (!currentAsset || !matchesScoreFilter(updatedAsset, scoreFilter)) {
     return true;
@@ -58,6 +59,9 @@ export function leaderboardUpdateRequiresReload(
     currentAsset.favorite !== updatedAsset.favorite ||
     currentAsset.mtimeMs !== updatedAsset.mtimeMs ||
     currentAsset.name !== updatedAsset.name ||
+    (hasTagFilter &&
+      JSON.stringify(currentAsset.tags.map((tag) => tag.id).sort()) !==
+        JSON.stringify(updatedAsset.tags.map((tag) => tag.id).sort())) ||
     rankingProjectionChanged(currentAsset.ranking, updatedAsset.ranking)
   );
 }

@@ -88,6 +88,7 @@ local checks still apply before pushing; see [Development](docs/development.md).
 The browser suite owns and recreates `.e2e`, uses one worker, and starts its own
 servers on ports 3130 and 4173 by default. Do not run competing browser suites
 against the shared fixture directory or reuse a live server/data directory.
+Run Docker checks separately from the browser suite.
 
 ## Implementation Rules
 

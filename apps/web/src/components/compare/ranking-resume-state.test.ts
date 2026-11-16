@@ -18,6 +18,48 @@ describe("ranking resume checkpoint", () => {
   beforeEach(() => vi.resetModules());
   afterEach(() => vi.unstubAllGlobals());
 
+  it("preserves legacy default-filter identities and isolates matching and tag-status changes", async () => {
+    const {
+      rankingContextKey,
+      readRankingResumeState,
+      writeRankingResumeState,
+      rankingResumeGeneration
+    } = await import("./ranking-resume-state");
+    const query = {
+      folderId: "folder",
+      mediaType: "all" as const,
+      scoreFilter: "all" as const,
+      search: "",
+      tagFilters: ["travel"]
+    };
+    const legacy = JSON.stringify([
+      query.folderId,
+      query.mediaType,
+      query.scoreFilter,
+      query.search,
+      query.tagFilters
+    ]);
+    expect(rankingContextKey(query)).toBe(legacy);
+    expect(
+      rankingContextKey({ ...query, tagMatch: "all", tagStatus: "all" })
+    ).toBe(legacy);
+    writeRankingResumeState(
+      { ...checkpoint, contextKey: legacy },
+      rankingResumeGeneration()
+    );
+    expect(
+      readRankingResumeState(rankingContextKey(query))?.pairAssetIds
+    ).toEqual(checkpoint.pairAssetIds);
+    expect(
+      readRankingResumeState(rankingContextKey({ ...query, tagMatch: "any" }))
+    ).toBeNull();
+    expect(
+      readRankingResumeState(
+        rankingContextKey({ ...query, tagStatus: "untagged" })
+      )
+    ).toBeNull();
+  });
+
   it("restores ordered IDs and Undo only in the matching filter context", async () => {
     const stored = JSON.stringify({ version: 1, ...checkpoint });
     vi.stubGlobal("window", { localStorage: { getItem: () => stored } });

@@ -17,8 +17,12 @@ export interface MediaImagePreload {
   release: () => void;
 }
 
-export function isMediaImageReady(source: string): boolean {
-  return readyImageSources.has(source);
+export function isMediaImageReady(
+  source: string,
+  decodedSource?: string | null
+): boolean {
+  // A mounted decoded layer remains ready when speculative cache hints expire.
+  return decodedSource === source || readyImageSources.has(source);
 }
 
 export function clearMediaImageCache(): void {

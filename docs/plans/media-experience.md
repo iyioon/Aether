@@ -46,19 +46,22 @@ HEIC uses the shared media surfaces and preserves the original download.
   without bulk migration or asset writes on open. Each
   Original/Square/Portrait/Landscape frame is independent;
   one Save writes all drafts. Cards use the preset for the selected aspect; the
-  expanded viewer initially uses original proportions. Its View options can apply
+  expanded viewer defaults to original proportions unless Settings chooses saved
+  framing or a remembered choice. Its View options can apply
   the invoking Gallery/Ranking aspect or Feed Portrait and the corresponding
-  saved position/zoom. This browser-local appearance preference retains both on
-  and off through previous/next, close/reopen, reload and logout. It stores only
-  a boolean; changing it preserves media and playback without editing saved frames.
+  saved position/zoom. With Remember last, this browser-local appearance choice
+  retains both on and off through previous/next, close/reopen, reload and logout.
+  The remembered choice stores only a boolean; changing it preserves media and
+  playback without editing saved frames.
 - Feed keeps one portrait layout, centered on desktop and filling compact
   viewports. Its transport and details stay attached to the frame; the editor
   opens on Portrait and uses that saved preset. View options keeps card info
   without an aspect selector. Normalize older Feed layouts without losing the
   current item or navigation state.
-- Play highlights only is a remembered View options preference, shared with the
-  viewer menu. It is disabled for items without a saved section. The viewer menu
-  also provides Use saved framing, initially off until a preference is saved;
+- Play highlights only is a View options preference, shared with the viewer menu
+  and initialized from Settings → Playback or the resumed session/link. It is
+  disabled for items without a saved section. The viewer menu also provides Use
+  saved framing, initialized on opening from the Full view framing default;
   native iPhone video
   fullscreen retains original proportions and system controls. With highlights off,
   items with highlights play their full source in Repeat; saved speed/framing

@@ -3,7 +3,7 @@ import {
   ASSET_SOURCE_SELECT_COLUMNS,
   ASSET_SELECT_COLUMNS,
   buildAssetFilterQuery,
-  FINAL_SCORE_SQL,
+  buildAssetOrderClause,
   type AssetFilterOptions
 } from "./asset-query.js";
 import { stableId } from "./ids.js";
@@ -79,6 +79,8 @@ export type {
   AssetRankingRecord,
   AssetRecord,
   AssetSourceRecord,
+  AssetSortField,
+  AssetSortCriterion,
   BatchScoreUpdateInput,
   BatchScoreUpdateResult,
   BatchTagUpdateInput,
@@ -438,10 +440,7 @@ function listAssetsSnapshot(
       LEFT JOIN asset_annotations aa ON aa.asset_id = a.id
       LEFT JOIN asset_rankings ar ON ar.asset_id = a.id
       WHERE ${whereClause}
-      ORDER BY ${orderClauseFor(
-        options.sort,
-        options.sortDirection ?? defaultSortDirectionFor(options.sort)
-      )}
+      ORDER BY ${buildAssetOrderClause(options)}
       LIMIT @limit OFFSET @offset`
     )
     .all(parameters) as AssetRow[];
@@ -605,18 +604,27 @@ export function updateAssetScoresBatch(
   input: BatchScoreUpdateInput
 ): BatchScoreUpdateResult | null {
   const assetIds = uniqueAssetIds(input.assetIds);
-
-  if (!allAssetsExist(db, assetIds)) {
-    return null;
-  }
+  if (assetIds.length === 0) return { assets: [], updated: 0 };
 
   const transaction = db.transaction(() => {
-    const getAnnotation = db.prepare(
-      "SELECT manual_score, favorite FROM asset_annotations WHERE asset_id = ?"
-    );
-    const getRanking = db.prepare(
-      "SELECT comparison_score FROM asset_rankings WHERE asset_id = ?"
-    );
+    const placeholders = assetIds.map(() => "?").join(", ");
+    const rows = db
+      .prepare(
+        `SELECT a.id, COALESCE(aa.manual_score, 0) AS manual_score,
+          COALESCE(aa.favorite, 0) AS favorite, ar.comparison_score
+         FROM assets a
+         LEFT JOIN asset_annotations aa ON aa.asset_id = a.id
+         LEFT JOIN asset_rankings ar ON ar.asset_id = a.id
+         WHERE a.id IN (${placeholders}) AND a.lifecycle = 'active'`
+      )
+      .all(...assetIds) as Array<{
+      id: string;
+      manual_score: number;
+      favorite: number;
+      comparison_score: number | null;
+    }>;
+    if (rows.length !== assetIds.length) return null;
+    const currentById = new Map(rows.map((row) => [row.id, row]));
     const upsertAnnotation = db.prepare(
       `INSERT INTO asset_annotations (asset_id, manual_score, favorite, updated_at)
        VALUES (@assetId, @score, @favorite, @updatedAt)
@@ -630,20 +638,14 @@ export function updateAssetScoresBatch(
        SET manual_adjustment = @manualAdjustment, updated_at = @updatedAt
        WHERE asset_id = @assetId`
     );
+    const updateAbsoluteScore = db.prepare(
+      "UPDATE asset_manual_adjustments SET absolute_score = ? WHERE asset_id = ?"
+    );
 
     for (const assetId of assetIds) {
-      const current =
-        input.score === undefined || input.favorite === undefined
-          ? (getAnnotation.get(assetId) as
-              { manual_score: number; favorite: number } | undefined)
-          : undefined;
-      const ranking =
-        input.score === undefined
-          ? undefined
-          : (getRanking.get(assetId) as
-              { comparison_score: number } | undefined);
-      const score = input.score ?? current?.manual_score ?? 0;
-      const favorite = input.favorite ?? current?.favorite === 1;
+      const current = currentById.get(assetId)!;
+      const score = input.score ?? current.manual_score;
+      const favorite = input.favorite ?? current.favorite === 1;
 
       upsertAnnotation.run({
         assetId,
@@ -652,26 +654,24 @@ export function updateAssetScoresBatch(
         updatedAt: input.updatedAt
       });
 
-      if (ranking && input.score !== undefined) {
+      if (current.comparison_score !== null && input.score !== undefined) {
         updateRanking.run({
           assetId,
-          manualAdjustment: input.score - ranking.comparison_score,
+          manualAdjustment: input.score - current.comparison_score,
           updatedAt: input.updatedAt
         });
       } else if (input.score !== undefined) {
-        db.prepare(
-          "UPDATE asset_manual_adjustments SET absolute_score = ? WHERE asset_id = ?"
-        ).run(input.score, assetId);
+        updateAbsoluteScore.run(input.score, assetId);
       }
     }
+
+    return {
+      assets: getAssetsByIds(db, assetIds),
+      updated: assetIds.length
+    };
   });
 
-  transaction();
-
-  return {
-    assets: getAssetsByIds(db, assetIds),
-    updated: assetIds.length
-  };
+  return transaction();
 }
 
 export function getAssetDetails(
@@ -753,30 +753,6 @@ export function getAssetsByIds(
   });
 }
 
-function defaultSortDirectionFor(
-  sort: AssetListOptions["sort"]
-): "desc" | "asc" {
-  return sort === "filename" ? "asc" : "desc";
-}
-
-function orderClauseFor(
-  sort: AssetListOptions["sort"],
-  sortDirection: NonNullable<AssetListOptions["sortDirection"]>
-): string {
-  const direction = sortDirection === "asc" ? "ASC" : "DESC";
-  switch (sort) {
-    case "filename":
-      return `a.name COLLATE NOCASE ${direction}, a.mtime_ms DESC, a.id ASC`;
-    case "score":
-      return `${FINAL_SCORE_SQL} = 0 ASC, ${FINAL_SCORE_SQL} ${direction}, COALESCE(aa.favorite, 0) DESC, a.mtime_ms DESC, a.id ASC`;
-    case "random":
-      return "aether_seeded_rank(a.id, @randomSeed) ASC, a.id ASC";
-    case "date":
-    default:
-      return `a.mtime_ms ${direction}, a.name COLLATE NOCASE ASC, a.id ASC`;
-  }
-}
-
 function attachTagsToAsset(
   db: AetherDatabase,
   asset: AssetRecord
@@ -811,23 +787,6 @@ function attachTagsToAssets(
 
 function uniqueAssetIds(assetIds: string[]): string[] {
   return [...new Set(assetIds)];
-}
-
-function allAssetsExist(db: AetherDatabase, assetIds: string[]): boolean {
-  if (assetIds.length === 0) {
-    return true;
-  }
-
-  const placeholders = assetIds.map(() => "?").join(", ");
-  const row = db
-    .prepare(
-      `SELECT COUNT(*) AS asset_count
-       FROM assets
-       WHERE id IN (${placeholders}) AND lifecycle = 'active'`
-    )
-    .get(...assetIds) as { asset_count: number };
-
-  return row.asset_count === assetIds.length;
 }
 
 function assetExists(db: AetherDatabase, assetId: string): boolean {

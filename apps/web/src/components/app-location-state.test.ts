@@ -15,7 +15,8 @@ const stored: AppLocationState = {
     ...defaultLibraryState,
     folderId: "folder-1",
     view: "compare",
-    search: "saved"
+    search: "saved",
+    highlightsOnly: false
   },
   navigation: {
     page: "settings",
@@ -63,6 +64,53 @@ describe("application resume and explicit locations", () => {
     expect(resolveAppLocation("?view=not-a-view", stored).library).toEqual(
       defaultLibraryState
     );
+  });
+  it("retains inactive sort rules when reloading Random without restoring saved filters", () => {
+    const criteria = [
+      { field: "tags" as const, direction: "asc" as const },
+      { field: "score" as const, direction: "desc" as const }
+    ];
+    const checkpoint: AppLocationState = {
+      ...stored,
+      library: {
+        ...stored.library,
+        sort: "random",
+        sortCriteria: criteria,
+        tags: ["saved tag"]
+      }
+    };
+    const values = new Map<string, string>();
+    vi.stubGlobal("window", {
+      location: {
+        search: "?view=feed&sort=random&type=video&q=current&highlight=0"
+      },
+      localStorage: {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => values.set(key, value)
+      }
+    });
+    saveAppLocation(checkpoint);
+
+    expect(readInitialAppLocation().library).toEqual({
+      ...defaultLibraryState,
+      view: "feed",
+      aspect: "Portrait",
+      sort: "random",
+      sortCriteria: criteria,
+      mediaType: "video",
+      search: "current",
+      highlightsOnly: false
+    });
+    expect(
+      resolveAppLocation("?sortBy=filename:desc&sortBy=size:asc", checkpoint)
+        .library.sortCriteria
+    ).toEqual([
+      { field: "filename", direction: "desc" },
+      { field: "size", direction: "asc" }
+    ]);
+    expect(
+      resolveAppLocation("?sort=filename", checkpoint).library.sortCriteria
+    ).toBeUndefined();
   });
   it("resumes older Home Screen URLs and honors explicit view links", () => {
     const location = { search: "?folder=old&size=huge&sort=score" };
@@ -173,9 +221,15 @@ describe("application resume and explicit locations", () => {
     expect(readStoredAppLocation().navigation.comparisonWorkspace).toBe(
       "ranking"
     );
-    expect(readInitialAppLocation().library).toEqual(legacyLibrary);
+    expect(readInitialAppLocation().library).toEqual({
+      ...legacyLibrary,
+      highlightsOnly: false
+    });
     location.search = "?utm_source=homescreen";
-    expect(readInitialAppLocation().library).toEqual(legacyLibrary);
+    expect(readInitialAppLocation().library).toEqual({
+      ...legacyLibrary,
+      highlightsOnly: false
+    });
     saveAppLocation(stored);
     expect(readStoredAppLocation()).toEqual(stored);
     values.set("aether.resume.v1", "x".repeat(16385));

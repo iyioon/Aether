@@ -61,10 +61,16 @@ async function folderAction(page: Page, name: "Rename…" | "Move to…") {
     name: "Selected folder actions",
     exact: true
   });
-  if (!(await actions.isVisible()))
-    await page
-      .getByRole("button", { name: "Toggle Sidebar", exact: true })
-      .click();
+  const trigger = page.getByRole("button", {
+    name: "Toggle Sidebar",
+    exact: true
+  });
+  const triggerState = page.locator('[data-sidebar="trigger"]');
+  await expect(triggerState).toHaveAttribute("aria-expanded", /^(true|false)$/);
+  if ((await triggerState.getAttribute("aria-expanded")) === "false")
+    await trigger.click();
+  await expect(triggerState).toHaveAttribute("aria-expanded", "true");
+  await expect(actions).toBeInViewport();
   await actions.click();
   await page.getByRole("menuitem", { name, exact: true }).click();
 }

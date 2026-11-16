@@ -71,6 +71,8 @@ import { ImageDerivativeError } from "./image-cache.js";
 import type { FileOperationManager } from "./file-operations.js";
 import { getLibraryRevision } from "./repository-management.js";
 import { registerFileOperationRoutes } from "./routes-file-operations.js";
+import { defaultAssetSortDirection } from "./asset-query.js";
+import type { AssetListOptions, AssetSortField } from "./repository-types.js";
 
 export async function registerLibraryRoutes(
   app: FastifyInstance,
@@ -138,7 +140,10 @@ export async function registerLibraryRoutes(
       return reply.code(400).send({ error: "invalid_request" });
     }
 
-    const sort = normalizeAssetSort(query.data.sort, query.data.order);
+    const criteria = query.data.sortBy;
+    const sort = criteria
+      ? { mode: criteria[0]!.field, direction: criteria[0]!.direction }
+      : normalizeAssetSort(query.data.sort, query.data.order);
     const result = listAssets(db, {
       folderId: params.data.folderId,
       offset: query.data.offset,
@@ -146,10 +151,13 @@ export async function registerLibraryRoutes(
       randomSeed: query.data.seed,
       sort: sort.mode,
       sortDirection: sort.direction,
+      sortCriteria: criteria,
       type: query.data.type,
       recursive: query.data.recursive,
       search: query.data.search,
       tags: query.data.tag,
+      tagMatch: query.data.tagMatch,
+      tagStatus: query.data.tagStatus,
       scoreFilter: query.data.score
     });
 
@@ -169,10 +177,17 @@ export async function registerLibraryRoutes(
       seed: query.data.seed,
       sort: sort.mode,
       order: sort.direction,
+      sortCriteria:
+        criteria ??
+        (sort.mode === "random"
+          ? []
+          : [{ field: sort.mode, direction: sort.direction }]),
       type: query.data.type,
       recursive: query.data.recursive,
       search: query.data.search,
       tags: query.data.tag,
+      tagMatch: query.data.tagMatch,
+      tagStatus: query.data.tagStatus,
       score: query.data.score
     };
   });
@@ -564,10 +579,10 @@ export async function registerLibraryRoutes(
 }
 
 function normalizeAssetSort(
-  mode: "date" | "filename" | "score" | "random" | "newest" | "oldest",
+  mode: AssetSortField | "random" | "newest" | "oldest",
   direction: "desc" | "asc" | undefined
 ): {
-  mode: "date" | "filename" | "score" | "random";
+  mode: AssetListOptions["sort"];
   direction: "desc" | "asc";
 } {
   if (mode === "newest") {
@@ -579,12 +594,6 @@ function normalizeAssetSort(
   }
 
   return { mode, direction: direction ?? defaultAssetSortDirection(mode) };
-}
-
-function defaultAssetSortDirection(
-  mode: "date" | "filename" | "score" | "random"
-): "desc" | "asc" {
-  return mode === "filename" ? "asc" : "desc";
 }
 
 async function streamAssetFile(

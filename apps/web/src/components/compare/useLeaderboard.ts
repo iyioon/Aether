@@ -4,9 +4,12 @@ import {
   getAssets,
   type AssetRecord,
   type MediaTypeFilter,
-  type ScoreFilter
+  type ScoreFilter,
+  type TagMatch,
+  type TagStatus
 } from "../../api/client";
 import { leaderboardUpdateRequiresReload } from "./leaderboard-model";
+import { readAssetAppend, readAssetWindow } from "../assets/asset-window";
 import { readSessionScrollPosition } from "../scroll-restoration";
 import {
   LEADERBOARD_PAGE_LIMIT,
@@ -22,6 +25,8 @@ interface UseLeaderboardOptions {
   scoreFilter: ScoreFilter;
   search: string;
   tagFilters: string[];
+  tagMatch?: TagMatch;
+  tagStatus?: TagStatus;
 }
 
 export function useLeaderboard({
@@ -31,7 +36,9 @@ export function useLeaderboard({
   refreshRevision,
   scoreFilter,
   search,
-  tagFilters
+  tagFilters,
+  tagMatch = "all",
+  tagStatus = "all"
 }: UseLeaderboardOptions) {
   const [assets, setAssets] = useState<AssetRecord[]>([]);
   const [total, setTotal] = useState(0);
@@ -44,6 +51,8 @@ export function useLeaderboard({
   assetsRef.current = assets;
   const loadMoreInFlightRef = useRef(false);
   const loadMoreAbortRef = useRef<AbortController | null>(null);
+  const revisionRef = useRef<string | undefined>(undefined);
+  const loadedContextRef = useRef<string | null>(null);
   const scrollContextKey = useMemo(
     () =>
       leaderboardScrollContextKey({
@@ -51,9 +60,11 @@ export function useLeaderboard({
         mediaType,
         scoreFilter,
         search,
-        tagFilters
+        tagFilters,
+        tagMatch,
+        tagStatus
       }),
-    [folderId, mediaType, scoreFilter, search, tagFilters]
+    [folderId, mediaType, scoreFilter, search, tagFilters, tagMatch, tagStatus]
   );
   const queryKey = useMemo(
     () => JSON.stringify([scrollContextKey, refreshRevision, reloadRevision]),
@@ -61,6 +72,31 @@ export function useLeaderboard({
   );
   const queryKeyRef = useRef(queryKey);
   queryKeyRef.current = queryKey;
+  const getPage = useCallback(
+    (
+      offset: number,
+      limit: number,
+      signal: AbortSignal,
+      expectedRevision?: string
+    ) =>
+      getAssets({
+        folderId: folderId!,
+        offset,
+        limit,
+        sort: "score",
+        order: "desc",
+        type: mediaType,
+        recursive: true,
+        search,
+        tags: tagFilters,
+        tagMatch,
+        tagStatus,
+        score: scoreFilter,
+        expectedRevision,
+        signal
+      }),
+    [folderId, mediaType, search, tagFilters, tagMatch, tagStatus, scoreFilter]
+  );
 
   useEffect(() => {
     loadMoreAbortRef.current?.abort();
@@ -74,6 +110,8 @@ export function useLeaderboard({
       setIsLoading(false);
       setIsLoadingMore(false);
       setLoadedQueryKey(null);
+      revisionRef.current = undefined;
+      loadedContextRef.current = null;
       return;
     }
 
@@ -86,51 +124,30 @@ export function useLeaderboard({
     setIsLoadingMore(false);
     setLoadedQueryKey(null);
 
-    const restoreCount = leaderboardRestoreCount(
-      readSessionScrollPosition("leaderboard"),
-      scrollContextKey
+    const restoreCount = Math.max(
+      leaderboardRestoreCount(
+        readSessionScrollPosition("leaderboard"),
+        scrollContextKey
+      ),
+      loadedContextRef.current === scrollContextKey
+        ? assetsRef.current.length
+        : 0
     );
-    const loadRestoredEntries = async () => {
-      const items: AssetRecord[] = [];
-      let pageTotal = 0;
-      do {
-        const response = await getAssets({
-          folderId,
-          offset: items.length,
-          limit: Math.min(250, restoreCount - items.length),
-          sort: "score",
-          order: "desc",
-          type: mediaType,
-          recursive: true,
-          search,
-          tags: tagFilters,
-          score: scoreFilter,
-          signal: controller.signal
-        });
-        if (
-          controller.signal.aborted ||
-          queryKeyRef.current !== requestQueryKey
-        ) {
-          return null;
-        }
-        items.push(...response.items);
-        pageTotal = response.page.total;
-        if (response.items.length === 0) {
-          break;
-        }
-      } while (items.length < restoreCount && items.length < pageTotal);
-      return { items, total: pageTotal };
-    };
-
-    loadRestoredEntries()
+    readAssetWindow(
+      restoreCount,
+      (offset, limit, revision) =>
+        getPage(offset, limit, controller.signal, revision),
+      controller.signal
+    )
       .then((response) => {
         if (
-          response &&
           !controller.signal.aborted &&
           queryKeyRef.current === requestQueryKey
         ) {
           setAssets(response.items);
-          setTotal(response.total);
+          setTotal(response.page.total);
+          revisionRef.current = response.page.revision;
+          loadedContextRef.current = scrollContextKey;
           setLoadedQueryKey(requestQueryKey);
         }
       })
@@ -161,15 +178,7 @@ export function useLeaderboard({
       loadMoreAbortRef.current = null;
       loadMoreInFlightRef.current = false;
     };
-  }, [
-    folderId,
-    mediaType,
-    queryKey,
-    scoreFilter,
-    scrollContextKey,
-    search,
-    tagFilters
-  ]);
+  }, [folderId, getPage, queryKey, scrollContextKey]);
 
   useEffect(() => {
     if (!assetUpdate) {
@@ -180,7 +189,12 @@ export function useLeaderboard({
       (asset) => asset.id === assetUpdate.id
     );
     if (
-      leaderboardUpdateRequiresReload(currentAsset, assetUpdate, scoreFilter)
+      leaderboardUpdateRequiresReload(
+        currentAsset,
+        assetUpdate,
+        scoreFilter,
+        tagFilters.length > 0 || tagStatus !== "all"
+      )
     ) {
       setReloadRevision((current) => current + 1);
       return;
@@ -191,7 +205,7 @@ export function useLeaderboard({
         asset.id === assetUpdate.id ? assetUpdate : asset
       );
     });
-  }, [assetUpdate, scoreFilter]);
+  }, [assetUpdate, scoreFilter, tagFilters.length, tagStatus]);
 
   const loadMore = useCallback(async () => {
     if (!folderId || assets.length >= total || loadMoreInFlightRef.current) {
@@ -206,18 +220,13 @@ export function useLeaderboard({
     setError(null);
 
     try {
-      const response = await getAssets({
-        folderId,
-        offset: assets.length,
-        limit: LEADERBOARD_PAGE_LIMIT,
-        sort: "score",
-        order: "desc",
-        type: mediaType,
-        recursive: true,
-        search,
-        tags: tagFilters,
-        score: scoreFilter,
-        signal: controller.signal
+      const result = await readAssetAppend({
+        assets: assetsRef.current,
+        revision: revisionRef.current,
+        getPage: (offset, limit, revision) =>
+          getPage(offset, limit, controller.signal, revision),
+        signal: controller.signal,
+        limit: LEADERBOARD_PAGE_LIMIT
       });
 
       if (
@@ -226,14 +235,16 @@ export function useLeaderboard({
       ) {
         return;
       }
-
-      setAssets((currentAssets) => {
-        const existingIds = new Set(currentAssets.map((asset) => asset.id));
-        return [
-          ...currentAssets,
-          ...response.items.filter((asset) => !existingIds.has(asset.id))
-        ];
-      });
+      if (!result) {
+        setReloadRevision((current) => current + 1);
+        return;
+      }
+      const { response, refreshed } = result;
+      revisionRef.current = response.page.revision;
+      setAssets((currentAssets) => [
+        ...(refreshed?.items ?? currentAssets),
+        ...response.items
+      ]);
       setTotal(response.page.total);
     } catch (caught) {
       if (
@@ -253,16 +264,7 @@ export function useLeaderboard({
         setIsLoadingMore(false);
       }
     }
-  }, [
-    assets.length,
-    folderId,
-    mediaType,
-    queryKey,
-    scoreFilter,
-    search,
-    tagFilters,
-    total
-  ]);
+  }, [assets.length, folderId, getPage, queryKey, total]);
 
   return {
     assets,

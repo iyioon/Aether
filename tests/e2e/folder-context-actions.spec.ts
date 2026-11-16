@@ -31,11 +31,17 @@ async function scan(page: Page) {
 
 async function revealFolders(page: Page) {
   const tree = page.getByRole("tree", { name: "Media folders", exact: true });
-  if (!(await tree.isVisible()))
-    await page
-      .getByRole("button", { name: "Toggle Sidebar", exact: true })
-      .click();
-  await expect(tree).toBeVisible();
+  const trigger = page.getByRole("button", {
+    name: "Toggle Sidebar",
+    exact: true
+  });
+  // State remains inspectable while the mobile modal hides its background.
+  const triggerState = page.locator('[data-sidebar="trigger"]');
+  await expect(triggerState).toHaveAttribute("aria-expanded", /^(true|false)$/);
+  if ((await triggerState.getAttribute("aria-expanded")) === "false")
+    await trigger.click();
+  await expect(triggerState).toHaveAttribute("aria-expanded", "true");
+  await expect(tree).toBeInViewport();
   return tree;
 }
 

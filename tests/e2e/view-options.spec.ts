@@ -1,6 +1,8 @@
 import { chooseAccountAction } from "./account-menu";
 import { expect, test, type Page } from "@playwright/test";
 
+const productionBaseURL = `http://127.0.0.1:${process.env.AETHER_E2E_API_PORT ?? 3130}`;
+
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
   await page
@@ -10,6 +12,56 @@ test.beforeEach(async ({ page }) => {
   await page.getByRole("button", { name: "Scan library" }).click();
   await expect(page.getByText("Scan complete")).toBeVisible();
 });
+
+for (const phone of [false, true]) {
+  test(`keeps keyboard focus in View options after clearing filters (${phone ? "phone" : "desktop"})`, async ({
+    browser,
+    page
+  }) => {
+    const context = await browser.newContext({
+      storageState: await page.context().storageState(),
+      viewport: phone
+        ? { width: 320, height: 640 }
+        : { width: 1440, height: 980 },
+      isMobile: phone,
+      hasTouch: phone
+    });
+    try {
+      const library = await context.newPage();
+      await library.goto(
+        `${productionBaseURL}/?view=gallery&type=image&tag=Travel`
+      );
+      await expect(
+        library.getByRole("region", { name: "Gallery view", exact: true })
+      ).toBeVisible();
+      await library.getByRole("button", { name: /^View options/ }).click();
+      const panel = library.getByRole("dialog", {
+        name: "View options",
+        exact: true
+      });
+      await expect(
+        panel.getByRole("radio", { name: "Images", exact: true })
+      ).toBeChecked();
+      await panel
+        .getByRole("button", { name: "Clear filters", exact: true })
+        .focus();
+      await library.keyboard.press("Enter");
+      await expect(
+        panel.getByRole("button", { name: "Clear filters", exact: true })
+      ).toHaveCount(0);
+      const allMedia = panel.getByRole("radio", { name: "All", exact: true });
+      await expect(allMedia).toBeChecked();
+      await expect(allMedia).toBeFocused();
+      await library.keyboard.press("Tab");
+      await expect(
+        panel.getByRole("radio", { name: "All scores", exact: true })
+      ).toBeFocused();
+      await expectQuery(library, { type: null, tag: null });
+    } finally {
+      await context.close();
+    }
+  });
+}
 
 test("applies and restores sort, filters, and gallery layout from one panel", async ({
   page
@@ -27,15 +79,34 @@ test("applies and restores sort, filters, and gallery layout from one panel", as
   await expect(
     panel.getByRole("tab", { name: "Sort", exact: true })
   ).toBeFocused();
-  await panel.getByRole("radio", { name: "Filename", exact: true }).check();
-  await expect(panel.getByRole("radio", { name: "Ascending" })).toBeChecked();
-  await panel.getByRole("radio", { name: "Descending" }).check();
-  await expectQuery(page, { sort: "filename", order: "desc" });
-  await panel.getByRole("radio", { name: "Random", exact: true }).check();
+  await panel.getByRole("combobox", { name: "Sort field 1" }).click();
+  await page.getByRole("option", { name: "Filename", exact: true }).click();
   await expect(
-    panel.getByRole("radiogroup", { name: "Sort direction" })
+    panel.getByRole("combobox", { name: "Sort direction 1" })
+  ).toHaveText("A to Z");
+  await panel.getByRole("combobox", { name: "Sort direction 1" }).click();
+  await page.getByRole("option", { name: "Z to A", exact: true }).click();
+  await expectQuery(page, {
+    sort: "filename",
+    order: "desc",
+    sortBy: "filename:desc"
+  });
+  await panel.getByRole("checkbox", { name: "Random order" }).check();
+  await expect(
+    panel.getByRole("combobox", { name: "Sort direction 1" })
   ).toHaveCount(0);
-  await panel.getByRole("radio", { name: "Filename", exact: true }).check();
+  await panel.getByRole("button", { name: "Close view options" }).click();
+  await trigger.click();
+  await panel.getByRole("tab", { name: "Sort", exact: true }).click();
+  await panel.getByRole("checkbox", { name: "Random order" }).uncheck();
+  await expect(
+    panel.getByRole("combobox", { name: "Sort field 1" })
+  ).toHaveText("Filename");
+  await expect(
+    panel.getByRole("combobox", { name: "Sort direction 1" })
+  ).toHaveText("Z to A");
+  await panel.getByRole("combobox", { name: "Sort direction 1" }).click();
+  await page.getByRole("option", { name: "A to Z", exact: true }).click();
 
   await panel.getByRole("tab", { name: "Layout", exact: true }).click();
   await panel.getByRole("combobox", { name: "Grid size" }).click();
@@ -95,6 +166,7 @@ test("applies and restores sort, filters, and gallery layout from one panel", as
     q: "family",
     sort: "filename",
     order: null,
+    sortBy: "filename:asc",
     size: "large",
     aspect: "landscape"
   });
@@ -240,8 +312,13 @@ test("restores gallery content when a pending sort returns to the previous query
   const gallery = page.getByRole("region", { name: "Gallery view" });
   await trigger.click();
   await panel.getByRole("tab", { name: "Sort", exact: true }).click();
-  await panel.getByRole("radio", { name: "Filename", exact: true }).check();
-  await expectQuery(page, { sort: "filename", order: null });
+  await panel.getByRole("combobox", { name: "Sort field 1" }).click();
+  await page.getByRole("option", { name: "Filename", exact: true }).click();
+  await expectQuery(page, {
+    sort: "filename",
+    order: null,
+    sortBy: "filename:asc"
+  });
   await expect(gallery).toHaveAttribute("aria-busy", "false");
   let heldDescending = false;
   let releaseDescending!: () => void;
@@ -250,26 +327,27 @@ test("restores gallery content when a pending sort returns to the previous query
   });
   await page.route("**/api/folders/*/assets?*", async (route) => {
     const params = new URL(route.request().url()).searchParams;
-    if (params.get("sort") === "filename" && params.get("order") === "desc") {
+    if (params.get("sortBy") === "filename:desc") {
       heldDescending = true;
       await descendingDelay;
     }
     await route.continue().catch(() => undefined);
   });
   try {
-    await panel.getByRole("radio", { name: "Descending", exact: true }).check();
+    await panel.getByRole("combobox", { name: "Sort direction 1" }).click();
+    await page.getByRole("option", { name: "Z to A", exact: true }).click();
     await expect.poll(() => heldDescending).toBe(true);
     await expect(gallery).toHaveAttribute("aria-busy", "true");
     const ascendingResponse = page.waitForResponse((response) => {
       const url = new URL(response.url());
       return (
         url.pathname.endsWith("/assets") &&
-        url.searchParams.get("sort") === "filename" &&
-        url.searchParams.get("order") === "asc" &&
+        url.searchParams.get("sortBy") === "filename:asc" &&
         response.ok()
       );
     });
-    await panel.getByRole("radio", { name: "Ascending", exact: true }).check();
+    await panel.getByRole("combobox", { name: "Sort direction 1" }).click();
+    await page.getByRole("option", { name: "A to Z", exact: true }).click();
     await ascendingResponse;
     await expect(gallery).toHaveAttribute("aria-busy", "false");
     await expect(page.locator(".virtual-gallery")).not.toHaveClass(
@@ -311,6 +389,11 @@ test("keeps the phone sheet reachable with long filters, rotation, and a short v
     });
     await expect(panel).toHaveClass(/view-options-sheet/);
     const body = panel.locator(".view-options-body");
+    const playbackFooter = panel.locator(".view-options-playback");
+    const playbackToggle = playbackFooter.getByRole("checkbox", {
+      name: "Play highlights only",
+      exact: true
+    });
     await expect(
       panel.getByRole("textbox", { name: "Tags", exact: true })
     ).toBeDisabled();
@@ -361,6 +444,8 @@ test("keeps the phone sheet reachable with long filters, rotation, and a short v
       await expect(
         panel.getByRole("button", { name: "Close view options" })
       ).toBeInViewport({ ratio: 1 });
+      await expect(playbackFooter).toBeInViewport({ ratio: 1 });
+      await expect(playbackToggle).toBeInViewport({ ratio: 1 });
       await expect
         .poll(() =>
           panel.evaluate((node) => node.scrollWidth <= node.clientWidth)
@@ -374,6 +459,10 @@ test("keeps the phone sheet reachable with long filters, rotation, and a short v
       );
       const bodyBounds = (await body.boundingBox())!;
       expect(bodyBounds.y + bodyBounds.height).toBeLessThanOrEqual(
+        viewport.height - insets.bottom
+      );
+      const playbackBounds = (await playbackFooter.boundingBox())!;
+      expect(playbackBounds.y + playbackBounds.height).toBeLessThanOrEqual(
         viewport.height - insets.bottom
       );
       await body.evaluate((node) => node.scrollTo(0, node.scrollHeight));

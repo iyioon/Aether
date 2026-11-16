@@ -122,7 +122,7 @@ test("supports login, scan, batch annotation, fullscreen, and feed", async ({
   await expect(details.getByRole("button", { name: /Family/ })).toBeVisible();
   await details.getByRole("button", { name: /Family/ }).click();
   await expect(details).toContainText("Family");
-  await details.getByRole("button", { name: "Close" }).click();
+  await details.getByRole("button", { name: "Close", exact: true }).click();
   await expect(details).toHaveCount(0);
   await page.keyboard.press("Escape");
   await expect(viewer).toHaveCount(0);
@@ -180,9 +180,17 @@ test("collapses the desktop sidebar without breaking the mobile drawer", async (
   const desktopSidebar = page.locator('[data-slot="sidebar"]');
   const sidebarGap = page.locator('[data-slot="sidebar-gap"]');
   const sidebarPanel = page.locator("#library-sidebar");
+  await expect(sidebarToggle).toHaveAttribute(
+    "aria-controls",
+    "library-sidebar"
+  );
+  await expect(sidebarToggle).toHaveAttribute("aria-expanded", "true");
   await sidebarToggle.click();
 
   await expect(desktopSidebar).toHaveAttribute("data-state", "collapsed");
+  await expect(sidebarToggle).toHaveAttribute("aria-expanded", "false");
+  await expect(sidebarPanel).toHaveAttribute("aria-hidden", "true");
+  await expect(sidebarPanel).toHaveAttribute("inert", "");
   // The collapsed wrapper has zero width once its transition finishes.
   await expect(sidebarGap).toHaveCSS("width", "0px");
   await expect(sidebarPanel).not.toBeInViewport();
@@ -197,10 +205,25 @@ test("collapses the desktop sidebar without breaking the mobile drawer", async (
   expect(breadcrumbBox).not.toBeNull();
   expect(toggleBox!.x).toBeLessThan(breadcrumbBox!.x);
 
+  for (let index = 0; index < 16; index += 1) {
+    await page.keyboard.press("Tab");
+    expect(
+      await sidebarPanel.evaluate((panel) =>
+        panel.contains(document.activeElement)
+      )
+    ).toBe(false);
+  }
+
   await sidebarToggle.click();
   await expect(desktopSidebar).toHaveAttribute("data-state", "expanded");
   await expect(sidebarPanel).toHaveCSS("left", "0px");
   await expect(sidebarPanel).toBeInViewport({ ratio: 1 });
+  await expect(sidebarPanel).not.toHaveAttribute("inert");
+  await page.getByRole("button", { name: "Scan library", exact: true }).focus();
+  await page.keyboard.press("Control+b");
+  await expect(sidebarToggle).toHaveAttribute("aria-expanded", "false");
+  await expect(sidebarToggle).toBeFocused();
+  await sidebarToggle.click();
   await sidebarToggle.click();
   await expect(sidebarGap).toHaveCSS("width", "0px");
 
@@ -209,11 +232,22 @@ test("collapses the desktop sidebar without breaking the mobile drawer", async (
   await sidebarToggle.click();
 
   await expect(page.getByRole("dialog", { name: "Sidebar" })).toBeVisible();
+  // The open modal excludes its background toggle from the accessibility tree.
+  await expect(page.locator('[data-sidebar="trigger"]')).toHaveAttribute(
+    "aria-expanded",
+    "true"
+  );
+  await expect(page.getByRole("dialog", { name: "Sidebar" })).toHaveAttribute(
+    "id",
+    "library-sidebar"
+  );
   await expect(
     page.getByRole("navigation", { name: "Media folders" })
   ).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog", { name: "Sidebar" })).toHaveCount(0);
+  await expect(sidebarToggle).toHaveAttribute("aria-expanded", "false");
+  await expect(sidebarToggle).toBeFocused();
 });
 
 test("recovers from server and session interruptions and restores navigation", async ({

@@ -61,8 +61,11 @@ Never test rebuild or wipe against the only copy of a real library database.
 - Open View options, switch tabs, add and remove tags with the keyboard open,
   and clear filters. Confirm Gallery search and controls fit one row and the
   compact view menu switches views. Confirm the sheet stays above the Home
-  indicator, its header remains reachable while scrolling, and settings survive
-  reopening.
+  indicator, its header and playback footer remain reachable while scrolling,
+  and settings survive reopening. Close and quickly reopen the panel, then use
+  Escape; focus returns to View options. Outside dismissal keeps focus on the
+  selected control. Clear filters with the keyboard; focus returns to **All** under **Media**
+  and Tab continues within the panel.
 - Test both an existing Home Screen icon after closing and reopening the app
   for an update, and a fresh installation. Open Feed on a later item: media
   should fill the viewport iOS exposes, with a readable clock, and retain the
@@ -153,10 +156,14 @@ Never test rebuild or wipe against the only copy of a real library database.
 - Switch aspects before saving. Independent drafts must survive switching,
   one Save and reload. Gallery/Ranking use the matching saved frame; Feed uses
   Portrait. Check still images, videos and animations.
-- Open the viewer from each aspect with no stored preference. Use saved framing
-  starts off; enabling it applies the invoking frame without changing time or
-  pause. Verify both on and off persist through previous/next, close/reopen,
-  reload and sign-out/sign-in. Other browsers keep their own choice; unavailable
+- Test Settings → Playback framing defaults Original, Saved framing and Remember
+  last. Fixed defaults apply on each viewer opening; temporary changes remain
+  through previous/next. Test Full media, Highlights only and Remember last range
+  defaults across views; explicit highlight=0 and resumed sessions retain their
+  range. With no stored preference, Use saved framing starts off; enabling it
+  applies the invoking frame without changing time or pause. With Remember last,
+  verify both on and off persist through previous/next, close/reopen, reload and
+  sign-out/sign-in. Other browsers keep their own choice; unavailable
   storage must not break viewing. The stored preference contains only a boolean,
   and toggling does not edit saved frames. Native iPhone video fullscreen keeps
   original proportions and system controls.
@@ -166,6 +173,8 @@ Never test rebuild or wipe against the only copy of a real library database.
   source/highlights.
 - Click/tap viewer media to hide/show controls, check idle hiding and keyboard
   focus, and keep video/animation playing while opening and closing Info. Use the
+  phone swipe while a video poster hands off to its first frame; navigation must
+  complete without waiting for playback readiness. Use the
   viewer View options menu with mouse, keyboard and touch, including browser
   fullscreen and phone safe areas. Toggle Play highlights only and confirm the
   library preference agrees. Items without a saved section disable the option
@@ -246,6 +255,18 @@ Never test rebuild or wipe against the only copy of a real library database.
   Skip and Undo. Closing full view must preserve the ordered pair and Undo.
 - Check one toast per acknowledged operation/batch, inline form errors, quiet
   score increments, Undo/Activity alternatives and no old-session notifications.
+  Activate toast actions and Close over the viewer, nested Info, mobile sidebar and browser
+  fullscreen with pointer, touch and keyboard; the viewer must not close or
+  receive the same input. Phone action and Close targets must be at least 44px
+  and remain within the safe areas.
+  View activity closes the mobile sidebar from Gallery and when Activity is
+  already open. Keyboard notification entry and Escape retain the sidebar until
+  an action navigates.
+- Add and reorder sorting rules using drag, arrow keys and Move up/down. Check
+  individual directions, duplicate prevention, the five-rule limit, Random
+  restoration, deep links, paging and reload on desktop and phones. Secondary
+  score/tag criteria must defer movement after edits until Update results.
+  Test all/any tag matching and Tagged/Untagged in Gallery, Feed and Compare.
 - Back up and restore with retained Trash and matching filesystem payloads;
   refuse mismatched/lost roots and unresolved transfers. Wipe/rebuild must refuse
   recovery blockers and never remove source-root bytes.

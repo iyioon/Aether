@@ -92,6 +92,45 @@ describe("gallery loading helpers", () => {
     );
   });
 
+  it("distinguishes tag and field separators in user text without changing normal resume keys", () => {
+    const input = {
+      folderId: "folder-1",
+      sort: "date" as const,
+      sortDirection: "desc" as const,
+      mediaType: "all" as const,
+      search: "",
+      tagFilters: ["one", "two"],
+      scoreFilter: "all" as const
+    };
+    expect(buildAssetListQueryKey(input)).toBe(
+      "folder-1\u001fdate\u001f\u001fdesc\u001fall\u001f\u001fone\u001etwo\u001fall"
+    );
+    expect(
+      buildAssetListQueryKey({ ...input, tagFilters: ["one\u001etwo"] })
+    ).not.toBe(buildAssetListQueryKey(input));
+    expect(
+      buildAssetListQueryKey({
+        ...input,
+        search: "one\u001ftwo",
+        tagFilters: ["three"]
+      })
+    ).not.toBe(
+      buildAssetListQueryKey({
+        ...input,
+        search: "one",
+        tagFilters: ["two\u001fthree"]
+      })
+    );
+    expect(
+      buildAssetListQueryKey({
+        ...input,
+        tagFilters: ["one\u001etwo"],
+        tagMatch: "all",
+        tagStatus: "all"
+      })
+    ).toBe(buildAssetListQueryKey({ ...input, tagFilters: ["one\u001etwo"] }));
+  });
+
   it("stays pending until the tree and current asset query are ready", () => {
     const readyState = {
       folderId: "folder-1",
@@ -126,4 +165,54 @@ describe("gallery loading helpers", () => {
       })
     ).toBe(false);
   });
+});
+
+it("invalidates loaded windows when secondary sort priority or tag matching changes", () => {
+  const input = {
+    folderId: "folder-1",
+    sort: "score" as const,
+    sortDirection: "desc" as const,
+    mediaType: "all" as const,
+    search: "",
+    tagFilters: ["one", "two"],
+    scoreFilter: "all" as const
+  };
+  const legacy = buildAssetListQueryKey(input);
+  expect(
+    buildAssetListQueryKey({ ...input, tagMatch: "all", tagStatus: "all" })
+  ).toBe(legacy);
+  const rules = [
+    { field: "score" as const, direction: "desc" as const },
+    { field: "filename" as const, direction: "asc" as const }
+  ];
+  const ordered = buildAssetListQueryKey({ ...input, sortCriteria: rules });
+  expect(ordered).not.toBe(legacy);
+  expect(
+    buildAssetListQueryKey({ ...input, sortCriteria: [...rules].reverse() })
+  ).not.toBe(ordered);
+  expect(buildAssetListQueryKey({ ...input, tagMatch: "any" })).not.toBe(
+    legacy
+  );
+  expect(buildAssetListQueryKey({ ...input, tagStatus: "untagged" })).not.toBe(
+    legacy
+  );
+});
+
+it("keeps Random's query identity independent of inactive ordered rules", () => {
+  const input = {
+    folderId: "folder",
+    sort: "random" as const,
+    sortDirection: "desc" as const,
+    randomSeed: 42,
+    mediaType: "all" as const,
+    search: "",
+    tagFilters: [],
+    scoreFilter: "all" as const
+  };
+  expect(
+    buildAssetListQueryKey({
+      ...input,
+      sortCriteria: [{ field: "tags", direction: "asc" }]
+    })
+  ).toBe(buildAssetListQueryKey(input));
 });

@@ -224,6 +224,28 @@ describe("media image cache", () => {
     await expect(next.promise).resolves.toBe(false);
   });
 
+  it("keeps a mounted decoded thumbnail ready while another preload rechecks its cache hint", async () => {
+    installImageWindow();
+    const source = "/displayed-comparison-thumbnail.jpg";
+    const first = acquireMediaImagePreload(source);
+    MockImage.instances[0]!.onload!();
+    await expect(first.promise).resolves.toBe(true);
+    const displayedDecodedSource = source;
+    first.release();
+
+    const retry = acquireMediaImagePreload(source);
+    expect(isMediaImageReady(source)).toBe(false);
+    expect(isMediaImageReady(source, displayedDecodedSource)).toBe(true);
+    expect(isMediaImageReady(source, "/previous-thumbnail.jpg")).toBe(false);
+    expect(
+      isMediaImageReady("/next-thumbnail.jpg", displayedDecodedSource)
+    ).toBe(false);
+    MockImage.instances[1]!.onerror!();
+    await expect(retry.promise).resolves.toBe(false);
+    expect(isMediaImageReady(source, displayedDecodedSource)).toBe(true);
+    retry.release();
+  });
+
   it("shares a decoded image while at least one consumer retains it", async () => {
     installImageWindow();
     const source = "/retained-decoded-comparison-image.jpg";

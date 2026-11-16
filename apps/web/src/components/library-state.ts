@@ -1,6 +1,9 @@
 import type {
   MediaTypeFilter,
   ScoreFilter,
+  SortCriterion,
+  TagMatch,
+  TagStatus,
   SortDirection,
   SortMode
 } from "../api/client";
@@ -51,7 +54,12 @@ export const sortValues: readonly SortMode[] = [
   "date",
   "filename",
   "score",
-  "random"
+  "random",
+  "favorite",
+  "tags",
+  "size",
+  "duration",
+  "type"
 ];
 
 export const sortDirectionValues: readonly SortDirection[] = ["desc", "asc"];
@@ -87,11 +95,16 @@ const libraryQueryKeys = [
   "score",
   "q",
   "tag",
-  "highlight"
+  "highlight",
+  "sortBy",
+  "tagMatch",
+  "tagStatus"
 ] as const;
 
 export function defaultSortDirectionForSort(sort: SortMode): SortDirection {
-  return sort === "filename" ? "asc" : "desc";
+  return sort === "filename" || sort === "tags" || sort === "type"
+    ? "asc"
+    : "desc";
 }
 
 export interface LibraryUrlState {
@@ -101,6 +114,9 @@ export interface LibraryUrlState {
   aspect: AspectMode;
   sort: SortMode;
   sortDirection: SortDirection;
+  sortCriteria?: SortCriterion[];
+  tagMatch?: TagMatch;
+  tagStatus?: TagStatus;
   mediaType: MediaTypeFilter;
   scoreFilter: ScoreFilter;
   search: string;
@@ -168,6 +184,12 @@ export function parseStoredLibraryState(
 
     return {
       ...parsed.state,
+      ...(parsed.state.sort !== "random" && parsed.state.sortCriteria
+        ? {
+            sort: parsed.state.sortCriteria[0]!.field,
+            sortDirection: parsed.state.sortCriteria[0]!.direction
+          }
+        : {}),
       aspect: normalizeAspectForView(parsed.state.view, parsed.state.aspect),
       folderId: normalizeStoredText(parsed.state.folderId, 160) || null,
       search: normalizeStoredText(parsed.state.search, 160),
@@ -227,6 +249,13 @@ export function parseLibraryStateSearch(search: string): LibraryUrlState {
     ),
     sort: parsedSort.sort,
     sortDirection: parsedSort.sortDirection,
+    ...(parsedSort.sortCriteria
+      ? { sortCriteria: parsedSort.sortCriteria }
+      : {}),
+    ...(params.get("tagMatch") === "any" ? { tagMatch: "any" as const } : {}),
+    ...(["tagged", "untagged"].includes(params.get("tagStatus") ?? "")
+      ? { tagStatus: params.get("tagStatus") as TagStatus }
+      : {}),
     mediaType: readOptionParam(
       params,
       "type",
@@ -241,13 +270,16 @@ export function parseLibraryStateSearch(search: string): LibraryUrlState {
     ),
     search: readTextParam(params, "q", 160),
     tags: readTagParams(params),
-    ...(params.get("highlight") === "1" ? { highlightsOnly: true } : {})
+    ...(["0", "1"].includes(params.get("highlight") ?? "")
+      ? { highlightsOnly: params.get("highlight") === "1" }
+      : {})
   };
 }
 
 export function buildLibraryStateSearch(state: LibraryUrlState): string {
   const params = new URLSearchParams();
-  if (state.highlightsOnly) params.set("highlight", "1");
+  if (state.highlightsOnly !== undefined)
+    params.set("highlight", state.highlightsOnly ? "1" : "0");
 
   if (state.folderId) {
     params.set("folder", state.folderId);
@@ -291,6 +323,14 @@ export function buildLibraryStateSearch(state: LibraryUrlState): string {
     params.set("q", state.search);
   }
 
+  for (const criterion of state.sort === "random"
+    ? []
+    : (state.sortCriteria ?? [])) {
+    params.append("sortBy", `${criterion.field}:${criterion.direction}`);
+  }
+  if (state.tagMatch === "any") params.set("tagMatch", "any");
+  if (state.tagStatus && state.tagStatus !== "all")
+    params.set("tagStatus", state.tagStatus);
   for (const tag of state.tags) {
     params.append("tag", tag);
   }
@@ -332,7 +372,16 @@ function readTagParams(params: URLSearchParams): string[] {
 function readSortParams(params: URLSearchParams): {
   sort: SortMode;
   sortDirection: SortDirection;
+  sortCriteria?: SortCriterion[];
 } {
+  const criteria = parseSortCriteria(params.getAll("sortBy"));
+  if (criteria && params.get("sort") !== "random") {
+    return {
+      sort: criteria[0]!.field,
+      sortDirection: criteria[0]!.direction,
+      sortCriteria: criteria
+    };
+  }
   const rawSort = params.get("sort");
 
   if (rawSort === "newest") {
@@ -419,6 +468,13 @@ function isLibraryUrlState(value: unknown): value is StoredLibraryUrlState {
       (value.view === "feed" && value.aspect === "Fill screen")) &&
     isAllowedValue(value.sort, sortValues) &&
     isAllowedValue(value.sortDirection, sortDirectionValues) &&
+    (value.sortCriteria === undefined ||
+      isValidSortCriteria(value.sortCriteria)) &&
+    (value.tagMatch === undefined ||
+      value.tagMatch === "all" ||
+      value.tagMatch === "any") &&
+    (value.tagStatus === undefined ||
+      ["all", "tagged", "untagged"].includes(value.tagStatus as string)) &&
     isAllowedValue(value.mediaType, mediaFilterValues) &&
     isAllowedValue(value.scoreFilter, scoreFilterValues) &&
     typeof value.search === "string" &&
@@ -471,4 +527,36 @@ function normalizeStoredTag(value: string): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+export const MAX_SORT_CRITERIA = 5;
+
+export function isValidSortCriteria(value: unknown): value is SortCriterion[] {
+  if (
+    !Array.isArray(value) ||
+    value.length < 1 ||
+    value.length > MAX_SORT_CRITERIA
+  )
+    return false;
+  const fields = new Set<string>();
+  return value.every((criterion: unknown) => {
+    if (
+      !isRecord(criterion) ||
+      criterion.field === "random" ||
+      !isAllowedValue(criterion.field, sortValues) ||
+      !isAllowedValue(criterion.direction, sortDirectionValues) ||
+      fields.has(criterion.field)
+    )
+      return false;
+    fields.add(criterion.field);
+    return true;
+  });
+}
+
+function parseSortCriteria(values: string[]): SortCriterion[] | undefined {
+  const criteria = values.map((value) => {
+    const [field, direction, extra] = value.split(":");
+    return extra === undefined ? { field, direction } : null;
+  });
+  return isValidSortCriteria(criteria) ? criteria : undefined;
 }

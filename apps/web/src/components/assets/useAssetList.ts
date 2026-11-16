@@ -7,6 +7,9 @@ import {
   type AssetRecord,
   type MediaTypeFilter,
   type ScoreFilter,
+  type SortCriterion,
+  type TagMatch,
+  type TagStatus,
   type SortDirection,
   type SortMode,
   type TagRecord,
@@ -32,6 +35,9 @@ interface UseAssetListOptions {
   search: string;
   sort: SortMode;
   sortDirection: SortDirection;
+  sortCriteria?: SortCriterion[];
+  tagMatch?: TagMatch;
+  tagStatus?: TagStatus;
   tagFilters: string[];
   tree: TreeResponse | null;
 }
@@ -43,6 +49,9 @@ export function useAssetList({
   search,
   sort,
   sortDirection,
+  sortCriteria,
+  tagMatch,
+  tagStatus,
   tagFilters,
   tree
 }: UseAssetListOptions) {
@@ -90,6 +99,9 @@ export function useAssetList({
     folderId,
     sort,
     sortDirection,
+    sortCriteria,
+    tagMatch,
+    tagStatus,
     mediaType,
     search,
     tagFilters,
@@ -107,6 +119,9 @@ export function useAssetList({
         randomSeed,
         sort,
         sortDirection,
+        sortCriteria,
+        tagMatch,
+        tagStatus,
         mediaType,
         search,
         tagFilters,
@@ -117,6 +132,9 @@ export function useAssetList({
       randomSeed,
       sort,
       sortDirection,
+      sortCriteria,
+      tagMatch,
+      tagStatus,
       mediaType,
       search,
       tagFilters,
@@ -257,6 +275,9 @@ export function useAssetList({
         limit,
         sort,
         order: sortDirection,
+        sortCriteria,
+        tagMatch,
+        tagStatus,
         type: mediaType,
         recursive: true,
         search,
@@ -270,6 +291,9 @@ export function useAssetList({
       folderId,
       sort,
       sortDirection,
+      sortCriteria,
+      tagMatch,
+      tagStatus,
       mediaType,
       search,
       tagFilters,
@@ -373,6 +397,8 @@ export function useAssetList({
                     recursive: true,
                     search,
                     tags: tagFilters,
+                    tagMatch,
+                    tagStatus,
                     scoreFilter
                   }
                 : undefined
@@ -528,7 +554,9 @@ export function useAssetList({
     mediaType,
     scoreFilter,
     search,
-    tagFilters
+    tagFilters,
+    tagMatch,
+    tagStatus
   ]);
 
   const handleLoadMore = useCallback(

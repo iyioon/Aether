@@ -9,7 +9,9 @@ import { useMemo } from "react";
 import type {
   AssetRecord,
   MediaTypeFilter,
-  ScoreFilter
+  ScoreFilter,
+  TagMatch,
+  TagStatus
 } from "../../api/client";
 import { MediaPreview } from "../media/MediaPreview";
 import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
@@ -33,6 +35,8 @@ interface LeaderboardViewProps {
   scoreFilter: ScoreFilter;
   search: string;
   tagFilters: string[];
+  tagMatch?: TagMatch;
+  tagStatus?: TagStatus;
   onOpenFullscreen: (asset: AssetRecord) => void;
   onPrepareRanking: () => void;
   onStartRanking: () => void;
@@ -46,6 +50,8 @@ export function LeaderboardView({
   scoreFilter,
   search,
   tagFilters,
+  tagMatch = "all",
+  tagStatus = "all",
   onOpenFullscreen,
   onPrepareRanking,
   onStartRanking
@@ -68,7 +74,9 @@ export function LeaderboardView({
     refreshRevision,
     scoreFilter,
     search,
-    tagFilters
+    tagFilters,
+    tagMatch,
+    tagStatus
   });
   const { onScroll, scrollRef } = useLeaderboardScrollRestoration({
     assets,
@@ -148,6 +156,7 @@ export function LeaderboardView({
           hasQueryFilters={Boolean(
             search ||
             tagFilters.length ||
+            tagStatus !== "all" ||
             scoreFilter !== "all" ||
             mediaType !== "all"
           )}

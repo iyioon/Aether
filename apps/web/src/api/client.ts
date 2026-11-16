@@ -35,7 +35,22 @@ export interface TreeResponse {
 }
 
 export type MediaTypeFilter = "all" | "image" | "video";
-export type SortMode = "date" | "filename" | "score" | "random";
+export type SortField =
+  | "date"
+  | "filename"
+  | "score"
+  | "favorite"
+  | "tags"
+  | "size"
+  | "duration"
+  | "type";
+export type SortMode = SortField | "random";
+export interface SortCriterion {
+  field: SortField;
+  direction: SortDirection;
+}
+export type TagMatch = "all" | "any";
+export type TagStatus = "all" | "tagged" | "untagged";
 export type SortDirection = "desc" | "asc";
 export type ScoreFilter = "all" | "favorites" | "ranked" | "unranked";
 
@@ -162,10 +177,13 @@ export interface AssetListResponse {
   };
   sort: SortMode;
   order: SortDirection;
+  sortCriteria: SortCriterion[];
   type: MediaTypeFilter;
   recursive: boolean;
   search: string;
   tags: string[];
+  tagMatch?: TagMatch;
+  tagStatus?: TagStatus;
   score: ScoreFilter;
   seed: number;
 }
@@ -227,6 +245,8 @@ export interface ComparisonPairContext {
   recursive: boolean;
   search: string;
   tags: string[];
+  tagMatch?: TagMatch;
+  tagStatus?: TagStatus;
   score: ScoreFilter;
 }
 
@@ -414,6 +434,8 @@ export interface AssetDetailsFilter {
   recursive?: boolean;
   search?: string;
   tags?: string[];
+  tagMatch?: TagMatch;
+  tagStatus?: TagStatus;
   scoreFilter?: ScoreFilter;
 }
 
@@ -441,10 +463,13 @@ export async function getAssets(options: {
   limit?: number;
   sort?: SortMode;
   order?: SortDirection;
+  sortCriteria?: SortCriterion[];
   type?: MediaTypeFilter;
   recursive?: boolean;
   search?: string;
   tags?: string[];
+  tagMatch?: TagMatch;
+  tagStatus?: TagStatus;
   score?: ScoreFilter;
   seed?: number;
   expectedRevision?: string;
@@ -463,9 +488,16 @@ export async function getAssets(options: {
     seed: String(options.seed ?? 0)
   });
 
+  for (const criterion of sort === "random"
+    ? []
+    : (options.sortCriteria ?? [])) {
+    params.append("sortBy", `${criterion.field}:${criterion.direction}`);
+  }
   if (options.expectedRevision !== undefined)
     params.set("expectedRevision", options.expectedRevision);
 
+  if (options.tagMatch) params.set("tagMatch", options.tagMatch);
+  if (options.tagStatus) params.set("tagStatus", options.tagStatus);
   for (const tag of options.tags ?? []) {
     params.append("tag", tag);
   }
@@ -482,6 +514,8 @@ export async function getNextComparisonPair(options: {
   recursive?: boolean;
   search?: string;
   tags?: string[];
+  tagMatch?: TagMatch;
+  tagStatus?: TagStatus;
   score?: ScoreFilter;
   excludeAssetIds?: string[];
   signal?: AbortSignal;
@@ -493,6 +527,8 @@ export async function getNextComparisonPair(options: {
     score: options.score ?? "all"
   });
 
+  if (options.tagMatch) params.set("tagMatch", options.tagMatch);
+  if (options.tagStatus) params.set("tagStatus", options.tagStatus);
   for (const tag of options.tags ?? []) {
     params.append("tag", tag);
   }
@@ -723,7 +759,9 @@ export async function resetLibraryData(
 }
 
 function defaultSortDirectionForApiSort(sort: SortMode): SortDirection {
-  return sort === "filename" ? "asc" : "desc";
+  return sort === "filename" || sort === "tags" || sort === "type"
+    ? "asc"
+    : "desc";
 }
 
 export async function updateAssetScore(

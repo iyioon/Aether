@@ -4406,7 +4406,7 @@ async function open(
   highlightsOnly = false
 ) {
   await page.goto(
-    `${origin}/?folder=${encodeURIComponent(folderId)}&view=${view}&type=${type}&sort=filename&size=large&q=${encodeURIComponent(search)}${highlightsOnly ? "&highlight=1" : ""}`
+    `${origin}/?folder=${encodeURIComponent(folderId)}&view=${view}&type=${type}&sort=filename&size=large&q=${encodeURIComponent(search)}&highlight=${highlightsOnly ? "1" : "0"}`
   );
 }
 async function openGalleryEditor(page: Page, asset: AssetRecord) {

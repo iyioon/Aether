@@ -28,6 +28,19 @@ describe("leaderboard resume identity", () => {
     expect(
       leaderboardScrollContextKey({ ...query, folderId: "folder-2" })
     ).not.toBe(key);
+    expect(
+      leaderboardScrollContextKey({
+        ...query,
+        tagMatch: "all",
+        tagStatus: "all"
+      })
+    ).toBe(key);
+    expect(leaderboardScrollContextKey({ ...query, tagMatch: "any" })).not.toBe(
+      key
+    );
+    expect(
+      leaderboardScrollContextKey({ ...query, tagStatus: "untagged" })
+    ).not.toBe(key);
   });
 
   it("restores loaded depth only for the same query", () => {

@@ -24,6 +24,25 @@ body {
   overflow: hidden;
 }
 
+.toast-portal,
+.toast-event-boundary {
+  display: contents;
+  pointer-events: auto;
+}
+
+@media (pointer: coarse) {
+  [data-sonner-toaster] [data-sonner-toast] [data-button] {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  [data-sonner-toaster] [data-close-button]::after {
+    position: absolute;
+    inset: -13px;
+    content: "";
+  }
+}
+
 /* Translucent iPhone status bars need contrast over both media and light pages. */
 @media (display-mode: standalone) {
   body::after {

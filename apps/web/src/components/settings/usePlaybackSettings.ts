@@ -2,14 +2,20 @@ import { useCallback, useRef, useState } from "react";
 import {
   readPlaybackPreferences,
   rememberPlaybackSound,
+  setPlaybackFramingMode,
+  setPlaybackHighlightsMode,
   setPlaybackSoundMode,
   writePlaybackPreferences,
+  type PlaybackFramingMode,
+  type PlaybackHighlightsMode,
   type PlaybackPreferences,
   type PlaybackSoundMode,
   type PlaybackSurface
 } from "./playback-settings";
 
 export type {
+  PlaybackFramingMode,
+  PlaybackHighlightsMode,
   PlaybackSoundMode,
   PlaybackSurface,
   SoundPreference
@@ -18,6 +24,8 @@ export type {
 export interface PlaybackSettings extends PlaybackPreferences {
   setMode: (surface: PlaybackSurface, mode: PlaybackSoundMode) => void;
   rememberSound: (surface: PlaybackSurface, muted: boolean) => void;
+  setFramingMode: (mode: PlaybackFramingMode) => void;
+  setHighlightsMode: (mode: PlaybackHighlightsMode) => void;
 }
 
 export function usePlaybackSettings(): PlaybackSettings {
@@ -50,5 +58,27 @@ export function usePlaybackSettings(): PlaybackSettings {
     [updatePreferences]
   );
 
-  return { ...preferences, setMode, rememberSound };
+  const setFramingMode = useCallback(
+    (mode: PlaybackFramingMode) => {
+      updatePreferences(setPlaybackFramingMode(preferencesRef.current, mode));
+    },
+    [updatePreferences]
+  );
+
+  const setHighlightsMode = useCallback(
+    (mode: PlaybackHighlightsMode) => {
+      updatePreferences(
+        setPlaybackHighlightsMode(preferencesRef.current, mode)
+      );
+    },
+    [updatePreferences]
+  );
+
+  return {
+    ...preferences,
+    setMode,
+    rememberSound,
+    setFramingMode,
+    setHighlightsMode
+  };
 }

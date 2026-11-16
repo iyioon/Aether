@@ -160,3 +160,92 @@ describe("highlight-only preference", () => {
     ).toBeNull();
   });
 });
+
+describe("ordered sorting and tag filter state", () => {
+  it("round-trips ordered rules, each direction and tag matching", () => {
+    const state = parseLibraryStateSearch(
+      "?sortBy=tags:asc&sortBy=score:desc&sortBy=filename:asc&tag=one&tag=two&tagMatch=any&tagStatus=tagged&highlight=0"
+    );
+    expect(state).toMatchObject({
+      sort: "tags",
+      sortDirection: "asc",
+      sortCriteria: [
+        { field: "tags", direction: "asc" },
+        { field: "score", direction: "desc" },
+        { field: "filename", direction: "asc" }
+      ],
+      tagMatch: "any",
+      tagStatus: "tagged",
+      highlightsOnly: false
+    });
+    expect(parseLibraryStateSearch(buildLibraryStateSearch(state))).toEqual(
+      state
+    );
+    expect(parseStoredLibraryState(serializeLibraryState(state))).toEqual(
+      state
+    );
+  });
+
+  it("rejects invalid, duplicate and excessive URL rules without breaking legacy links", () => {
+    for (const rules of [
+      "sortBy=filename:asc&sortBy=filename:desc",
+      "sortBy=unknown:asc",
+      "sortBy=date:sideways",
+      "sortBy=date:asc:extra",
+      "sortBy=date:asc&sortBy=filename:asc&sortBy=score:desc&sortBy=tags:asc&sortBy=size:desc&sortBy=duration:asc"
+    ]) {
+      expect(parseLibraryStateSearch(`?sort=oldest&${rules}`)).toMatchObject({
+        sort: "date",
+        sortDirection: "asc"
+      });
+      expect(parseLibraryStateSearch(`?${rules}`).sortCriteria).toBeUndefined();
+    }
+    expect(
+      parseLibraryStateSearch("?sort=random&sortBy=score:desc")
+    ).toMatchObject({ sort: "random" });
+    expect(
+      parseLibraryStateSearch("?sort=random&sortBy=score:desc").sortCriteria
+    ).toBeUndefined();
+    expect(
+      parseLibraryStateSearch("?sort=filename&order=desc").sortCriteria
+    ).toBeUndefined();
+  });
+
+  it("rejects malformed persisted rules and filter modes", () => {
+    for (const patch of [
+      { sortCriteria: [] },
+      {
+        sortCriteria: [
+          { field: "date", direction: "asc" },
+          { field: "date", direction: "desc" }
+        ]
+      },
+      { tagMatch: "none" },
+      { tagStatus: "missing" }
+    ]) {
+      expect(
+        parseStoredLibraryState(
+          JSON.stringify({
+            version: 1,
+            state: { ...defaultLibraryState, ...patch }
+          })
+        )
+      ).toBeNull();
+    }
+  });
+});
+
+it("retains inactive sort rules for Random without sending them in links", () => {
+  const state = {
+    ...defaultLibraryState,
+    sort: "random" as const,
+    sortCriteria: [
+      { field: "filename" as const, direction: "asc" as const },
+      { field: "score" as const, direction: "desc" as const }
+    ]
+  };
+  expect(parseStoredLibraryState(serializeLibraryState(state))).toEqual(state);
+  expect(
+    new URLSearchParams(buildLibraryStateSearch(state)).getAll("sortBy")
+  ).toEqual([]);
+});

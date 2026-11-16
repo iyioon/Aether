@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { SlidersHorizontal, X } from "lucide-react";
 import { useIsMobile } from "../../hooks/use-mobile";
 import type { ViewMode } from "../library-state";
@@ -23,21 +23,47 @@ export interface LibraryViewOptionsProps
 }
 
 export function LibraryViewOptions(props: LibraryViewOptionsProps) {
-  const { isOpen, view, onOpenChange, mediaType, scoreFilter, tagFilters } =
-    props;
+  const {
+    isOpen,
+    view,
+    onOpenChange,
+    mediaType,
+    scoreFilter,
+    tagFilters,
+    tagStatus
+  } = props;
   const isMobile = useIsMobile();
   const titleId = useId();
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const restoreTriggerFocusRef = useRef(false);
   const [tab, setTab] = useState("filters");
   const activeTab = view === "compare" && tab === "sort" ? "filters" : tab;
   const filterCount =
     Number(mediaType !== "all") +
     Number(scoreFilter !== "all") +
-    tagFilters.length;
+    tagFilters.length +
+    Number(tagStatus !== "all");
   const label = filterCount
     ? `View options, ${filterCount} active ${filterCount === 1 ? "filter" : "filters"}`
     : "View options";
+  function changeOpen(open: boolean) {
+    if (open) restoreTriggerFocusRef.current = false;
+    onOpenChange(open);
+  }
+  function closeOptions() {
+    restoreTriggerFocusRef.current = true;
+    onOpenChange(false);
+  }
+  function restoreTriggerFocus(event: Event) {
+    if (restoreTriggerFocusRef.current && !isOpen) {
+      event.preventDefault();
+      triggerRef.current?.focus({ preventScroll: true });
+    }
+    restoreTriggerFocusRef.current = false;
+  }
   const trigger = (
     <Button
+      ref={triggerRef}
       className="control-menu-trigger view-options-trigger"
       type="button"
       size="icon"
@@ -65,7 +91,7 @@ export function LibraryViewOptions(props: LibraryViewOptionsProps) {
           size="icon"
           variant="ghost"
           aria-label="Close view options"
-          onClick={() => onOpenChange(false)}
+          onClick={closeOptions}
         >
           <X aria-hidden="true" />
         </Button>
@@ -108,13 +134,17 @@ export function LibraryViewOptions(props: LibraryViewOptionsProps) {
 
   if (isMobile) {
     return (
-      <Sheet open={isOpen} onOpenChange={onOpenChange}>
+      <Sheet open={isOpen} onOpenChange={changeOpen}>
         <SheetTrigger asChild>{trigger}</SheetTrigger>
         <SheetContent
           className="view-options-panel view-options-sheet"
           side="bottom"
           showCloseButton={false}
           aria-describedby={undefined}
+          onEscapeKeyDown={() => {
+            restoreTriggerFocusRef.current = true;
+          }}
+          onCloseAutoFocus={restoreTriggerFocus}
         >
           {content}
         </SheetContent>
@@ -123,7 +153,7 @@ export function LibraryViewOptions(props: LibraryViewOptionsProps) {
   }
 
   return (
-    <Popover open={isOpen} onOpenChange={onOpenChange}>
+    <Popover open={isOpen} onOpenChange={changeOpen}>
       <Tooltip>
         <TooltipTrigger asChild>
           <PopoverTrigger asChild>{trigger}</PopoverTrigger>
@@ -136,6 +166,10 @@ export function LibraryViewOptions(props: LibraryViewOptionsProps) {
         collisionPadding={12}
         sideOffset={8}
         aria-labelledby={titleId}
+        onEscapeKeyDown={() => {
+          restoreTriggerFocusRef.current = true;
+        }}
+        onCloseAutoFocus={restoreTriggerFocus}
       >
         {content}
       </PopoverContent>

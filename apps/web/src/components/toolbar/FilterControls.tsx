@@ -1,9 +1,22 @@
 import { useLayoutEffect, useRef } from "react";
 import { Plus, X } from "lucide-react";
-import type { MediaTypeFilter, ScoreFilter, TagRecord } from "../../api/client";
+import type {
+  MediaTypeFilter,
+  ScoreFilter,
+  TagRecord,
+  TagMatch,
+  TagStatus
+} from "../../api/client";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem
+} from "../ui/select";
 import { RadioGroup, RadioGroupItem } from "../ui/radio-group";
 import {
   MAX_TAG_FILTER_LENGTH,
@@ -17,6 +30,10 @@ export interface FilterControlsProps {
   mediaType: MediaTypeFilter;
   scoreFilter: ScoreFilter;
   tagFilters: string[];
+  tagMatch: TagMatch;
+  tagStatus: TagStatus;
+  onSetTagMatch: (value: TagMatch) => void;
+  onSetTagStatus: (value: TagStatus) => void;
   tagFilterDraft: string;
   onAddTagFilter: (tagName: string) => void;
   onClearFilters: () => void;
@@ -31,6 +48,10 @@ export function FilterControls({
   mediaType,
   scoreFilter,
   tagFilters,
+  tagMatch,
+  tagStatus,
+  onSetTagMatch,
+  onSetTagStatus,
   tagFilterDraft,
   onAddTagFilter,
   onClearFilters,
@@ -39,7 +60,9 @@ export function FilterControls({
   onSetScoreFilter,
   onSetTagFilterDraft
 }: FilterControlsProps) {
+  const mediaAllRef = useRef<HTMLButtonElement>(null);
   const tagInputRef = useRef<HTMLInputElement>(null);
+  const clearFocusRef = useRef(false);
   const tagButtonsRef = useRef(new Map<string, HTMLButtonElement>());
   const removedTagRef = useRef<{ removed: string; neighbor?: string } | null>(
     null
@@ -69,7 +92,18 @@ export function FilterControls({
           !normalizedSelectedTags.has(normalizeTagIdentity(tag.displayName))
       );
   const hasFilters =
-    mediaType !== "all" || scoreFilter !== "all" || tagFilters.length > 0;
+    mediaType !== "all" ||
+    scoreFilter !== "all" ||
+    tagFilters.length > 0 ||
+    tagStatus !== "all";
+
+  useLayoutEffect(() => {
+    if (!clearFocusRef.current || hasFilters) return;
+    clearFocusRef.current = false;
+    if (document.activeElement && document.activeElement !== document.body)
+      return;
+    mediaAllRef.current?.focus({ preventScroll: true });
+  }, [hasFilters]);
 
   function addTagFilter(tagName: string) {
     onAddTagFilter(tagName);
@@ -88,7 +122,10 @@ export function FilterControls({
         >
           {mediaFilters.map((filter) => (
             <Label className="view-options-choice" key={filter.value}>
-              <RadioGroupItem value={filter.value} />
+              <RadioGroupItem
+                ref={filter.value === "all" ? mediaAllRef : undefined}
+                value={filter.value}
+              />
               {filter.label}
             </Label>
           ))}
@@ -113,80 +150,120 @@ export function FilterControls({
       <div className="view-options-tags">
         <div className="view-options-field-heading">
           <Label htmlFor="library-tag-filter-input">Tags</Label>
-          {tagFilters.length > 1 ? <small>Match all</small> : null}
         </div>
-        {tagFilters.length ? (
-          <div className="view-options-tag-list" aria-label="Selected tags">
-            {tagFilters.map((tag, index) => (
-              <Button
-                ref={(button) => {
-                  if (button) tagButtonsRef.current.set(tag, button);
-                  else tagButtonsRef.current.delete(tag);
-                }}
-                className="view-options-tag"
-                type="button"
-                size="sm"
-                variant="secondary"
-                aria-label={`Remove ${tag} tag filter`}
-                key={tag}
-                onClick={(event) => {
-                  if (document.activeElement === event.currentTarget)
-                    removedTagRef.current = {
-                      removed: tag,
-                      neighbor: tagFilters[index + 1] ?? tagFilters[index - 1]
-                    };
-                  onRemoveTagFilter(tag);
-                }}
-              >
-                <span>#{tag}</span>
-                <X aria-hidden="true" />
-              </Button>
-            ))}
-          </div>
-        ) : null}
-        <div className="view-options-tag-input">
-          <Input
-            id="library-tag-filter-input"
-            ref={tagInputRef}
-            value={tagFilterDraft}
-            placeholder={isAtTagLimit ? "Tag limit reached" : "Type a tag"}
-            maxLength={MAX_TAG_FILTER_LENGTH}
-            disabled={isAtTagLimit}
-            onChange={(event) => onSetTagFilterDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.nativeEvent.isComposing) {
-                event.preventDefault();
-                if (canAddTag) addTagFilter(tagFilterDraft);
-              }
-            }}
-          />
-          <Button
-            type="button"
-            size="icon"
-            variant="outline"
-            aria-label="Add tag filter"
-            disabled={!canAddTag}
-            onClick={() => addTagFilter(tagFilterDraft)}
+        <Select
+          value={tagStatus}
+          onValueChange={(value) => onSetTagStatus(value as TagStatus)}
+        >
+          <SelectTrigger
+            className="view-options-filter-select"
+            aria-label="Tag status"
           >
-            <Plus aria-hidden="true" />
-          </Button>
-        </div>
-        {availableSuggestions.length ? (
-          <div className="view-options-suggestions" aria-label="Suggested tags">
-            {availableSuggestions.map((tag) => (
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="view-options-select-menu">
+            <SelectItem value="all">All media</SelectItem>
+            <SelectItem value="tagged">Tagged</SelectItem>
+            <SelectItem value="untagged">Untagged</SelectItem>
+          </SelectContent>
+        </Select>
+        {tagStatus !== "untagged" ? (
+          <>
+            {tagFilters.length > 1 ? (
+              <Select
+                value={tagMatch}
+                onValueChange={(value) => onSetTagMatch(value as TagMatch)}
+              >
+                <SelectTrigger
+                  className="view-options-filter-select"
+                  aria-label="Tag matching"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="view-options-select-menu">
+                  <SelectItem value="all">Match all tags</SelectItem>
+                  <SelectItem value="any">Match any tag</SelectItem>
+                </SelectContent>
+              </Select>
+            ) : null}
+            {tagFilters.length ? (
+              <div className="view-options-tag-list" aria-label="Selected tags">
+                {tagFilters.map((tag, index) => (
+                  <Button
+                    ref={(button) => {
+                      if (button) tagButtonsRef.current.set(tag, button);
+                      else tagButtonsRef.current.delete(tag);
+                    }}
+                    className="view-options-tag"
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    aria-label={`Remove ${tag} tag filter`}
+                    key={tag}
+                    onClick={(event) => {
+                      if (document.activeElement === event.currentTarget)
+                        removedTagRef.current = {
+                          removed: tag,
+                          neighbor:
+                            tagFilters[index + 1] ?? tagFilters[index - 1]
+                        };
+                      onRemoveTagFilter(tag);
+                    }}
+                  >
+                    <span>#{tag}</span>
+                    <X aria-hidden="true" />
+                  </Button>
+                ))}
+              </div>
+            ) : null}
+            <div className="view-options-tag-input">
+              <Input
+                id="library-tag-filter-input"
+                ref={tagInputRef}
+                value={tagFilterDraft}
+                placeholder={isAtTagLimit ? "Tag limit reached" : "Type a tag"}
+                maxLength={MAX_TAG_FILTER_LENGTH}
+                disabled={isAtTagLimit}
+                onChange={(event) => onSetTagFilterDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                    event.preventDefault();
+                    if (canAddTag) addTagFilter(tagFilterDraft);
+                  }
+                }}
+              />
               <Button
-                className="justify-start"
                 type="button"
-                variant="ghost"
-                size="sm"
-                key={tag.id}
-                onClick={() => addTagFilter(tag.displayName)}
+                size="icon"
+                variant="outline"
+                aria-label="Add tag filter"
+                disabled={!canAddTag}
+                onClick={() => addTagFilter(tagFilterDraft)}
               >
                 <Plus aria-hidden="true" />
-                {tag.displayName}
               </Button>
-            ))}
-          </div>
+            </div>
+            {availableSuggestions.length ? (
+              <div
+                className="view-options-suggestions"
+                aria-label="Suggested tags"
+              >
+                {availableSuggestions.map((tag) => (
+                  <Button
+                    className="justify-start"
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    key={tag.id}
+                    onClick={() => addTagFilter(tag.displayName)}
+                  >
+                    <Plus aria-hidden="true" />
+                    {tag.displayName}
+                  </Button>
+                ))}
+              </div>
+            ) : null}
+          </>
         ) : null}
       </div>
       {hasFilters ? (
@@ -194,7 +271,11 @@ export function FilterControls({
           className="view-options-clear"
           type="button"
           variant="ghost"
-          onClick={onClearFilters}
+          onClick={(event) => {
+            clearFocusRef.current =
+              document.activeElement === event.currentTarget;
+            onClearFilters();
+          }}
         >
           Clear filters
         </Button>

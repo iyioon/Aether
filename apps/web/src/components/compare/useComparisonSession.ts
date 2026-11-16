@@ -10,7 +10,9 @@ import {
   type ComparisonPairResponse,
   type ComparisonPairContext,
   type MediaTypeFilter,
-  type ScoreFilter
+  type ScoreFilter,
+  type TagMatch,
+  type TagStatus
 } from "../../api/client";
 import { createComparisonMediaPreloader } from "./comparison-media-preloader";
 import { createComparisonPrefetchQueue } from "./comparison-prefetch-queue";
@@ -19,6 +21,7 @@ import {
   completeRankingMutation,
   createRankingMutationId,
   rankingResumeGeneration,
+  rankingContextKey,
   readRankingResumeState,
   subscribeToRankingResumeReset,
   writeRankingResumeState,
@@ -33,6 +36,8 @@ interface UseComparisonSessionOptions {
   scoreFilter: ScoreFilter;
   search: string;
   tagFilters: string[];
+  tagMatch?: TagMatch;
+  tagStatus?: TagStatus;
   onAssetsUpdated: (assets: AssetRecord[]) => void;
   onRankingChanged: () => void;
 }
@@ -49,6 +54,8 @@ export function useComparisonSession({
   scoreFilter,
   search,
   tagFilters,
+  tagMatch = "all",
+  tagStatus = "all",
   onAssetsUpdated,
   onRankingChanged
 }: UseComparisonSessionOptions) {
@@ -61,13 +68,15 @@ export function useComparisonSession({
   const [chosenAssetId, setChosenAssetId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [resetRevision, setResetRevision] = useState(0);
-  const queryKey = JSON.stringify([
+  const queryKey = rankingContextKey({
     folderId,
     mediaType,
     scoreFilter,
     search,
-    tagFilters
-  ]);
+    tagFilters,
+    tagMatch,
+    tagStatus
+  });
   const queryKeyRef = useRef(queryKey);
   queryKeyRef.current = queryKey;
   const isMountedRef = useRef(false);
@@ -95,6 +104,8 @@ export function useComparisonSession({
         recursive: true,
         search,
         tags: tagFilters,
+        tagMatch,
+        tagStatus,
         score: scoreFilter
       }
     : null;

@@ -90,12 +90,12 @@ browser history.
 Saved navigation and ranking state includes filters, asset IDs, and scroll
 positions in local storage. Signing out clears that state, pending image
 preloads, readiness hints, decoded animation atlases and capability caches.
-Appearance and playback preferences remain in this browser. Sound preferences
-contain only the playback mode and a mute boolean for Full view and Feed.
-The viewer's Use saved framing preference stores only a boolean in localStorage
-and remains after signing out; it contains
-no asset IDs, media paths or media content. Each browser/device keeps its own
-choice. The service worker caches only public application files; private API
+Appearance and playback preferences remain in this browser. Playback defaults
+store mode choices for sound, full-view framing and playback range, plus mute
+booleans for Full view and Feed. The viewer's remembered Use saved framing choice
+stores a boolean. These preferences contain no asset IDs, media paths or media
+content. Each browser/device keeps its own choices. The service worker caches
+only public application files; private API
 responses and media bypass it.
 
 Comparison preloading requests a small number of upcoming items through the

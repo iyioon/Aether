@@ -104,6 +104,19 @@ export function UserGuidePage({
               Portrait.
             </p>
             <p>
+              In Sort, add up to five rules. The first takes priority; later
+              rules order equal values. Drag a handle or use Move up and Move
+              down to reorder them. Set each rule’s field and direction. Date
+              modified uses the file’s modification time. Tags compares tags
+              alphabetically. Untagged items, missing durations and unranked
+              scores appear last. Random order uses a stable shuffle.
+            </p>
+            <p>
+              Tag filters can match all selected tags or any selected tag.
+              Choose Tagged or Untagged to find items with or without tags.
+              Choosing Untagged clears selected tag filters.
+            </p>
+            <p>
               Saved score, favorite or tag changes appear immediately. If they
               affect the current sorting or filters, cards stay in place until
               you choose Update results or change the view. Update results is
@@ -141,6 +154,14 @@ export function UserGuidePage({
               this browser. Browser restrictions may start a video muted even
               with Sound on; this does not change your preference. Bounce
               playback remains silent.
+            </p>
+            <p>
+              Full view framing chooses Original, Saved framing or Remember last
+              when opening the viewer. Playback range chooses Full media,
+              Highlights only or Remember last across the media views. Items
+              without a saved highlight play in full. Both settings initially
+              remember your View options choice. A saved session or an explicit
+              link keeps its playback range when reopened.
             </p>
             <h2>Use Aether on iPhone</h2>
             <p>

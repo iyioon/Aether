@@ -11,8 +11,9 @@ sections below.
 2. Use the refresh button beside **Folders** to find new or changed media.
 3. Choose a folder or search by filename and path.
 
-Search includes partial words and Korean text. Selecting several tags finds
-items carrying all of them.
+Search includes partial words and Korean text. Tag filters can match all selected
+tags or any selected tag. Choose Tagged or Untagged to find items with or without
+tags. Choosing Untagged clears selected tag filters.
 
 ### Choose a view
 
@@ -33,6 +34,15 @@ an ancestor.
 Open **View options** for Filters, Sort and Layout. Compare has Filters and
 Layout. **Clear filters** keeps search, sort and layout. Gallery and Ranking
 remember their card shape and details separately; Feed uses Portrait.
+
+In **Sort**, add up to five rules. The first rule takes priority; later rules
+order items with equal values. Drag a rule by its handle, or use **Move up** and
+**Move down**, to change priority. Each rule has its own direction. Available
+fields are Date modified, Filename, Score, Favorites, Tags, File size, Duration
+and Media type. Date modified uses the file’s modification time. Tags compares
+each item’s tags in alphabetical order. Untagged items, missing durations and
+unranked scores appear last. **Random order** uses a stable shuffle instead of
+these rules. Sorting and filters are kept when you reload or return to the app.
 
 Scores, favorites and tags update when saved. If a change affects the current
 sorting or filters, cards stay in place until you choose **Update results** or
@@ -55,8 +65,7 @@ details without stopping playback. **More** contains Edit media, Download and
 available file actions. Tap the media to hide or show controls.
 
 **View options** includes **Play highlights only** and **Use saved framing**.
-Saved framing initially stays off and follows your remembered browser choice;
-toggling it does not edit saved frames. Native iPhone fullscreen uses system
+Toggling saved framing does not edit saved frames. Native iPhone fullscreen uses system
 controls and original proportions.
 
 In **Settings → Playback**, set **Full view** and **Feed** separately to **Muted**,
@@ -65,6 +74,12 @@ last sound choice from the playback controls, including after closing or
 reloading. These preferences stay in this browser. Browser restrictions may
 start a video muted even with Sound on; this does not change your preference.
 Bounce playback remains silent.
+
+**Full view framing** chooses Original, Saved framing or Remember last when
+opening the viewer. **Playback range** chooses Full media, Highlights only or
+Remember last across the media views. Items without a saved highlight play in
+full. Both settings initially remember your View options choice. A saved session
+or an explicit link keeps its playback range when reopened.
 
 An explicit pause survives leaving and returning to the app; audible playback
 waits for Play. In Feed, holding a video pauses it until release. Focused seek

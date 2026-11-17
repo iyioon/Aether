@@ -1,5 +1,6 @@
 import { openLibrarySearch, setLibrarySearch } from "./library-search";
 import { expect, test, type Page } from "@playwright/test";
+import type { TreeResponse } from "../../apps/web/src/api/client";
 
 const password = "aether-e2e-password";
 
@@ -151,13 +152,18 @@ test("uses a working drawer on wide touch landscape screens", async ({
       await expect(account).toBeFocused();
       await phone.keyboard.press("Escape");
       await expect(drawer).toBeHidden();
+      await expectToolbarRow(phone, 44);
+      if (viewport.width === 932)
+        await phone.screenshot({
+          path: test.info().outputPath("gallery-toolbar-932-landscape.png")
+        });
     } finally {
       await context.close();
     }
   }
 });
 
-test("keeps the search icon on the path row and toolbar controls reachable on narrow phones", async ({
+test("keeps Search and toolbar controls together and reachable on narrow phones", async ({
   browser,
   page
 }) => {
@@ -165,6 +171,7 @@ test("keeps the search icon on the path row and toolbar controls reachable on na
 
   for (const viewport of [
     { width: 320, height: 852 },
+    { width: 360, height: 852 },
     { width: 393, height: 852 },
     { width: 568, height: 320 }
   ]) {
@@ -187,72 +194,28 @@ test("keeps the search icon on the path row and toolbar controls reachable on na
       await expect(
         phone.getByRole("button", { name: "Select media", exact: true })
       ).toBeEnabled();
-      const geometry = await phone.evaluate(() => ({
-        width: innerWidth,
-        search: (() => {
-          const rect = document
-            .querySelector('[aria-label="Search"]')!
-            .getBoundingClientRect();
-          return {
-            width: rect.width,
-            right: rect.right,
-            center: rect.y + rect.height / 2
-          };
-        })(),
-        heading: (() => {
-          const rect = document
-            .querySelector(".library-path-heading")!
-            .getBoundingClientRect();
-          return { top: rect.top, bottom: rect.bottom };
-        })(),
-        targets: [
-          ...document.querySelectorAll<HTMLButtonElement>(
-            ".library-path-actions button"
-          )
-        ]
-          .filter((button) => button.getBoundingClientRect().width > 0)
-          .map((button) => {
-            const bounds = button.getBoundingClientRect();
-            const hit = document.elementFromPoint(
-              bounds.x + bounds.width / 2,
-              bounds.y + bounds.height / 2
-            );
-            return {
-              left: bounds.left,
-              right: bounds.right,
-              width: bounds.width,
-              height: bounds.height,
-              center: bounds.y + bounds.height / 2,
-              reachable: hit?.closest("button") === button
-            };
-          })
-      }));
-
-      expect(geometry.search.width).toBeGreaterThanOrEqual(44);
-      expect(geometry.search.right).toBeLessThanOrEqual(geometry.width);
-      expect(geometry.search.center).toBeGreaterThan(geometry.heading.top);
-      expect(geometry.search.center).toBeLessThan(geometry.heading.bottom);
-      let actionCenter: number | undefined;
-      expect(geometry.targets).toHaveLength(4);
-      for (const target of geometry.targets) {
-        expect(target.left).toBeGreaterThanOrEqual(0);
-        expect(target.center).toBeGreaterThan(geometry.heading.bottom);
-        actionCenter ??= target.center;
-        expect(Math.abs(target.center - actionCenter)).toBeLessThanOrEqual(1);
-        expect(target.right).toBeLessThanOrEqual(geometry.width);
-        expect(target.width).toBeGreaterThanOrEqual(44);
-        expect(target.height).toBeGreaterThanOrEqual(44);
-        expect(target.reachable).toBe(true);
-      }
+      await expectToolbarRow(phone, 44);
+      if (viewport.width === 320)
+        await phone.screenshot({
+          path: test.info().outputPath("gallery-toolbar-320.png")
+        });
       const search = phone.getByRole("button", { name: "Search", exact: true });
       const viewMenu = phone.getByRole("button", {
         name: "Change view, Gallery selected"
       });
       const searchBounds = (await search.boundingBox())!;
       const viewBounds = (await viewMenu.boundingBox())!;
-      expect(viewBounds.y).toBeGreaterThanOrEqual(
-        searchBounds.y + searchBounds.height
+      expect(viewBounds.x + viewBounds.width).toBeLessThanOrEqual(
+        searchBounds.x
       );
+      expect(
+        Math.abs(
+          viewBounds.y +
+            viewBounds.height / 2 -
+            searchBounds.y -
+            searchBounds.height / 2
+        )
+      ).toBeLessThanOrEqual(1);
       await phone.keyboard.press("/");
       const dialog = phone.getByRole("dialog", { name: "Search", exact: true });
       const input = dialog.getByRole("searchbox", {
@@ -298,7 +261,7 @@ test("keeps the search icon on the path row and toolbar controls reachable on na
   }
 });
 
-test("keeps search and header geometry stable when saved scores need updated results", async ({
+test("keeps controls with Search through long paths, sidebar changes and pending results", async ({
   page
 }) => {
   await page.addInitScript(() =>
@@ -310,47 +273,106 @@ test("keeps search and header geometry stable when saved scores need updated res
   const url = new URL(productionUrl(page.url()));
   url.searchParams.set("view", "gallery");
   url.searchParams.set("sort", "score");
+  const tree = (await (
+    await page.request.get(new URL("/api/tree", url).href)
+  ).json()) as TreeResponse;
+  const folder = tree.folders.find((entry) => entry.relativePath === "Trips")!;
+  expect(folder).toBeDefined();
+  const parentId = "toolbar-long-parent";
+  const parentLabel = "A long parent folder name with enough text to truncate";
+  const currentLabel =
+    "A long current folder name that must remain identifiable";
+  const longTree: TreeResponse = {
+    ...tree,
+    roots: tree.roots.map((root) => ({
+      ...root,
+      label: "A long library root label"
+    })),
+    folders: [
+      ...tree.folders.map((entry) =>
+        entry.id === folder.id
+          ? { ...entry, parentId, label: currentLabel }
+          : entry
+      ),
+      {
+        ...folder,
+        id: parentId,
+        label: parentLabel,
+        relativePath: parentLabel
+      }
+    ]
+  };
+  await page.route("**/api/tree", (route) => route.fulfill({ json: longTree }));
+  url.searchParams.set("folder", folder.id);
 
-  for (const width of [1440, 1024, 768, 640]) {
+  for (const width of [320, 360, 393, 640, 768, 1024, 1440]) {
     await page.setViewportSize({ width, height: 980 });
     await page.goto(url.href);
     const gallery = page.getByRole("region", { name: "Gallery view" });
     await expect(gallery).toHaveAttribute("aria-busy", "false");
-    const increaseScore = gallery
-      .getByRole("button", { name: /^Increase score for/ })
-      .first();
-    await expect(increaseScore).toBeEnabled();
-    const geometry = () =>
-      page.evaluate(() => {
-        const search = document
-          .querySelector('[aria-label="Search"]')!
-          .getBoundingClientRect();
-        const header = document
-          .querySelector(".library-path-bar")!
-          .getBoundingClientRect();
-        return {
-          search: { x: search.x, y: search.y, width: search.width },
-          headerHeight: header.height,
-          documentWidth: document.documentElement.scrollWidth,
-          viewportWidth: innerWidth
-        };
-      });
-    const before = await geometry();
-    await increaseScore.click();
-    const update = page
-      .getByRole("region", { name: "Library results" })
-      .getByRole("button", { name: "Update results", exact: true });
-    await expect(update).toBeVisible();
-    const after = await geometry();
-    expect(after.search).toEqual(before.search);
-    expect(after.headerHeight).toBe(before.headerHeight);
-    expect(after.documentWidth).toBeLessThanOrEqual(after.viewportWidth);
-    await update.focus();
-    await update.click();
-    await expect(update).toBeHidden();
     await expect(
-      page.getByRole("button", { name: /^View options/ })
-    ).toBeFocused();
+      page.locator(".library-current-folder [data-slot=breadcrumb-page]")
+    ).toHaveAttribute("title", currentLabel);
+    for (const expanded of width >= 768 ? [true, false] : [false]) {
+      const toggle = page.getByRole("button", { name: "Toggle Sidebar" });
+      if (width >= 768) {
+        if ((await toggle.getAttribute("aria-expanded")) !== String(expanded))
+          await toggle.click();
+        await expect(toggle).toHaveAttribute("aria-expanded", String(expanded));
+        await expect(page.locator('[data-slot="sidebar-container"]')).toHaveCSS(
+          "left",
+          expanded ? "0px" : /-\d+px/
+        );
+        await expect
+          .poll(() =>
+            page.evaluate((expanded) => {
+              const gap = document
+                .querySelector('[data-slot="sidebar-gap"]')!
+                .getBoundingClientRect();
+              const sidebar = document
+                .querySelector('[data-slot="sidebar-container"]')!
+                .getBoundingClientRect();
+              return Math.abs(gap.width - (expanded ? sidebar.width : 0));
+            }, expanded)
+          )
+          .toBeLessThan(1);
+      }
+      const before = await expectToolbarRow(
+        page,
+        width < 768 ? 44 : 32,
+        width === 1440
+      );
+      const increaseScore = gallery
+        .getByRole("button", { name: /^Increase score for/ })
+        .first();
+      await expect(increaseScore).toBeEnabled();
+      await increaseScore.click();
+      const update = page
+        .getByRole("region", { name: "Library results" })
+        .getByRole("button", { name: "Update results", exact: true });
+      await expect(update).toBeVisible();
+      const after = await expectToolbarRow(
+        page,
+        width < 768 ? 44 : 32,
+        width === 1440
+      );
+      expect(after.search).toEqual(before.search);
+      expect(after.headerHeight).toBe(before.headerHeight);
+      if (width === 1440 || (width === 320 && !expanded))
+        await page.screenshot({
+          path: test
+            .info()
+            .outputPath(
+              `toolbar-pending-${width}-${expanded ? "expanded" : "collapsed"}.png`
+            )
+        });
+      await update.focus();
+      await update.click();
+      await expect(update).toBeHidden();
+      await expect(
+        page.getByRole("button", { name: /^View options/ })
+      ).toBeFocused();
+    }
   }
 });
 
@@ -584,4 +606,94 @@ function productionUrl(url: string): string {
   const target = new URL(url);
   target.port = process.env.AETHER_E2E_API_PORT ?? "3130";
   return target.href;
+}
+
+async function expectToolbarRow(
+  page: Page,
+  minimumTarget: number,
+  singleRow = false
+) {
+  const geometry = await page.evaluate(() => {
+    const header = document.querySelector<HTMLElement>(".library-path-bar")!;
+    const search = header
+      .querySelector<HTMLButtonElement>('[aria-label="Search"]')!
+      .getBoundingClientRect();
+    const path = header
+      .querySelector<HTMLElement>(".library-folder-breadcrumb")!
+      .getBoundingClientRect();
+    return {
+      search: {
+        x: search.x,
+        y: search.y,
+        width: search.width,
+        height: search.height
+      },
+      path: { width: path.width, center: path.y + path.height / 2 },
+      headerHeight: header.getBoundingClientRect().height,
+      documentWidth: document.documentElement.scrollWidth,
+      viewportWidth: innerWidth,
+      targets: [
+        ...header.querySelectorAll<HTMLButtonElement>(
+          ".library-path-actions button"
+        )
+      ]
+        .filter((button) => button.getBoundingClientRect().width > 0)
+        .map((button) => {
+          const bounds = button.getBoundingClientRect();
+          return {
+            name:
+              button.getAttribute("aria-label") ?? button.textContent?.trim(),
+            left: bounds.left,
+            right: bounds.right,
+            width: bounds.width,
+            height: bounds.height,
+            center: bounds.y + bounds.height / 2,
+            reachable: button.contains(
+              document.elementFromPoint(
+                bounds.x + bounds.width / 2,
+                bounds.y + bounds.height / 2
+              )
+            )
+          };
+        })
+    };
+  });
+  expect(geometry.documentWidth).toBeLessThanOrEqual(
+    geometry.viewportWidth + 1
+  );
+  expect(geometry.path.width).toBeGreaterThan(0);
+  expect(geometry.targets.length).toBeGreaterThanOrEqual(5);
+  expect(geometry.targets.map((target) => target.name)).toEqual(
+    expect.arrayContaining([
+      "Add media",
+      "View options",
+      "Select media",
+      "Search"
+    ])
+  );
+  expect(geometry.targets.at(-1)?.name).toBe("Search");
+  for (let index = 0; index < geometry.targets.length; index++) {
+    const target = geometry.targets[index]!;
+    expect(
+      Math.abs(target.center - geometry.search.y - geometry.search.height / 2)
+    ).toBeLessThanOrEqual(1);
+    expect(target.left).toBeGreaterThanOrEqual(0);
+    expect(target.right).toBeLessThanOrEqual(geometry.viewportWidth);
+    expect(target.width).toBeGreaterThanOrEqual(minimumTarget);
+    expect(target.height).toBeGreaterThanOrEqual(minimumTarget);
+    expect(target.reachable).toBe(true);
+    if (index)
+      expect(target.left).toBeGreaterThanOrEqual(
+        geometry.targets[index - 1]!.right
+      );
+  }
+  if (singleRow) {
+    expect(
+      Math.abs(
+        geometry.path.center - geometry.search.y - geometry.search.height / 2
+      )
+    ).toBeLessThanOrEqual(1);
+    expect(geometry.headerHeight).toBeLessThan(geometry.search.height * 2);
+  }
+  return geometry;
 }

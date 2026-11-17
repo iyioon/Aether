@@ -80,10 +80,6 @@
     flex: 1 1 auto;
   }
 
-  .library-path-actions {
-    padding-bottom: 8px;
-  }
-
   .app-shell {
     grid-template-rows: minmax(0, 1fr);
     grid-template-columns: 1fr;

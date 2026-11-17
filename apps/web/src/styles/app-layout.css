@@ -107,7 +107,8 @@
 .library-path-bar {
   display: flex;
   flex: 0 0 auto;
-  flex-direction: column;
+  align-items: center;
+  gap: 12px;
   min-width: 0;
   padding: env(safe-area-inset-top) max(14px, env(safe-area-inset-right)) 0
     max(14px, env(safe-area-inset-left));
@@ -131,6 +132,7 @@
 }
 
 .library-path-heading {
+  flex: 1 1 auto;
   min-width: 0;
   height: 56px;
   gap: 12px;
@@ -196,11 +198,23 @@
   flex: 0 0 auto;
   min-width: 0;
   gap: 8px;
-  padding-bottom: 10px;
 }
 
-.library-path-actions > .control-strip {
-  margin-left: auto;
+@container library-workspace (max-width: 900px) {
+  .library-path-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+  }
+
+  .library-path-heading {
+    flex: 0 0 auto;
+  }
+
+  .library-path-actions {
+    justify-content: flex-end;
+    padding-bottom: 10px;
+  }
 }
 
 .library-search-trigger {
@@ -224,11 +238,9 @@
   background: var(--primary);
 }
 
-@media (hover: none), (pointer: coarse) {
-  .library-search-tooltip,
-  [data-radix-popper-content-wrapper]:has(> .library-search-tooltip) {
-    pointer-events: none;
-  }
+.library-search-tooltip,
+[data-radix-popper-content-wrapper]:has(> .library-search-tooltip) {
+  pointer-events: none;
 }
 
 .control-action-label {

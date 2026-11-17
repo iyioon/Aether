@@ -13,7 +13,7 @@ sections below.
 
 ### Search
 
-1. Open **Search** at the right of the folder path, or press `/`.
+1. Open **Search** at the right of the top bar, or press `/`.
 2. Enter a **Filename or path**, choose a **Folder**, or set tags, media and score
    filters.
 3. Choose **Search** to apply your changes together.
@@ -29,7 +29,7 @@ the search icon indicates active text or filters.
 
 ### Choose a view
 
-Use the view buttons below the folder path, or open **Change view** in a narrow
+Use the view buttons beside **Search**, or open **Change view** in a narrow
 window.
 
 - **Gallery** shows a grid. Open a card to use the viewer. Right-click or

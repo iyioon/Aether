@@ -131,7 +131,7 @@ Notable changes to Aether are recorded here.
 
 - Refresh Gallery results automatically after completed file actions, preserving
   browsing position where possible. Keep pending score and tag sorting stable
-  through file changes, with one Update results action above the search bar.
+  through file changes, with one Update results action beside the folder path.
 - Open Activity as a separate page with filenames, timestamps, status and a
   Needs attention filter. Combine each upload and its final result in one entry.
   Keep routine file actions in the current view and open Activity after adding
@@ -140,8 +140,9 @@ Notable changes to Aether are recorded here.
   empty states and retry controls. Show pending restore/deletion status and
   prevent conflicting actions.
 
-- Place the view switcher at the end of the search row with a separator, and show
-  Add media only in Gallery. Keep result updates in the navigation row.
+- Keep Search, library actions and separated view switching on one top-bar row.
+  Place the folder path alongside when space permits, or above on narrow screens.
+  Show Add media only in Gallery, and keep result updates beside the folder path.
 - Group Trash, Activity, User guide, Settings and Sign out in the sidebar Account
   menu. Remove Gallery card ellipsis buttons while retaining context actions.
 - Add explicit batch tag actions and multiple staged tags. Keep score and tag

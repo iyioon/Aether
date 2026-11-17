@@ -174,7 +174,7 @@ export function LibraryPathBar({
       </TooltipTrigger>
       <TooltipContent
         className="library-search-tooltip"
-        side="left"
+        side="bottom"
         sideOffset={8}
       >
         {hasSearchCriteria ? "Search criteria are active (/)" : "Search (/)"}
@@ -357,7 +357,6 @@ export function LibraryPathBar({
         {isLibraryOpen ? (
           <div className="library-path-status">{status}</div>
         ) : null}
-        {isLibraryOpen ? searchButton : null}
       </div>
       {isLibraryOpen ? (
         <div className="library-path-actions">
@@ -407,6 +406,7 @@ export function LibraryPathBar({
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
+          {searchButton}
         </div>
       ) : null}
     </header>

@@ -163,9 +163,10 @@ reads and uses records returned by the server after a change. Scroll position
 and appearance/playback choices are browser-local conveniences, not part of the
 library database.
 
-`LibraryPathBar` keeps folder navigation, result status and one Search icon in
-the top row, with Search at the far right. View switching ends the action row
-behind a vertical separator; Add media is available in Gallery.
+`LibraryPathBar` places folder navigation and result status beside the library
+actions, with Search at the far right. View switching has a vertical separator;
+Add media is available in Gallery. In narrow workspaces, the folder path moves
+above the actions, which stay together with Search on one row.
 `LibraryResultStatus` owns the pending-result control beside the folder path,
 keeping viewport geometry stable.
 Gallery handles Home and End with immediate scrolling to the loaded bounds so

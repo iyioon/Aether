@@ -15,7 +15,7 @@ async function signIn(page: Page) {
   ).toBeVisible();
 }
 
-test("places search at the end of the folder path and limits creation to Gallery", async ({
+test("groups library controls with Search at the right of one desktop header row", async ({
   page
 }) => {
   await signIn(page);
@@ -40,13 +40,46 @@ test("places search at the end of the folder path and limits creation to Gallery
     pathBounds.x + pathBounds.width
   );
   expect(searchBounds.width).toBeGreaterThanOrEqual(32);
-  expect(switcherBounds.y).toBeGreaterThanOrEqual(
-    searchBounds.y + searchBounds.height
-  );
+  expect(
+    Math.abs(
+      searchBounds.y +
+        searchBounds.height / 2 -
+        switcherBounds.y -
+        switcherBounds.height / 2
+    )
+  ).toBeLessThanOrEqual(1);
   const actions = (await page.locator(".library-path-actions").boundingBox())!;
-  expect(switcherBounds.x + switcherBounds.width).toBeGreaterThanOrEqual(
+  expect(switcherBounds.x + switcherBounds.width).toBeLessThanOrEqual(
+    searchBounds.x
+  );
+  expect(searchBounds.x + searchBounds.width).toBeGreaterThanOrEqual(
     actions.x + actions.width - 1
   );
+  const header = (await page.getByRole("banner").boundingBox())!;
+  expect(header.height).toBeLessThan(searchBounds.height * 2);
+  const controlBounds = await page
+    .locator(".library-path-actions button")
+    .evaluateAll((buttons) =>
+      buttons
+        .map((button) => button.getBoundingClientRect())
+        .filter((bounds) => bounds.width > 0)
+        .map((bounds) => ({
+          left: bounds.left,
+          right: bounds.right,
+          center: bounds.y + bounds.height / 2
+        }))
+    );
+  expect(controlBounds).toHaveLength(7);
+  for (let index = 0; index < controlBounds.length; index++) {
+    const control = controlBounds[index]!;
+    expect(
+      Math.abs(control.center - searchBounds.y - searchBounds.height / 2)
+    ).toBeLessThanOrEqual(1);
+    if (index)
+      expect(control.left).toBeGreaterThanOrEqual(
+        controlBounds[index - 1]!.right
+      );
+  }
   await expect(
     page.locator(".library-path-actions .library-view-separator")
   ).toBeVisible();
@@ -63,6 +96,21 @@ test("places search at the end of the folder path and limits creation to Gallery
   await page.screenshot({
     path: test.info().outputPath("gallery-toolbar.png")
   });
+  await search.hover();
+  await expect(page.locator(".library-search-tooltip")).toBeVisible();
+  expect(
+    await page
+      .getByRole("button", { name: "Feed view", exact: true })
+      .evaluate((button) => {
+        const bounds = button.getBoundingClientRect();
+        return button.contains(
+          document.elementFromPoint(
+            bounds.x + bounds.width / 2,
+            bounds.y + bounds.height / 2
+          )
+        );
+      })
+  ).toBe(true);
   for (const name of ["Feed view", "Compare and rank"]) {
     await page.getByRole("button", { name, exact: true }).click();
     await expect(

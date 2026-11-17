@@ -78,7 +78,7 @@ export function UserGuidePage({
             </ol>
             <h2>Search</h2>
             <ol>
-              <li>Open Search at the right of the folder path, or press /.</li>
+              <li>Open Search at the right of the top bar, or press /.</li>
               <li>
                 Enter a Filename or path, choose a Folder, or set tags, media
                 and score filters.
@@ -100,8 +100,8 @@ export function UserGuidePage({
             </p>
             <h2>Choose a view</h2>
             <p>
-              Use the view buttons below the folder path, or open Change view in
-              a narrow window. Gallery shows a grid. Select a card to open the
+              Use the view buttons beside Search, or open Change view in a
+              narrow window. Gallery shows a grid. Select a card to open the
               viewer. Right-click or long-press its preview for actions;
               selection and the viewer’s More menu provide the same file
               commands.

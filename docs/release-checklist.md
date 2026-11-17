@@ -58,7 +58,12 @@ Never test rebuild or wipe against the only copy of a real library database.
   history.
 - Test portrait and short landscape layouts, safe areas, keyboard entry and
   zoom on an actual iPhone Home Screen installation.
-- Open Search from the icon beside the folder path and with `/`. Enter a
+- Check that the library header keeps Search, actions and view switching on one
+  row, with Search at the far right and a separator before view switching. On wide screens the
+  folder path shares that row; in narrow workspaces it may appear above. Check
+  long paths, sidebar resizing and touch targets without horizontal overflow.
+  Confirm the compact view menu and named Add media icon remain reachable.
+- Open Search from the top-bar icon and with `/`. Enter a
   filename/path, change folder scope, and add/remove tags with the keyboard open.
   Check read-only roots, All/Any matching, Tagged/Untagged, media and score
   filters. Draft changes and Clear must leave results, history and checkpoints

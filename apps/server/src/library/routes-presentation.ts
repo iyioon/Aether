@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { isDeepStrictEqual } from "node:util";
 import type { AppConfig } from "../config/config.js";
 import type { AetherDatabase } from "../db/database.js";
 import { mediaErrorStatus, resolveAssetFile } from "./media-serving.js";
@@ -6,6 +7,7 @@ import { removePresentationDerivativeFiles } from "./derivative-cache.js";
 import { obsoletePresentationDerivativeFiles } from "./repository-presentation.js";
 import {
   canonicalPresentationValues,
+  highlightPlaybackValues,
   presentationRenditionKeys
 } from "./presentation.js";
 import {
@@ -61,12 +63,29 @@ export function registerPresentationRoutes(
         },
         current.presentation
       );
+      if (edits.separateHighlights && values.highlights.length === 0)
+        return reply.code(400).send({ error: "invalid_request" });
+      // Display-only saves reuse validated settings, including after a restart.
+      const unchangedSettings = isDeepStrictEqual(
+        {
+          ...highlightPlaybackValues(values),
+          highlights: values.highlights,
+          mainHighlightId: values.mainHighlightId
+        },
+        {
+          ...highlightPlaybackValues(current.presentation),
+          highlights: canonicalPresentationValues(current.presentation)
+            .highlights,
+          mainHighlightId: current.presentation.mainHighlightId
+        }
+      );
       // Framing and reset remain available even for files the decoder cannot open.
       const needsTiming =
-        values.highlight !== null ||
-        values.highlights.length > 0 ||
-        values.playbackRate !== 1 ||
-        values.loopMode !== "repeat";
+        !unchangedSettings &&
+        (values.highlight !== null ||
+          values.highlights.length > 0 ||
+          values.playbackRate !== 1 ||
+          values.loopMode !== "repeat");
       if (needsTiming) {
         const capabilities = await getPresentationMediaCapabilities({
           db,

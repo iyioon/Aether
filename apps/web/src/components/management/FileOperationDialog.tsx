@@ -463,6 +463,12 @@ export function FileOperationDialog({
                 : selectionCount === 1 && operationAssets[0]
                   ? `Move “${operationAssets[0].name}” to Trash. Restore it before the retention period ends.`
                   : `${selectionCount} selected items will leave the library. Restore them from Trash before the retention period ends.`}
+              {target.type === "trash" &&
+              operationAssets.some(
+                (asset) => asset.presentation?.separateHighlights
+              )
+                ? " All highlight entries for these files will also leave Gallery and Feed."
+                : null}
             </AlertDialogDescription>
           </AlertDialogHeader>
           {fields}

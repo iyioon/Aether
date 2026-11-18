@@ -56,6 +56,88 @@ function savedHighlights(): SavedHighlight[] {
 }
 
 describe("multiple saved highlights", () => {
+  it("retains separate display on the media while selecting and editing individual highlights", () => {
+    const initial = setMainPresentationHighlight(
+      {
+        ...defaultPresentationValues(),
+        highlights: savedHighlights(),
+        separateHighlights: true
+      },
+      "opening"
+    );
+    const selected = selectPresentationHighlight(initial, "ending");
+    const ranged = updatePresentationRange(selected, 7500, 9500, 10_000);
+    const updated = updatePresentationHighlight(initial, "ending", {
+      ...ranged,
+      playbackRate: 2
+    });
+    const main = setMainPresentationHighlight(updated, "ending");
+    for (const values of [
+      getPresentationValues(initial),
+      selected,
+      ranged,
+      updated,
+      main
+    ]) {
+      expect(values.separateHighlights).toBe(true);
+      for (const highlight of getPresentationHighlights(values)) {
+        expect(highlight).not.toHaveProperty("separateHighlights");
+        expect(highlight).not.toHaveProperty("highlights");
+        expect(highlight).not.toHaveProperty("mainHighlightId");
+      }
+    }
+    expect(main).toMatchObject({
+      mainHighlightId: "ending",
+      highlight: { startMs: 7500, endMs: 9500 },
+      playbackRate: 2
+    });
+    expect(initial.highlights![1]!.highlight).toEqual({
+      startMs: 8000,
+      endMs: 10000
+    });
+
+    const preview = presentationAssetForHighlight(
+      {
+        id: "media",
+        presentation: {
+          ...initial,
+          highlights: savedHighlights(),
+          revision: 3,
+          renditionKeys: savedHighlights()[0]!.renditionKeys
+        }
+      } as AssetRecord,
+      "ending"
+    );
+    expect(preview.presentation!.separateHighlights).toBe(true);
+    expect(preview.presentation!.mainHighlightId).toBe("opening");
+    expect(
+      getPresentationHighlights({
+        ...defaultPresentationValues(),
+        separateHighlights: true,
+        highlight: { startMs: 100, endMs: 600 }
+      })[0]
+    ).not.toHaveProperty("separateHighlights");
+  });
+
+  it("treats omitted separate display as off and includes enabled display in save reconciliation", () => {
+    const omitted = defaultPresentationValues();
+    const disabled = { ...omitted, separateHighlights: false };
+    const enabled = { ...omitted, separateHighlights: true };
+    expect(presentationValuesEqual(omitted, disabled)).toBe(true);
+    expect(presentationValuesEqual(enabled, omitted)).toBe(false);
+    expect(presentationValuesEqual(enabled, disabled)).toBe(false);
+    expect(presentationValuesEqual(enabled, { ...enabled })).toBe(true);
+    expect(
+      presentationSaveOutcome({ ...enabled, revision: 4 }, enabled, 3)
+    ).toBe("saved");
+    expect(
+      presentationSaveOutcome({ ...disabled, revision: 4 }, enabled, 3)
+    ).toBe("conflict");
+    expect(
+      presentationSaveOutcome({ ...omitted, revision: 4 }, disabled, 3)
+    ).toBe("saved");
+  });
+
   it("retains legacy highlights and copies independent editable values without server keys", () => {
     const legacy = {
       ...defaultPresentationValues(),

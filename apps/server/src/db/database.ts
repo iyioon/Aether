@@ -718,6 +718,12 @@ const migrations: Migration[] = [
         'playbackRate', playback_rate, 'loopMode', loop_mode
       )), main_highlight_id = 'highlight-1' WHERE highlight_start_ms IS NOT NULL;
     `
+  },
+  {
+    version: 23,
+    name: "separate_highlight_display",
+    sql: `ALTER TABLE asset_presentations ADD COLUMN separate_highlights INTEGER NOT NULL DEFAULT 0
+      CHECK(separate_highlights IN (0, 1));`
   }
 ];
 
@@ -817,7 +823,8 @@ const REQUIRED_TABLE_COLUMNS = new Map<string, readonly string[]>([
       "aspect_framing",
       "feed_framing",
       "highlights",
-      "main_highlight_id"
+      "main_highlight_id",
+      "separate_highlights"
     ]
   ],
   [
@@ -1114,7 +1121,8 @@ function validateStoredPresentations(db: AetherDatabase): void {
       'fit', fit, 'focalX', focal_x, 'focalY', focal_y, 'zoom', zoom,
       'aspectFraming', json(aspect_framing), 'feedFraming', json(feed_framing),
       'playbackRate', playback_rate, 'loopMode', loop_mode,
-      'highlights', json(highlights), 'mainHighlightId', main_highlight_id
+      'highlights', json(highlights), 'mainHighlightId', main_highlight_id,
+      'separateHighlights', json(CASE separate_highlights WHEN 0 THEN 'false' WHEN 1 THEN 'true' ELSE 'null' END)
     ) AS value FROM asset_presentations`
       )
       .iterate() as Iterable<{ value: string }>;

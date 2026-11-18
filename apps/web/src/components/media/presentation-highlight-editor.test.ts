@@ -61,6 +61,42 @@ function collection(): PresentationValues {
 }
 
 describe("highlight draft editing", () => {
+  it("keeps separate display at media level through add, rename and removal until the final highlight is removed", () => {
+    const original = { ...collection(), separateHighlights: true };
+    const selected = selectPresentationHighlight(original, "ending");
+    const added = addPresentationHighlight(selected, 10_000, 3000, "middle");
+    const renamed = renamePresentationHighlight(added, "middle", "Middle");
+    const removedSecondary = removePresentationHighlight(renamed, "middle");
+    const removedMain = removePresentationHighlight(
+      removedSecondary,
+      "opening"
+    );
+    for (const values of [added, renamed, removedSecondary, removedMain]) {
+      expect(values.separateHighlights).toBe(true);
+      for (const highlight of values.highlights!) {
+        expect(highlight).not.toHaveProperty("separateHighlights");
+        expect(highlight).not.toHaveProperty("highlights");
+        expect(highlight).not.toHaveProperty("mainHighlightId");
+      }
+    }
+    expect(added.highlights![2]).toMatchObject({
+      id: "middle",
+      highlight: { startMs: 3000, endMs: 6000 },
+      playbackRate: 1.5,
+      loopMode: "bounce"
+    });
+    expect(removedMain.mainHighlightId).toBe("ending");
+    const cleared = removePresentationHighlight(removedMain, "ending");
+    expect(cleared).toMatchObject({
+      separateHighlights: false,
+      highlights: [],
+      mainHighlightId: null,
+      highlight: null
+    });
+    expect(original.separateHighlights).toBe(true);
+    expect(original.highlights).toHaveLength(2);
+  });
+
   it("copies the selected section's settings into an independent highlight while retaining main", () => {
     const original = collection();
     const selected = selectPresentationHighlight(original, "ending");
@@ -206,6 +242,7 @@ describe("highlight draft editing", () => {
       ...original,
       highlights: [],
       mainHighlightId: null,
+      separateHighlights: false,
       highlight: null,
       playbackRate: 1,
       loopMode: "repeat"

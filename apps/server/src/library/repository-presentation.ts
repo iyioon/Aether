@@ -15,6 +15,7 @@ interface PresentationRow {
   feed_framing: string;
   highlights: string;
   main_highlight_id: string | null;
+  separate_highlights: number;
   revision: number;
   highlight_start_ms: number | null;
   highlight_end_ms: number | null;
@@ -128,8 +129,8 @@ export function saveAssetPresentation(
       removeDerivative.run(input.assetId, derivative.path);
     db.prepare(
       `INSERT INTO asset_presentations
-      (asset_id, revision, highlight_start_ms, highlight_end_ms, fit, focal_x, focal_y, zoom, playback_rate, loop_mode, updated_at, aspect_framing, feed_framing, highlights, main_highlight_id)
-      VALUES (@assetId, @revision, @startMs, @endMs, @fit, @focalX, @focalY, @zoom, @playbackRate, @loopMode, @updatedAt, @aspectFraming, @feedFraming, @highlights, @mainHighlightId)
+      (asset_id, revision, highlight_start_ms, highlight_end_ms, fit, focal_x, focal_y, zoom, playback_rate, loop_mode, updated_at, aspect_framing, feed_framing, highlights, main_highlight_id, separate_highlights)
+      VALUES (@assetId, @revision, @startMs, @endMs, @fit, @focalX, @focalY, @zoom, @playbackRate, @loopMode, @updatedAt, @aspectFraming, @feedFraming, @highlights, @mainHighlightId, @separateHighlights)
       ON CONFLICT(asset_id) DO UPDATE SET
         revision = excluded.revision,
         highlight_start_ms = excluded.highlight_start_ms,
@@ -138,7 +139,8 @@ export function saveAssetPresentation(
         zoom = excluded.zoom, playback_rate = excluded.playback_rate,
         loop_mode = excluded.loop_mode, updated_at = excluded.updated_at,
         aspect_framing = excluded.aspect_framing, feed_framing = excluded.feed_framing,
-        highlights = excluded.highlights, main_highlight_id = excluded.main_highlight_id`
+        highlights = excluded.highlights, main_highlight_id = excluded.main_highlight_id,
+        separate_highlights = excluded.separate_highlights`
     ).run({
       assetId: input.assetId,
       revision: input.expectedRevision + 1,
@@ -154,6 +156,7 @@ export function saveAssetPresentation(
       feedFraming: JSON.stringify(values.feedFraming ?? {}),
       highlights: JSON.stringify(values.highlights ?? []),
       mainHighlightId: values.mainHighlightId ?? null,
+      separateHighlights: Number(values.separateHighlights),
       playbackRate: values.playbackRate,
       loopMode: values.loopMode,
       updatedAt: input.updatedAt
@@ -191,6 +194,7 @@ export function resetPresentationEdits(
       "highlight_end_ms = NULL",
       "highlights = '[]'",
       "main_highlight_id = NULL",
+      "separate_highlights = 0",
       `playback_rate = ${defaults.playbackRate}`,
       "loop_mode = 'repeat'"
     );
@@ -235,6 +239,7 @@ function rowValues(row: PresentationRow): PresentationValues {
     ) as PresentationValues["feedFraming"],
     highlights: JSON.parse(row.highlights) as PresentationValues["highlights"],
     mainHighlightId: row.main_highlight_id,
+    separateHighlights: row.separate_highlights === 1,
     fit: row.fit,
     focalX: row.focal_x,
     focalY: row.focal_y,
@@ -255,7 +260,7 @@ export function createPresentationSourceReconciler(db: AetherDatabase) {
     ON CONFLICT(asset_id) DO UPDATE SET
       highlight_start_ms = NULL, highlight_end_ms = NULL, fit = 'auto',
       focal_x = 0.5, focal_y = 0.5, zoom = 1, playback_rate = 1,
-      loop_mode = 'repeat', aspect_framing = '{}', feed_framing = '{}', highlights = '[]', main_highlight_id = NULL, revision = asset_presentations.revision + 1, updated_at = @updatedAt`);
+      loop_mode = 'repeat', aspect_framing = '{}', feed_framing = '{}', highlights = '[]', main_highlight_id = NULL, separate_highlights = 0, revision = asset_presentations.revision + 1, updated_at = @updatedAt`);
   return (input: {
     assetId: string;
     contentSha256: string;

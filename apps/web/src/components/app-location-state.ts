@@ -24,6 +24,7 @@ export interface AppLocationState {
     settingsTab: SettingsTab;
     guideTopic?: GuideTopic;
     viewerAssetId: string | null;
+    viewerHighlightId?: string | null;
   };
 }
 const STORAGE_KEY = "aether.resume.v1";
@@ -44,7 +45,7 @@ export function resolveAppLocation(
   const explicitLibrary = hasExplicitLibraryStateQuery(search);
   if (
     !explicitLibrary &&
-    !["page", "workspace", "tab", "asset", "topic"].some((key) =>
+    !["page", "workspace", "tab", "asset", "highlightId", "topic"].some((key) =>
       params.has(key)
     )
   )
@@ -53,6 +54,7 @@ export function resolveAppLocation(
   const workspace = params.get("workspace");
   const tab = params.get("tab");
   const asset = params.get("asset");
+  const highlight = params.get("highlightId");
   const library = explicitLibrary
     ? parseLibraryStateSearch(search)
     : stored.library;
@@ -83,7 +85,13 @@ export function resolveAppLocation(
         asset &&
         asset.length <= 160
           ? asset
-          : null
+          : null,
+      ...((!page || page === "library" || page === "guide") &&
+      asset &&
+      asset.length <= 160 &&
+      isHighlightId(highlight)
+        ? { viewerHighlightId: highlight }
+        : {})
     }
   };
 }
@@ -138,9 +146,17 @@ export function readStoredAppLocation(): AppLocationState {
             viewerAssetId:
               (nav.page === "library" || nav.page === "guide") &&
               typeof nav.viewerAssetId === "string" &&
+              nav.viewerAssetId.length > 0 &&
               nav.viewerAssetId.length <= 160
                 ? nav.viewerAssetId
-                : null
+                : null,
+            ...((nav.page === "library" || nav.page === "guide") &&
+            typeof nav.viewerAssetId === "string" &&
+            nav.viewerAssetId.length > 0 &&
+            nav.viewerAssetId.length <= 160 &&
+            isHighlightId(nav.viewerHighlightId)
+              ? { viewerHighlightId: nav.viewerHighlightId }
+              : {})
           }
         };
       }
@@ -197,6 +213,11 @@ export function writeAppLocationToUrl(
     params.set("topic", state.navigation.guideTopic ?? "browse");
   if (state.navigation.viewerAssetId)
     params.set("asset", state.navigation.viewerAssetId);
+  if (
+    state.navigation.viewerAssetId &&
+    isHighlightId(state.navigation.viewerHighlightId)
+  )
+    params.set("highlightId", state.navigation.viewerHighlightId);
   const query = params.toString();
   const url = `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`;
   if (
@@ -221,6 +242,10 @@ export function clearAppResumeState(): void {
     }
   }
   window.history.replaceState(null, "", window.location.pathname);
+}
+
+function isHighlightId(value: unknown): value is string {
+  return typeof value === "string" && /^[a-zA-Z0-9_-]{1,64}$/.test(value);
 }
 
 export function isSettingsTab(value: unknown): value is SettingsTab {

@@ -1,6 +1,15 @@
 import { Maximize2 } from "lucide-react";
-import { memo, useCallback, useState, type MutableRefObject } from "react";
-import type { AssetRecord } from "../../api/client";
+import {
+  memo,
+  useCallback,
+  useMemo,
+  useState,
+  type MutableRefObject
+} from "react";
+import {
+  libraryMediaEntryLabel,
+  type LibraryMediaEntry
+} from "../media/library-media-entries";
 import {
   MediaPreview,
   type MediaPlaybackCommands
@@ -12,7 +21,7 @@ import { IconButton } from "../IconButton";
 export type FeedSoundState = "blocked" | "muted" | "on";
 
 interface FeedItemProps {
-  asset: AssetRecord;
+  asset: LibraryMediaEntry;
   metadataFields: ReadonlySet<GalleryMetadataField>;
   feedSoundState: FeedSoundState;
   index: number;
@@ -24,7 +33,7 @@ interface FeedItemProps {
   onAudibleAutoplayBlocked: () => void;
   onAudiblePlaybackStarted: () => void;
   onFeedSoundToggle: () => void;
-  onOpenAnnotations: (assetId: string) => void;
+  onOpenAnnotations: (assetId: string, entryKey?: string) => void;
   onOpenAsset: (assetId: string) => void;
   onRegisterItem: (index: number, node: HTMLElement | null) => void;
   onVideoControlsReady: (
@@ -67,10 +76,23 @@ export const FeedItem = memo(function FeedItem({
     },
     [index, onRegisterItem]
   );
+  const displayMetadataFields = useMemo(
+    () =>
+      asset.highlightId
+        ? new Set([...metadataFields].filter((field) => field !== "title"))
+        : metadataFields,
+    [asset.highlightId, metadataFields]
+  );
+  const registerVideoControls = useCallback(
+    (_assetId: string, commands: MediaPlaybackCommands | null) =>
+      onVideoControlsReady(asset.entryKey, commands),
+    [asset.entryKey, onVideoControlsReady]
+  );
   return (
     <article
       className={isFeedChromeHidden ? "feed-item details-hidden" : "feed-item"}
-      aria-label={`${asset.mediaType}: ${asset.name}`}
+      aria-label={`${asset.mediaType}: ${libraryMediaEntryLabel(asset)}`}
+      data-entry-key={asset.entryKey}
       data-feed-index={index}
       data-aspect="Portrait"
       data-audio-state={feedSoundState}
@@ -80,16 +102,17 @@ export const FeedItem = memo(function FeedItem({
         <div className="feed-frame" ref={setControlsContainer}>
           <div className="media-preview-button">
             <MediaPreview
-              asset={asset}
+              asset={asset.source}
+              selectedHighlightId={asset.highlightId}
               controlsContainer={controlsContainer}
               framingAspect="Portrait"
               isActive={isActive}
               muted={!isActive || isFeedMuted}
               onAudibleAutoplayBlocked={onAudibleAutoplayBlocked}
               onAudiblePlaybackStarted={onAudiblePlaybackStarted}
-              onExpand={() => onOpenAsset(asset.id)}
+              onExpand={() => onOpenAsset(asset.entryKey)}
               onToggleMuted={onFeedSoundToggle}
-              onVideoControlsReady={onVideoControlsReady}
+              onVideoControlsReady={registerVideoControls}
               onVideoPress={onToggleFeedChrome}
               playbackPaused={isPlaybackPaused}
               preloadPreview={preloadPreview}
@@ -107,17 +130,36 @@ export const FeedItem = memo(function FeedItem({
               onClick={onToggleFeedChrome}
             />
           ) : null}
-          <div className="feed-meta" data-has-info={metadataFields.size > 0}>
-            {metadataFields.size > 0 ? (
+          <div
+            className="feed-meta"
+            data-has-info={
+              metadataFields.size > 0 || asset.highlightId !== null
+            }
+          >
+            {metadataFields.size > 0 || asset.highlightId !== null ? (
               <button
                 className="feed-meta-button"
                 type="button"
                 aria-haspopup="dialog"
-                aria-label={`Open details for ${asset.name}`}
+                aria-label={`Open details for ${libraryMediaEntryLabel(asset)}`}
                 title="Open details"
-                onClick={() => onOpenAnnotations(asset.id)}
+                onClick={() => onOpenAnnotations(asset.id, asset.entryKey)}
               >
-                <MediaCardInfo asset={asset} fields={metadataFields} compact />
+                {asset.highlightName ? (
+                  <span className="media-card-info media-card-info--compact">
+                    <strong title={asset.highlightName}>
+                      {asset.highlightName}
+                    </strong>
+                    <span title={asset.name}>{asset.name}</span>
+                  </span>
+                ) : null}
+                {displayMetadataFields.size > 0 ? (
+                  <MediaCardInfo
+                    asset={asset.source}
+                    fields={displayMetadataFields}
+                    compact
+                  />
+                ) : null}
               </button>
             ) : null}
           </div>
@@ -127,9 +169,9 @@ export const FeedItem = memo(function FeedItem({
                 className="media-overlay-button"
                 icon={Maximize2}
                 iconSize={17}
-                label={`Open ${asset.name} fullscreen`}
+                label={`Open ${libraryMediaEntryLabel(asset)} fullscreen`}
                 title="Fullscreen"
-                onClick={() => onOpenAsset(asset.id)}
+                onClick={() => onOpenAsset(asset.entryKey)}
               />
             </div>
           ) : null}

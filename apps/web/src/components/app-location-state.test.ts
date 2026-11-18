@@ -296,6 +296,151 @@ describe("application resume and explicit locations", () => {
   });
 });
 
+describe("individual highlight locations", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("round trips the selected highlight through its URL and a Home Screen checkpoint", () => {
+    const values = new Map<string, string>();
+    const replaceState = vi.fn();
+    vi.stubGlobal("window", {
+      location: { pathname: "/", search: "", hash: "" },
+      history: { replaceState },
+      localStorage: {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => values.set(key, value)
+      }
+    });
+    const selected = resolveAppLocation(
+      "?view=gallery&asset=media-1&highlightId=ending_2-A&highlight=0",
+      stored
+    );
+    expect(selected.navigation).toMatchObject({
+      page: "library",
+      viewerAssetId: "media-1",
+      viewerHighlightId: "ending_2-A"
+    });
+    expect(selected.library.highlightsOnly).toBe(false);
+    writeAppLocationToUrl(selected);
+    const url = new URL(
+      String(replaceState.mock.calls[0]?.[2]),
+      "https://aether.test"
+    );
+    expect(url.searchParams.get("asset")).toBe("media-1");
+    expect(url.searchParams.get("highlightId")).toBe("ending_2-A");
+    expect(resolveAppLocation(url.search, stored)).toEqual(selected);
+    saveAppLocation(selected);
+    expect(readStoredAppLocation()).toEqual(selected);
+    expect(
+      resolveAppLocation(
+        "?launch=resume&asset=other&highlightId=opening",
+        readStoredAppLocation()
+      )
+    ).toEqual(selected);
+    expect(
+      resolveAppLocation("?asset=media-2", selected).navigation
+    ).toMatchObject({
+      viewerAssetId: "media-2"
+    });
+    expect(
+      resolveAppLocation("?asset=media-2", selected).navigation
+        .viewerHighlightId
+    ).toBeUndefined();
+  });
+
+  it.each([
+    "",
+    "x".repeat(65),
+    "ending~source",
+    "../ending",
+    "two words",
+    "종료"
+  ])(
+    "rejects an invalid highlight ID without preventing its source from opening: %s",
+    (highlightId) => {
+      const navigation = resolveAppLocation(
+        `?asset=media-1&highlightId=${encodeURIComponent(highlightId)}`,
+        stored
+      ).navigation;
+      expect(navigation.viewerAssetId).toBe("media-1");
+      expect(navigation.viewerHighlightId).toBeUndefined();
+    }
+  );
+
+  it("accepts bounded IDs and drops highlight IDs without a valid source or on another page", () => {
+    const longest = "H".repeat(64);
+    expect(
+      resolveAppLocation(
+        `?asset=${"a".repeat(160)}&highlightId=${longest}`,
+        stored
+      ).navigation.viewerHighlightId
+    ).toBe(longest);
+    for (const search of [
+      "?highlightId=ending",
+      "?asset=&highlightId=ending",
+      `?asset=${"a".repeat(161)}&highlightId=ending`,
+      "?page=settings&asset=media-1&highlightId=ending",
+      "?page=activity&asset=media-1&highlightId=ending",
+      "?page=trash&asset=media-1&highlightId=ending"
+    ]) {
+      const navigation = resolveAppLocation(search, stored).navigation;
+      expect(navigation.viewerAssetId).toBeNull();
+      expect(navigation.viewerHighlightId).toBeUndefined();
+    }
+  });
+
+  it("validates checkpoint highlight IDs together with their source and omits invalid IDs when writing a URL", () => {
+    const values = new Map<string, string>();
+    const replaceState = vi.fn();
+    vi.stubGlobal("window", {
+      location: { pathname: "/", search: "", hash: "" },
+      history: { replaceState },
+      localStorage: {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => values.set(key, value)
+      }
+    });
+    for (const viewerAssetId of [null, "", "a".repeat(161)]) {
+      saveAppLocation({
+        ...stored,
+        navigation: {
+          ...stored.navigation,
+          page: "library",
+          viewerAssetId,
+          viewerHighlightId: "ending"
+        }
+      });
+      expect(readStoredAppLocation().navigation.viewerAssetId).toBeNull();
+      expect(
+        readStoredAppLocation().navigation.viewerHighlightId
+      ).toBeUndefined();
+    }
+    for (const viewerHighlightId of ["", "ending/clip", "x".repeat(65)]) {
+      const invalid: AppLocationState = {
+        ...stored,
+        navigation: {
+          ...stored.navigation,
+          page: "library",
+          viewerAssetId: "media-1",
+          viewerHighlightId
+        }
+      };
+      saveAppLocation(invalid);
+      expect(readStoredAppLocation().navigation.viewerAssetId).toBe("media-1");
+      expect(
+        readStoredAppLocation().navigation.viewerHighlightId
+      ).toBeUndefined();
+      replaceState.mockClear();
+      writeAppLocationToUrl(invalid);
+      expect(
+        new URL(
+          String(replaceState.mock.calls[0]?.[2]),
+          "https://aether.test"
+        ).searchParams.has("highlightId")
+      ).toBe(false);
+    }
+  });
+});
+
 describe("guide topics and Trash locations", () => {
   it("lets explicit guide topics take precedence and rejects invalid topics", () => {
     const guide = {

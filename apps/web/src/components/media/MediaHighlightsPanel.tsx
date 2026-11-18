@@ -3,6 +3,8 @@ import { Pencil } from "lucide-react";
 import { ApiError, type AssetRecord } from "../../api/client";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
+import { Checkbox } from "../ui/checkbox";
+import { Label } from "../ui/label";
 import {
   formatPresentationTime,
   getPresentationHighlights
@@ -20,6 +22,11 @@ interface MediaHighlightsPanelProps {
     signal: AbortSignal
   ) => Promise<AssetRecord>;
   onAssetUpdated: (asset: AssetRecord) => void;
+  onSeparateHighlightsChange?: (
+    asset: AssetRecord,
+    enabled: boolean,
+    signal: AbortSignal
+  ) => Promise<AssetRecord>;
   onBusyChange: (busy: boolean) => void;
 }
 
@@ -30,6 +37,7 @@ export function MediaHighlightsPanel({
   onViewHighlight,
   onEditHighlights,
   onMakeMainHighlight,
+  onSeparateHighlightsChange,
   onAssetUpdated,
   onBusyChange
 }: MediaHighlightsPanelProps) {
@@ -81,31 +89,36 @@ export function MediaHighlightsPanel({
       target.focus({ preventScroll: true });
   }, [pendingId]);
 
-  async function makeMain(highlightId: string) {
+  async function saveSettings(highlightId: string, separate?: boolean) {
     if (
       disabled ||
       pendingRef.current ||
-      !onMakeMainHighlight ||
-      highlightId === mainHighlightId
+      (separate === undefined
+        ? !onMakeMainHighlight || highlightId === mainHighlightId
+        : !onSeparateHighlightsChange)
     )
       return;
     const assetId = asset.id;
     const controller = new AbortController();
     saveControllerRef.current = controller;
-    pendingFocusRef.current = {
-      origin: document.activeElement,
-      highlightId
-    };
+    if (separate === undefined)
+      pendingFocusRef.current = {
+        origin: document.activeElement,
+        highlightId
+      };
     pendingRef.current = true;
     setPendingId(highlightId);
     setError(null);
     callbacksRef.current.onBusyChange(true);
     try {
-      const saved = await onMakeMainHighlight(
-        asset,
-        highlightId,
-        controller.signal
-      );
+      const saved =
+        separate === undefined
+          ? await onMakeMainHighlight!(asset, highlightId, controller.signal)
+          : await onSeparateHighlightsChange!(
+              asset,
+              separate,
+              controller.signal
+            );
       if (
         activeRef.current &&
         !controller.signal.aborted &&
@@ -121,8 +134,8 @@ export function MediaHighlightsPanel({
       )
         setError(
           failure instanceof ApiError && failure.status === 409
-            ? "These highlights changed in another window. Reopen Info before changing the main highlight."
-            : "The main highlight change could not be confirmed. Reopen Info to check before trying again."
+            ? "These highlights changed in another window. Reopen Info before changing them."
+            : "The change could not be confirmed. Reopen Info to check before trying again."
         );
     } finally {
       if (saveControllerRef.current === controller)
@@ -139,6 +152,23 @@ export function MediaHighlightsPanel({
 
   return (
     <section className="media-highlights-panel" aria-label="Media highlights">
+      {highlights.length > 0 && onSeparateHighlightsChange ? (
+        <div className="grid gap-2">
+          <Label className="media-highlight-display-option flex items-center gap-3 leading-5">
+            <Checkbox
+              checked={asset.presentation?.separateHighlights === true}
+              disabled={unavailable}
+              onCheckedChange={(checked) =>
+                void saveSettings("$display", checked === true)
+              }
+            />
+            Show highlights separately in Gallery and Feed
+          </Label>
+          <p className="text-sm text-muted-foreground">
+            Scores, tags, and file actions apply to the source media.
+          </p>
+        </div>
+      ) : null}
       {highlights.length > 0 ? (
         <ul className="media-highlights-list">
           {highlights.map((highlight) => {
@@ -190,7 +220,7 @@ export function MediaHighlightsPanel({
                       size="sm"
                       disabled={unavailable}
                       aria-label={`Make ${highlight.name} the main highlight`}
-                      onClick={() => void makeMain(highlight.id)}
+                      onClick={() => void saveSettings(highlight.id)}
                     >
                       {pendingId === highlight.id ? "Saving…" : "Make main"}
                     </Button>
@@ -208,7 +238,10 @@ export function MediaHighlightsPanel({
           className="media-highlight-feedback"
           role={error ? "alert" : "status"}
         >
-          {error ?? "Saving main highlight…"}
+          {error ??
+            (pendingId === "$display"
+              ? "Saving display setting…"
+              : "Saving main highlight…")}
         </p>
       ) : null}
       {onEditHighlights ? (

@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState
 } from "react";
@@ -26,12 +27,14 @@ import { animationPresentationKey } from "./animation-timeline";
 import { usePresentationPreferences } from "./presentation-context";
 import {
   getPresentationValues,
+  presentationAssetForHighlight,
   presentationFramingForAspect
 } from "./presentation-model";
 import { presentationMediaStyle } from "./presentation-geometry";
 import {
   bounceDurationExceeded,
   playbackVariant,
+  presentationPlaybackContext,
   presentationPlaybackUrl,
   presentationPosterUrl
 } from "./presentation-playback";
@@ -58,6 +61,7 @@ interface MediaPreviewProps {
   controlsContainer?: HTMLElement | null;
   noticeContainer?: HTMLElement | null;
   asset: AssetRecord;
+  selectedHighlightId?: string | null;
   framingAspect?: PresentationAspect;
   defaultFit?: "contain" | "cover";
   isActive?: boolean;
@@ -83,7 +87,8 @@ interface MediaPreviewProps {
 }
 
 export const MediaPreview = memo(function MediaPreview({
-  asset,
+  asset: sourceAsset,
+  selectedHighlightId,
   controlsContainer,
   noticeContainer,
   defaultFit = "cover",
@@ -107,8 +112,15 @@ export const MediaPreview = memo(function MediaPreview({
   useOriginalVideo = false
 }: MediaPreviewProps) {
   const preferences = usePresentationPreferences();
+  const asset = useMemo(
+    () => presentationAssetForHighlight(sourceAsset, selectedHighlightId),
+    [sourceAsset, selectedHighlightId]
+  );
+  const playbackHighlightId =
+    asset !== sourceAsset ? (selectedHighlightId ?? undefined) : undefined;
   playbackPaused = playbackPaused || preferences.isPlaybackPaused;
-  const highlightsOnly = preferences.highlightsOnly;
+  const highlightsOnly =
+    preferences.highlightsOnly || Boolean(playbackHighlightId);
   const surfaceRef = useRef<HTMLSpanElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
@@ -188,7 +200,7 @@ export const MediaPreview = memo(function MediaPreview({
   const [readyAnimationKey, setReadyAnimationKey] = useState<string | null>(
     null
   );
-  const assetIdentity = `${asset.id}:${asset.mtimeMs}:${asset.sizeBytes}`;
+  const assetIdentity = `${asset.id}:${asset.mtimeMs}:${asset.sizeBytes}${playbackHighlightId ? `:${playbackHighlightId}:${asset.presentation?.highlight?.startMs}:${asset.presentation?.highlight?.endMs}` : ""}`;
   const [stateAssetIdentity, setStateAssetIdentity] = useState(assetIdentity);
   if (stateAssetIdentity !== assetIdentity) {
     // Reset source-owned state before publishing a new source on the same player.
@@ -227,7 +239,9 @@ export const MediaPreview = memo(function MediaPreview({
       (showVideoTimeline ? isActive || preloadPreview : isVisible) &&
       (animationCandidate ||
         variant === "bounce" ||
-        (variant === "highlight" && (!useOriginalVideo || originalVideoFailed)))
+        (variant === "highlight" &&
+          (!useOriginalVideo || originalVideoFailed))),
+    playbackHighlightId
   );
   const playbackAsset = capabilities
     ? {
@@ -284,6 +298,14 @@ export const MediaPreview = memo(function MediaPreview({
               ? mediaUrl(asset)
               : videoPreviewUrl(asset, tall ? 720 : 480)
       : "";
+  const playbackContext = playbackHighlightId
+    ? presentationPlaybackContext(
+        videoSource,
+        variant,
+        values.highlight,
+        playbackHighlightId
+      )
+    : videoSource;
   const playbackFailure = useVideoPlaybackFailure({
     source: videoSource,
     enabled: asset.mediaType === "video" && !staticPreview
@@ -339,12 +361,12 @@ export const MediaPreview = memo(function MediaPreview({
   videoSourceRef.current = videoSource;
   const playback = useVideoPlayback({
     videoRef,
-    sourceKey: shouldLoadVideo ? videoSource : "",
+    sourceKey: shouldLoadVideo ? playbackContext : "",
     enabled: asset.mediaType === "video" && showVideoTimeline && !staticPreview
   });
   const isVideoBuffering = useVideoBuffering({
     videoRef,
-    sourceKey: shouldLoadVideo ? videoSource : "",
+    sourceKey: shouldLoadVideo ? playbackContext : "",
     enabled: isVideoPlaybackAllowed
   });
   const presentationVideo = useVideoPresentation(
@@ -686,6 +708,7 @@ export const MediaPreview = memo(function MediaPreview({
     shouldLoadVideo,
     shouldAutoplayVideo,
     retryAttempt,
+    playbackContext,
     videoSource
   ]);
 

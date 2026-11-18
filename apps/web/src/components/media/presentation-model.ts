@@ -71,6 +71,9 @@ export function getPresentationValues(
       : {}),
     ...(presentation.mainHighlightId !== undefined
       ? { mainHighlightId: presentation.mainHighlightId }
+      : {}),
+    ...(presentation.separateHighlights !== undefined
+      ? { separateHighlights: presentation.separateHighlights === true }
       : {})
   };
 }
@@ -96,7 +99,8 @@ export function getPresentationHighlights(
     const copied = getPresentationValues({
       ...highlight,
       highlights: undefined,
-      mainHighlightId: undefined
+      mainHighlightId: undefined,
+      separateHighlights: undefined
     });
     return {
       id: highlight.id,
@@ -141,7 +145,8 @@ export function updatePresentationHighlight(
     const copied = getPresentationValues({
       ...edits,
       highlights: undefined,
-      mainHighlightId: undefined
+      mainHighlightId: undefined,
+      separateHighlights: undefined
     });
     return {
       ...highlight,
@@ -364,6 +369,8 @@ export function presentationValuesEqual(
   const leftHighlights = getPresentationHighlights(left);
   const rightHighlights = getPresentationHighlights(right);
   return (
+    (left.separateHighlights ?? false) ===
+      (right.separateHighlights ?? false) &&
     presentationSettingsEqual(left, right) &&
     (left.mainHighlightId ?? leftHighlights[0]?.id ?? null) ===
       (right.mainHighlightId ?? rightHighlights[0]?.id ?? null) &&

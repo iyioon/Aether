@@ -77,10 +77,23 @@ Use previous/next or the left/right keys to move through results. **Info** opens
 details without stopping playback. **More** contains Edit media, Download and
 available file actions. Tap the media to hide or show controls.
 
+**Info → Details** shows the file’s modification time, library location, format,
+size and available dimensions, duration and codec. Modified uses the file’s
+filesystem timestamp, displayed in your device’s time zone; it is not the date
+the photo was taken. The location is relative to the configured library root.
+
 In **Info → Highlights**, choose **View** to play a saved highlight with its
 framing and speed. This does not change the main highlight or your playback
 defaults. **Make main** sets the highlight used across the media views when
 **Play highlights only** is enabled.
+
+To show each saved highlight as its own entry, enable **Show highlights separately
+in Gallery and Feed** in this tab. This setting applies to this media item. Its
+entries replace the usual card and stay together in the current sort order.
+Each plays its saved section, speed and framing even when **Play highlights only**
+is off. Scores, favorites, tags and file actions apply to the source media; selecting
+several of its highlights selects that source once. Library counts and Compare
+continue to count source media. Turn the setting off to return to one entry.
 
 **View options** includes **Play highlights only** and **Use saved framing**.
 Toggling saved framing does not edit saved frames. Native iPhone fullscreen uses system
@@ -162,8 +175,8 @@ Choose **Make main** for the selected highlight to use it by default.
 highlight selects the first remaining one; removing the last clears its playback
 edits. Cancel discards these changes.
 
-**Play highlights only** uses the main highlight in Gallery, Feed, Compare and
-the viewer. Repeat highlights can span up to two minutes. If necessary, Aether
+For ordinary media entries, **Play highlights only** uses the main highlight in
+Gallery, Feed, Compare and the viewer. Repeat highlights can span up to two minutes. If necessary, Aether
 prepares a compatible section. First playback may take time; later visits reuse
 it. Saving or changing a Bounce section turns on Play highlights only; framing
 and speed changes keep that preference.

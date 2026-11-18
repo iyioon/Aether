@@ -111,6 +111,28 @@ Never test rebuild or wipe against the only copy of a real library database.
 
 ## Presentation Acceptance
 
+- Enable Show highlights separately in Gallery and Feed for one media item.
+  Confirm its sections replace the ordinary entry, retain saved order together
+  under sorting and filters, and play their own ranges, speed, framing and loop
+  mode with Play highlights only off. Other media and Compare stay unchanged.
+  Check named entries with optional metadata hidden, desktop and phone layouts,
+  paging, source-based result counts and deduplicated batch selection. Scores,
+  tags, favorites, rename, move and Trash must update every sibling. Verify
+  viewer previous/next, Gallery/Feed switching, reload, `highlightId` links,
+  Home Screen resume and browser history retain the exact entry. Remove the
+  viewed section, collapse entries and remove the source; check fallback, focus
+  and scroll anchors. Back up/restore the flag, preserve it through framing
+  reset and safe moves, and clear it after playback reset, last-highlight removal
+  or source-content replacement. Display changes must reuse existing renditions.
+- Open Info before and after lazy metadata discovery. Check Modified, public
+  folder location, format, size, dimensions, duration and codec where available;
+  missing values must not appear as invented metadata. Verify date/time and
+  timezone formatting, long folder/filename wrapping and short phone screens.
+  Modified must identify file modification, not capture time. Info metadata
+  refreshes must not start media probes or overwrite a score, tag, favorite or
+  presentation change. Delay the read while changing media or replacing its
+  source; ignore stale responses. Check offline retention and missing-media
+  handling.
 - Create multiple highlights on desktop and phones, using distinct ranges,
   speeds, Repeat/Bounce modes and aspect frames. Switch between them before Save,
   verify Cancel and confirmed Remove, and correct invalid times before switching.

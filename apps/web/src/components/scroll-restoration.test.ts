@@ -72,6 +72,7 @@ describe("session scroll restoration", () => {
       contextKey: "folder-1",
       index: undefined,
       loadedCount: undefined,
+      loadedSourceCount: undefined,
       scrollTop: 124
     });
   });
@@ -153,6 +154,7 @@ describe("session scroll restoration", () => {
       contextKey: "query-1",
       index: 83,
       loadedCount: 96,
+      loadedSourceCount: 48,
       scrollTop: 8123
     });
     flushSessionScrollPositions();
@@ -167,6 +169,7 @@ describe("session scroll restoration", () => {
         anchorSize: 96,
         index: 83,
         loadedCount: 96,
+        loadedSourceCount: 48,
         scrollTop: 8123
       }
     );
@@ -225,6 +228,7 @@ describe("session scroll restoration", () => {
       anchorSize: -1,
       index: -1,
       loadedCount: 1.5,
+      loadedSourceCount: 1.5,
       scrollTop: -20
     });
     expect(readSessionScrollPosition("library-content")).toMatchObject({
@@ -232,7 +236,60 @@ describe("session scroll restoration", () => {
       anchorSize: undefined,
       index: undefined,
       loadedCount: undefined,
+      loadedSourceCount: undefined,
       scrollTop: 0
+    });
+  });
+
+  it.each([
+    { loadedCount: 80, loadedSourceCount: -1 },
+    { loadedCount: 80, loadedSourceCount: 81 },
+    { loadedCount: 80, loadedSourceCount: 1.5 },
+    { loadedCount: 80, loadedSourceCount: Number.NaN },
+    { loadedCount: 80, loadedSourceCount: Number.MAX_SAFE_INTEGER + 1 },
+    { loadedSourceCount: 20 },
+    { loadedCount: 1.5, loadedSourceCount: 1 }
+  ])(
+    "omits invalid source depth without discarding the saved index: %j",
+    (depth) => {
+      installSessionStorage();
+      writeSessionScrollPosition("library-content", {
+        contextKey: "folder-1",
+        index: 81,
+        scrollTop: 2400,
+        ...depth
+      });
+      expect(readSessionScrollPosition("library-content")).toMatchObject({
+        index: 81,
+        loadedSourceCount: undefined,
+        scrollTop: 2400
+      });
+    }
+  );
+
+  it("keeps inconsistent legacy display depth and an empty source depth intact", () => {
+    installSessionStorage();
+    writeSessionScrollPosition("library-content", {
+      contextKey: "folder-1",
+      index: 81,
+      loadedCount: 80,
+      loadedSourceCount: 80,
+      scrollTop: 2400
+    });
+    expect(readSessionScrollPosition("library-content")).toMatchObject({
+      index: 81,
+      loadedCount: 80,
+      loadedSourceCount: 80
+    });
+    writeSessionScrollPosition("library-content", {
+      contextKey: "empty",
+      loadedCount: 0,
+      loadedSourceCount: 0,
+      scrollTop: 0
+    });
+    expect(readSessionScrollPosition("library-content")).toMatchObject({
+      loadedCount: 0,
+      loadedSourceCount: 0
     });
   });
 

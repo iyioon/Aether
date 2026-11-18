@@ -97,6 +97,7 @@ interface MediaViewerProps {
   hasPrevious: boolean;
   isInfoOpen: boolean;
   onClose: () => void;
+  onRestoreFocus?: () => boolean;
   onScoreChange: (score: number) => void;
   onToggleInfo: () => void;
   onNext: () => void;
@@ -150,6 +151,7 @@ export function MediaViewer({
   hasPrevious,
   isInfoOpen,
   onClose,
+  onRestoreFocus,
   onScoreChange,
   onToggleInfo,
   onNext,
@@ -1249,6 +1251,13 @@ export function MediaViewer({
           event.preventDefault();
           viewerStageRef.current?.focus({ preventScroll: true });
         }}
+        onCloseAutoFocus={
+          onRestoreFocus
+            ? (event) => {
+                if (onRestoreFocus()) event.preventDefault();
+              }
+            : undefined
+        }
         onFocusCapture={() => setControlsVisible(true)}
         onBlurCapture={hideControlsLater}
         onPointerMove={(event) => {

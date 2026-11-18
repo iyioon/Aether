@@ -37,11 +37,11 @@ export function galleryColumnCount(
   );
 }
 
-export function chunkAssetsIntoRows(
-  assets: AssetRecord[],
+export function chunkAssetsIntoRows<T extends AssetRecord>(
+  assets: T[],
   columnCount: number
-): AssetRecord[][] {
-  const rows: AssetRecord[][] = [];
+): T[][] {
+  const rows: T[][] = [];
 
   for (let index = 0; index < assets.length; index += columnCount) {
     rows.push(assets.slice(index, index + columnCount));
@@ -122,8 +122,12 @@ export function galleryTileChromeHeight(
   fields: ReadonlySet<GalleryMetadataField>,
   asset?: AssetRecord
 ): number {
-  const hasTitle = fields.has("title");
-  const hasSecondaryMetadata = fields.has("mediaType") || fields.has("size");
+  const isHighlight = Boolean(
+    asset && "highlightId" in asset && asset.highlightId
+  );
+  const hasTitle = fields.has("title") || isHighlight;
+  const hasSecondaryMetadata =
+    isHighlight || fields.has("mediaType") || fields.has("size");
   const hasCuration =
     fields.has("score") ||
     fields.has("favorite") ||

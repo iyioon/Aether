@@ -13,6 +13,8 @@ import { tmpdir } from "node:os";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import { openDatabase } from "../src/db/database.js";
+import { defaultPresentationValues } from "../src/library/presentation.js";
+import { getPresentationsByAssetId } from "../src/library/repository-presentation.js";
 import { createConfigBackup } from "../src/maintenance/backup.js";
 
 describe("config backups", () => {
@@ -80,6 +82,21 @@ describe("config backups", () => {
         path.join(cwd, "media"),
         "2026-09-04T00:00:00.000Z"
       );
+      const highlight = {
+        ...defaultPresentationValues(),
+        id: "opening",
+        name: "Opening",
+        highlight: { startMs: 0, endMs: 500 }
+      };
+      db.exec(`INSERT INTO assets (id, root_id, relative_path, name, extension, media_type, size_bytes, mtime_ms, indexed_at, status)
+        VALUES ('clip', 'root_test', 'clip.mp4', 'clip.mp4', '.mp4', 'video', 10, 100, '2026-09-04', 'ready');`);
+      db.prepare(
+        `INSERT INTO asset_presentations (asset_id, revision, highlight_start_ms, highlight_end_ms, fit, focal_x, focal_y, zoom, playback_rate, loop_mode, updated_at, highlights, main_highlight_id, separate_highlights)
+        VALUES ('clip', 3, 0, 500, 'auto', 0.5, 0.5, 1, 1, 'repeat', '2026-09-04', ?, 'opening', 1)`
+      ).run(JSON.stringify([highlight]));
+      const sourcePresentation = getPresentationsByAssetId(db, [
+        { id: "clip", sizeBytes: 10, mtimeMs: 100 }
+      ]).get("clip");
 
       const result = await createConfigBackup({
         configDir,
@@ -101,6 +118,11 @@ describe("config backups", () => {
             .prepare("SELECT label FROM roots WHERE id = ?")
             .get("root_test")
         ).toEqual({ label: "Media" });
+        expect(
+          getPresentationsByAssetId(backupDb, [
+            { id: "clip", sizeBytes: 10, mtimeMs: 100 }
+          ]).get("clip")
+        ).toEqual(sourcePresentation);
       } finally {
         backupDb.close();
       }

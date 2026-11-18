@@ -1560,6 +1560,168 @@ describe("saved media presentation", () => {
     ).toBe("presentation_timing_not_supported");
   });
 
+  it("stores separate highlight display per media without changing asset membership or rendition keys", async () => {
+    const asset = await video("separate-highlights.mp4");
+    const other = await image("ordinary.jpg");
+    const values = highlights();
+    const saved = await put(asset.id, {
+      ...defaultPresentationValues(),
+      expectedRevision: 0,
+      highlights: values,
+      mainHighlightId: "opening"
+    });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json().asset.presentation.separateHighlights).toBe(false);
+    const enabled = await put(asset.id, {
+      ...defaultPresentationValues(),
+      expectedRevision: 1,
+      highlights: values,
+      mainHighlightId: "opening",
+      separateHighlights: true
+    });
+    expect(enabled.statusCode).toBe(200);
+    const presentation = enabled.json().asset.presentation;
+    expect(presentation.separateHighlights).toBe(true);
+    expect(presentation.renditionKeys).toEqual(
+      saved.json().asset.presentation.renditionKeys
+    );
+    expect(presentation.highlights).toEqual(
+      saved.json().asset.presentation.highlights
+    );
+    expect(getAssetsByIds(db, [asset.id])[0]?.presentation).toEqual(
+      presentation
+    );
+    expect(list().find((item) => item.id === asset.id)?.presentation).toEqual(
+      presentation
+    );
+    expect(list()).toHaveLength(2);
+    expect(getAsset(db, other.id)?.presentation.separateHighlights).toBe(false);
+    // Collection-aware clients which predate the flag must retain the preference.
+    const renamed = await put(asset.id, {
+      ...defaultPresentationValues(),
+      expectedRevision: 2,
+      highlights: values.map((item) => ({
+        ...item,
+        name: `${item.name} edited`
+      })),
+      mainHighlightId: "ending"
+    });
+    expect(renamed.statusCode).toBe(200);
+    expect(renamed.json().asset.presentation.separateHighlights).toBe(true);
+    const disabled = await put(asset.id, {
+      ...defaultPresentationValues(),
+      expectedRevision: 3,
+      highlights: values,
+      mainHighlightId: "ending",
+      separateHighlights: false
+    });
+    expect(disabled.statusCode).toBe(200);
+    expect(disabled.json().asset.presentation.separateHighlights).toBe(false);
+    expect(disabled.json().asset.presentation.highlights).toEqual(
+      presentation.highlights
+    );
+  });
+
+  it("rejects invalid separate display settings before writing or creating highlights", async () => {
+    const asset = await video("invalid-separate-highlights.mp4");
+    for (const edit of [
+      { separateHighlights: true },
+      { separateHighlights: true, highlights: [], mainHighlightId: null },
+      {
+        separateHighlights: 1,
+        highlights: highlights(),
+        mainHighlightId: "opening"
+      },
+      {
+        separateHighlights: null,
+        highlights: highlights(),
+        mainHighlightId: "opening"
+      }
+    ]) {
+      const response = await put(asset.id, {
+        ...defaultPresentationValues(),
+        expectedRevision: 0,
+        ...edit
+      });
+      expect(response.statusCode).toBe(400);
+      expect(getAsset(db, asset.id)?.presentation).toMatchObject({
+        revision: 0,
+        separateHighlights: false,
+        highlights: []
+      });
+    }
+  });
+
+  it("saves only a display preference without probing saved ranges while retaining revision and source checks", async () => {
+    const asset = await video("display-only.mp4");
+    const values = {
+      ...defaultPresentationValues(),
+      highlights: highlights(),
+      mainHighlightId: "ending"
+    };
+    const initial = await put(asset.id, { ...values, expectedRevision: 0 });
+    expect(initial.statusCode).toBe(200);
+    const probe = vi
+      .spyOn(presentationMedia, "getPresentationMediaCapabilities")
+      .mockRejectedValue(
+        new presentationMedia.PresentationMediaError("media_decode_failed")
+      );
+    const bounce = vi
+      .spyOn(presentationMedia, "getPresentationVideoBouncePlan")
+      .mockRejectedValue(
+        new presentationMedia.PresentationMediaError(
+          "bounce_source_not_supported"
+        )
+      );
+    const enabled = await put(asset.id, {
+      ...values,
+      expectedRevision: 1,
+      separateHighlights: true
+    });
+    expect(enabled.statusCode).toBe(200);
+    expect(enabled.json().asset.presentation).toMatchObject({
+      revision: 2,
+      separateHighlights: true
+    });
+    expect(enabled.json().asset.presentation.renditionKeys).toEqual(
+      initial.json().asset.presentation.renditionKeys
+    );
+    expect(probe).not.toHaveBeenCalled();
+    expect(bounce).not.toHaveBeenCalled();
+    const conflict = await put(asset.id, {
+      ...values,
+      expectedRevision: 1,
+      separateHighlights: false
+    });
+    expect(conflict.statusCode).toBe(409);
+    const changed = await put(asset.id, {
+      ...values,
+      expectedRevision: 2,
+      highlights: values.highlights.map((item) => ({
+        ...item,
+        playbackRate: 1
+      })),
+      separateHighlights: false
+    });
+    expect(changed.statusCode).toBe(415);
+    expect(probe).toHaveBeenCalledTimes(1);
+    await fileSystem.appendFile(
+      path.join(cwd, "media", "display-only.mp4"),
+      Buffer.from([0])
+    );
+    const replaced = await put(asset.id, {
+      ...values,
+      expectedRevision: 2,
+      separateHighlights: false
+    });
+    expect(replaced.statusCode).toBe(409);
+    expect(replaced.json().error).toBe("source_changed");
+    expect(getAsset(db, asset.id)?.presentation).toMatchObject({
+      revision: 2,
+      separateHighlights: true
+    });
+  });
+
   it("preserves secondary highlights for legacy main edits and promotes a survivor when main is removed", async () => {
     const asset = await video("legacy-multiple.mp4");
     expect(
@@ -1568,7 +1730,8 @@ describe("saved media presentation", () => {
           ...defaultPresentationValues(),
           expectedRevision: 0,
           highlights: highlights(),
-          mainHighlightId: "opening"
+          mainHighlightId: "opening",
+          separateHighlights: true
         })
       ).statusCode
     ).toBe(200);
@@ -1579,6 +1742,7 @@ describe("saved media presentation", () => {
       playbackRate: 1.5
     });
     expect(edited.statusCode).toBe(200);
+    expect(edited.json().asset.presentation.separateHighlights).toBe(true);
     expect(edited.json().asset.presentation.highlights).toMatchObject([
       {
         id: "opening",
@@ -1594,6 +1758,7 @@ describe("saved media presentation", () => {
     expect(removed.statusCode).toBe(200);
     expect(removed.json().asset.presentation).toMatchObject({
       mainHighlightId: "ending",
+      separateHighlights: true,
       highlights: [{ id: "ending" }],
       playbackRate: 2,
       highlight: { startMs: 1000, endMs: 1800 }
@@ -1607,6 +1772,7 @@ describe("saved media presentation", () => {
     expect(cleared.statusCode).toBe(200);
     expect(cleared.json().asset.presentation).toMatchObject({
       mainHighlightId: null,
+      separateHighlights: false,
       highlights: [],
       highlight: null
     });
@@ -1660,7 +1826,8 @@ describe("saved media presentation", () => {
       ...defaultPresentationValues(),
       expectedRevision: 1,
       highlights: values,
-      mainHighlightId: "ending"
+      mainHighlightId: "ending",
+      separateHighlights: true
     });
     expect(switched.statusCode).toBe(200);
     expect(await readFile(first.path, "utf8")).toBe(
@@ -1709,7 +1876,8 @@ describe("saved media presentation", () => {
           ...defaultPresentationValues(),
           expectedRevision: 0,
           highlights: values,
-          mainHighlightId: "opening"
+          mainHighlightId: "opening",
+          separateHighlights: true
         })
       ).statusCode
     ).toBe(200);
@@ -1717,6 +1885,7 @@ describe("saved media presentation", () => {
     resetPresentationEdits(db, { framing: true }, now());
     const reset = getAsset(db, asset.id)!.presentation;
     expect(reset.revision).toBe(2);
+    expect(reset.separateHighlights).toBe(true);
     expect(
       reset.highlights.map((item) => ({
         id: item.id,
@@ -1738,6 +1907,7 @@ describe("saved media presentation", () => {
       revision: 3,
       highlights: [],
       mainHighlightId: null,
+      separateHighlights: false,
       highlight: null,
       playbackRate: 1
     });
@@ -1752,7 +1922,8 @@ describe("saved media presentation", () => {
           ...defaultPresentationValues(),
           expectedRevision: 0,
           highlights: highlights(),
-          mainHighlightId: "ending"
+          mainHighlightId: "ending",
+          separateHighlights: true
         })
       ).statusCode
     ).toBe(200);
@@ -1763,6 +1934,7 @@ describe("saved media presentation", () => {
     expect(getAsset(db, asset.id)!.presentation).toMatchObject({
       revision: 1,
       mainHighlightId: "ending",
+      separateHighlights: true,
       highlights: [{ id: "opening" }, { id: "ending" }]
     });
     await fileSystem.appendFile(source, Buffer.from([0]));
@@ -1771,6 +1943,7 @@ describe("saved media presentation", () => {
     expect(changed.presentation).toMatchObject({
       highlights: [],
       mainHighlightId: null,
+      separateHighlights: false,
       highlight: null,
       zoom: 1
     });

@@ -160,10 +160,27 @@ export function UserGuidePage({
               and Use saved framing.
             </p>
             <p>
+              Info → Details shows the file’s modification time, library
+              location, format, size and available dimensions, duration and
+              codec. Modified uses the file’s filesystem timestamp in your
+              device’s time zone, not the date the photo was taken. The location
+              is relative to the configured library root.
+            </p>
+            <p>
               In Info → Highlights, choose View to play a saved highlight with
               its framing and speed. This does not change the main highlight or
               your playback defaults. Make main sets the highlight used across
               the media views when Play highlights only is enabled.
+            </p>
+            <p>
+              Enable Show highlights separately in Gallery and Feed in this tab
+              to replace this media item’s card with one entry per saved
+              highlight. The entries stay together in the current sort order.
+              Each plays its saved section, speed and framing even when Play
+              highlights only is off. Scores, favorites, tags and file actions
+              apply to the source media; selecting several of its highlights
+              selects that source once. Library counts and Compare count source
+              media. Turn the setting off to return to one entry.
             </p>
             <p>
               The preview remains visible while the full photo or video
@@ -243,7 +260,7 @@ export function UserGuidePage({
             <p>
               Bounce and framing do not rewrite source bytes. Download returns
               the source file. Use Play highlights only in View options to play
-              the main highlight.
+              the main highlight for ordinary media entries.
             </p>
             <h2>Adjust framing</h2>
             <p>

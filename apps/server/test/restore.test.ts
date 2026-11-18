@@ -242,7 +242,7 @@ describe("data restore", () => {
     }
   });
 
-  it("retains all named highlights and the main selection through restore", async () => {
+  it("retains all named highlights, main selection and separate display through restore", async () => {
     const fixture = await createRestoreFixture();
     const highlights = [
       {
@@ -267,8 +267,8 @@ describe("data restore", () => {
         `
         INSERT INTO assets (id, root_id, relative_path, name, extension, media_type, size_bytes, mtime_ms, indexed_at, status)
           VALUES ('clip', 'root-restored', 'clip.mp4', 'clip.mp4', '.mp4', 'video', 10, 100, '2026-11-18', 'ready');
-        INSERT INTO asset_presentations (asset_id, revision, highlight_start_ms, highlight_end_ms, fit, focal_x, focal_y, zoom, playback_rate, loop_mode, updated_at, highlights, main_highlight_id)
-          VALUES ('clip', 5, 1000, 1500, 'auto', 0.5, 0.5, 2, 1, 'bounce', '2026-11-18', '${JSON.stringify(highlights)}', 'ending');
+        INSERT INTO asset_presentations (asset_id, revision, highlight_start_ms, highlight_end_ms, fit, focal_x, focal_y, zoom, playback_rate, loop_mode, updated_at, highlights, main_highlight_id, separate_highlights)
+          VALUES ('clip', 5, 1000, 1500, 'auto', 0.5, 0.5, 2, 1, 'bounce', '2026-11-18', '${JSON.stringify(highlights)}', 'ending', 1);
       `
       );
       await restoreDataDirectory({
@@ -284,6 +284,7 @@ describe("data restore", () => {
         expect(presentation).toMatchObject({
           revision: 5,
           mainHighlightId: "ending",
+          separateHighlights: true,
           zoom: 2,
           loopMode: "bounce"
         });
@@ -341,7 +342,7 @@ describe("data restore", () => {
     }
   );
 
-  it.each([13, 14, 21] as const)(
+  it.each([13, 14, 21, 22] as const)(
     "migrates a version %i backup before replacing the current database",
     async (sourceVersion) => {
       const fixture = await createRestoreFixture({ sourceVersion });
@@ -373,6 +374,33 @@ describe("data restore", () => {
         } finally {
           restoredDb.close();
         }
+      } finally {
+        await fixture.cleanup();
+      }
+    }
+  );
+
+  it.each([1, 2])(
+    "keeps current data when a latest backup has invalid separate display state %i",
+    async (value) => {
+      const fixture = await createRestoreFixture();
+      try {
+        await mutateBackupDatabase(
+          fixture.backupDir,
+          `PRAGMA ignore_check_constraints = ON;
+          INSERT INTO assets (id, root_id, relative_path, name, extension, media_type, size_bytes, mtime_ms, indexed_at, status)
+            VALUES ('clip', 'root-restored', 'clip.mp4', 'clip.mp4', '.mp4', 'video', 10, 100, '2026-11-19', 'ready');
+          INSERT INTO asset_presentations (asset_id, revision, fit, focal_x, focal_y, zoom, playback_rate, loop_mode, updated_at, separate_highlights)
+            VALUES ('clip', 1, 'auto', 0.5, 0.5, 1, 1, 'repeat', '2026-11-19', ${value});`
+        );
+        await expect(
+          restoreDataDirectory({
+            paths: fixture.paths,
+            workspaceRoot: fixture.workspace,
+            backupDir: fixture.backupDir
+          })
+        ).rejects.toThrow();
+        expect(readRootLabels(fixture.paths.configDir)).toEqual(["current"]);
       } finally {
         await fixture.cleanup();
       }
@@ -537,7 +565,11 @@ describe("data restore", () => {
   it.each([
     ["sessions", "DROP TABLE sessions"],
     ["asset_search", "DROP TABLE asset_search"],
-    ["highlights", "ALTER TABLE asset_presentations DROP COLUMN highlights"]
+    ["highlights", "ALTER TABLE asset_presentations DROP COLUMN highlights"],
+    [
+      "separate highlights",
+      "ALTER TABLE asset_presentations DROP COLUMN separate_highlights"
+    ]
   ])(
     "rejects a latest-version backup missing the %s schema",
     async (_schemaName, mutation) => {
@@ -598,7 +630,7 @@ async function createRestoreFixture({
 }: {
   includeCache?: boolean;
   includeAuthenticationState?: boolean;
-  sourceVersion?: 13 | 14 | 21;
+  sourceVersion?: 13 | 14 | 21 | 22;
   makeNextMigrationFail?: boolean;
 } = {}) {
   const workspace = await mkdtemp(path.join(tmpdir(), "aether-restore-test-"));
@@ -653,11 +685,14 @@ async function createRestoreFixture({
 
 function downgradeDatabase(
   configDir: string,
-  targetVersion: 13 | 14 | 21
+  targetVersion: 13 | 14 | 21 | 22
 ): void {
   const db = new Database(path.join(configDir, "aether.sqlite"));
   try {
-    if (targetVersion === 21) {
+    if (targetVersion === 21 || targetVersion === 22) {
+      db.exec(`ALTER TABLE asset_presentations DROP COLUMN separate_highlights;
+        DELETE FROM schema_migrations WHERE version = 23;`);
+      if (targetVersion === 22) return;
       db.exec(`ALTER TABLE asset_presentations DROP COLUMN highlights;
         ALTER TABLE asset_presentations DROP COLUMN main_highlight_id;
         DELETE FROM schema_migrations WHERE version = 22;`);

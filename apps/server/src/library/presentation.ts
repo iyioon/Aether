@@ -26,6 +26,7 @@ export interface SavedHighlightValues extends PresentationPlaybackValues {
 export interface PresentationValues extends PresentationPlaybackValues {
   highlights?: SavedHighlightValues[];
   mainHighlightId?: string | null;
+  separateHighlights?: boolean;
 }
 
 export type PresentationRenditionKeys = {
@@ -43,6 +44,7 @@ export interface MediaPresentation extends PresentationValues {
   renditionKeys: PresentationRenditionKeys;
   highlights: SavedHighlight[];
   mainHighlightId: string | null;
+  separateHighlights: boolean;
 }
 
 export const MAX_SAVED_HIGHLIGHTS = 20;
@@ -112,6 +114,7 @@ export function canonicalPresentationValues(
 ): PresentationValues & {
   highlights: SavedHighlightValues[];
   mainHighlightId: string | null;
+  separateHighlights: boolean;
 } {
   let highlights = values.highlights;
   let mainHighlightId = values.mainHighlightId ?? null;
@@ -149,7 +152,10 @@ export function canonicalPresentationValues(
     ...(values.highlights?.length === 0 ? { highlight: null } : {}),
     ...(main ? highlightPlaybackValues(main) : {}),
     highlights,
-    mainHighlightId: highlights.length === 0 ? null : mainHighlightId
+    mainHighlightId: highlights.length === 0 ? null : mainHighlightId,
+    separateHighlights:
+      highlights.length > 0 &&
+      (values.separateHighlights ?? previous?.separateHighlights ?? false)
   };
 }
 

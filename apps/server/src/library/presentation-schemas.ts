@@ -67,6 +67,7 @@ export const PresentationBody = PlaybackValues.extend({
     .min(0)
     .max(Number.MAX_SAFE_INTEGER - 1),
   highlights: z.array(SavedHighlight).max(MAX_SAVED_HIGHLIGHTS).optional(),
+  separateHighlights: z.boolean().optional(),
   mainHighlightId: z
     .string()
     .regex(/^[a-zA-Z0-9_-]{1,64}$/)
@@ -74,7 +75,14 @@ export const PresentationBody = PlaybackValues.extend({
     .optional()
 })
   .strict()
-  .superRefine(validateCollection);
+  .superRefine(validateCollection)
+  .superRefine((values, context) => {
+    if (values.separateHighlights && values.highlights?.length === 0)
+      context.addIssue({
+        code: "custom",
+        message: "Save a highlight before displaying highlights separately."
+      });
+  });
 
 function validateCollection(
   values: {
@@ -106,6 +114,7 @@ function validateCollection(
 
 const StoredPresentation = PlaybackValues.extend({
   highlights: z.array(SavedHighlight).max(MAX_SAVED_HIGHLIGHTS),
+  separateHighlights: z.boolean(),
   mainHighlightId: z
     .string()
     .regex(/^[a-zA-Z0-9_-]{1,64}$/)
@@ -118,6 +127,7 @@ const StoredPresentation = PlaybackValues.extend({
       (highlight) => highlight.id === values.mainHighlightId
     );
     if (
+      (values.separateHighlights && values.highlights.length === 0) ||
       (values.highlights.length === 0 && values.highlight !== null) ||
       (main &&
         JSON.stringify(highlightPlaybackValues(values)) !==

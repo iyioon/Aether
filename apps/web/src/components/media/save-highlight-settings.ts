@@ -2,7 +2,8 @@ import {
   ApiError,
   getAsset,
   updateAssetPresentation,
-  type AssetRecord
+  type AssetRecord,
+  type PresentationValues
 } from "../../api/client";
 import {
   getPresentationHighlights,
@@ -22,6 +23,31 @@ export async function saveMainHighlight(
   if (!getPresentationHighlights(original).some(({ id }) => id === highlightId))
     throw new ApiError(409, "presentation_conflict");
   const desired = setMainPresentationHighlight(original, highlightId);
+  return saveHighlightSettings(asset, desired, signal);
+}
+
+export function saveHighlightsSeparately(
+  asset: AssetRecord,
+  enabled: boolean,
+  signal: AbortSignal
+): Promise<AssetRecord> {
+  const values = getPresentationValues(asset.presentation);
+  if (enabled && getPresentationHighlights(values).length === 0)
+    return Promise.reject(new ApiError(409, "presentation_conflict"));
+  return saveHighlightSettings(
+    asset,
+    { ...values, separateHighlights: enabled },
+    signal
+  );
+}
+
+async function saveHighlightSettings(
+  asset: AssetRecord,
+  desired: PresentationValues,
+  signal: AbortSignal
+): Promise<AssetRecord> {
+  signal.throwIfAborted();
+  if (asset.unavailable) throw new ApiError(404, "asset_not_found");
   const revision = asset.presentation?.revision ?? 0;
 
   function verify(current: AssetRecord) {

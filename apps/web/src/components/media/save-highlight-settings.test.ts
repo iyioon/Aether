@@ -5,7 +5,10 @@ import {
   defaultPresentationValues,
   getPresentationValues
 } from "./presentation-model";
-import { saveMainHighlight } from "./save-main-highlight";
+import {
+  saveMainHighlight,
+  saveHighlightsSeparately
+} from "./save-highlight-settings";
 
 function asset(revision = 3, mainHighlightId = "opening"): AssetRecord {
   const highlights: SavedHighlight[] = [
@@ -55,12 +58,145 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-describe("saving the main highlight", () => {
+describe("saving highlight settings", () => {
   beforeEach(() => {
     vi.spyOn(api, "getAsset").mockRejectedValue(new Error("Unexpected read"));
     vi.spyOn(api, "updateAssetPresentation");
   });
   afterEach(() => vi.restoreAllMocks());
+
+  it.each([true, false])(
+    "saves separate display as %s without changing independent highlights or main",
+    async (enabled) => {
+      const original = asset();
+      original.presentation!.separateHighlights = !enabled;
+      const saved = asset(4);
+      saved.presentation!.separateHighlights = enabled;
+      vi.mocked(api.updateAssetPresentation).mockResolvedValue(saved);
+      await expect(
+        saveHighlightsSeparately(
+          original,
+          enabled,
+          new AbortController().signal
+        )
+      ).resolves.toBe(saved);
+      expect(api.updateAssetPresentation).toHaveBeenCalledExactlyOnceWith(
+        "media",
+        {
+          ...getPresentationValues(original.presentation),
+          separateHighlights: enabled
+        },
+        3
+      );
+      const submitted = vi.mocked(api.updateAssetPresentation).mock
+        .calls[0]![1];
+      expect(submitted.highlights).toEqual(
+        getPresentationValues(original.presentation).highlights
+      );
+      expect(submitted.mainHighlightId).toBe("opening");
+      for (const highlight of submitted.highlights!) {
+        expect(highlight).not.toHaveProperty("separateHighlights");
+        expect(highlight).not.toHaveProperty("renditionKeys");
+      }
+      expect(original.presentation!.separateHighlights).toBe(!enabled);
+      expect(api.getAsset).not.toHaveBeenCalled();
+    }
+  );
+
+  it("preserves enabled separate display when changing the main highlight", async () => {
+    const original = asset();
+    original.presentation!.separateHighlights = true;
+    const saved = asset(4, "ending");
+    saved.presentation!.separateHighlights = true;
+    vi.mocked(api.updateAssetPresentation).mockResolvedValue(saved);
+    await expect(
+      saveMainHighlight(original, "ending", new AbortController().signal)
+    ).resolves.toBe(saved);
+    expect(
+      vi.mocked(api.updateAssetPresentation).mock.calls[0]![1]
+    ).toMatchObject({
+      separateHighlights: true,
+      mainHighlightId: "ending"
+    });
+  });
+
+  it.each([
+    new TypeError("Connection lost"),
+    new api.ApiError(503, "temporarily_unavailable")
+  ])(
+    "reconciles a committed separate-display change after a lost response without repeating it",
+    async (failure) => {
+      const saved = asset(4);
+      saved.presentation!.separateHighlights = true;
+      vi.mocked(api.updateAssetPresentation).mockRejectedValue(failure);
+      vi.mocked(api.getAsset).mockResolvedValue(saved);
+      const controller = new AbortController();
+      await expect(
+        saveHighlightsSeparately(asset(), true, controller.signal)
+      ).resolves.toBe(saved);
+      expect(api.updateAssetPresentation).toHaveBeenCalledOnce();
+      expect(api.getAsset).toHaveBeenCalledExactlyOnceWith(
+        "media",
+        controller.signal
+      );
+    }
+  );
+
+  it("does not mistake an acknowledged revision without the display change for success", async () => {
+    vi.mocked(api.updateAssetPresentation).mockResolvedValue(asset(4));
+    await expect(
+      saveHighlightsSeparately(asset(), true, new AbortController().signal)
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "presentation_conflict"
+    });
+    expect(api.getAsset).not.toHaveBeenCalled();
+  });
+
+  it("retains the original error when a lost display change cannot be confirmed", async () => {
+    const failure = new TypeError("Connection lost");
+    vi.mocked(api.updateAssetPresentation).mockRejectedValue(failure);
+    vi.mocked(api.getAsset).mockResolvedValue(asset());
+    await expect(
+      saveHighlightsSeparately(asset(), true, new AbortController().signal)
+    ).rejects.toBe(failure);
+    expect(api.updateAssetPresentation).toHaveBeenCalledOnce();
+  });
+
+  it("refuses enabling separate display without highlights while allowing an acknowledged disabled record", async () => {
+    const original = asset();
+    Object.assign(original.presentation!, {
+      highlight: null,
+      highlights: [],
+      mainHighlightId: null,
+      separateHighlights: false
+    });
+    await expect(
+      saveHighlightsSeparately(original, true, new AbortController().signal)
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "presentation_conflict"
+    });
+    expect(api.updateAssetPresentation).not.toHaveBeenCalled();
+    expect(api.getAsset).not.toHaveBeenCalled();
+    const saved = {
+      ...original,
+      presentation: { ...original.presentation!, revision: 4 }
+    };
+    vi.mocked(api.updateAssetPresentation).mockResolvedValue(saved);
+    await expect(
+      saveHighlightsSeparately(original, false, new AbortController().signal)
+    ).resolves.toBe(saved);
+    expect(
+      vi.mocked(api.updateAssetPresentation).mock.calls[0]![1]
+    ).toMatchObject({
+      highlights: [],
+      mainHighlightId: null,
+      separateHighlights: false,
+      highlight: null
+    });
+    expect(original.presentation!.revision).toBe(3);
+  });
 
   it("accepts the acknowledged record and submits all independent highlight settings", async () => {
     const original = asset();

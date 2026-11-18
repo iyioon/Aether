@@ -14,6 +14,10 @@ import {
   type AssetScoreMutationQueue
 } from "./asset-score-mutation-queue";
 import { usePageLifecycle } from "../../hooks/usePageLifecycle";
+import {
+  mergeAnnotationRecord,
+  sameAnnotationSource
+} from "./annotation-record";
 
 interface UseMediaActionsOptions {
   initialSelectedAssetId?: string | null;
@@ -45,6 +49,10 @@ export function useMediaActions({
   );
   const [viewerAssetFallback, setViewerAssetFallback] =
     useState<AssetRecord | null>(null);
+  const [annotationAssetFallback, setAnnotationAssetFallback] =
+    useState<AssetRecord | null>(null);
+  const viewerAssetFallbackRef = useRef(viewerAssetFallback);
+  viewerAssetFallbackRef.current = viewerAssetFallback;
   const [viewerRefreshRevision, setViewerRefreshRevision] = useState(0);
   const viewerOrderRef = useRef<string[]>([]);
   const validatedViewerRef = useRef<string | null>(null);
@@ -133,10 +141,28 @@ export function useMediaActions({
     () => resolveViewerAsset(selectedAssetId, viewerAssetFallback, assets),
     [assets, selectedAssetId, viewerAssetFallback]
   );
-  const annotationAsset = useMemo(
+  const annotationBaseAsset = useMemo(
     () => resolveViewerAsset(annotationAssetId, viewerAssetFallback, assets),
     [annotationAssetId, assets, viewerAssetFallback]
   );
+  const annotationAsset = useMemo(
+    () =>
+      annotationBaseAsset
+        ? mergeAnnotationRecord(annotationBaseAsset, annotationAssetFallback)
+        : null,
+    [annotationAssetFallback, annotationBaseAsset]
+  );
+  const annotationSourceKey = annotationBaseAsset
+    ? JSON.stringify([
+        annotationBaseAsset.id,
+        annotationBaseAsset.sourceVersion,
+        annotationBaseAsset.presentation?.renditionKeys.full,
+        annotationBaseAsset.folderId,
+        annotationBaseAsset.name,
+        annotationBaseAsset.mtimeMs,
+        annotationBaseAsset.sizeBytes
+      ])
+    : null;
 
   useEffect(() => {
     if (annotationAssetId && !annotationAsset) {
@@ -168,6 +194,51 @@ export function useMediaActions({
     setViewerAssetFallback(next ?? null);
     setSelectedAssetId(next?.id ?? null);
   }, []);
+
+  useEffect(() => {
+    if (!annotationAssetId) {
+      setAnnotationAssetFallback(null);
+      return;
+    }
+    const initialAsset = resolveViewerAsset(
+      annotationAssetId,
+      viewerAssetFallbackRef.current,
+      assetsRef.current
+    );
+    if (!initialAsset || initialAsset.unavailable) return;
+    const controller = new AbortController();
+    const mutationRevision = viewerMutationRevisionRef.current;
+    const isCurrentRead = () => {
+      const current = resolveViewerAsset(
+        annotationAssetId,
+        viewerAssetFallbackRef.current,
+        assetsRef.current
+      );
+      return (
+        !controller.signal.aborted &&
+        viewerSelectionRef.current.annotationAssetId === annotationAssetId &&
+        viewerMutationRevisionRef.current === mutationRevision &&
+        current !== null &&
+        !current.unavailable &&
+        sameAnnotationSource(initialAsset, current)
+      );
+    };
+    void getAsset(annotationAssetId, controller.signal).then(
+      (asset) => {
+        if (isCurrentRead() && sameAnnotationSource(initialAsset, asset))
+          setAnnotationAssetFallback(asset);
+      },
+      (error: unknown) => {
+        if (
+          isCurrentRead() &&
+          error instanceof ApiError &&
+          error.status === 404
+        )
+          handleAssetsUnavailable([annotationAssetId]);
+      }
+    );
+    return () => controller.abort();
+  }, [annotationAssetId, annotationSourceKey, handleAssetsUnavailable]);
 
   const hasSelectedAsset = selectedAsset !== null;
   useEffect(() => {
@@ -276,6 +347,11 @@ export function useMediaActions({
         ? preservePresentation(current, updatedAsset)
         : current
     );
+    setAnnotationAssetFallback((current) => {
+      if (current?.id !== updatedAsset.id) return current;
+      if (!sameAnnotationSource(current, updatedAsset)) return null;
+      return mergeAnnotationRecord(updatedAsset, current);
+    });
   }
 
   function saveAssetScore(

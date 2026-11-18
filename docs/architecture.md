@@ -232,7 +232,8 @@ reopen during its exit animation. Outside dismissal retains the clicked control'
 focus.
 
 The web app saves the page, library query, comparison workspace, Settings tab
-and optional viewer asset ID. Explicit links take precedence; Home Screen
+and optional viewer asset and highlight IDs. Viewer links retain the source in
+`asset` and the selected section in `highlightId`. Explicit links take precedence; Home Screen
 launches resume the saved location. Scroll positions use bounded localStorage
 records, with migration from older sessionStorage records. Foreground refreshes
 preserve loaded depth and anchors; `visibilitychange` and `pagehide` save pending
@@ -403,12 +404,48 @@ section retains its settings as the main highlight. An Info selection is a
 temporary viewer override; it does not save a new main highlight or change
 browser playback preferences.
 
-Playback reset removes all highlights and the main selection. Framing reset
+Migration 23 adds the per-media `separateHighlights` display setting, disabled
+by default. When enabled, Gallery and Feed replace that media's ordinary entry
+with its saved highlights in collection order. These are browser display entries,
+not additional assets or files. Server sorting, filtering, pagination and media
+counts still operate on source records; siblings stay together at their source's
+position. Compare continues to use one source record and its main highlight.
+
+`library-media-entries.ts` separates each display key (`assetId~highlightId`)
+from the canonical source ID. Ordinary entries retain their source ID as the
+key. Gallery rows, Feed playback commands, scroll anchors and viewer navigation
+use display keys; media URLs, selection, scores, tags and file operations use
+the canonical source. A selected entry plays its own section regardless of
+Play highlights only. When a stored entry disappears, anchor lookup falls back
+to the source's ordinary entry or its main/first remaining section. Removing
+the source removes every entry. Selection and batch counts deduplicate source IDs.
+Gallery and Feed checkpoints retain the display index and display-entry depth
+in `loadedCount`, plus the unique source depth in `loadedSourceCount`.
+An unresolved anchor loads enough source pages for its saved display position,
+bounded by the saved source depth, so changed highlight counts cannot make an early page appear to contain
+the saved item. Source depth is trusted only when it is a nonnegative safe
+integer within the saved display depth and the index is within that display
+depth. Once the bounded source depth is reached, a missing anchor's display index is
+clamped to the loaded entries. Automatic source-depth restoration is bounded
+at 10,000 sources. Legacy or inconsistent checkpoints retain bounded display
+indices, including deferred positions beyond a failed page, for Retry to resume.
+
+Info shows available file metadata, including a localized Modified timestamp,
+public folder location, format, file size, dimensions, duration and codec.
+Modified is the filesystem modification time, not a capture date. Opening Info
+refreshes the canonical metadata record without probing source media. The read
+is aborted when its context changes; source identity and mutation guards reject
+stale results. Hydrated technical fields do not replace current curation or
+presentation values.
+
+Playback reset removes all highlights, the main selection and separate display. Framing reset
 clears every highlight's framing while retaining its range and playback values.
 Counts refer to affected media items, and reset revisions reject stale saves.
-Backup/restore preserves the collection and main selection; safe moves and
+Backup/restore preserves the collection, main selection and display setting; safe moves and
 Trash/restore retain them through the existing asset identity. Source-content
-replacement clears every section.
+replacement clears every section and separate display. Removing the last
+highlight also disables separate display. The display setting does not alter
+rendition keys or create additional generated media.
 
 ### Processing And Delivery
 

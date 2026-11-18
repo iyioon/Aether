@@ -90,6 +90,7 @@ export interface PresentationValues extends PresentationFraming {
   loopMode: "repeat" | "bounce";
   highlights?: SavedHighlightValues[];
   mainHighlightId?: string | null;
+  separateHighlights?: boolean;
 }
 
 export interface MediaPresentation extends PresentationValues {

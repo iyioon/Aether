@@ -6,6 +6,7 @@ interface UseAutoLoadSentinelOptions {
   rootMargin: string;
   rootRef: MutableRefObject<HTMLElement | null>;
   targetRef: MutableRefObject<HTMLElement | null>;
+  targetKey?: string;
 }
 
 export function useAutoLoadSentinel({
@@ -13,7 +14,8 @@ export function useAutoLoadSentinel({
   onLoadMore,
   rootMargin,
   rootRef,
-  targetRef
+  targetRef,
+  targetKey
 }: UseAutoLoadSentinelOptions) {
   const onLoadMoreRef = useRef(onLoadMore);
   const requestedWhileVisibleRef = useRef(false);
@@ -24,7 +26,7 @@ export function useAutoLoadSentinel({
 
   useEffect(() => {
     requestedWhileVisibleRef.current = false;
-  }, [enabled]);
+  }, [enabled, targetKey]);
 
   useEffect(() => {
     const root = rootRef.current;
@@ -66,5 +68,5 @@ export function useAutoLoadSentinel({
     return () => {
       observer.disconnect();
     };
-  }, [enabled, rootMargin, rootRef, targetRef]);
+  }, [enabled, rootMargin, rootRef, targetRef, targetKey]);
 }

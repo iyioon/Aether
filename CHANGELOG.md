@@ -9,6 +9,12 @@ Notable changes to Aether are recorded here.
 - Save multiple named highlights with independent ranges, framing, speed and
   Repeat/Bounce settings. Choose the main highlight in Edit media or Info, and
   view another highlight without changing the default.
+- Show one media item's highlights as separate Gallery and Feed entries, sharing
+  source scores, tags and file actions. Retain the selected entry through viewer
+  navigation, links and resume without duplicating files or library records.
+- Show file modification date, folder location, format, size, dimensions,
+  duration and codec in Info, refreshing available metadata without starting
+  media processing.
 
 ### Fixed
 

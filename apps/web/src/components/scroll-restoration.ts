@@ -7,6 +7,7 @@ export interface SessionScrollPosition {
   contextKey: string;
   index?: number;
   loadedCount?: number;
+  loadedSourceCount?: number;
   scrollTop: number;
 }
 
@@ -301,6 +302,8 @@ function normalizePosition(value: unknown): SessionScrollPosition | null {
     Math.abs(number) <= MAX_SCROLL_DISTANCE
       ? number
       : undefined;
+  const loadedCount = nonNegativeInteger(position.loadedCount);
+  const loadedSourceCount = nonNegativeInteger(position.loadedSourceCount);
 
   return {
     anchorId:
@@ -314,7 +317,13 @@ function normalizePosition(value: unknown): SessionScrollPosition | null {
         : undefined,
     contextKey: position.contextKey,
     index: nonNegativeInteger(position.index),
-    loadedCount: nonNegativeInteger(position.loadedCount),
+    loadedCount,
+    loadedSourceCount:
+      loadedSourceCount !== undefined &&
+      loadedCount !== undefined &&
+      loadedSourceCount <= loadedCount
+        ? loadedSourceCount
+        : undefined,
     scrollTop: Math.min(
       MAX_SCROLL_DISTANCE,
       Math.max(0, Math.round(position.scrollTop))

@@ -18,12 +18,13 @@ import {
 import { Button } from "../ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { AssetAnnotationPanel } from "./AssetAnnotationPanel";
+import { MediaFileDetails } from "./MediaFileDetails";
 import { MediaHighlightsPanel } from "./MediaHighlightsPanel";
-import { mediaDetailLine } from "./media-format";
 
 interface MediaAnnotationDrawerProps {
   aiStatus: AiStatus | null;
   asset: AssetRecord;
+  locationLabel?: string;
   isAboveViewer?: boolean;
   isScoreSaving: boolean;
   onClose: () => void;
@@ -33,6 +34,11 @@ interface MediaAnnotationDrawerProps {
     input: { score?: number; favorite?: boolean }
   ) => void;
   onAssetUpdated: (asset: AssetRecord) => void;
+  onSeparateHighlightsChange?: (
+    asset: AssetRecord,
+    enabled: boolean,
+    signal: AbortSignal
+  ) => Promise<AssetRecord>;
   onAssetTagsUpdated: (assetId: string, tags: TagRecord[]) => void;
   selectedHighlightId?: string | null;
   onViewHighlight?: (asset: AssetRecord, highlightId: string) => void;
@@ -47,6 +53,7 @@ interface MediaAnnotationDrawerProps {
 export function MediaAnnotationDrawer({
   aiStatus,
   asset,
+  locationLabel,
   isAboveViewer = false,
   isScoreSaving,
   onClose,
@@ -57,7 +64,8 @@ export function MediaAnnotationDrawer({
   selectedHighlightId,
   onViewHighlight,
   onEditHighlights,
-  onMakeMainHighlight
+  onMakeMainHighlight,
+  onSeparateHighlightsChange
 }: MediaAnnotationDrawerProps) {
   const isMobile = useIsMobile();
   const [returnFocusTarget] = useState(captureFocusTarget);
@@ -151,8 +159,8 @@ export function MediaAnnotationDrawer({
           <SheetTitle className="truncate pr-8" title={asset.name}>
             {asset.name}
           </SheetTitle>
-          <SheetDescription>
-            {asset.mediaType} · {mediaDetailLine(asset)}
+          <SheetDescription className="sr-only">
+            {asset.mediaType === "video" ? "Video" : "Image"} information
           </SheetDescription>
         </SheetHeader>
         <div className="px-4 pb-4">
@@ -166,6 +174,7 @@ export function MediaAnnotationDrawer({
               </TabsTrigger>
             </TabsList>
             <TabsContent value="details" forceMount hidden={tab !== "details"}>
+              <MediaFileDetails asset={asset} locationLabel={locationLabel} />
               <AssetAnnotationPanel
                 onBusyChange={handleDetailsBusyChange}
                 aiStatus={aiStatus}
@@ -189,6 +198,7 @@ export function MediaAnnotationDrawer({
                 onViewHighlight={onViewHighlight}
                 onEditHighlights={onEditHighlights}
                 onMakeMainHighlight={onMakeMainHighlight}
+                onSeparateHighlightsChange={onSeparateHighlightsChange}
                 onAssetUpdated={onAssetUpdated}
                 onBusyChange={handleHighlightsBusyChange}
               />

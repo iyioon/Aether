@@ -12,9 +12,15 @@ import { getPresentationsByAssetId } from "../src/library/repository-presentatio
 import { defaultPresentationValues } from "../src/library/presentation.js";
 
 function removeHighlightsSchema(db: Database.Database): void {
+  removeSeparateHighlightsSchema(db);
   db.exec(`ALTER TABLE asset_presentations DROP COLUMN highlights;
     ALTER TABLE asset_presentations DROP COLUMN main_highlight_id;
     DELETE FROM schema_migrations WHERE version = 22;`);
+}
+
+function removeSeparateHighlightsSchema(db: Database.Database): void {
+  db.exec(`ALTER TABLE asset_presentations DROP COLUMN separate_highlights;
+    DELETE FROM schema_migrations WHERE version = 23;`);
 }
 
 function removeManagementSchema(db: Database.Database): void {
@@ -237,6 +243,7 @@ describe("database migrations", () => {
         expect(presentation).toMatchObject({
           revision: 7,
           mainHighlightId: "highlight-1",
+          separateHighlights: false,
           highlight: { startMs: 100, endMs: 900 },
           fit: "cover",
           playbackRate: 0.5,
@@ -272,6 +279,83 @@ describe("database migrations", () => {
       await rm(directory, { recursive: true, force: true });
     }
   });
+
+  it("upgrades version 22 without changing highlight identity, selection, revision or media keys", async () => {
+    const directory = await mkdtemp(
+      path.join(tmpdir(), "aether-highlight-display-upgrade-")
+    );
+    try {
+      const initial = openDatabase(directory);
+      const highlight = {
+        ...defaultPresentationValues(),
+        id: "opening",
+        name: "Opening",
+        highlight: { startMs: 0, endMs: 500 }
+      };
+      initial.exec(`
+        INSERT INTO roots (id, label, real_path, created_at) VALUES ('root', 'Media', '/media', '2026-11-19');
+        INSERT INTO assets (id, root_id, relative_path, name, extension, media_type, size_bytes, mtime_ms, indexed_at, status)
+          VALUES ('clip', 'root', 'clip.mp4', 'clip.mp4', '.mp4', 'video', 10, 1, '2026-11-19', 'ready');
+        INSERT INTO asset_presentations (asset_id, revision, highlight_start_ms, highlight_end_ms, fit, focal_x, focal_y, zoom, playback_rate, loop_mode, updated_at, highlights, main_highlight_id)
+          VALUES ('clip', 7, 0, 500, 'auto', 0.5, 0.5, 1, 1, 'repeat', '2026-11-19', '${JSON.stringify([highlight])}', 'opening');
+      `);
+      const before = getPresentationsByAssetId(initial, [
+        { id: "clip", mtimeMs: 1, sizeBytes: 10 }
+      ]).get("clip")!;
+      removeSeparateHighlightsSchema(initial);
+      initial.close();
+      const upgraded = openDatabase(directory);
+      try {
+        const presentation = getPresentationsByAssetId(upgraded, [
+          { id: "clip", mtimeMs: 1, sizeBytes: 10 }
+        ]).get("clip")!;
+        expect(presentation).toEqual({ ...before, separateHighlights: false });
+        expect(() =>
+          upgraded
+            .prepare("UPDATE asset_presentations SET separate_highlights = 2")
+            .run()
+        ).toThrow();
+        upgraded.exec(
+          "ALTER TABLE asset_presentations DROP COLUMN separate_highlights"
+        );
+      } finally {
+        upgraded.close();
+      }
+      expect(() => openDatabase(directory)).toThrow(
+        "Aether database schema is incomplete or incompatible"
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it.each(["invalid value", "without highlights"])(
+    "rejects a latest database with separate highlights %s",
+    async (problem) => {
+      const directory = await mkdtemp(
+        path.join(tmpdir(), "aether-invalid-highlight-display-")
+      );
+      try {
+        const db = openDatabase(directory);
+        db.exec(`
+        INSERT INTO roots (id, label, real_path, created_at) VALUES ('root', 'Media', '/media', '2026-11-19');
+        INSERT INTO assets (id, root_id, relative_path, name, extension, media_type, size_bytes, mtime_ms, indexed_at, status)
+          VALUES ('clip', 'root', 'clip.mp4', 'clip.mp4', '.mp4', 'video', 10, 1, '2026-11-19', 'ready');
+        PRAGMA ignore_check_constraints = ON;
+      `);
+        db.prepare(
+          `INSERT INTO asset_presentations (asset_id, revision, fit, focal_x, focal_y, zoom, playback_rate, loop_mode, updated_at, separate_highlights)
+        VALUES ('clip', 1, 'auto', 0.5, 0.5, 1, 1, 'repeat', '2026-11-19', ?)`
+        ).run(problem === "invalid value" ? 2 : 1);
+        db.close();
+        expect(() => openDatabase(directory)).toThrow(
+          "Aether database schema is incomplete or incompatible"
+        );
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    }
+  );
 
   it.each([
     "null member",

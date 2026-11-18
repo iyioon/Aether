@@ -37,7 +37,8 @@ export function addPresentationHighlight(
   const copied = getPresentationValues({
     ...values,
     highlights: undefined,
-    mainHighlightId: undefined
+    mainHighlightId: undefined,
+    separateHighlights: undefined
   });
   const highlight: SavedHighlightValues = {
     id,
@@ -80,7 +81,8 @@ export function removePresentationHighlight(
       playbackRate: 1,
       loopMode: "repeat",
       highlights: [],
-      mainHighlightId: null
+      mainHighlightId: null,
+      separateHighlights: false
     };
   const mainHighlightId = highlights.some(
     (highlight) => highlight.id === values.mainHighlightId

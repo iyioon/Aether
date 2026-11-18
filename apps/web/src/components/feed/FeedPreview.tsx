@@ -12,6 +12,13 @@ import {
 } from "react";
 import { GalleryHorizontalEnd } from "lucide-react";
 import type { AssetRecord } from "../../api/client";
+import {
+  findLibraryMediaEntryIndex,
+  libraryMediaEntryLabel,
+  libraryMediaRestoreIndex,
+  libraryMediaSourceCount,
+  type LibraryMediaEntry
+} from "../media/library-media-entries";
 import type { MediaPlaybackCommands } from "../media/MediaPreview";
 import { useAutoLoadSentinel } from "../../hooks/useAutoLoadSentinel";
 import {
@@ -57,7 +64,7 @@ interface FeedPreviewProps {
   soundPreference: SoundPreference;
   onRememberSound: (muted: boolean) => void;
   metadataFields: ReadonlySet<GalleryMetadataField>;
-  assets: AssetRecord[];
+  assets: LibraryMediaEntry[];
   isLoading: boolean;
   isLoadingMore: boolean;
   isLoadMoreBlocked?: boolean;
@@ -72,11 +79,11 @@ interface FeedPreviewProps {
   onLoadMore: () => void;
   onActiveAssetChange: (assetId: string) => void;
   onFeedChromeHiddenChange: (isHidden: boolean) => void;
-  onOpenAnnotations: (assetId: string) => void;
+  onOpenAnnotations: (assetId: string, entryKey?: string) => void;
   onOpenAsset: (assetId: string) => void;
   onFavoriteAsset: (asset: AssetRecord, favorite: boolean) => void;
   onScoreAsset: (asset: AssetRecord, score: number) => void;
-  onEditAsset?: (asset: AssetRecord) => void;
+  onEditAsset?: (asset: AssetRecord, highlightId?: string | null) => void;
   hasQueryFilters?: boolean;
   resultsPending?: boolean;
 }
@@ -122,6 +129,13 @@ export function FeedPreview({
   const isRestoringRef = useRef(false);
   const contextKeyRef = useRef(scrollContextKey);
   const assetsRef = useRef(assets);
+  const loadedSourceCount = useMemo(
+    () => libraryMediaSourceCount(assets),
+    [assets]
+  );
+  const loadedSourceCountRef = useRef(loadedSourceCount);
+  loadedSourceCountRef.current = loadedSourceCount;
+  const previousEntriesRef = useRef(assets);
   const lastReportedAssetIdRef = useRef<string | null>(null);
   const observedSyncedAssetIdRef = useRef(syncedAssetId);
   const pendingSyncedAssetIdRef = useRef(syncedAssetId);
@@ -145,7 +159,7 @@ export function FeedPreview({
   const touchStartRef = useRef<FeedTouchStart | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [isScrollPositionReady, setIsScrollPositionReady] = useState(false);
-  const activeSoundKey = assets[activeIndex]?.id ?? "";
+  const activeSoundKey = assets[activeIndex]?.entryKey ?? "";
   const { muted: isFeedMuted, setMuted: setIsFeedMuted } = useMediaSound(
     activeSoundKey,
     soundPreference,
@@ -163,9 +177,12 @@ export function FeedPreview({
         ? "muted"
         : "on";
 
-  const handleOpenAnnotations = useCallback((assetId: string) => {
-    onOpenAnnotationsRef.current(assetId);
-  }, []);
+  const handleOpenAnnotations = useCallback(
+    (assetId: string, entryKey?: string) => {
+      onOpenAnnotationsRef.current(assetId, entryKey);
+    },
+    []
+  );
 
   const handleOpenAsset = useCallback((assetId: string) => {
     onOpenAssetRef.current(assetId);
@@ -216,7 +233,7 @@ export function FeedPreview({
         Math.max(0, currentAssets.length - 1)
       )
     );
-    const anchorId = currentAssets[index]?.id;
+    const anchorId = currentAssets[index]?.entryKey;
 
     if (anchorId && lastReportedAssetIdRef.current !== anchorId) {
       lastReportedAssetIdRef.current = anchorId;
@@ -227,6 +244,8 @@ export function FeedPreview({
       anchorId,
       contextKey: contextKeyRef.current,
       index,
+      loadedCount: assetsRef.current.length,
+      loadedSourceCount: loadedSourceCountRef.current,
       scrollTop: feedElement?.scrollTop ?? latestScrollTopRef.current
     });
   }, []);
@@ -240,12 +259,37 @@ export function FeedPreview({
   }, [saveFeedPosition]);
 
   useLayoutEffect(() => {
+    const previous = previousEntriesRef.current;
+    previousEntriesRef.current = assets;
+    if (
+      !isContentReady ||
+      restoredContextRef.current !== scrollContextKey ||
+      !hasScrollOrderChanged(
+        previous.map((entry) => entry.entryKey),
+        assets.map((entry) => entry.entryKey)
+      )
+    )
+      return;
+    const stored = readSessionScrollPosition("library-content");
+    if (stored?.contextKey === scrollContextKey) {
+      const index = findLibraryMediaEntryIndex(assets, stored.anchorId);
+      if (index >= 0)
+        writeSessionScrollPosition("library-content", {
+          ...stored,
+          anchorId: assets[index]!.entryKey,
+          index
+        });
+    }
+    restoredContextRef.current = null;
+  }, [assets, isContentReady, scrollContextKey]);
+
+  useLayoutEffect(() => {
     if (!isContentReady) {
       if (restoredContextRef.current === scrollContextKey) {
         saveFeedPosition();
         pendingRefreshRef.current = {
           contextKey: scrollContextKey,
-          assetIds: assetsRef.current.map((asset) => asset.id)
+          assetIds: assetsRef.current.map((asset) => asset.entryKey)
         };
       } else {
         pendingRefreshRef.current = null;
@@ -259,7 +303,7 @@ export function FeedPreview({
       pendingRefresh?.contextKey === scrollContextKey &&
       hasScrollOrderChanged(
         pendingRefresh.assetIds,
-        assetsRef.current.map((asset) => asset.id)
+        assetsRef.current.map((asset) => asset.entryKey)
       )
     ) {
       restoredContextRef.current = null;
@@ -281,18 +325,12 @@ export function FeedPreview({
     const storedPosition = readSessionScrollPosition("library-content");
     const requestedSyncAssetId = pendingSyncedAssetIdRef.current;
     const syncedIndex = requestedSyncAssetId
-      ? assets.findIndex((asset) => asset.id === requestedSyncAssetId)
+      ? findLibraryMediaEntryIndex(assets, requestedSyncAssetId)
       : -1;
     let intendedIndex = Math.max(0, syncedIndex);
 
     if (syncedIndex < 0 && storedPosition?.contextKey === scrollContextKey) {
-      const anchoredIndex = storedPosition.anchorId
-        ? assets.findIndex((asset) => asset.id === storedPosition.anchorId)
-        : -1;
-      intendedIndex =
-        anchoredIndex >= 0
-          ? anchoredIndex
-          : Math.max(0, storedPosition.index ?? 0);
+      intendedIndex = libraryMediaRestoreIndex(assets, storedPosition);
     }
 
     if (intendedIndex >= assets.length && hasMore) {
@@ -368,7 +406,7 @@ export function FeedPreview({
       return;
     }
 
-    const syncedIndex = assets.findIndex((asset) => asset.id === syncedAssetId);
+    const syncedIndex = findLibraryMediaEntryIndex(assets, syncedAssetId);
 
     if (syncedIndex < 0) {
       return;
@@ -393,6 +431,8 @@ export function FeedPreview({
       anchorId: syncedAssetId,
       contextKey: scrollContextKey,
       index: syncedIndex,
+      loadedCount: assetsRef.current.length,
+      loadedSourceCount: loadedSourceCountRef.current,
       scrollTop: targetTop
     });
 
@@ -489,7 +529,7 @@ export function FeedPreview({
 
       setActiveIndex(nextIndex);
       latestActiveIndexRef.current = nextIndex;
-      const nextAssetId = assets[nextIndex]?.id;
+      const nextAssetId = assets[nextIndex]?.entryKey;
 
       if (nextAssetId) {
         lastReportedAssetIdRef.current = nextAssetId;
@@ -519,7 +559,7 @@ export function FeedPreview({
   const playActiveFeedVideoAudibly = useCallback(() => {
     const activeAsset = assets[activeIndex];
     if (activeAsset)
-      videoCommandsRef.current.get(activeAsset.id)?.enableSound();
+      videoCommandsRef.current.get(activeAsset.entryKey)?.enableSound();
   }, [activeIndex, assets]);
 
   const handleFeedSoundToggle = useCallback(() => {
@@ -549,7 +589,7 @@ export function FeedPreview({
     (index: number) => {
       const activeAsset = assets[index];
       if (activeAsset?.mediaType === "video") {
-        videoCommandsRef.current.get(activeAsset.id)?.togglePlayback();
+        videoCommandsRef.current.get(activeAsset.entryKey)?.togglePlayback();
       }
     },
     [assets]
@@ -605,7 +645,7 @@ export function FeedPreview({
           }
 
           event.preventDefault();
-          handleOpenAsset(activeAsset.id);
+          handleOpenAsset(activeAsset.entryKey);
           break;
         }
         case "toggle-playback":
@@ -700,9 +740,9 @@ export function FeedPreview({
   );
 
   const activeAsset = assets[activeIndex] ?? assets[0];
-  const activeAssetId = activeAsset?.id;
+  const activeAssetId = activeAsset?.entryKey;
   const activeMediaType = activeAsset?.mediaType;
-  const prewarmKey = `${scrollContextKey}:${activeIndex}:${activeAsset?.id ?? ""}:${activeAsset?.presentation?.renditionKeys.bounce ?? ""}`;
+  const prewarmKey = `${scrollContextKey}:${activeIndex}:${activeAsset?.entryKey ?? ""}:${activeAsset?.presentation?.renditionKeys.bounce ?? ""}`;
   const canPrepareNext =
     isContentReady && isScrollPositionReady && !isPlaybackPaused;
   const prewarmSession = useMemo(
@@ -740,7 +780,8 @@ export function FeedPreview({
     onLoadMore,
     rootMargin: "620px 0px",
     rootRef: feedRef,
-    targetRef: loadMoreRef
+    targetRef: loadMoreRef,
+    targetKey: assets.at(-1)?.entryKey
   });
 
   if (isLoading && assets.length === 0) {
@@ -870,7 +911,7 @@ export function FeedPreview({
             isFeedChromeHidden={isFeedChromeHidden}
             isFeedMuted={isFeedMuted}
             isPlaybackPaused={isPlaybackPaused}
-            key={asset.id}
+            key={asset.entryKey}
             loadMoreRef={loadMoreRef}
             preloadPreview={
               prepareNext &&
@@ -893,14 +934,20 @@ export function FeedPreview({
       <FeedNavRail
         activeIndex={activeIndex}
         activeFavorite={activeAsset.favorite}
-        activeMediaName={activeAsset.name}
+        activeMediaName={libraryMediaEntryLabel(activeAsset)}
         activeScore={activeAsset.score}
         assetCount={assets.length}
         hasMore={hasMore && !isLoadMoreBlocked}
         isScoreSaving={savingScoreAssetIds.has(activeAsset.id)}
         isHidden={isFeedChromeHidden}
-        onEditAsset={onEditAsset ? () => onEditAsset(activeAsset) : undefined}
-        onFavoriteChange={(favorite) => onFavoriteAsset(activeAsset, favorite)}
+        onEditAsset={
+          onEditAsset
+            ? () => onEditAsset(activeAsset.source, activeAsset.highlightId)
+            : undefined
+        }
+        onFavoriteChange={(favorite) =>
+          onFavoriteAsset(activeAsset.source, favorite)
+        }
         onNext={() =>
           scrollToFeedItem(
             nearestFeedIndexFromScroll(feedRef.current, itemRefs.current) + 1
@@ -911,7 +958,7 @@ export function FeedPreview({
             nearestFeedIndexFromScroll(feedRef.current, itemRefs.current) - 1
           )
         }
-        onScoreChange={(score) => onScoreAsset(activeAsset, score)}
+        onScoreChange={(score) => onScoreAsset(activeAsset.source, score)}
       />
     </section>
   );

@@ -611,7 +611,8 @@ export function MediaPresentationEditor({
           setDraft({
             ...defaultPresentationValues(),
             highlights: [],
-            mainHighlightId: null
+            mainHighlightId: null,
+            separateHighlights: false
           });
           setSelectedHighlightId(null);
           setPlayheadMs(0);

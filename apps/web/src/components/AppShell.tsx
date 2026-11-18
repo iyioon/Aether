@@ -80,7 +80,18 @@ import { clearUploadCheckpoints } from "./management/upload-checkpoints";
 import { clearMediaImageCache } from "./media/media-image-cache";
 import { animationAtlasCache } from "./media/animation-atlas-cache";
 import { PresentationEditorDialog } from "./media/PresentationEditorDialog";
-import { saveMainHighlight } from "./media/save-main-highlight";
+import {
+  buildLibraryMediaEntries,
+  findLibraryMediaEntry,
+  findLibraryMediaEntryIndex,
+  libraryMediaEntryKey,
+  libraryMediaSourceId
+} from "./media/library-media-entries";
+import { mediaFolderLabel } from "./media/media-file-details";
+import {
+  saveMainHighlight,
+  saveHighlightsSeparately
+} from "./media/save-highlight-settings";
 
 interface AppShellProps {
   appearance: AppearanceSettings;
@@ -253,11 +264,30 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
   const { handleMediaDimensionsKnown, measuredAspectRatios } =
     useMeasuredAspectRatios();
   const [editingAsset, setEditingAsset] = useState<AssetRecord | null>(null);
+  const [editingHighlight, setEditingHighlight] = useState<{
+    assetId: string;
+    id: string;
+  } | null>(null);
+  const [annotationHighlight, setAnnotationHighlight] = useState<{
+    assetId: string;
+    id: string;
+  } | null>(null);
   const [highlightSelection, setHighlightSelection] = useState<{
     assetId: string;
     id: string;
     sourceKey: string | undefined;
-  } | null>(null);
+    entry?: boolean;
+  } | null>(() => {
+    const { viewerAssetId, viewerHighlightId } = initialLocation.navigation;
+    return viewerAssetId && viewerHighlightId
+      ? {
+          assetId: viewerAssetId,
+          id: viewerHighlightId,
+          sourceKey: undefined,
+          entry: true
+        }
+      : null;
+  });
   const [isFeedChromeHidden, setIsFeedChromeHidden] = useState(false);
   const [comparisonAssetUpdate, setComparisonAssetUpdate] =
     useState<AssetRecord | null>(null);
@@ -387,6 +417,10 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     listQueryKey,
     loadedQueryKey
   });
+  const libraryEntries = useMemo(
+    () => buildLibraryMediaEntries(assets),
+    [assets]
+  );
   const hasLibraryError = Boolean(assetError || assetLoadError);
   const {
     batchError,
@@ -481,11 +515,67 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
       current &&
       (current.assetId !== selectedAssetId ||
         (selectedSourceKey !== undefined &&
+          current.sourceKey !== undefined &&
           current.sourceKey !== selectedSourceKey))
         ? null
         : current
     );
   }, [selectedAssetId, selectedSourceKey]);
+  const selectedHighlightId =
+    highlightSelection?.assetId === selectedAssetId &&
+    (highlightSelection.sourceKey === undefined ||
+      highlightSelection.sourceKey === selectedSourceKey)
+      ? highlightSelection.id
+      : null;
+  const annotationHighlightId =
+    annotationAsset?.id === selectedAssetId && selectedHighlightId
+      ? selectedHighlightId
+      : annotationHighlight?.assetId === annotationAsset?.id
+        ? (annotationHighlight?.id ?? null)
+        : null;
+  const requestedViewerEntryKey = selectedAssetId
+    ? libraryMediaEntryKey(selectedAssetId, selectedHighlightId)
+    : null;
+  const viewerEntryIndex = findLibraryMediaEntryIndex(
+    libraryEntries,
+    requestedViewerEntryKey
+  );
+  const usesEntryNavigation = view !== "compare" && viewerEntryIndex >= 0;
+  const viewerAnchorKey = selectedAssetId
+    ? selectedAsset?.presentation?.separateHighlights
+      ? (findLibraryMediaEntry(libraryEntries, requestedViewerEntryKey)
+          ?.entryKey ?? selectedAssetId)
+      : selectedAssetId
+    : null;
+  useEffect(() => {
+    setHighlightSelection((current) => {
+      if (
+        !current ||
+        current.assetId !== selectedAsset?.id ||
+        !selectedAsset.presentation
+      )
+        return current;
+      const existing = selectedAsset.presentation.highlights?.some(
+        ({ id }) => id === current.id
+      );
+      if (!existing) {
+        const fallback = findLibraryMediaEntry(
+          libraryEntries,
+          libraryMediaEntryKey(current.assetId, current.id)
+        );
+        return current.entry && fallback?.highlightId
+          ? {
+              ...current,
+              id: fallback.highlightId,
+              sourceKey: selectedSourceKey
+            }
+          : null;
+      }
+      return current.sourceKey === undefined && selectedSourceKey !== undefined
+        ? { ...current, sourceKey: selectedSourceKey }
+        : current;
+    });
+  }, [selectedAsset, selectedSourceKey, libraryEntries]);
   const { viewerUsesSavedFraming, setViewerUsesSavedFraming } =
     useViewerFraming({
       mode: playbackSettings.framingMode,
@@ -523,7 +613,10 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
         comparisonWorkspace,
         settingsTab,
         guideTopic,
-        viewerAssetId: selectedAssetId
+        viewerAssetId: selectedAssetId,
+        viewerHighlightId: highlightSelection?.entry
+          ? selectedHighlightId
+          : null
       }
     }),
     [
@@ -545,7 +638,9 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
       comparisonWorkspace,
       settingsTab,
       guideTopic,
-      selectedAssetId
+      selectedAssetId,
+      highlightSelection?.entry,
+      selectedHighlightId
     ]
   );
   useEffect(() => {
@@ -582,6 +677,16 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
           )
       });
       setSelectedAssetId(next.navigation.viewerAssetId);
+      setHighlightSelection(
+        next.navigation.viewerAssetId && next.navigation.viewerHighlightId
+          ? {
+              assetId: next.navigation.viewerAssetId,
+              id: next.navigation.viewerHighlightId,
+              sourceKey: undefined,
+              entry: true
+            }
+          : null
+      );
       setAnnotationAssetId(null);
     };
     window.addEventListener("popstate", restore);
@@ -596,12 +701,12 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     setSelectedFolderId
   ]);
   useEffect(() => {
-    if (selectedAssetId) {
-      activeMediaAnchorIdRef.current = selectedAssetId;
-      setSyncedMediaAnchorId(selectedAssetId);
+    if (viewerAnchorKey) {
+      activeMediaAnchorIdRef.current = viewerAnchorKey;
+      setSyncedMediaAnchorId(viewerAnchorKey);
       void loadMediaAnnotationDrawer().catch(() => undefined);
     }
-  }, [selectedAssetId]);
+  }, [viewerAnchorKey]);
 
   useEffect(() => {
     activeMediaAnchorIdRef.current = null;
@@ -927,12 +1032,23 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     }
   }
 
-  function openAnchoredAsset(assetId: string) {
-    setHighlightSelection(null);
-    pushLocationRef.current = true;
-    activeMediaAnchorIdRef.current = assetId;
-    setSyncedMediaAnchorId(assetId);
-    openAssetFullscreen(assetId);
+  function openAnchoredAsset(entryKey: string, pushHistory = true) {
+    const entry = findLibraryMediaEntry(libraryEntries, entryKey);
+    const assetId = entry?.id ?? libraryMediaSourceId(entryKey);
+    setHighlightSelection(
+      entry?.highlightId
+        ? {
+            assetId,
+            id: entry.highlightId,
+            sourceKey: entry.source.presentation?.renditionKeys.full,
+            entry: true
+          }
+        : null
+    );
+    pushLocationRef.current = pushHistory;
+    activeMediaAnchorIdRef.current = entry?.entryKey ?? assetId;
+    setSyncedMediaAnchorId(entry?.entryKey ?? assetId);
+    openAssetFullscreen(entry?.source ?? assetId);
   }
 
   function openComparisonAsset(asset: AssetRecord) {
@@ -945,9 +1061,9 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
 
   function closeAnchoredAsset() {
     setHighlightSelection(null);
-    if (selectedAssetId) {
-      activeMediaAnchorIdRef.current = selectedAssetId;
-      setSyncedMediaAnchorId(selectedAssetId);
+    if (viewerAnchorKey) {
+      activeMediaAnchorIdRef.current = viewerAnchorKey;
+      setSyncedMediaAnchorId(viewerAnchorKey);
     }
 
     setAnnotationAssetId(null);
@@ -956,6 +1072,32 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
 
   function trackActiveMedia(assetId: string) {
     activeMediaAnchorIdRef.current = assetId;
+  }
+
+  function openAnnotations(assetId: string, entryKey?: string) {
+    const entry = findLibraryMediaEntry(libraryEntries, entryKey);
+    setAnnotationHighlight(
+      entry?.highlightId ? { assetId, id: entry.highlightId } : null
+    );
+    setAnnotationAssetId(assetId);
+  }
+
+  function editMedia(asset: AssetRecord, highlightId?: string | null) {
+    const id =
+      highlightId ??
+      (asset.id === selectedAssetId ? selectedHighlightId : null);
+    setEditingHighlight(id ? { assetId: asset.id, id } : null);
+    setEditingAsset(asset);
+  }
+
+  function selectViewerEntry(direction: -1 | 1) {
+    if (usesEntryNavigation) {
+      const entry = libraryEntries[viewerEntryIndex + direction];
+      if (entry) openAnchoredAsset(entry.entryKey, false);
+    } else {
+      setHighlightSelection(null);
+      selectAdjacentAsset(direction);
+    }
   }
 
   function setFeedChromeVisibility(isHidden: boolean) {
@@ -1529,7 +1671,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
                   loadedQueryKey !== listQueryKey &&
                   view !== "compare" ? null : view === "gallery" ? (
                     <GalleryGrid
-                      assets={assets}
+                      assets={libraryEntries}
                       changedAssetIds={changedAssetIds}
                       hasQueryFilters={Boolean(
                         search ||
@@ -1565,8 +1707,10 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
                         void saveAssetScore(asset, { score: score })
                       }
                       onSelectAsset={openAnchoredAsset}
-                      onInfoAsset={(asset) => setAnnotationAssetId(asset.id)}
-                      onEditAsset={setEditingAsset}
+                      onInfoAsset={(asset, entryKey) =>
+                        openAnnotations(asset.id, entryKey)
+                      }
+                      onEditAsset={editMedia}
                       onManageAsset={manageAsset}
                       writableAssetIds={writableAssetIds}
                       onToggleSelection={(assetId) => {
@@ -1587,8 +1731,8 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
                       )}
                       resultsPending={isResultsPending}
                       metadataFields={galleryMetadataFields}
-                      onEditAsset={setEditingAsset}
-                      assets={assets}
+                      onEditAsset={editMedia}
+                      assets={libraryEntries}
                       isLoading={isAssetContentPending}
                       isLoadingMore={isLoadingMore}
                       isContentReady={loadedQueryKey === listQueryKey}
@@ -1608,7 +1752,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
                       onFavoriteAsset={(asset, favorite) =>
                         void saveAssetScore(asset, { favorite })
                       }
-                      onOpenAnnotations={setAnnotationAssetId}
+                      onOpenAnnotations={openAnnotations}
                       onOpenAsset={openAnchoredAsset}
                       onScoreAsset={(asset, score) =>
                         void saveAssetScore(asset, { score: score })
@@ -1648,13 +1792,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
         {activePage === "library" && selectedAsset ? (
           <Suspense fallback={null}>
             <MediaViewer
-              selectedHighlightId={
-                highlightSelection?.assetId === selectedAsset.id &&
-                highlightSelection.sourceKey ===
-                  selectedAsset.presentation?.renditionKeys.full
-                  ? highlightSelection.id
-                  : null
-              }
+              selectedHighlightId={selectedHighlightId}
               soundPreference={playbackSettings.fullView}
               onRememberSound={rememberFullViewSound}
               useSavedFraming={viewerUsesSavedFraming}
@@ -1664,31 +1802,48 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
                 if (!enabled) setHighlightSelection(null);
                 setHighlightsOnly(enabled);
               }}
-              onEditAsset={setEditingAsset}
+              onEditAsset={editMedia}
               onManageAsset={
                 assetIsWritable(tree, selectedAsset) ? manageAsset : undefined
               }
               asset={selectedAsset}
-              hasNext={hasNextViewerAsset}
-              hasPrevious={hasPreviousViewerAsset}
+              hasNext={
+                usesEntryNavigation
+                  ? viewerEntryIndex < libraryEntries.length - 1
+                  : hasNextViewerAsset
+              }
+              hasPrevious={
+                usesEntryNavigation
+                  ? viewerEntryIndex > 0
+                  : hasPreviousViewerAsset
+              }
               isInfoOpen={annotationAsset !== null}
               onClose={closeAnchoredAsset}
+              onRestoreFocus={() => {
+                if (!viewerAnchorKey || view === "compare") return false;
+                const entry = CSS.escape(viewerAnchorKey);
+                const selector =
+                  view === "gallery"
+                    ? `.media-tile[data-entry-key="${entry}"] .media-preview-button`
+                    : `.feed-item[data-entry-key="${entry}"] .video-controls__button--expand, .feed-item[data-entry-key="${entry}"] .feed-actions button`;
+                const target =
+                  document.querySelector<HTMLButtonElement>(selector);
+                target?.focus({ preventScroll: true });
+                return target !== null && document.activeElement === target;
+              }}
               onScoreChange={(score) =>
                 void saveAssetScore(selectedAsset, { score })
               }
               onToggleInfo={() =>
-                setAnnotationAssetId((current) =>
-                  current === selectedAsset.id ? null : selectedAsset.id
-                )
+                annotationAsset?.id === selectedAsset.id
+                  ? setAnnotationAssetId(null)
+                  : openAnnotations(
+                      selectedAsset.id,
+                      viewerAnchorKey ?? undefined
+                    )
               }
-              onNext={() => {
-                setHighlightSelection(null);
-                selectAdjacentAsset(1);
-              }}
-              onPrevious={() => {
-                setHighlightSelection(null);
-                selectAdjacentAsset(-1);
-              }}
+              onNext={() => selectViewerEntry(1)}
+              onPrevious={() => selectViewerEntry(-1)}
             />
           </Suspense>
         ) : null}
@@ -1698,34 +1853,37 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
             <MediaAnnotationDrawer
               aiStatus={aiStatus}
               asset={annotationAsset}
+              locationLabel={mediaFolderLabel(tree, annotationAsset.folderId)}
               isAboveViewer={selectedAssetId !== null}
               isScoreSaving={savingScoreAssetIds.has(annotationAsset.id)}
               onAssetTagsUpdated={handleAssetTagsUpdated}
               onAssetUpdated={handleAssetUpdated}
-              selectedHighlightId={
-                highlightSelection?.assetId === annotationAsset.id &&
-                highlightSelection.sourceKey ===
-                  annotationAsset.presentation?.renditionKeys.full
-                  ? highlightSelection.id
-                  : null
-              }
+              selectedHighlightId={annotationHighlightId}
               onViewHighlight={(asset, id) => {
                 setHighlightSelection({
                   assetId: asset.id,
                   id,
-                  sourceKey: asset.presentation?.renditionKeys.full
+                  sourceKey: asset.presentation?.renditionKeys.full,
+                  entry:
+                    view !== "compare" &&
+                    asset.presentation?.separateHighlights === true
                 });
                 setAnnotationAssetId(null);
                 pushLocationRef.current = true;
-                activeMediaAnchorIdRef.current = asset.id;
-                setSyncedMediaAnchorId(asset.id);
+                const anchor = libraryMediaEntryKey(
+                  asset.id,
+                  asset.presentation?.separateHighlights ? id : null
+                );
+                activeMediaAnchorIdRef.current = anchor;
+                setSyncedMediaAnchorId(anchor);
                 openAssetFullscreen(asset);
               }}
               onEditHighlights={(asset) => {
                 setAnnotationAssetId(null);
-                setEditingAsset(asset);
+                editMedia(asset, annotationHighlightId);
               }}
               onMakeMainHighlight={saveMainHighlight}
+              onSeparateHighlightsChange={saveHighlightsSeparately}
               onClose={() => setAnnotationAssetId(null)}
               onRankingChanged={() => {
                 rankingChangedRef.current = true;
@@ -1751,10 +1909,8 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
             asset={editingAsset}
             initialAspect={aspect}
             initialHighlightId={
-              highlightSelection?.assetId === editingAsset.id &&
-              highlightSelection.sourceKey ===
-                editingAsset.presentation?.renditionKeys.full
-                ? highlightSelection.id
+              editingHighlight?.assetId === editingAsset.id
+                ? editingHighlight.id
                 : null
             }
             originalFit={view === "compare" ? "contain" : "cover"}

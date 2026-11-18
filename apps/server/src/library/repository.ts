@@ -33,7 +33,12 @@ export {
   PresentationConflictError,
   countPresentationEdits
 } from "./repository-presentation.js";
-export type { MediaPresentation, PresentationValues } from "./presentation.js";
+export type {
+  MediaPresentation,
+  PresentationValues,
+  SavedHighlightValues,
+  SavedHighlight
+} from "./presentation.js";
 import { getAssetTags, getTagsByAssetId } from "./repository-tags.js";
 export {
   resetLibraryData,

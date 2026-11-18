@@ -39,6 +39,7 @@ import { VIDEO_BOUNCE_MAX_OUTPUT_BYTES } from "../src/library/presentation-bounc
 import { registerPresentationMediaRoutes } from "../src/library/routes-presentation-media.js";
 import {
   defaultPresentationValues,
+  canonicalPresentationValues,
   getPresentationRenditionKeys
 } from "../src/library/presentation.js";
 import {
@@ -134,11 +135,16 @@ function setHighlight(
   id: string,
   startMs: number,
   endMs: number,
-  loopMode = "repeat"
+  loopMode: "repeat" | "bounce" = "repeat"
 ) {
+  const values = canonicalPresentationValues({
+    ...defaultPresentationValues(),
+    highlight: { startMs, endMs },
+    loopMode
+  });
   db.prepare(
-    "INSERT INTO asset_presentations (asset_id, revision, highlight_start_ms, highlight_end_ms, fit, focal_x, focal_y, zoom, playback_rate, loop_mode, updated_at) VALUES (?,1,?,?,'auto',0.5,0.5,1,1,?,'2026-01-01T00:00:00.000Z') ON CONFLICT(asset_id) DO UPDATE SET revision=revision+1,highlight_start_ms=excluded.highlight_start_ms,highlight_end_ms=excluded.highlight_end_ms,loop_mode=excluded.loop_mode"
-  ).run(id, startMs, endMs, loopMode);
+    "INSERT INTO asset_presentations (asset_id, revision, highlight_start_ms, highlight_end_ms, fit, focal_x, focal_y, zoom, playback_rate, loop_mode, updated_at, highlights, main_highlight_id) VALUES (?,1,?,?,'auto',0.5,0.5,1,1,?,'2026-01-01T00:00:00.000Z',?,'highlight-1') ON CONFLICT(asset_id) DO UPDATE SET revision=revision+1,highlight_start_ms=excluded.highlight_start_ms,highlight_end_ms=excluded.highlight_end_ms,loop_mode=excluded.loop_mode,highlights=excluded.highlights,main_highlight_id=excluded.main_highlight_id"
+  ).run(id, startMs, endMs, loopMode, JSON.stringify(values.highlights));
   return getAsset(db, id)!;
 }
 

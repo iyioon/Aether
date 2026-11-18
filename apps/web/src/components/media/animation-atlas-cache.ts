@@ -1,4 +1,5 @@
 import { notifyUnauthorized, type AnimationManifest } from "../../api/client";
+import { AnimationAtlasSourceCache } from "./animation-atlas-source-cache";
 
 export interface DecodedAnimationAtlas {
   image: CanvasImageSource;
@@ -8,12 +9,13 @@ export interface DecodedAnimationAtlas {
 }
 
 type AtlasDescriptor = AnimationManifest["atlases"][number];
-type AtlasLoader = (
+type AtlasLoader = ((
   atlas: AtlasDescriptor,
   signal: AbortSignal
-) => Promise<DecodedAnimationAtlas>;
+) => Promise<DecodedAnimationAtlas>) & { clear?: () => void };
 interface Consumer {
   signal: AbortSignal;
+  priority: number;
   draw: (atlas: DecodedAnimationAtlas) => void;
   resolve: () => void;
   reject: (error: unknown) => void;
@@ -33,6 +35,14 @@ export class AnimationAtlasCache {
   private readonly ready = new Map<string, DecodedAnimationAtlas>();
   private readyBytes = 0;
   private readonly jobs = new Map<string, AtlasJob>();
+  private readonly retained = new Map<
+    AbortSignal,
+    {
+      current: string | null;
+      upcoming: Map<string, number>;
+      cleanup: () => void;
+    }
+  >();
   private running = 0;
 
   constructor(
@@ -47,11 +57,43 @@ export class AnimationAtlasCache {
     signal: AbortSignal,
     draw: Consumer["draw"]
   ): Promise<void> {
+    return this.request(atlas, signal, draw, false);
+  }
+
+  prefetch(
+    atlas: AtlasDescriptor,
+    signal: AbortSignal,
+    priority = 0
+  ): Promise<void> {
+    return this.request(atlas, signal, () => undefined, true, priority);
+  }
+
+  private request(
+    atlas: AtlasDescriptor,
+    signal: AbortSignal,
+    draw: Consumer["draw"],
+    speculative: boolean,
+    priority = -1
+  ): Promise<void> {
     if (signal.aborted) return Promise.reject(abortError());
+    let retained = this.retained.get(signal);
+    if (!retained) {
+      const release = () => {
+        this.retained.delete(signal);
+        signal.removeEventListener("abort", release);
+      };
+      retained = { current: null, upcoming: new Map(), cleanup: release };
+      this.retained.set(signal, retained);
+      signal.addEventListener("abort", release, { once: true });
+    }
+    if (speculative) retained.upcoming.set(atlas.url, priority);
+    else retained.current = atlas.url;
     const ready = this.ready.get(atlas.url);
     if (ready) {
-      this.ready.delete(atlas.url);
-      this.ready.set(atlas.url, ready);
+      if (!speculative) {
+        this.ready.delete(atlas.url);
+        this.ready.set(atlas.url, ready);
+      }
       try {
         draw(ready);
         return Promise.resolve();
@@ -86,6 +128,7 @@ export class AnimationAtlasCache {
       };
       const consumer: Consumer = {
         signal,
+        priority,
         draw,
         resolve,
         reject,
@@ -99,6 +142,8 @@ export class AnimationAtlasCache {
   }
 
   clear(): void {
+    this.load.clear?.();
+    for (const retained of this.retained.values()) retained.cleanup();
     for (const atlas of this.ready.values()) atlas.dispose();
     this.ready.clear();
     this.readyBytes = 0;
@@ -114,12 +159,50 @@ export class AnimationAtlasCache {
   }
 
   private pump(): void {
-    for (const job of this.jobs.values()) {
+    const jobs = [...this.jobs.values()].sort(
+      (left, right) => this.priority(left) - this.priority(right)
+    );
+    for (const job of jobs) {
       if (this.running >= this.maximumRunning) return;
       if (job.started || job.controller.signal.aborted) continue;
       job.started = true;
       this.running += 1;
       void this.prepare(job);
+    }
+  }
+
+  private priority(job: AtlasJob): number {
+    return Math.min(...[...job.consumers].map((consumer) => consumer.priority));
+  }
+
+  private evict(): void {
+    const priorities = new Map<string, number>();
+    for (const { current, upcoming } of this.retained.values()) {
+      if (current) priorities.set(current, -1);
+      for (const [url, priority] of upcoming) {
+        priorities.set(
+          url,
+          Math.min(priorities.get(url) ?? Infinity, priority)
+        );
+      }
+    }
+    while (
+      this.ready.size > this.maximumReady ||
+      this.readyBytes > this.maximumReadyBytes
+    ) {
+      let oldest: string | undefined;
+      let leastPriority = -Infinity;
+      for (const url of this.ready.keys()) {
+        const priority = priorities.get(url) ?? Infinity;
+        if (priority <= leastPriority) continue;
+        leastPriority = priority;
+        oldest = url;
+      }
+      if (oldest === undefined) break;
+      const evicted = this.ready.get(oldest)!;
+      this.readyBytes -= evicted.width * evicted.height * 4;
+      evicted.dispose();
+      this.ready.delete(oldest);
     }
   }
 
@@ -146,17 +229,7 @@ export class AnimationAtlasCache {
           consumer.reject(error);
         }
       }
-      while (
-        this.ready.size > this.maximumReady ||
-        this.readyBytes > this.maximumReadyBytes
-      ) {
-        const oldest = this.ready.keys().next().value;
-        if (oldest === undefined) break;
-        const evicted = this.ready.get(oldest)!;
-        this.readyBytes -= evicted.width * evicted.height * 4;
-        evicted.dispose();
-        this.ready.delete(oldest);
-      }
+      this.evict();
     } catch (error) {
       for (const consumer of job.consumers) {
         consumer.cleanup();
@@ -173,6 +246,7 @@ export class AnimationAtlasCache {
 }
 
 const ATLAS_BYTE_LIMIT = 20 * 1024 * 1024;
+const encodedAtlases = new AnimationAtlasSourceCache();
 
 async function loadAtlas(
   descriptor: AtlasDescriptor,
@@ -184,41 +258,44 @@ async function loadAtlas(
   if (signal.aborted) controller.abort();
   const timeout = setTimeout(cancel, 45_000);
   try {
-    const response = await fetch(descriptor.url, {
-      credentials: "same-origin",
-      signal: controller.signal,
-      redirect: "error"
-    });
-    if (response.status === 401) notifyUnauthorized();
-    if (
-      !response.ok ||
-      response.headers.get("content-type")?.split(";")[0] !== "image/png"
-    )
-      throw new Error("Could not load animation atlas.");
-    if (
-      Number(response.headers.get("content-length")) > ATLAS_BYTE_LIMIT ||
-      !response.body
-    )
-      throw new Error("Animation atlas exceeds its limit.");
-    const reader = response.body.getReader();
-    const chunks: Uint8Array<ArrayBuffer>[] = [];
-    let length = 0;
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        length += value.byteLength;
-        if (length > ATLAS_BYTE_LIMIT)
-          throw new Error("Animation atlas exceeds its limit.");
-        chunks.push(value);
+    let blob = encodedAtlases.get(descriptor.url);
+    if (!blob) {
+      const response = await fetch(descriptor.url, {
+        credentials: "same-origin",
+        signal: controller.signal,
+        redirect: "error"
+      });
+      if (response.status === 401) notifyUnauthorized();
+      if (
+        !response.ok ||
+        response.headers.get("content-type")?.split(";")[0] !== "image/png"
+      )
+        throw new Error("Could not load animation atlas.");
+      if (
+        Number(response.headers.get("content-length")) > ATLAS_BYTE_LIMIT ||
+        !response.body
+      )
+        throw new Error("Animation atlas exceeds its limit.");
+      const reader = response.body.getReader();
+      const chunks: Uint8Array<ArrayBuffer>[] = [];
+      let length = 0;
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          length += value.byteLength;
+          if (length > ATLAS_BYTE_LIMIT)
+            throw new Error("Animation atlas exceeds its limit.");
+          chunks.push(value);
+        }
+      } catch (error) {
+        await reader.cancel().catch(() => undefined);
+        throw error;
+      } finally {
+        reader.releaseLock();
       }
-    } catch (error) {
-      await reader.cancel().catch(() => undefined);
-      throw error;
-    } finally {
-      reader.releaseLock();
+      blob = new Blob(chunks, { type: "image/png" });
     }
-    const blob = new Blob(chunks, { type: "image/png" });
     const header = new DataView(await blob.slice(0, 24).arrayBuffer());
     if (
       header.byteLength < 24 ||
@@ -230,6 +307,8 @@ async function loadAtlas(
     ) {
       throw new Error("Invalid animation atlas dimensions.");
     }
+    if (controller.signal.aborted) throw abortError();
+    encodedAtlases.set(descriptor.url, blob);
     const decoded = await decodeAtlas(blob, controller.signal);
     if (
       decoded.width !== descriptor.width ||
@@ -240,6 +319,9 @@ async function loadAtlas(
       throw new Error("Animation atlas dimensions changed.");
     }
     return decoded;
+  } catch (error) {
+    if (!controller.signal.aborted) encodedAtlases.delete(descriptor.url);
+    throw error;
   } finally {
     clearTimeout(timeout);
     signal.removeEventListener("abort", cancel);
@@ -289,4 +371,6 @@ async function decodeAtlas(
   }
 }
 
-export const animationAtlasCache = new AnimationAtlasCache(loadAtlas);
+export const animationAtlasCache = new AnimationAtlasCache(
+  Object.assign(loadAtlas, { clear: () => encodedAtlases.clear() })
+);

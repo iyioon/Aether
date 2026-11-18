@@ -89,7 +89,9 @@ browser history.
 
 Saved navigation and ranking state includes filters, asset IDs, and scroll
 positions in local storage. Signing out clears that state, pending image
-preloads, readiness hints, decoded animation atlases and capability caches.
+preloads, readiness hints, encoded and decoded animation atlases and capability
+caches. Session expiry also clears the animation caches while retaining
+resumable navigation for sign-in.
 Appearance and playback preferences remain in this browser. Playback defaults
 store mode choices for sound, full-view framing and playback range, plus mute
 booleans for Full view and Feed. The viewer's remembered Use saved framing choice
@@ -97,6 +99,11 @@ stores a boolean. These preferences contain no asset IDs, media paths or media
 content. Each browser/device keeps its own choices. The service worker caches
 only public application files; private API
 responses and media bypass it.
+
+Animation playback retains at most 32 MiB of encoded PNG atlas bytes across 32
+entries in memory, alongside the separate 48 MiB decoded-atlas budget. Reuse
+checks PNG headers and dimensions against the current descriptor. This adds no
+persistent browser storage.
 
 Comparison preloading requests a small number of upcoming items through the
 same authenticated media routes. Its queue stays in memory and stops when the

@@ -64,8 +64,10 @@ export interface PresentationFraming {
   zoom: number;
 }
 
-export interface PresentationValues extends PresentationFraming {
-  highlight: { startMs: number; endMs: number } | null;
+export interface SavedHighlightValues extends PresentationFraming {
+  id: string;
+  name: string;
+  highlight: { startMs: number; endMs: number };
   aspectFraming?: Partial<
     Record<Exclude<PresentationAspect, "Original">, PresentationFraming>
   >;
@@ -74,9 +76,26 @@ export interface PresentationValues extends PresentationFraming {
   loopMode: "repeat" | "bounce";
 }
 
+export interface SavedHighlight extends SavedHighlightValues {
+  renditionKeys: { full: string; highlight: string; bounce: string };
+}
+
+export interface PresentationValues extends PresentationFraming {
+  highlight: { startMs: number; endMs: number } | null;
+  aspectFraming?: Partial<
+    Record<Exclude<PresentationAspect, "Original">, PresentationFraming>
+  >;
+  feedFraming?: Partial<Record<"portrait" | "landscape", PresentationFraming>>;
+  playbackRate: number;
+  loopMode: "repeat" | "bounce";
+  highlights?: SavedHighlightValues[];
+  mainHighlightId?: string | null;
+}
+
 export interface MediaPresentation extends PresentationValues {
   revision: number;
   renditionKeys: { full: string; highlight: string; bounce: string };
+  highlights?: SavedHighlight[];
 }
 
 export interface PresentationMediaCapabilities {
@@ -632,10 +651,11 @@ export async function getSettings(
 
 export async function getPresentationMediaCapabilities(
   assetId: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  highlightId?: string
 ): Promise<PresentationMediaCapabilities> {
   return request<PresentationMediaCapabilities>(
-    `/api/assets/${encodeURIComponent(assetId)}/presentation-media`,
+    `/api/assets/${encodeURIComponent(assetId)}/presentation-media${highlightId ? `?highlightId=${encodeURIComponent(highlightId)}` : ""}`,
     { signal },
     { timeoutMs: MEDIA_PREPARATION_TIMEOUT_MS }
   );

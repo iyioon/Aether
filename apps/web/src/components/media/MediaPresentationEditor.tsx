@@ -6,6 +6,7 @@ import {
   type PresentationValues
 } from "../../api/client";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
+import { createUuid } from "../../lib/uuid";
 import { galleryAspectRatio } from "../gallery/gallery-layout";
 import { PresentationFrame } from "./PresentationFrame";
 import { PresentationFramingFields } from "./PresentationFramingFields";
@@ -13,6 +14,10 @@ import { PresentationPlaybackFields } from "./PresentationPlaybackFields";
 import {
   defaultPresentationValues,
   getPresentationValues,
+  getPresentationHighlights,
+  selectPresentationHighlight,
+  setMainPresentationHighlight,
+  updatePresentationHighlight,
   presentationFramingForAspect,
   setPresentationFraming,
   presentationClamp,
@@ -25,6 +30,13 @@ import { PresentationPreview } from "./PresentationPreview";
 import type { AspectMode } from "../library-state";
 import { PresentationTransport } from "./PresentationTransport";
 import { PresentationEditorFooter } from "./PresentationEditorFooter";
+import { PresentationHighlightPicker } from "./PresentationHighlightPicker";
+import {
+  addPresentationHighlight,
+  MAX_MEDIA_HIGHLIGHTS,
+  removePresentationHighlight,
+  renamePresentationHighlight
+} from "./presentation-highlight-editor";
 
 export interface MediaPresentationPreviewProps {
   presentation: PresentationValues;
@@ -40,6 +52,7 @@ export interface MediaPresentationPreviewProps {
 }
 
 export interface MediaPresentationEditorProps {
+  initialHighlightId?: string | null;
   initialAspect?: AspectMode;
   originalFit?: "contain" | "cover";
   onPendingChange: (pending: boolean) => void;
@@ -111,6 +124,7 @@ export function MediaPresentationEditor({
   asset,
   unavailable = false,
   initialAspect = "Square",
+  initialHighlightId,
   originalFit = "cover",
   onPendingChange,
   capabilities,
@@ -122,35 +136,52 @@ export function MediaPresentationEditor({
     getPresentationValues(asset.presentation)
   );
   const [draft, setDraft] = useState(original);
+  const [selectedHighlightId, setSelectedHighlightId] = useState<string | null>(
+    () => {
+      const items = getPresentationHighlights(original);
+      return items.some((item) => item.id === initialHighlightId)
+        ? initialHighlightId!
+        : (original.mainHighlightId ?? items[0]?.id ?? null);
+    }
+  );
+  const highlights = getPresentationHighlights(draft);
+  const selectedHighlight = highlights.find(
+    (highlight) => highlight.id === selectedHighlightId
+  );
+  const activeDraft = selectedHighlight
+    ? selectPresentationHighlight(draft, selectedHighlight.id)
+    : draft;
   const [revision, setRevision] = useState(asset.presentation?.revision ?? 0);
   const [tab, setTab] = useState(
     capabilities.kind === "still" ? "framing" : "playback"
   );
   const [aspect, setAspect] = useState<AspectMode>(initialAspect);
   const framing = presentationFramingForAspect(
-    draft,
+    activeDraft,
     aspect,
     aspect === "Original" ? originalFit : "cover"
   );
   const framedDraft = {
-    ...draft,
+    ...activeDraft,
     ...framing,
     ...(framing.fit === "contain" ? { focalX: 0.5, focalY: 0.5, zoom: 1 } : {})
   };
   function changeFraming(values: PresentationValues) {
-    setDraft((current) => setPresentationFraming(current, aspect, values));
+    changeDraft(setPresentationFraming(activeDraft, aspect, values));
   }
   const aspectRatio =
     aspect === "Original"
       ? (capabilities.width ?? asset.width ?? 1) /
         (capabilities.height ?? asset.height ?? 1)
       : galleryAspectRatio(aspect);
-  const [playheadMs, setPlayheadMs] = useState(draft.highlight?.startMs ?? 0);
+  const [playheadMs, setPlayheadMs] = useState(
+    activeDraft.highlight?.startMs ?? 0
+  );
   const [isPlaying, setIsPlaying] = useState(false);
   const [previewMuted, setPreviewMuted] = useState(false);
   const previewVideoRef = useRef<HTMLVideoElement>(null);
   const hasAudio = capabilities.kind === "video" && capabilities.hasAudio;
-  const silentPreview = draft.loopMode === "bounce" || !hasAudio;
+  const silentPreview = activeDraft.loopMode === "bounce" || !hasAudio;
   const effectiveMuted = silentPreview || previewMuted;
   const [playbackAvailable, setPlaybackAvailable] = useState(true);
   const [observedDuration, setObservedDuration] = useState(0);
@@ -172,7 +203,7 @@ export function MediaPresentationEditor({
     duration !== null && Number.isFinite(duration)
       ? Math.max(0, Math.round(duration))
       : 0;
-  const [startMs, endMs] = presentationRange(draft, durationMs);
+  const [startMs, endMs] = presentationRange(activeDraft, durationMs);
   const disabled = pending !== null || unavailable;
   const unsupportedTemporal =
     capabilities.timingUnavailable &&
@@ -182,12 +213,25 @@ export function MediaPresentationEditor({
   const validation = unsupportedTemporal
     ? "Reset these edits before saving new framing."
     : timed
-      ? presentationValidationMessage(
-          draft,
-          durationMs,
-          capabilities.maxBounceDurationMs,
-          capabilities.maxHighlightDurationMs
-        )
+      ? highlights.length
+        ? highlights.reduce<string | null>((message, highlight) => {
+            if (message) return message;
+            if (!highlight.name.trim())
+              return "Enter a name for each highlight.";
+            const issue = presentationValidationMessage(
+              highlight,
+              durationMs,
+              capabilities.maxBounceDurationMs,
+              capabilities.maxHighlightDurationMs
+            );
+            return issue ? `${highlight.name.trim()}: ${issue}` : null;
+          }, null)
+        : presentationValidationMessage(
+            draft,
+            durationMs,
+            capabilities.maxBounceDurationMs,
+            capabilities.maxHighlightDurationMs
+          )
       : null;
   const dirty = !presentationValuesEqual(draft, original);
   const canReset =
@@ -225,11 +269,59 @@ export function MediaPresentationEditor({
   }, []);
 
   function changeRange(start: number, end: number) {
-    setDraft((current) =>
-      updatePresentationRange(current, start, end, durationMs)
-    );
+    changeDraft(updatePresentationRange(activeDraft, start, end, durationMs));
     setPlayheadMs((current) => presentationClamp(current, start, end));
     setError((current) => (current?.conflict ? current : null));
+  }
+
+  function changeDraft(next: PresentationValues) {
+    if (selectedHighlight) {
+      setDraft((current) =>
+        updatePresentationHighlight(current, selectedHighlight.id, {
+          ...next,
+          highlight: next.highlight ?? { startMs: 0, endMs: durationMs }
+        })
+      );
+    } else if (next.highlight) {
+      const id = createUuid();
+      const withHighlight = addPresentationHighlight(
+        { ...next, highlights: [], mainHighlightId: null },
+        durationMs,
+        next.highlight.startMs,
+        id
+      );
+      setDraft(updatePresentationHighlight(withHighlight, id, next));
+      setSelectedHighlightId(id);
+    } else setDraft(next);
+  }
+
+  function selectHighlight(id: string, values = draft) {
+    const item = getPresentationHighlights(values).find(
+      (highlight) => highlight.id === id
+    );
+    setSelectedHighlightId(item?.id ?? null);
+    setPlayheadMs(item?.highlight.startMs ?? 0);
+    setIsPlaying(false);
+    setResetKey((current) => current + 1);
+    setInvalidFields({ start: false, end: false });
+  }
+
+  function addHighlight() {
+    const id = createUuid();
+    const next = addPresentationHighlight(
+      activeDraft,
+      durationMs,
+      playheadMs,
+      id,
+      Math.min(
+        capabilities.maxHighlightDurationMs ?? Infinity,
+        activeDraft.loopMode === "bounce"
+          ? capabilities.maxBounceDurationMs
+          : Infinity
+      )
+    );
+    setDraft(next);
+    selectHighlight(id, next);
   }
 
   function changePlaying(playing: boolean) {
@@ -259,7 +351,19 @@ export function MediaPresentationEditor({
     setIsPlaying(false);
     setError(null);
     try {
-      await onSave(draft, revision);
+      const values = {
+        ...draft,
+        ...(draft.highlights
+          ? {
+              highlights: highlights.map((highlight) => ({
+                ...highlight,
+                name: highlight.name.trim()
+              }))
+            }
+          : {})
+      };
+      setDraft(values);
+      await onSave(values, revision);
     } catch (failure) {
       if (activeRef.current) {
         setError(saveError(failure));
@@ -288,6 +392,7 @@ export function MediaPresentationEditor({
         setResetKey((current) => current + 1);
         setOriginal(values);
         setDraft(values);
+        selectHighlight(values.mainHighlightId ?? "", values);
         setRevision(latest.presentation?.revision ?? 0);
         setPreviewAttempt((current) => current + 1);
         setObservedDuration(0);
@@ -359,7 +464,7 @@ export function MediaPresentationEditor({
           {timed ? (
             <PresentationTransport
               durationMs={durationMs}
-              highlight={draft.highlight}
+              highlight={activeDraft.highlight}
               playheadMs={playheadMs}
               isPlaying={isPlaying}
               disabled={disabled || !playbackAvailable}
@@ -382,6 +487,50 @@ export function MediaPresentationEditor({
           ) : null}
         </div>
         <div className="media-editor-inspector">
+          {timed && !capabilities.timingUnavailable ? (
+            <PresentationHighlightPicker
+              highlights={highlights}
+              selectedId={selectedHighlightId}
+              mainId={draft.mainHighlightId ?? highlights[0]?.id ?? null}
+              disabled={disabled}
+              switchingDisabled={invalidFields.start || invalidFields.end}
+              canAdd={
+                durationMs > 0 && highlights.length < MAX_MEDIA_HIGHLIGHTS
+              }
+              onSelect={selectHighlight}
+              onAdd={addHighlight}
+              onNameChange={(name) => {
+                if (selectedHighlightId)
+                  setDraft((current) =>
+                    renamePresentationHighlight(
+                      current,
+                      selectedHighlightId,
+                      name
+                    )
+                  );
+              }}
+              onMakeMain={() => {
+                if (selectedHighlightId)
+                  setDraft((current) =>
+                    setMainPresentationHighlight(current, selectedHighlightId)
+                  );
+              }}
+              onRemove={() => {
+                if (!selectedHighlightId) return;
+                const index = highlights.findIndex(
+                  (highlight) => highlight.id === selectedHighlightId
+                );
+                const next = removePresentationHighlight(
+                  draft,
+                  selectedHighlightId
+                );
+                const nextId =
+                  highlights[index + 1]?.id ?? highlights[index - 1]?.id ?? "";
+                setDraft(next);
+                selectHighlight(nextId, next);
+              }}
+            />
+          ) : null}
           {timed ? (
             <Tabs
               value={tab}
@@ -398,7 +547,7 @@ export function MediaPresentationEditor({
                 hidden={tab !== "playback"}
               >
                 <PresentationPlaybackFields
-                  draft={draft}
+                  draft={activeDraft}
                   durationMs={durationMs}
                   maxBounceDurationMs={capabilities.maxBounceDurationMs}
                   disabled={disabled}
@@ -410,7 +559,7 @@ export function MediaPresentationEditor({
                     setIsPlaying(false);
                     setPlayheadMs(time);
                   }}
-                  onChange={setDraft}
+                  onChange={changeDraft}
                   onInvalidChange={(field, invalid) =>
                     setInvalidFields((current) => ({
                       ...current,
@@ -459,7 +608,12 @@ export function MediaPresentationEditor({
         onSave={() => void save()}
         onReset={() => {
           setResetKey((current) => current + 1);
-          setDraft(defaultPresentationValues());
+          setDraft({
+            ...defaultPresentationValues(),
+            highlights: [],
+            mainHighlightId: null
+          });
+          setSelectedHighlightId(null);
           setPlayheadMs(0);
           setIsPlaying(false);
           setInvalidFields({ start: false, end: false });

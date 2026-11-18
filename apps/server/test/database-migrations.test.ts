@@ -8,8 +8,17 @@ import {
   LATEST_SCHEMA_VERSION,
   openDatabase
 } from "../src/db/database.js";
+import { getPresentationsByAssetId } from "../src/library/repository-presentation.js";
+import { defaultPresentationValues } from "../src/library/presentation.js";
+
+function removeHighlightsSchema(db: Database.Database): void {
+  db.exec(`ALTER TABLE asset_presentations DROP COLUMN highlights;
+    ALTER TABLE asset_presentations DROP COLUMN main_highlight_id;
+    DELETE FROM schema_migrations WHERE version = 22;`);
+}
 
 function removeManagementSchema(db: Database.Database): void {
+  removeHighlightsSchema(db);
   const triggers = db
     .prepare("SELECT name FROM sqlite_schema WHERE type = 'trigger'")
     .all() as Array<{ name: string }>;
@@ -156,6 +165,7 @@ describe("database migrations", () => {
     );
     try {
       const initial = openDatabase(configDir);
+      removeHighlightsSchema(initial);
       initial.exec(`
         INSERT INTO roots (id, label, real_path, created_at) VALUES ('root', 'Media', '/media', '2026-10-26');
         INSERT INTO assets (id, root_id, relative_path, name, extension, media_type, size_bytes, mtime_ms, indexed_at, status)
@@ -203,6 +213,119 @@ describe("database migrations", () => {
       await rm(configDir, { recursive: true, force: true });
     }
   });
+
+  it("upgrades a single saved highlight without changing its identity, framing, revision or media keys", async () => {
+    const directory = await mkdtemp(
+      path.join(tmpdir(), "aether-highlights-upgrade-")
+    );
+    try {
+      const initial = openDatabase(directory);
+      initial.exec(`
+        INSERT INTO roots (id, label, real_path, created_at) VALUES ('root', 'Media', '/media', '2026-11-18');
+        INSERT INTO assets (id, root_id, relative_path, name, extension, media_type, size_bytes, mtime_ms, indexed_at, status)
+          VALUES ('one', 'root', 'one.mp4', 'one.mp4', '.mp4', 'video', 10, 1, '2026-11-18', 'ready');
+        INSERT INTO asset_presentations (asset_id, revision, highlight_start_ms, highlight_end_ms, fit, focal_x, focal_y, zoom, playback_rate, loop_mode, updated_at, aspect_framing)
+          VALUES ('one', 7, 100, 900, 'cover', 0.2, 0.8, 2, 0.5, 'bounce', '2026-11-18', '{"Portrait":{"fit":"cover","focalX":0.2,"focalY":0.8,"zoom":2}}');
+      `);
+      removeHighlightsSchema(initial);
+      initial.close();
+      const upgraded = openDatabase(directory);
+      try {
+        const presentation = getPresentationsByAssetId(upgraded, [
+          { id: "one", mtimeMs: 1, sizeBytes: 10 }
+        ]).get("one")!;
+        expect(presentation).toMatchObject({
+          revision: 7,
+          mainHighlightId: "highlight-1",
+          highlight: { startMs: 100, endMs: 900 },
+          fit: "cover",
+          playbackRate: 0.5,
+          loopMode: "bounce"
+        });
+        expect(presentation.highlights).toHaveLength(1);
+        expect(presentation.highlights[0]).toMatchObject({
+          id: "highlight-1",
+          name: "Highlight 1",
+          renditionKeys: presentation.renditionKeys,
+          aspectFraming: presentation.aspectFraming
+        });
+        expect(() =>
+          upgraded
+            .prepare("UPDATE asset_presentations SET highlights = ?")
+            .run("{}")
+        ).toThrow();
+        expect(() =>
+          upgraded
+            .prepare("UPDATE asset_presentations SET highlights = ?")
+            .run(JSON.stringify(Array(21).fill({})))
+        ).toThrow();
+        upgraded.exec(
+          "ALTER TABLE asset_presentations DROP COLUMN main_highlight_id"
+        );
+      } finally {
+        upgraded.close();
+      }
+      expect(() => openDatabase(directory)).toThrow(
+        "Aether database schema is incomplete or incompatible"
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    "null member",
+    "missing range",
+    "duplicate IDs",
+    "missing main",
+    "wrong main",
+    "inconsistent projection",
+    "reversed range"
+  ])(
+    "rejects a latest database containing a %s highlight collection",
+    async (problem) => {
+      const directory = await mkdtemp(
+        path.join(tmpdir(), "aether-invalid-highlights-")
+      );
+      try {
+        const db = openDatabase(directory);
+        db.exec(`INSERT INTO roots (id, label, real_path, created_at) VALUES ('root', 'Media', '/media', '2026-11-18');
+          INSERT INTO assets (id, root_id, relative_path, name, extension, media_type, size_bytes, mtime_ms, indexed_at, status)
+            VALUES ('clip', 'root', 'clip.mp4', 'clip.mp4', '.mp4', 'video', 10, 1, '2026-11-18', 'ready');`);
+        const valid = {
+          ...defaultPresentationValues(),
+          id: "opening",
+          name: "Opening",
+          highlight: { startMs: 0, endMs: 500 }
+        };
+        let highlights: unknown[] = [valid];
+        let main: string | null = "opening";
+        if (problem === "null member") highlights = [null];
+        if (problem === "missing range")
+          highlights = [{ id: "opening", name: "Opening" }];
+        if (problem === "duplicate IDs") highlights = [valid, valid];
+        if (problem === "missing main") main = null;
+        if (problem === "wrong main") main = "missing";
+        if (problem === "reversed range")
+          highlights = [{ ...valid, highlight: { startMs: 500, endMs: 100 } }];
+        db.prepare(
+          `INSERT INTO asset_presentations
+          (asset_id, revision, highlight_start_ms, highlight_end_ms, fit, focal_x, focal_y, zoom, playback_rate, loop_mode, updated_at, highlights, main_highlight_id)
+          VALUES ('clip', 1, 0, 500, 'auto', 0.5, 0.5, ?, 1, 'repeat', '2026-11-18', ?, ?)`
+        ).run(
+          problem === "inconsistent projection" ? 2 : 1,
+          JSON.stringify(highlights),
+          main
+        );
+        db.close();
+        expect(() => openDatabase(directory)).toThrow(
+          "Aether database schema is incomplete or incompatible"
+        );
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    }
+  );
 
   it("refuses startup when a latest-version database is missing required schema", async () => {
     const configDir = await mkdtemp(path.join(tmpdir(), "aether-schema-"));

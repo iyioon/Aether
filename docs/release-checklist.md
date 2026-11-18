@@ -111,6 +111,19 @@ Never test rebuild or wipe against the only copy of a real library database.
 
 ## Presentation Acceptance
 
+- Create multiple highlights on desktop and phones, using distinct ranges,
+  speeds, Repeat/Bounce modes and aspect frames. Switch between them before Save,
+  verify Cancel and confirmed Remove, and correct invalid times before switching.
+  Set a non-first highlight as main in Edit media and Info; verify acknowledged
+  defaults across Gallery, Feed, Compare and viewer. Info → Highlights → View
+  must play a secondary section without changing main or browser defaults.
+  Check safe-area controls, keyboard focus, long names and Details draft
+  preservation. Verify main-removal fallback, last-removal reset, the 20-section
+  limit, conflicts and failed/uncertain saves. Restore an older single-highlight
+  backup, then back up and restore the collection. Playback reset must remove
+  all sections; framing reset must clear all frames while retaining playback.
+  Confirm secondary video/animation cache reuse and cleanup after removal,
+  source replacement and reset without retiring another current section.
 - Check Settings → Playback on desktop and phones. Full view and Feed start
   muted and keep independent Muted, Sound on and Remember last choices. Fixed
   choices apply to each new item; Remember last follows the user's sound choice

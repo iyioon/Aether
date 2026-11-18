@@ -1,8 +1,10 @@
 import type { AetherDatabase } from "../db/database.js";
 import {
   defaultPresentationValues,
-  getPresentationRenditionKeys,
+  canonicalPresentationValues,
   mediaPresentation,
+  presentationRenditionKeys,
+  normalizedAspectFraming,
   type MediaPresentation,
   type PresentationValues
 } from "./presentation.js";
@@ -11,6 +13,8 @@ interface PresentationRow {
   asset_id: string;
   aspect_framing: string;
   feed_framing: string;
+  highlights: string;
+  main_highlight_id: string | null;
   revision: number;
   highlight_start_ms: number | null;
   highlight_end_ms: number | null;
@@ -21,6 +25,17 @@ interface PresentationRow {
   playback_rate: number;
   loop_mode: PresentationValues["loopMode"];
 }
+
+const SAVED_FRAMING_EDITS = `EXISTS (
+  SELECT 1 FROM json_each(highlights)
+  WHERE json_extract(value, '$.fit') != 'auto'
+    OR json_extract(value, '$.focalX') != 0.5
+    OR json_extract(value, '$.focalY') != 0.5
+    OR json_extract(value, '$.zoom') != 1
+    OR COALESCE(json_extract(value, '$.aspectFraming'), '{}') != '{}'
+    OR COALESCE(json_extract(value, '$.feedFraming'), '{}') != '{}'
+)`;
+const FRAMING_EDITS = `fit != 'auto' OR focal_x != 0.5 OR focal_y != 0.5 OR zoom != 1 OR aspect_framing != '{}' OR feed_framing != '{}' OR ${SAVED_FRAMING_EDITS}`;
 
 export class PresentationConflictError extends Error {
   constructor() {
@@ -84,13 +99,16 @@ export function saveAssetPresentation(
       throw new PresentationConflictError();
     }
     const current = db
-      .prepare("SELECT revision FROM asset_presentations WHERE asset_id = ?")
-      .get(input.assetId) as { revision: number } | undefined;
+      .prepare("SELECT * FROM asset_presentations WHERE asset_id = ?")
+      .get(input.assetId) as PresentationRow | undefined;
     if ((current?.revision ?? 0) !== input.expectedRevision) {
       throw new PresentationConflictError();
     }
-    const { values } = input;
-    const keys = getPresentationRenditionKeys(
+    const values = canonicalPresentationValues(
+      input.values,
+      current ? rowValues(current) : undefined
+    );
+    const keys = presentationRenditionKeys(
       {
         id: input.assetId,
         mtimeMs: source.mtime_ms,
@@ -98,19 +116,20 @@ export function saveAssetPresentation(
       },
       values
     );
-    db.prepare(
-      `DELETE FROM derivatives WHERE asset_id = @assetId AND (
-      (kind LIKE 'presentation:highlight-%' AND kind NOT LIKE @highlight) OR
-      (kind LIKE 'presentation:bounce-%' AND kind NOT LIKE @bounce))`
-    ).run({
-      assetId: input.assetId,
-      highlight: `%:${keys.highlight}:%`,
-      bounce: `%:${keys.bounce}:%`
-    });
+    const obsolete = obsoletePresentationDerivativeFiles(
+      db,
+      input.assetId,
+      keys
+    );
+    const removeDerivative = db.prepare(
+      "DELETE FROM derivatives WHERE asset_id = ? AND path = ?"
+    );
+    for (const derivative of obsolete)
+      removeDerivative.run(input.assetId, derivative.path);
     db.prepare(
       `INSERT INTO asset_presentations
-      (asset_id, revision, highlight_start_ms, highlight_end_ms, fit, focal_x, focal_y, zoom, playback_rate, loop_mode, updated_at, aspect_framing, feed_framing)
-      VALUES (@assetId, @revision, @startMs, @endMs, @fit, @focalX, @focalY, @zoom, @playbackRate, @loopMode, @updatedAt, @aspectFraming, @feedFraming)
+      (asset_id, revision, highlight_start_ms, highlight_end_ms, fit, focal_x, focal_y, zoom, playback_rate, loop_mode, updated_at, aspect_framing, feed_framing, highlights, main_highlight_id)
+      VALUES (@assetId, @revision, @startMs, @endMs, @fit, @focalX, @focalY, @zoom, @playbackRate, @loopMode, @updatedAt, @aspectFraming, @feedFraming, @highlights, @mainHighlightId)
       ON CONFLICT(asset_id) DO UPDATE SET
         revision = excluded.revision,
         highlight_start_ms = excluded.highlight_start_ms,
@@ -118,7 +137,8 @@ export function saveAssetPresentation(
         fit = excluded.fit, focal_x = excluded.focal_x, focal_y = excluded.focal_y,
         zoom = excluded.zoom, playback_rate = excluded.playback_rate,
         loop_mode = excluded.loop_mode, updated_at = excluded.updated_at,
-        aspect_framing = excluded.aspect_framing, feed_framing = excluded.feed_framing`
+        aspect_framing = excluded.aspect_framing, feed_framing = excluded.feed_framing,
+        highlights = excluded.highlights, main_highlight_id = excluded.main_highlight_id`
     ).run({
       assetId: input.assetId,
       revision: input.expectedRevision + 1,
@@ -129,18 +149,11 @@ export function saveAssetPresentation(
       focalY: values.focalY,
       zoom: values.zoom,
       aspectFraming: JSON.stringify(
-        Object.fromEntries(
-          Object.entries(values.aspectFraming ?? {}).filter(
-            ([, frame]) =>
-              frame &&
-              (frame.fit !== "auto" ||
-                frame.focalX !== 0.5 ||
-                frame.focalY !== 0.5 ||
-                frame.zoom !== 1)
-          )
-        )
+        normalizedAspectFraming(values.aspectFraming)
       ),
       feedFraming: JSON.stringify(values.feedFraming ?? {}),
+      highlights: JSON.stringify(values.highlights ?? []),
+      mainHighlightId: values.mainHighlightId ?? null,
       playbackRate: values.playbackRate,
       loopMode: values.loopMode,
       updatedAt: input.updatedAt
@@ -156,8 +169,8 @@ export function countPresentationEdits(db: AetherDatabase): {
   const row = db
     .prepare(
       `SELECT
-    COALESCE(SUM(highlight_start_ms IS NOT NULL OR playback_rate != 1 OR loop_mode != 'repeat'), 0) AS playback,
-    COALESCE(SUM(fit != 'auto' OR focal_x != 0.5 OR focal_y != 0.5 OR zoom != 1 OR aspect_framing != '{}' OR feed_framing != '{}'), 0) AS framing
+    COALESCE(SUM(highlight_start_ms IS NOT NULL OR playback_rate != 1 OR loop_mode != 'repeat' OR json_array_length(highlights) > 0), 0) AS playback,
+    COALESCE(SUM(${FRAMING_EDITS}), 0) AS framing
     FROM asset_presentations`
     )
     .get() as { playback: number; framing: number };
@@ -176,11 +189,13 @@ export function resetPresentationEdits(
     assignments.push(
       "highlight_start_ms = NULL",
       "highlight_end_ms = NULL",
+      "highlights = '[]'",
+      "main_highlight_id = NULL",
       `playback_rate = ${defaults.playbackRate}`,
       "loop_mode = 'repeat'"
     );
     changed.push(
-      "highlight_start_ms IS NOT NULL OR playback_rate != 1 OR loop_mode != 'repeat'"
+      "highlight_start_ms IS NOT NULL OR playback_rate != 1 OR loop_mode != 'repeat' OR json_array_length(highlights) > 0"
     );
   }
   if (options.framing) {
@@ -192,9 +207,12 @@ export function resetPresentationEdits(
       "aspect_framing = '{}'",
       "feed_framing = '{}'"
     );
-    changed.push(
-      "fit != 'auto' OR focal_x != 0.5 OR focal_y != 0.5 OR zoom != 1 OR aspect_framing != '{}' OR feed_framing != '{}'"
-    );
+    if (!options.playback)
+      assignments.push(`highlights = (SELECT json_group_array(json_set(value,
+        '$.fit', 'auto', '$.focalX', 0.5, '$.focalY', 0.5, '$.zoom', 1,
+        '$.aspectFraming', json('{}'), '$.feedFraming', json('{}')))
+        FROM json_each(highlights))`);
+    changed.push(FRAMING_EDITS);
   }
   if (assignments.length === 0) return;
   db.prepare(
@@ -215,6 +233,8 @@ function rowValues(row: PresentationRow): PresentationValues {
     feedFraming: JSON.parse(
       row.feed_framing
     ) as PresentationValues["feedFraming"],
+    highlights: JSON.parse(row.highlights) as PresentationValues["highlights"],
+    mainHighlightId: row.main_highlight_id,
     fit: row.fit,
     focalX: row.focal_x,
     focalY: row.focal_y,
@@ -235,7 +255,7 @@ export function createPresentationSourceReconciler(db: AetherDatabase) {
     ON CONFLICT(asset_id) DO UPDATE SET
       highlight_start_ms = NULL, highlight_end_ms = NULL, fit = 'auto',
       focal_x = 0.5, focal_y = 0.5, zoom = 1, playback_rate = 1,
-      loop_mode = 'repeat', aspect_framing = '{}', feed_framing = '{}', revision = asset_presentations.revision + 1, updated_at = @updatedAt`);
+      loop_mode = 'repeat', aspect_framing = '{}', feed_framing = '{}', highlights = '[]', main_highlight_id = NULL, revision = asset_presentations.revision + 1, updated_at = @updatedAt`);
   return (input: {
     assetId: string;
     contentSha256: string;
@@ -254,7 +274,7 @@ export function presentationPlaybackDerivativeFiles(
     .prepare(
       `SELECT d.asset_id AS assetId, d.path FROM derivatives d
     JOIN asset_presentations p ON p.asset_id = d.asset_id
-    WHERE (p.highlight_start_ms IS NOT NULL OR p.playback_rate != 1 OR p.loop_mode != 'repeat')
+    WHERE (p.highlight_start_ms IS NOT NULL OR p.playback_rate != 1 OR p.loop_mode != 'repeat' OR json_array_length(p.highlights) > 0)
       AND (d.kind LIKE 'presentation:highlight-%' OR d.kind LIKE 'presentation:bounce-%')`
     )
     .all() as Array<{ assetId: string; path: string }>;
@@ -266,7 +286,7 @@ export function removePlaybackPresentationDerivativeRecords(
   db.prepare(
     `DELETE FROM derivatives
     WHERE asset_id IN (SELECT asset_id FROM asset_presentations
-      WHERE highlight_start_ms IS NOT NULL OR playback_rate != 1 OR loop_mode != 'repeat')
+      WHERE highlight_start_ms IS NOT NULL OR playback_rate != 1 OR loop_mode != 'repeat' OR json_array_length(highlights) > 0)
     AND (kind LIKE 'presentation:highlight-%' OR kind LIKE 'presentation:bounce-%')`
   ).run();
 }
@@ -274,17 +294,27 @@ export function removePlaybackPresentationDerivativeRecords(
 export function obsoletePresentationDerivativeFiles(
   db: AetherDatabase,
   assetId: string,
-  keys: MediaPresentation["renditionKeys"]
+  keys:
+    MediaPresentation["renditionKeys"] | MediaPresentation["renditionKeys"][]
 ): Array<{ assetId: string; path: string }> {
-  return db
-    .prepare(
-      `SELECT asset_id AS assetId, path FROM derivatives WHERE asset_id = @assetId AND (
-    (kind LIKE 'presentation:highlight-%' AND kind NOT LIKE @highlight) OR
-    (kind LIKE 'presentation:bounce-%' AND kind NOT LIKE @bounce))`
+  const retained = Array.isArray(keys) ? keys : [keys];
+  return (
+    db
+      .prepare(
+        `SELECT asset_id AS assetId, path, kind FROM derivatives WHERE asset_id = ? AND (
+    kind LIKE 'presentation:highlight-%' OR kind LIKE 'presentation:bounce-%')`
+      )
+      .all(assetId) as Array<{ assetId: string; path: string; kind: string }>
+  )
+    .filter(
+      (entry) =>
+        !retained.some(
+          (key) =>
+            entry.kind.split(":")[2] ===
+            (entry.kind.startsWith("presentation:bounce-")
+              ? key.bounce
+              : key.highlight)
+        )
     )
-    .all({
-      assetId,
-      highlight: `%:${keys.highlight}:%`,
-      bounce: `%:${keys.bounce}:%`
-    }) as Array<{ assetId: string; path: string }>;
+    .map(({ assetId, path }) => ({ assetId, path }));
 }

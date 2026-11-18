@@ -1,8 +1,10 @@
 import type {
   MediaPresentation,
+  AssetRecord,
   PresentationValues,
   PresentationAspect,
-  PresentationFraming
+  PresentationFraming,
+  SavedHighlightValues
 } from "../../api/client";
 
 export const PRESENTATION_SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
@@ -34,7 +36,12 @@ export function presentationClamp(
 }
 
 export function getPresentationValues(
-  presentation?: Partial<MediaPresentation> | null
+  presentation?:
+    | (Partial<PresentationValues> & {
+        revision?: number;
+        renditionKeys?: MediaPresentation["renditionKeys"];
+      })
+    | null
 ): PresentationValues {
   const defaults = defaultPresentationValues();
   if (!presentation) {
@@ -58,7 +65,113 @@ export function getPresentationValues(
       })
     ),
     playbackRate: presentationClamp(presentation.playbackRate ?? 1, 0.5, 2),
-    loopMode: presentation.loopMode === "bounce" ? "bounce" : "repeat"
+    loopMode: presentation.loopMode === "bounce" ? "bounce" : "repeat",
+    ...(presentation.highlights
+      ? { highlights: getPresentationHighlights(presentation) }
+      : {}),
+    ...(presentation.mainHighlightId !== undefined
+      ? { mainHighlightId: presentation.mainHighlightId }
+      : {})
+  };
+}
+
+/** Older records expose their sole highlight only through the projected fields. */
+export function getPresentationHighlights(
+  values?: Partial<PresentationValues> | null
+): SavedHighlightValues[] {
+  if (!values) return [];
+  const highlights =
+    values.highlights ??
+    (values.highlight
+      ? [
+          {
+            ...values,
+            id: "highlight-1",
+            name: "Highlight 1",
+            highlight: values.highlight
+          }
+        ]
+      : []);
+  return highlights.map((highlight) => {
+    const copied = getPresentationValues({
+      ...highlight,
+      highlights: undefined,
+      mainHighlightId: undefined
+    });
+    return {
+      id: highlight.id,
+      name: highlight.name,
+      ...copied,
+      highlight: { ...highlight.highlight }
+    };
+  });
+}
+
+export function selectPresentationHighlight(
+  values: PresentationValues,
+  highlightId: string
+): PresentationValues {
+  const highlight = getPresentationHighlights(values).find(
+    (item) => item.id === highlightId
+  );
+  if (!highlight) return getPresentationValues(values);
+  const { id: _id, name: _name, ...settings } = highlight;
+  return { ...getPresentationValues(values), ...settings };
+}
+
+export function setMainPresentationHighlight(
+  values: PresentationValues,
+  highlightId: string
+): PresentationValues {
+  const highlights = getPresentationHighlights(values);
+  if (!highlights.some((item) => item.id === highlightId)) return values;
+  return {
+    ...selectPresentationHighlight({ ...values, highlights }, highlightId),
+    mainHighlightId: highlightId
+  };
+}
+
+export function updatePresentationHighlight(
+  values: PresentationValues,
+  highlightId: string,
+  edits: PresentationValues
+): PresentationValues {
+  const highlights = getPresentationHighlights(values).map((highlight) => {
+    if (highlight.id !== highlightId) return highlight;
+    const copied = getPresentationValues({
+      ...edits,
+      highlights: undefined,
+      mainHighlightId: undefined
+    });
+    return {
+      ...highlight,
+      ...copied,
+      // A saved highlight can also cover the complete source.
+      highlight: copied.highlight ?? highlight.highlight
+    };
+  });
+  const result = { ...values, highlights };
+  const mainId = values.mainHighlightId ?? highlights[0]?.id;
+  return mainId ? setMainPresentationHighlight(result, mainId) : result;
+}
+
+/** Viewing another section does not change the saved main highlight. */
+export function presentationAssetForHighlight(
+  asset: AssetRecord,
+  highlightId?: string | null
+): AssetRecord {
+  const highlight = highlightId
+    ? asset.presentation?.highlights?.find((item) => item.id === highlightId)
+    : null;
+  if (!highlight || !asset.presentation) return asset;
+  return {
+    ...asset,
+    presentation: {
+      ...asset.presentation,
+      ...getPresentationValues(highlight),
+      highlights: asset.presentation.highlights,
+      renditionKeys: highlight.renditionKeys
+    }
   };
 }
 
@@ -248,6 +361,28 @@ export function presentationValuesEqual(
   left: PresentationValues,
   right: PresentationValues
 ): boolean {
+  const leftHighlights = getPresentationHighlights(left);
+  const rightHighlights = getPresentationHighlights(right);
+  return (
+    presentationSettingsEqual(left, right) &&
+    (left.mainHighlightId ?? leftHighlights[0]?.id ?? null) ===
+      (right.mainHighlightId ?? rightHighlights[0]?.id ?? null) &&
+    leftHighlights.length === rightHighlights.length &&
+    leftHighlights.every((highlight, index) => {
+      const other = rightHighlights[index]!;
+      return (
+        highlight.id === other.id &&
+        highlight.name === other.name &&
+        presentationSettingsEqual(highlight, other)
+      );
+    })
+  );
+}
+
+function presentationSettingsEqual(
+  left: PresentationValues,
+  right: PresentationValues
+): boolean {
   return (
     (["Original", "Square", "Portrait", "Landscape"] as const).every((aspect) =>
       framingEqual(
@@ -271,7 +406,12 @@ export function presentationValuesEqual(
 }
 
 export function presentationSaveOutcome(
-  current: MediaPresentation | undefined,
+  current:
+    | (PresentationValues & {
+        revision: number;
+        renditionKeys?: MediaPresentation["renditionKeys"];
+      })
+    | undefined,
   desired: PresentationValues,
   expectedRevision: number
 ): "saved" | "unchanged" | "conflict" {

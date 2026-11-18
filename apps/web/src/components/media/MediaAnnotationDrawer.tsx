@@ -16,7 +16,9 @@ import {
   SheetTitle
 } from "../ui/sheet";
 import { Button } from "../ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { AssetAnnotationPanel } from "./AssetAnnotationPanel";
+import { MediaHighlightsPanel } from "./MediaHighlightsPanel";
 import { mediaDetailLine } from "./media-format";
 
 interface MediaAnnotationDrawerProps {
@@ -32,6 +34,14 @@ interface MediaAnnotationDrawerProps {
   ) => void;
   onAssetUpdated: (asset: AssetRecord) => void;
   onAssetTagsUpdated: (assetId: string, tags: TagRecord[]) => void;
+  selectedHighlightId?: string | null;
+  onViewHighlight?: (asset: AssetRecord, highlightId: string) => void;
+  onEditHighlights?: (asset: AssetRecord) => void;
+  onMakeMainHighlight?: (
+    asset: AssetRecord,
+    highlightId: string,
+    signal: AbortSignal
+  ) => Promise<AssetRecord>;
 }
 
 export function MediaAnnotationDrawer({
@@ -43,7 +53,11 @@ export function MediaAnnotationDrawer({
   onRankingChanged,
   onScoreChange,
   onAssetUpdated,
-  onAssetTagsUpdated
+  onAssetTagsUpdated,
+  selectedHighlightId,
+  onViewHighlight,
+  onEditHighlights,
+  onMakeMainHighlight
 }: MediaAnnotationDrawerProps) {
   const isMobile = useIsMobile();
   const [returnFocusTarget] = useState(captureFocusTarget);
@@ -51,10 +65,18 @@ export function MediaAnnotationDrawer({
   const closeTimerRef = useRef<number | null>(null);
   const isClosingRef = useRef(false);
   const busyRef = useRef(false);
+  const busyPanelsRef = useRef({ details: false, highlights: false });
   const [isBusy, setIsBusy] = useState(false);
-  const handleBusyChange = useCallback((busy: boolean) => {
-    busyRef.current = busy;
-    setIsBusy(busy);
+  const [tab, setTab] = useState("details");
+  const handleDetailsBusyChange = useCallback((busy: boolean) => {
+    busyPanelsRef.current.details = busy;
+    busyRef.current = busy || busyPanelsRef.current.highlights;
+    setIsBusy(busyRef.current);
+  }, []);
+  const handleHighlightsBusyChange = useCallback((busy: boolean) => {
+    busyPanelsRef.current.highlights = busy;
+    busyRef.current = busy || busyPanelsRef.current.details;
+    setIsBusy(busyRef.current);
   }, []);
   const onCloseRef = useRef(onClose);
 
@@ -134,16 +156,44 @@ export function MediaAnnotationDrawer({
           </SheetDescription>
         </SheetHeader>
         <div className="px-4 pb-4">
-          <AssetAnnotationPanel
-            onBusyChange={handleBusyChange}
-            aiStatus={aiStatus}
-            asset={asset}
-            isScoreSaving={isScoreSaving}
-            onRankingChanged={onRankingChanged}
-            onScoreChange={onScoreChange}
-            onAssetTagsUpdated={onAssetTagsUpdated}
-            onAssetUpdated={onAssetUpdated}
-          />
+          <Tabs value={tab} onValueChange={setTab} className="media-info-tabs">
+            <TabsList aria-label="Media information">
+              <TabsTrigger value="details" disabled={isBusy}>
+                Details
+              </TabsTrigger>
+              <TabsTrigger value="highlights" disabled={isBusy}>
+                Highlights
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="details" forceMount hidden={tab !== "details"}>
+              <AssetAnnotationPanel
+                onBusyChange={handleDetailsBusyChange}
+                aiStatus={aiStatus}
+                asset={asset}
+                isScoreSaving={isScoreSaving}
+                onRankingChanged={onRankingChanged}
+                onScoreChange={onScoreChange}
+                onAssetTagsUpdated={onAssetTagsUpdated}
+                onAssetUpdated={onAssetUpdated}
+              />
+            </TabsContent>
+            <TabsContent
+              value="highlights"
+              forceMount
+              hidden={tab !== "highlights"}
+            >
+              <MediaHighlightsPanel
+                asset={asset}
+                disabled={isBusy}
+                selectedHighlightId={selectedHighlightId}
+                onViewHighlight={onViewHighlight}
+                onEditHighlights={onEditHighlights}
+                onMakeMainHighlight={onMakeMainHighlight}
+                onAssetUpdated={onAssetUpdated}
+                onBusyChange={handleHighlightsBusyChange}
+              />
+            </TabsContent>
+          </Tabs>
         </div>
       </SheetContent>
     </Sheet>

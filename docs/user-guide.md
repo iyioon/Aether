@@ -77,6 +77,11 @@ Use previous/next or the left/right keys to move through results. **Info** opens
 details without stopping playback. **More** contains Edit media, Download and
 available file actions. Tap the media to hide or show controls.
 
+In **Info → Highlights**, choose **View** to play a saved highlight with its
+framing and speed. This does not change the main highlight or your playback
+defaults. **Make main** sets the highlight used across the media views when
+**Play highlights only** is enabled.
+
 **View options** includes **Play highlights only** and **Use saved framing**.
 Toggling saved framing does not edit saved frames. Native iPhone fullscreen uses system
 controls and original proportions.
@@ -146,8 +151,19 @@ and frame timing. HDR and some other formats require Repeat. Large dimensions
 or frame rates can exceed processing or device limits. Supported full-range
 SDR MOV screen recordings can use Bounce.
 
-**Play highlights only** uses saved sections in Gallery, Feed, Compare and the
-viewer. Repeat highlights can span up to two minutes. If necessary, Aether
+For video and animated images, choose **Add highlight** to save another section,
+then select it from **Highlight**. Each highlight keeps its own name, range,
+speed, loop mode and framing. A media item can have up to 20 highlights.
+Correct invalid times before switching highlights. Switching highlights keeps
+valid unsaved changes; Save applies them together.
+
+Choose **Make main** for the selected highlight to use it by default.
+**Remove highlight** asks for confirmation and changes the draft until Save. Removing the main
+highlight selects the first remaining one; removing the last clears its playback
+edits. Cancel discards these changes.
+
+**Play highlights only** uses the main highlight in Gallery, Feed, Compare and
+the viewer. Repeat highlights can span up to two minutes. If necessary, Aether
 prepares a compatible section. First playback may take time; later visits reuse
 it. Saving or changing a Bounce section turns on Play highlights only; framing
 and speed changes keep that preference.
@@ -158,8 +174,9 @@ See [presentation formats and limits](architecture.md#saved-media-presentation).
 
 ### Adjust framing
 
-Choose Original, Square, Portrait or Landscape. Each keeps independent position
-and zoom. **Fit** shows the whole item. **Fill** covers the frame; drag to
+Choose Original, Square, Portrait or Landscape. For a highlight, select it first;
+each highlight keeps independent position and zoom for these shapes. **Fit** shows
+the whole item. **Fill** covers the frame; drag to
 position and pinch or use Zoom to enlarge it. Arrow keys move 12px, or 1px with
 Shift. Use `-`/`=` to zoom 5%, or 1% with Shift. Focused fields, tabs and menus
 keep their own keys.

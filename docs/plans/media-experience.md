@@ -1,7 +1,7 @@
 # Media Playback And Presentation Plan
 
 Status: Presentation, Bounce and HEIC implemented; automated checks and device acceptance are tracked below.\
-Reviewed: 2026-11-01.
+Reviewed: 2026-11-18.
 
 ## Outcome And Scope
 
@@ -217,6 +217,51 @@ Synthetic checks do not establish performance on the deployment machine or
 actual iPhone memory limits. Dense grids whose original-size animation atlases
 exceed the 48 MiB decoded cache can still require repeated decoding; limiting
 simultaneous Gallery animation playback remains a separate product decision.
+
+## Multiple Highlights
+
+Extend the existing per-media presentation with up to 20 named highlights. Each
+has a stable ID, source-time range, framing, speed and Repeat/Bounce preference.
+One main highlight supplies the existing shared playback projection. Earlier
+single highlights migrate to that main selection. Source files and downloads
+remain unchanged; this is presentation metadata.
+
+Delivery sequence:
+
+1. Add versioned storage and bounded API validation. Preserve optimistic
+   revisions, unknown-save reconciliation, safe asset identity and older backups.
+   Validate every section against real duration and processing capabilities.
+2. Reuse one preview and the Playback/Framing tabs. A Highlight picker selects
+   the draft; Add highlight, Name, Make main and confirmed Remove highlight are its only
+   additional controls. Valid drafts survive selection changes; invalid times
+   must be corrected first. Save applies the collection together; Cancel
+   discards it. Removing main selects the first remaining section, and removing
+   the last clears playback edits.
+3. Add Details/Highlights tabs to Info. Keep Details mounted to retain forms.
+   List each section's name, range, speed and Main status, with separate View and
+   Make main actions. View is temporary and does not mutate the main selection
+   or global preferences. Avoid autoplaying the entire collection, nested
+   editors, duplicate playback controls and extra sorting/filtering options.
+4. Resolve secondary playback through its own ID and current rendition keys.
+   Retain generated files referenced by any saved section. Playback reset clears
+   the collection; framing reset clears every section's frames while preserving
+   playback. Counts remain media counts. Preserve sections through safe moves,
+   Trash/restore and backups; clear them when source contents are replaced.
+5. Cover migration, validation, conflicts, reset/restore and secondary rendition
+   identity below the UI. Verify desktop/phone editor and Info flows, navigation,
+   cancellation, failures, focus, safe areas and actual video/animation playback.
+   Run the required verification gate and relevant browser/media checks before
+   release; record actual iPhone acceptance separately.
+
+The selected-section inspector follows
+[progressive disclosure](https://www.nngroup.com/articles/progressive-disclosure/):
+show one section's existing tools rather than duplicate them for every section.
+Names plus source ranges and speeds support
+[recognition rather than recall](https://www.nngroup.com/articles/recognition-and-recall/).
+Info uses the shared [WAI tabs pattern](https://www.w3.org/WAI/ARIA/apg/patterns/tabs/)
+with immediately available panels. Viewing and choosing a main highlight are
+separate actions, preventing a browsing action from silently changing saved
+playback.
 
 ## Deferred Improvements
 

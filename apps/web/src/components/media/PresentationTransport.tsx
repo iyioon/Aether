@@ -41,7 +41,10 @@ export function PresentationTransport({
 }) {
   const keyboardHintId = useId();
   const highlightDescriptionId = useId();
-  const highlightRange = highlightTimelineRange(highlight, 0, durationMs);
+  const highlightRange =
+    highlight && (highlight.startMs > 0 || highlight.endMs < durationMs)
+      ? highlightTimelineRange(highlight, 0, durationMs)
+      : null;
   return (
     <div
       className="media-editor-transport"

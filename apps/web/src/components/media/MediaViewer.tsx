@@ -59,6 +59,7 @@ import { usePresentationPreferences } from "./presentation-context";
 import { usePresentationCapabilities } from "./usePresentationCapabilities";
 import {
   getPresentationValues,
+  presentationAssetForHighlight,
   presentationFramingForAspect
 } from "./presentation-model";
 import { galleryAspectRatio } from "../gallery/gallery-layout";
@@ -67,6 +68,7 @@ import { presentationMediaStyle } from "./presentation-geometry";
 import {
   bounceDurationExceeded,
   playbackVariant,
+  presentationPlaybackContext,
   presentationPlaybackUrl,
   presentationPosterUrl
 } from "./presentation-playback";
@@ -105,6 +107,7 @@ interface MediaViewerProps {
     action: "rename-media" | "move-media" | "trash"
   ) => void;
   onHighlightsOnlyChange: (value: boolean) => void;
+  selectedHighlightId?: string | null;
 }
 
 interface ViewerStageSize {
@@ -153,11 +156,35 @@ export function MediaViewer({
   onPrevious,
   onEditAsset,
   onManageAsset,
-  onHighlightsOnlyChange
+  onHighlightsOnlyChange,
+  selectedHighlightId
 }: MediaViewerProps) {
   const { highlightsOnly: savedHighlightsOnly, isPlaybackPaused } =
     usePresentationPreferences();
-  const highlightsOnly = savedHighlightsOnly;
+  const selectedPlaybackAsset = useMemo(
+    () => presentationAssetForHighlight(asset, selectedHighlightId),
+    [asset, selectedHighlightId]
+  );
+  const playbackHighlightId =
+    selectedPlaybackAsset !== asset
+      ? (selectedHighlightId ?? undefined)
+      : undefined;
+  const highlightsOnly = savedHighlightsOnly || Boolean(playbackHighlightId);
+  const highlightFramingKey = `${asset.id}:${playbackHighlightId ?? ""}`;
+  const [selectedHighlightFraming, setSelectedHighlightFraming] = useState<{
+    key: string;
+    enabled: boolean;
+  } | null>(null);
+  const effectiveUseSavedFraming = playbackHighlightId
+    ? selectedHighlightFraming?.key === highlightFramingKey
+      ? selectedHighlightFraming.enabled
+      : true
+    : useSavedFraming;
+  const changeFraming = (enabled: boolean) => {
+    if (playbackHighlightId)
+      setSelectedHighlightFraming({ key: highlightFramingKey, enabled });
+    else onFramingChange(enabled);
+  };
   const playbackBlocked = isPlaybackPaused;
   const [optionsOpen, setOptionsOpen] = useState(false);
   const optionsOpenRef = useRef(false);
@@ -168,38 +195,39 @@ export function MediaViewer({
     asset.mediaType === "image" &&
     /\.(gif|webp|png|apng|avif)$/i.test(asset.name);
   const capabilityState = usePresentationCapabilities(
-    asset,
+    selectedPlaybackAsset,
     (asset.mediaType === "video" &&
-      (playbackVariant(asset, highlightsOnly) === "bounce" ||
+      (playbackVariant(selectedPlaybackAsset, highlightsOnly) === "bounce" ||
         originalVideoFailed)) ||
-      isAnimationCandidate
+      isAnimationCandidate,
+    playbackHighlightId
   );
   const viewerImageSource =
     isAnimationCandidate && capabilityState.capabilities?.kind !== "still"
       ? null
       : imageDisplayUrl(asset);
-  const values = getPresentationValues(asset.presentation);
+  const values = getPresentationValues(selectedPlaybackAsset.presentation);
   const presentation = {
     ...values,
-    ...(useSavedFraming
+    ...(effectiveUseSavedFraming
       ? presentationFramingForAspect(values, framingAspect)
       : { fit: "contain" as const, focalX: 0.5, focalY: 0.5, zoom: 1 })
   };
-  const defaultFit = useSavedFraming ? "cover" : "contain";
+  const defaultFit = effectiveUseSavedFraming ? "cover" : "contain";
   const effectiveAsset = useMemo(
     () =>
-      capabilityState.capabilities && asset.presentation
+      capabilityState.capabilities && selectedPlaybackAsset.presentation
         ? {
-            ...asset,
+            ...selectedPlaybackAsset,
             durationMs:
               capabilityState.capabilities.durationMs ?? asset.durationMs,
             presentation: {
-              ...asset.presentation,
+              ...selectedPlaybackAsset.presentation,
               renditionKeys: capabilityState.capabilities.renditionKeys
             }
           }
-        : asset,
-    [asset, capabilityState.capabilities]
+        : selectedPlaybackAsset,
+    [asset.durationMs, selectedPlaybackAsset, capabilityState.capabilities]
   );
   const variant = playbackVariant(effectiveAsset, highlightsOnly);
   const bounceOverBudget =
@@ -240,6 +268,7 @@ export function MediaViewer({
     presentation.highlight,
     highlightsOnly
   );
+  const videoPlaybackKey = `${presentationPlaybackContext(videoSource, variant, presentation.highlight, playbackHighlightId)}:${retryAttempt}`;
   const viewerStageRef = useRef<HTMLDivElement | null>(null);
   const [viewerStageElement, setViewerStageElement] =
     useState<HTMLDivElement | null>(null);
@@ -275,7 +304,8 @@ export function MediaViewer({
   const videoPlayRequestSequenceRef = useRef(0);
   const previousViewedAssetRef = useRef({
     id: asset.id,
-    videoSource: "",
+    playbackKey: "",
+    highlightId: playbackHighlightId,
     posterSource: "",
     retryAttempt: -1
   });
@@ -336,7 +366,7 @@ export function MediaViewer({
   const viewerMediaSize = decodedMediaSize ?? storedMediaSize;
   const viewerMediaFrameStyle = useMemo(
     () =>
-      useSavedFraming
+      effectiveUseSavedFraming
         ? mediaViewerFrameStyle(
             framingAspect !== "Original"
               ? { width: galleryAspectRatio(framingAspect), height: 1 }
@@ -344,16 +374,16 @@ export function MediaViewer({
             viewerStageSize
           )
         : undefined,
-    [viewerMediaSize, viewerStageSize, useSavedFraming, framingAspect]
+    [viewerMediaSize, viewerStageSize, effectiveUseSavedFraming, framingAspect]
   );
   const playback = useVideoPlayback({
     videoRef: viewerVideoRef,
-    sourceKey: `${videoSource}:${retryAttempt}`,
+    sourceKey: videoPlaybackKey,
     enabled: asset.mediaType === "video" && failedVideoAssetId !== asset.id
   });
   const isVideoBuffering = useVideoBuffering({
     videoRef: viewerVideoRef,
-    sourceKey: `${videoSource}:${retryAttempt}`,
+    sourceKey: videoPlaybackKey,
     enabled:
       asset.mediaType === "video" &&
       failedVideoAssetId !== asset.id &&
@@ -911,17 +941,20 @@ export function MediaViewer({
       setViewerPosterState(null);
     previousViewedAssetRef.current = {
       id: asset.id,
-      videoSource,
+      playbackKey: videoPlaybackKey,
+      highlightId: playbackHighlightId,
       posterSource: viewerPosterSource,
       retryAttempt
     };
     if (
       previousAsset.id === asset.id &&
-      previousAsset.videoSource === videoSource &&
+      previousAsset.playbackKey === videoPlaybackKey &&
       previousAsset.retryAttempt === retryAttempt
     )
       return;
     setDecodedMediaSize(null);
+    if (previousAsset.highlightId !== playbackHighlightId)
+      userPausedRef.current = false;
     if (previousAsset.id !== asset.id) {
       userPausedRef.current = false;
       setOriginalVideoFailed(false);
@@ -939,7 +972,8 @@ export function MediaViewer({
     asset.mediaType,
     cancelPendingVideoReveal,
     viewerPosterSource,
-    videoSource,
+    videoPlaybackKey,
+    playbackHighlightId,
     retryAttempt
   ]);
 
@@ -975,7 +1009,7 @@ export function MediaViewer({
 
     const animationFrame = window.requestAnimationFrame(playViewerVideo);
     return () => window.cancelAnimationFrame(animationFrame);
-  }, [asset.id, asset.mediaType, playViewerVideo, videoSource, retryAttempt]);
+  }, [asset.id, asset.mediaType, playViewerVideo, videoPlaybackKey]);
 
   useEffect(() => {
     if (asset.mediaType !== "video") return;
@@ -1328,8 +1362,8 @@ export function MediaViewer({
             container={viewerDialogRef.current}
             open={optionsOpen}
             onOpenChange={changeOptionsOpen}
-            useSavedFraming={useSavedFraming}
-            onFramingChange={onFramingChange}
+            useSavedFraming={effectiveUseSavedFraming}
+            onFramingChange={changeFraming}
             highlightsOnly={highlightsOnly}
             hasHighlight={Boolean(asset.presentation?.highlight)}
             onHighlightsOnlyChange={onHighlightsOnlyChange}
@@ -1448,7 +1482,7 @@ export function MediaViewer({
               ) : null}
               {isControlledAnimation ? (
                 <ControlledAnimation
-                  key={animationKey}
+                  key={`${animationKey}:${playbackHighlightId ?? ""}`}
                   asset={effectiveAsset}
                   renditionKey={
                     effectiveAsset.presentation?.renditionKeys.full ?? ""
@@ -1583,7 +1617,7 @@ export function MediaViewer({
                     />
                   ) : null}
                   <video
-                    key={`${videoSource}:${retryAttempt}`}
+                    key={videoPlaybackKey}
                     ref={bindViewerVideo}
                     className="viewer-video"
                     muted={variant === "bounce" || isViewerVideoMuted}

@@ -1,13 +1,12 @@
 import type { FastifyInstance } from "fastify";
-import { z } from "zod";
 import type { AppConfig } from "../config/config.js";
 import type { AetherDatabase } from "../db/database.js";
 import { mediaErrorStatus, resolveAssetFile } from "./media-serving.js";
 import { removePresentationDerivativeFiles } from "./derivative-cache.js";
 import { obsoletePresentationDerivativeFiles } from "./repository-presentation.js";
 import {
-  getPresentationRenditionKeys,
-  PRESENTATION_PLAYBACK_RATES
+  canonicalPresentationValues,
+  presentationRenditionKeys
 } from "./presentation.js";
 import {
   getPresentationMediaCapabilities,
@@ -15,60 +14,13 @@ import {
   PresentationMediaError
 } from "./presentation-media.js";
 import { AssetParams } from "./route-schemas.js";
+import { PresentationBody } from "./presentation-schemas.js";
 import { withPresentationLifecycle } from "./presentation-cache.js";
 import {
   getAsset,
   saveAssetPresentation,
   PresentationConflictError
 } from "./repository.js";
-
-const Framing = z
-  .object({
-    fit: z.enum(["auto", "contain", "cover"]),
-    focalX: z.number().min(0).max(1),
-    focalY: z.number().min(0).max(1),
-    zoom: z.number().min(1).max(4)
-  })
-  .strict();
-
-const PresentationBody = z
-  .object({
-    expectedRevision: z
-      .number()
-      .int()
-      .min(0)
-      .max(Number.MAX_SAFE_INTEGER - 1),
-    highlight: z
-      .object({
-        startMs: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
-        endMs: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER)
-      })
-      .strict()
-      .nullable(),
-    ...Framing.shape,
-    aspectFraming: z
-      .object({
-        Square: Framing.optional(),
-        Portrait: Framing.optional(),
-        Landscape: Framing.optional()
-      })
-      .strict()
-      .optional(),
-    feedFraming: z
-      .object({
-        portrait: Framing.extend({ fit: z.literal("cover") }).optional(),
-        landscape: Framing.extend({ fit: z.literal("cover") }).optional()
-      })
-      .strict()
-      .optional(),
-    playbackRate: z
-      .number()
-      .refine((value) =>
-        PRESENTATION_PLAYBACK_RATES.some((rate) => rate === value)
-      ),
-    loopMode: z.enum(["repeat", "bounce"])
-  })
-  .strict();
 
 export function registerPresentationRoutes(
   app: FastifyInstance,
@@ -99,15 +51,20 @@ export function registerPresentationRoutes(
           .send({ error: "presentation_conflict", asset: current });
       }
       const { expectedRevision, ...edits } = body.data;
-      const values = {
-        ...edits,
-        aspectFraming:
-          edits.aspectFraming ?? current.presentation.aspectFraming ?? {},
-        feedFraming: edits.feedFraming ?? current.presentation.feedFraming ?? {}
-      };
+      const values = canonicalPresentationValues(
+        {
+          ...edits,
+          aspectFraming:
+            edits.aspectFraming ?? current.presentation.aspectFraming ?? {},
+          feedFraming:
+            edits.feedFraming ?? current.presentation.feedFraming ?? {}
+        },
+        current.presentation
+      );
       // Framing and reset remain available even for files the decoder cannot open.
       const needsTiming =
         values.highlight !== null ||
+        values.highlights.length > 0 ||
         values.playbackRate !== 1 ||
         values.loopMode !== "repeat";
       if (needsTiming) {
@@ -118,8 +75,6 @@ export function registerPresentationRoutes(
           includeSavedTimeline: false
         });
         const duration = capabilities.durationMs;
-        if (values.loopMode === "bounce" && capabilities.bounceUnavailable)
-          return reply.code(400).send({ error: "bounce_source_not_supported" });
         if (
           capabilities.kind === "still" ||
           duration === null ||
@@ -129,28 +84,39 @@ export function registerPresentationRoutes(
             .code(400)
             .send({ error: "presentation_timing_not_supported" });
         }
-        const range = values.highlight;
-        if (
-          range &&
-          (range.endMs - range.startMs < Math.min(100, duration) ||
-            range.endMs > duration ||
-            range.endMs - range.startMs > capabilities.maxHighlightDurationMs)
-        ) {
-          return reply.code(400).send({ error: "invalid_highlight" });
-        }
-        if (
-          values.loopMode === "bounce" &&
-          (range ? range.endMs - range.startMs : duration) >
-            capabilities.maxBounceDurationMs
-        ) {
-          return reply.code(400).send({ error: "bounce_duration_exceeded" });
-        }
-        if (values.loopMode === "bounce" && capabilities.kind === "video") {
-          await getPresentationVideoBouncePlan(
-            db,
-            file,
-            range ?? { startMs: 0, endMs: duration }
-          );
+        const timedValues = [values, ...values.highlights];
+        const checkedBounceRanges = new Set<string>();
+        for (const timed of timedValues) {
+          if (timed.loopMode === "bounce" && capabilities.bounceUnavailable)
+            return reply
+              .code(400)
+              .send({ error: "bounce_source_not_supported" });
+          const range = timed.highlight;
+          if (
+            range &&
+            (range.endMs - range.startMs < Math.min(100, duration) ||
+              range.endMs > duration ||
+              range.endMs - range.startMs > capabilities.maxHighlightDurationMs)
+          ) {
+            return reply.code(400).send({ error: "invalid_highlight" });
+          }
+          if (
+            timed.loopMode === "bounce" &&
+            (range ? range.endMs - range.startMs : duration) >
+              capabilities.maxBounceDurationMs
+          ) {
+            return reply.code(400).send({ error: "bounce_duration_exceeded" });
+          }
+          if (timed.loopMode === "bounce" && capabilities.kind === "video") {
+            const signature = `${range?.startMs ?? 0}:${range?.endMs ?? duration}`;
+            if (checkedBounceRanges.has(signature)) continue;
+            checkedBounceRanges.add(signature);
+            await getPresentationVideoBouncePlan(
+              db,
+              file,
+              range ?? { startMs: 0, endMs: duration }
+            );
+          }
         }
       }
       return await withPresentationLifecycle(db, async () => {
@@ -164,7 +130,7 @@ export function registerPresentationRoutes(
         ) {
           return reply.code(409).send({ error: "source_changed" });
         }
-        const keys = getPresentationRenditionKeys(
+        const keys = presentationRenditionKeys(
           {
             id: assetId,
             mtimeMs: file.asset.indexedMtimeMs,

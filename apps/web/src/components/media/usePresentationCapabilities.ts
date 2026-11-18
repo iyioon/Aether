@@ -12,7 +12,11 @@ let generation = 0;
 let active = 0;
 const waiting: Array<() => void> = [];
 
-async function readCapabilities(assetId: string, signal: AbortSignal) {
+async function readCapabilities(
+  assetId: string,
+  signal: AbortSignal,
+  highlightId?: string
+) {
   if (active >= 3) {
     if (waiting.length >= 64)
       throw new Error("Media preparation is busy. Try again.");
@@ -34,7 +38,7 @@ async function readCapabilities(assetId: string, signal: AbortSignal) {
   } else active++;
   try {
     signal.throwIfAborted();
-    return await getPresentationMediaCapabilities(assetId, signal);
+    return await getPresentationMediaCapabilities(assetId, signal, highlightId);
   } finally {
     active--;
     waiting.shift()?.();
@@ -48,7 +52,8 @@ export function clearPresentationCapabilities() {
 
 export function usePresentationCapabilities(
   asset: AssetRecord,
-  enabled = true
+  enabled = true,
+  highlightId?: string
 ) {
   const full = asset.presentation?.renditionKeys.full;
   const highlight = asset.presentation?.renditionKeys.highlight;
@@ -59,7 +64,8 @@ export function usePresentationCapabilities(
     asset.sizeBytes,
     full,
     highlight,
-    bounce
+    bounce,
+    highlightId
   ].join(":");
   const [state, setState] = useState<{
     key: string;
@@ -81,7 +87,7 @@ export function usePresentationCapabilities(
       value: previous.key === key ? previous.value : null,
       error: null
     }));
-    void readCapabilities(asset.id, controller.signal).then(
+    void readCapabilities(asset.id, controller.signal, highlightId).then(
       (value) => {
         if (controller.signal.aborted || generation !== currentGeneration)
           return;
@@ -114,7 +120,7 @@ export function usePresentationCapabilities(
       }
     );
     return () => controller.abort();
-  }, [asset.id, key, full, highlight, bounce, enabled, attempt]);
+  }, [asset.id, key, full, highlight, bounce, highlightId, enabled, attempt]);
   return {
     capabilities: state.key === key ? state.value : null,
     error: state.key === key ? state.error : null,

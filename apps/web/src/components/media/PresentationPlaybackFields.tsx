@@ -143,7 +143,7 @@ export function PresentationPlaybackFields({
         className="media-editor-highlight"
         disabled={disabled || !hasTimeline}
       >
-        <legend>Highlight</legend>
+        <legend>Range</legend>
         <Slider
           className="media-editor-range"
           min={0}

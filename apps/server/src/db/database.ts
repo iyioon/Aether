@@ -10,6 +10,7 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import { recomputeAssetRankings } from "../library/repository-rankings.js";
 import { searchNgramText } from "../library/search-text.js";
+import { validStoredPresentation } from "../library/presentation-schemas.js";
 
 export type AetherDatabase = Database.Database;
 
@@ -700,6 +701,23 @@ const migrations: Migration[] = [
         }
       }
     }
+  },
+  {
+    version: 22,
+    name: "multiple_media_highlights",
+    sql: `
+      ALTER TABLE asset_presentations ADD COLUMN highlights TEXT NOT NULL DEFAULT '[]'
+        CHECK(json_valid(highlights) AND json_type(highlights) = 'array' AND json_array_length(highlights) <= 20 AND length(highlights) <= 32768);
+      ALTER TABLE asset_presentations ADD COLUMN main_highlight_id TEXT
+        CHECK(main_highlight_id IS NULL OR length(main_highlight_id) BETWEEN 1 AND 64);
+      UPDATE asset_presentations SET highlights = json_array(json_object(
+        'id', 'highlight-1', 'name', 'Highlight 1',
+        'highlight', json_object('startMs', highlight_start_ms, 'endMs', highlight_end_ms),
+        'fit', fit, 'focalX', focal_x, 'focalY', focal_y, 'zoom', zoom,
+        'aspectFraming', json(aspect_framing), 'feedFraming', json(feed_framing),
+        'playbackRate', playback_rate, 'loopMode', loop_mode
+      )), main_highlight_id = 'highlight-1' WHERE highlight_start_ms IS NOT NULL;
+    `
   }
 ];
 
@@ -797,7 +815,9 @@ const REQUIRED_TABLE_COLUMNS = new Map<string, readonly string[]>([
       "loop_mode",
       "updated_at",
       "aspect_framing",
-      "feed_framing"
+      "feed_framing",
+      "highlights",
+      "main_highlight_id"
     ]
   ],
   [
@@ -1073,6 +1093,37 @@ export function validateLatestAetherSchema(db: AetherDatabase): void {
     ) {
       throw new InvalidAetherSchemaError();
     }
+  }
+  validateStoredPresentations(db);
+}
+
+function validateStoredPresentations(db: AetherDatabase): void {
+  // Reject oversized fields before materializing one bounded row at a time.
+  const oversized = db
+    .prepare(
+      `SELECT 1 FROM asset_presentations
+    WHERE length(highlights) > 32768 OR length(aspect_framing) > 1024 OR length(feed_framing) > 1024 LIMIT 1`
+    )
+    .get();
+  if (oversized) throw new InvalidAetherSchemaError();
+  try {
+    const rows = db
+      .prepare(
+        `SELECT json_object(
+      'highlight', CASE WHEN highlight_start_ms IS NULL THEN NULL ELSE json_object('startMs', highlight_start_ms, 'endMs', highlight_end_ms) END,
+      'fit', fit, 'focalX', focal_x, 'focalY', focal_y, 'zoom', zoom,
+      'aspectFraming', json(aspect_framing), 'feedFraming', json(feed_framing),
+      'playbackRate', playback_rate, 'loopMode', loop_mode,
+      'highlights', json(highlights), 'mainHighlightId', main_highlight_id
+    ) AS value FROM asset_presentations`
+      )
+      .iterate() as Iterable<{ value: string }>;
+    for (const row of rows) {
+      if (!validStoredPresentation(JSON.parse(row.value)))
+        throw new InvalidAetherSchemaError();
+    }
+  } catch {
+    throw new InvalidAetherSchemaError();
   }
 }
 

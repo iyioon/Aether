@@ -22,7 +22,8 @@ import { scanLibrary } from "../src/library/scanner.js";
 import {
   folderIdFor,
   getAsset,
-  listAssets
+  listAssets,
+  saveAssetPresentation
 } from "../src/library/repository.js";
 import { registerPresentationMediaRoutes } from "../src/library/routes-presentation-media.js";
 import {
@@ -38,6 +39,7 @@ import {
 } from "../src/library/presentation-cache.js";
 import { resolveAssetFile } from "../src/library/media-serving.js";
 import { readBounceCache } from "../src/library/presentation-bounce-cache.js";
+import { defaultPresentationValues } from "../src/library/presentation.js";
 import * as privateCache from "../src/security/private-cache-file.js";
 import {
   getPresentationVideoBouncePlan,
@@ -77,6 +79,22 @@ async function restart() {
   app = fastify();
   registerPresentationMediaRoutes(app, config, db);
 }
+function setRange(id: string, startMs: number, endMs: number): void {
+  const asset = getAsset(db, id)!;
+  saveAssetPresentation(db, {
+    assetId: id,
+    expectedRevision: asset.presentation.revision,
+    values: {
+      ...defaultPresentationValues(),
+      highlight: { startMs, endMs },
+      loopMode: "bounce"
+    },
+    sourceMtimeMs: asset.mtimeMs,
+    sourceSizeBytes: asset.sizeBytes,
+    updatedAt: "2026-01-01T00:00:00.000Z"
+  });
+}
+
 async function prepare(rate = 24, codec = "h264") {
   const sourcePath = path.join(directory, "media", "clip.mp4");
   await processing.runMediaCommand(
@@ -108,9 +126,7 @@ async function prepare(rate = 24, codec = "h264") {
     type: "all",
     recursive: true
   })!.items[0]!;
-  db.prepare(
-    "INSERT INTO asset_presentations (asset_id, revision, highlight_start_ms, highlight_end_ms, fit, focal_x, focal_y, zoom, playback_rate, loop_mode, updated_at) VALUES (?,1,100,600,'auto',0.5,0.5,1,1,'bounce','2026-01-01T00:00:00.000Z')"
-  ).run(indexed.id);
+  setRange(indexed.id, 100, 600);
   const asset = getAsset(db, indexed.id)!;
   const url = `/api/assets/${asset.id}/playback?variant=bounce&v=${asset.presentation.renditionKeys.bounce}&codec=${codec}`;
   const response = await app.inject(url);
@@ -177,9 +193,7 @@ describe("persistent Bounce startup cache", () => {
       type: "all",
       recursive: true
     })!.items[0]!;
-    db.prepare(
-      "INSERT INTO asset_presentations (asset_id, revision, highlight_start_ms, highlight_end_ms, fit, focal_x, focal_y, zoom, playback_rate, loop_mode, updated_at) VALUES (?,1,900025,901025,'auto',0.5,0.5,1,1,'bounce','2026-01-01T00:00:00.000Z')"
-    ).run(initial.id);
+    setRange(initial.id, 900025, 901025);
     const asset = getAsset(db, initial.id)!;
     const url = `/api/assets/${asset.id}/playback?variant=bounce&v=${asset.presentation.renditionKeys.bounce}&codec=h264`;
     const commands = vi.spyOn(processing, "runMediaCommand");

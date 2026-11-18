@@ -3,7 +3,7 @@ import type { AetherDatabase } from "../db/database.js";
 import type { ResolvedAssetFile } from "./media-serving.js";
 import {
   ensurePresentationDerivative,
-  presentationForFile,
+  presentationForRendition,
   PresentationMediaError,
   verifyPresentationSource,
   type PresentationFile,
@@ -47,7 +47,7 @@ export async function ensurePresentationVideo({
   if (file.asset.mediaType !== "video")
     throw new PresentationMediaError("playback_not_supported");
   await verifyPresentationSource(db, file, variant, key);
-  const presentation = presentationForFile(db, file);
+  const presentation = presentationForRendition(db, file, variant, key);
   if (
     variant === "full" ||
     (variant === "highlight" && !presentation.highlight)
@@ -243,7 +243,7 @@ export async function ensurePresentationPoster({
   if (media.kind !== "video")
     throw new PresentationMediaError("poster_not_supported");
   await verifyPresentationSource(db, file, variant, key);
-  const presentation = presentationForFile(db, file);
+  const presentation = presentationForRendition(db, file, variant, key);
   const startMs =
     variant === "highlight" ? (presentation.highlight?.startMs ?? 0) : 0;
   return ensurePresentationDerivative(

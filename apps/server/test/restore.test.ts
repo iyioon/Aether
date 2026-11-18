@@ -23,6 +23,8 @@ import { LATEST_SCHEMA_VERSION, openDatabase } from "../src/db/database.js";
 import { createConfigBackup } from "../src/maintenance/backup.js";
 import { restoreDataDirectory } from "../src/maintenance/restore.js";
 import { acquireRuntimeLock } from "../src/maintenance/runtime-lock.js";
+import { getPresentationsByAssetId } from "../src/library/repository-presentation.js";
+import { defaultPresentationValues } from "../src/library/presentation.js";
 import {
   hasPreservedRestoreState,
   prepareRestoreStateForStartup
@@ -240,7 +242,106 @@ describe("data restore", () => {
     }
   });
 
-  it.each([13, 14] as const)(
+  it("retains all named highlights and the main selection through restore", async () => {
+    const fixture = await createRestoreFixture();
+    const highlights = [
+      {
+        ...defaultPresentationValues(),
+        id: "opening",
+        name: "Opening",
+        highlight: { startMs: 0, endMs: 500 },
+        playbackRate: 0.5
+      },
+      {
+        ...defaultPresentationValues(),
+        id: "ending",
+        name: "Ending",
+        highlight: { startMs: 1000, endMs: 1500 },
+        zoom: 2,
+        loopMode: "bounce"
+      }
+    ];
+    try {
+      await mutateBackupDatabase(
+        fixture.backupDir,
+        `
+        INSERT INTO assets (id, root_id, relative_path, name, extension, media_type, size_bytes, mtime_ms, indexed_at, status)
+          VALUES ('clip', 'root-restored', 'clip.mp4', 'clip.mp4', '.mp4', 'video', 10, 100, '2026-11-18', 'ready');
+        INSERT INTO asset_presentations (asset_id, revision, highlight_start_ms, highlight_end_ms, fit, focal_x, focal_y, zoom, playback_rate, loop_mode, updated_at, highlights, main_highlight_id)
+          VALUES ('clip', 5, 1000, 1500, 'auto', 0.5, 0.5, 2, 1, 'bounce', '2026-11-18', '${JSON.stringify(highlights)}', 'ending');
+      `
+      );
+      await restoreDataDirectory({
+        paths: fixture.paths,
+        workspaceRoot: fixture.workspace,
+        backupDir: fixture.backupDir
+      });
+      const restored = openDatabase(fixture.paths.configDir);
+      try {
+        const presentation = getPresentationsByAssetId(restored, [
+          { id: "clip", sizeBytes: 10, mtimeMs: 100 }
+        ]).get("clip")!;
+        expect(presentation).toMatchObject({
+          revision: 5,
+          mainHighlightId: "ending",
+          zoom: 2,
+          loopMode: "bounce"
+        });
+        expect(presentation.highlights).toMatchObject(highlights);
+        expect(presentation.renditionKeys).toEqual(
+          presentation.highlights[1]!.renditionKeys
+        );
+      } finally {
+        restored.close();
+      }
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
+  it.each(["null member", "missing fields", "duplicate IDs", "missing main"])(
+    "keeps current data when a verified latest backup has %s in its highlight collection",
+    async (problem) => {
+      const fixture = await createRestoreFixture();
+      const valid = {
+        ...defaultPresentationValues(),
+        id: "opening",
+        name: "Opening",
+        highlight: { startMs: 0, endMs: 500 }
+      };
+      const highlights =
+        problem === "null member"
+          ? [null]
+          : problem === "missing fields"
+            ? [{ id: "opening" }]
+            : problem === "duplicate IDs"
+              ? [valid, valid]
+              : [valid];
+      try {
+        await mutateBackupDatabase(
+          fixture.backupDir,
+          `
+          INSERT INTO assets (id, root_id, relative_path, name, extension, media_type, size_bytes, mtime_ms, indexed_at, status)
+            VALUES ('clip', 'root-restored', 'clip.mp4', 'clip.mp4', '.mp4', 'video', 10, 100, '2026-11-18', 'ready');
+          INSERT INTO asset_presentations (asset_id, revision, highlight_start_ms, highlight_end_ms, fit, focal_x, focal_y, zoom, playback_rate, loop_mode, updated_at, highlights, main_highlight_id)
+            VALUES ('clip', 1, 0, 500, 'auto', 0.5, 0.5, 1, 1, 'repeat', '2026-11-18', '${JSON.stringify(highlights)}', ${problem === "missing main" ? "NULL" : "'opening'"});
+        `
+        );
+        await expect(
+          restoreDataDirectory({
+            paths: fixture.paths,
+            workspaceRoot: fixture.workspace,
+            backupDir: fixture.backupDir
+          })
+        ).rejects.toThrow("required Aether schema");
+        expect(readRootLabels(fixture.paths.configDir)).toEqual(["current"]);
+      } finally {
+        await fixture.cleanup();
+      }
+    }
+  );
+
+  it.each([13, 14, 21] as const)(
     "migrates a version %i backup before replacing the current database",
     async (sourceVersion) => {
       const fixture = await createRestoreFixture({ sourceVersion });
@@ -435,7 +536,8 @@ describe("data restore", () => {
 
   it.each([
     ["sessions", "DROP TABLE sessions"],
-    ["asset_search", "DROP TABLE asset_search"]
+    ["asset_search", "DROP TABLE asset_search"],
+    ["highlights", "ALTER TABLE asset_presentations DROP COLUMN highlights"]
   ])(
     "rejects a latest-version backup missing the %s schema",
     async (_schemaName, mutation) => {
@@ -496,7 +598,7 @@ async function createRestoreFixture({
 }: {
   includeCache?: boolean;
   includeAuthenticationState?: boolean;
-  sourceVersion?: 13 | 14;
+  sourceVersion?: 13 | 14 | 21;
   makeNextMigrationFail?: boolean;
 } = {}) {
   const workspace = await mkdtemp(path.join(tmpdir(), "aether-restore-test-"));
@@ -549,9 +651,18 @@ async function createRestoreFixture({
   };
 }
 
-function downgradeDatabase(configDir: string, targetVersion: 13 | 14): void {
+function downgradeDatabase(
+  configDir: string,
+  targetVersion: 13 | 14 | 21
+): void {
   const db = new Database(path.join(configDir, "aether.sqlite"));
   try {
+    if (targetVersion === 21) {
+      db.exec(`ALTER TABLE asset_presentations DROP COLUMN highlights;
+        ALTER TABLE asset_presentations DROP COLUMN main_highlight_id;
+        DELETE FROM schema_migrations WHERE version = 22;`);
+      return;
+    }
     db.pragma("foreign_keys = OFF");
     const triggers = db
       .prepare("SELECT name FROM sqlite_schema WHERE type = 'trigger'")

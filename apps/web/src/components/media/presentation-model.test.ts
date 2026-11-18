@@ -1,19 +1,214 @@
 import { describe, expect, it } from "vitest";
+import type { AssetRecord, SavedHighlight } from "../../api/client";
 import {
   defaultPresentationValues,
   formatPresentationTime,
   getPresentationValues,
+  getPresentationHighlights,
   highlightTimelineRange,
   parsePresentationTime,
   presentationRange,
   presentationFramingForAspect,
   setPresentationFraming,
   presentationSaveOutcome,
+  presentationAssetForHighlight,
+  selectPresentationHighlight,
+  setMainPresentationHighlight,
+  updatePresentationHighlight,
   shouldEnableHighlightPlayback,
   presentationValidationMessage,
   presentationValuesEqual,
   updatePresentationRange
 } from "./presentation-model";
+
+function savedHighlights(): SavedHighlight[] {
+  return [
+    {
+      ...defaultPresentationValues(),
+      id: "opening",
+      name: "Opening",
+      highlight: { startMs: 0, endMs: 2000 },
+      focalX: 0.2,
+      playbackRate: 0.5,
+      renditionKeys: {
+        full: "source",
+        highlight: "opening",
+        bounce: "opening-bounce"
+      }
+    },
+    {
+      ...defaultPresentationValues(),
+      id: "ending",
+      name: "Ending",
+      highlight: { startMs: 8000, endMs: 10000 },
+      loopMode: "bounce",
+      playbackRate: 1.5,
+      aspectFraming: {
+        Square: { fit: "cover", focalX: 0.8, focalY: 0.3, zoom: 2 }
+      },
+      renditionKeys: {
+        full: "source",
+        highlight: "ending",
+        bounce: "ending-bounce"
+      }
+    }
+  ];
+}
+
+describe("multiple saved highlights", () => {
+  it("retains legacy highlights and copies independent editable values without server keys", () => {
+    const legacy = {
+      ...defaultPresentationValues(),
+      highlight: { startMs: 200, endMs: 900 }
+    };
+    expect(getPresentationHighlights(legacy)[0]).toMatchObject({
+      id: "highlight-1",
+      name: "Highlight 1",
+      highlight: legacy.highlight
+    });
+    expect(setMainPresentationHighlight(legacy, "highlight-1")).toMatchObject({
+      mainHighlightId: "highlight-1",
+      highlights: [{ id: "highlight-1", name: "Highlight 1" }]
+    });
+    const saved = {
+      ...legacy,
+      highlights: savedHighlights(),
+      mainHighlightId: "opening"
+    };
+    const draft = getPresentationValues(saved);
+    expect(draft.highlights).toHaveLength(2);
+    expect(draft.highlights![1]).not.toHaveProperty("renditionKeys");
+    draft.highlights![1]!.highlight.startMs = 7000;
+    draft.highlights![1]!.aspectFraming!.Square!.zoom = 3;
+    expect(saved.highlights[1]!.highlight.startMs).toBe(8000);
+    expect(saved.highlights[1]!.aspectFraming!.Square!.zoom).toBe(2);
+    expect(getPresentationHighlights({ ...legacy, highlights: [] })).toEqual(
+      []
+    );
+  });
+
+  it("edits a secondary highlight without changing the main projection", () => {
+    const initial = setMainPresentationHighlight(
+      {
+        ...defaultPresentationValues(),
+        highlights: savedHighlights()
+      },
+      "opening"
+    );
+    const selected = selectPresentationHighlight(initial, "ending");
+    expect(selected).toMatchObject({
+      mainHighlightId: "opening",
+      playbackRate: 1.5,
+      loopMode: "bounce"
+    });
+    const changed = updatePresentationHighlight(initial, "ending", {
+      ...selected,
+      playbackRate: 2,
+      highlight: { startMs: 7500, endMs: 9500 }
+    });
+    expect(changed).toMatchObject({
+      mainHighlightId: "opening",
+      playbackRate: 0.5,
+      highlight: { startMs: 0, endMs: 2000 }
+    });
+    expect(changed.highlights![1]).toMatchObject({
+      playbackRate: 2,
+      highlight: { startMs: 7500, endMs: 9500 }
+    });
+    const main = setMainPresentationHighlight(changed, "ending");
+    expect(main).toMatchObject({
+      mainHighlightId: "ending",
+      playbackRate: 2,
+      loopMode: "bounce",
+      highlight: { startMs: 7500, endMs: 9500 }
+    });
+    expect(setMainPresentationHighlight(main, "removed")).toBe(main);
+    expect(initial.highlights![1]!.playbackRate).toBe(1.5);
+  });
+
+  it("includes alternate edits, names, order and main selection in save reconciliation", () => {
+    const initial = setMainPresentationHighlight(
+      {
+        ...defaultPresentationValues(),
+        highlights: savedHighlights()
+      },
+      "opening"
+    );
+    expect(
+      presentationValuesEqual(initial, getPresentationValues(initial))
+    ).toBe(true);
+    const alternatives = getPresentationHighlights(initial);
+    alternatives[1]!.name = "Last seconds";
+    const renamed = { ...initial, highlights: alternatives };
+    expect(presentationValuesEqual(initial, renamed)).toBe(false);
+    expect(
+      presentationValuesEqual(initial, {
+        ...initial,
+        highlights: [...alternatives].reverse()
+      })
+    ).toBe(false);
+    expect(
+      presentationValuesEqual(
+        initial,
+        setMainPresentationHighlight(initial, "ending")
+      )
+    ).toBe(false);
+    expect(
+      presentationSaveOutcome({ ...renamed, revision: 3 }, initial, 2)
+    ).toBe("conflict");
+    expect(
+      presentationSaveOutcome({ ...renamed, revision: 3 }, renamed, 2)
+    ).toBe("saved");
+  });
+
+  it("temporarily selects another saved playback and keeps canonical metadata intact", () => {
+    const highlights = savedHighlights();
+    const presentation = {
+      ...setMainPresentationHighlight(
+        { ...defaultPresentationValues(), highlights },
+        "opening"
+      ),
+      highlights,
+      revision: 3,
+      renditionKeys: highlights[0]!.renditionKeys
+    };
+    const asset = { id: "media", presentation } as AssetRecord;
+    const preview = presentationAssetForHighlight(asset, "ending");
+    expect(preview.presentation).toMatchObject({
+      mainHighlightId: "opening",
+      playbackRate: 1.5,
+      loopMode: "bounce",
+      renditionKeys: highlights[1]!.renditionKeys
+    });
+    expect(preview.presentation!.highlights).toBe(highlights);
+    expect(preview.presentation).not.toHaveProperty("name");
+    expect(asset.presentation!.renditionKeys.highlight).toBe("opening");
+    expect(presentationAssetForHighlight(asset, "removed")).toBe(asset);
+    expect(presentationAssetForHighlight(asset)).toBe(asset);
+  });
+
+  it("does not inherit the main highlight's optional framing in another section", () => {
+    const highlights = savedHighlights();
+    delete highlights[0]!.aspectFraming;
+    delete highlights[0]!.feedFraming;
+    const asset = {
+      id: "media",
+      presentation: {
+        ...setMainPresentationHighlight(
+          { ...defaultPresentationValues(), highlights },
+          "ending"
+        ),
+        highlights,
+        revision: 3,
+        renditionKeys: highlights[1]!.renditionKeys
+      }
+    } as AssetRecord;
+    const first = presentationAssetForHighlight(asset, "opening");
+    expect(first.presentation!.aspectFraming).toEqual({});
+    expect(first.presentation!.feedFraming).toEqual({});
+    expect(asset.presentation!.aspectFraming!.Square!.zoom).toBe(2);
+  });
+});
 
 describe("playback highlight markers", () => {
   it("locates the saved section within the full source timeline", () => {

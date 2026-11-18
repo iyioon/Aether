@@ -33,6 +33,7 @@ import { PresentationEditorFooter } from "./PresentationEditorFooter";
 import type { MediaPresentationEditorProps } from "./MediaPresentationEditor";
 
 interface PresentationEditorDialogProps {
+  initialHighlightId?: string | null;
   asset: AssetRecord;
   initialAspect?: AspectMode;
   originalFit?: "contain" | "cover";
@@ -94,6 +95,7 @@ async function loadEditorSettings(assetId: string, signal: AbortSignal) {
 export function PresentationEditorDialog({
   asset,
   initialAspect,
+  initialHighlightId,
   originalFit,
   onClose,
   onSaved
@@ -297,6 +299,7 @@ export function PresentationEditorDialog({
             asset={loaded.asset}
             unavailable={asset.unavailable}
             initialAspect={initialAspect}
+            initialHighlightId={initialHighlightId}
             originalFit={originalFit}
             capabilities={loaded.capabilities}
             onClose={onClose}

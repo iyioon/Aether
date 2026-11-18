@@ -13,6 +13,7 @@ import {
   type PresentationValues
 } from "../../api/client";
 import { animationAtlasCache } from "./animation-atlas-cache";
+import { animationAtlasLookahead } from "./animation-buffer";
 import { validateAnimationManifest } from "./animation-manifest";
 import {
   animationSourceFrame,
@@ -308,8 +309,33 @@ export function ControlledAnimation({
     let lastPublished = -Infinity;
     let firstPaint = false;
     let broken = false;
-    const preloads = new Set<number>();
+    const preloads = new Map<
+      number,
+      { controller: AbortController; priority: number }
+    >();
     const rate = playbackRate;
+
+    function prepareAhead() {
+      const upcoming = runningRef.current
+        ? animationAtlasLookahead(manifest!, timeline, elapsed, rate)
+        : [];
+      for (const [atlas, { controller: preload }] of preloads) {
+        if (upcoming.includes(atlas)) continue;
+        preload.abort();
+        workControllers.delete(preload);
+        preloads.delete(atlas);
+      }
+      for (const [priority, atlas] of upcoming.entries()) {
+        const existing = preloads.get(atlas);
+        if (existing?.priority === priority) continue;
+        const preload = existing?.controller ?? new AbortController();
+        preloads.set(atlas, { controller: preload, priority });
+        workControllers.add(preload);
+        void animationAtlasCache
+          .prefetch(manifest!.atlases[atlas]!, preload.signal, priority)
+          .catch(() => undefined);
+      }
+    }
 
     function publish(timeMs: number, force = false) {
       if (displayKeyRef.current !== displayKey) return;
@@ -431,6 +457,7 @@ export function ControlledAnimation({
       previousTimestamp = performance.now();
       sourceTimeRef.current = time;
       display(index);
+      prepareAhead();
       publish(time, true);
     }
     seekRef.current = seek;
@@ -445,6 +472,7 @@ export function ControlledAnimation({
         );
     if (clockRef.current.key === clockKey && !externalSeek) {
       display(animationSourceFrame(manifest, sourceTimeRef.current));
+      prepareAhead();
     } else seek(initial);
 
     function tick(timestamp: number) {
@@ -455,22 +483,8 @@ export function ControlledAnimation({
       previousTimestamp = timestamp;
       const frame = animationTimelineFrame(timeline, elapsed);
       display(frame.frameIndex);
-      const sourceFrame = manifest!.frames[frame.frameIndex]!;
       publish(animationTimelineTime(timeline, elapsed));
-      // Prepare only the next two distinct atlases near a boundary.
-      const position = timeline.frames.indexOf(frame);
-      for (let ahead = 1; ahead <= 2; ahead += 1) {
-        const next =
-          timeline.frames[(position + ahead) % timeline.frames.length];
-        if (!next) continue;
-        const atlas = manifest!.frames[next.frameIndex]!.atlas;
-        if (atlas === sourceFrame.atlas || preloads.has(atlas)) continue;
-        preloads.add(atlas);
-        void animationAtlasCache
-          .use(manifest!.atlases[atlas]!, controller.signal, () => undefined)
-          .catch(() => undefined)
-          .finally(() => preloads.delete(atlas));
-      }
+      prepareAhead();
       if (runningRef.current) frameRequest = requestAnimationFrame(tick);
     }
     if (running) frameRequest = requestAnimationFrame(tick);
@@ -479,6 +493,10 @@ export function ControlledAnimation({
       clockRef.current = { key: clockKey, elapsed };
       controller.abort();
       workControllers.delete(controller);
+      for (const { controller: preload } of preloads.values()) {
+        preload.abort();
+        workControllers.delete(preload);
+      }
       cancelAnimationFrame(frameRequest);
       seekRef.current = () => undefined;
     };

@@ -4,8 +4,16 @@ Notable changes to Aether are recorded here.
 
 ## Unreleased
 
+### Added
+
+- Save multiple named highlights with independent ranges, framing, speed and
+  Repeat/Bounce settings. Choose the main highlight in Edit media or Info, and
+  view another highlight without changing the default.
+
 ### Fixed
 
+- Prepare upcoming animation frames according to playback speed, Repeat/Bounce
+  order and highlights, reducing pauses as playback crosses frame batches.
 - Preserve deliberately moved focus while View options finishes closing.
 - Keep Gallery Home and End scrolling reliable while virtual rows are measured.
 - Keep the selected folder visible and focused when reopening Search's folder

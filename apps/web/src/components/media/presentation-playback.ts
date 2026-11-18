@@ -1,12 +1,30 @@
 import type {
   AssetRecord,
-  PresentationMediaCapabilities
+  PresentationMediaCapabilities,
+  PresentationValues
 } from "../../api/client";
 
 type BounceTimeline = PresentationMediaCapabilities["bounceTimeline"];
 export type BounceCodec = "hevc" | "h264";
 
 export type PresentationVariant = "full" | "highlight" | "bounce";
+
+/** Original-video URLs stay unchanged when another saved section is selected. */
+export function presentationPlaybackContext(
+  source: string,
+  variant: PresentationVariant,
+  highlight: PresentationValues["highlight"],
+  highlightId?: string
+): string {
+  return JSON.stringify([
+    source,
+    variant,
+    highlightId ?? null,
+    ...(variant === "full"
+      ? []
+      : [highlight?.startMs ?? 0, highlight?.endMs ?? null])
+  ]);
+}
 
 export function bounceDurationExceeded(asset: AssetRecord, maximumMs?: number) {
   if (maximumMs === undefined) return false;

@@ -166,14 +166,16 @@ export async function getPresentationMediaCapabilities({
   db,
   config,
   file,
-  includeSavedTimeline = true
+  includeSavedTimeline = true,
+  highlightId
 }: {
   db: AetherDatabase;
   config: AppConfig;
   file: ResolvedAssetFile;
   includeSavedTimeline?: boolean;
+  highlightId?: string;
 }): Promise<PresentationMediaCapabilities> {
-  const presentation = presentationForFile(db, file);
+  const presentation = presentationForFile(db, file, highlightId);
   if (
     includeSavedTimeline &&
     file.asset.mediaType === "video" &&

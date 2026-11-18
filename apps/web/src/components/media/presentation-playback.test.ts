@@ -5,6 +5,7 @@ import {
   bounceDurationExceeded,
   playbackVariant,
   presentationPlaybackUrl,
+  presentationPlaybackContext,
   presentationPosterUrl,
   sourceTimeForVideoBounce,
   videoBounceSeekTime,
@@ -23,6 +24,25 @@ function asset(revision = 1): AssetRecord {
   } as AssetRecord;
 }
 describe("saved playback selection", () => {
+  it("resets native playback for a different saved section of the same original", () => {
+    const source = "/api/assets/media/media?v=1-20";
+    const first = { startMs: 0, endMs: 2000 };
+    const last = { startMs: 8000, endMs: 10000 };
+    expect(
+      presentationPlaybackContext(source, "highlight", first, "first")
+    ).not.toBe(presentationPlaybackContext(source, "highlight", last, "last"));
+    expect(
+      presentationPlaybackContext(source, "highlight", first, "first")
+    ).not.toBe(
+      presentationPlaybackContext(source, "highlight", first, "same-range")
+    );
+    expect(presentationPlaybackContext(source, "full", first)).toBe(
+      presentationPlaybackContext(source, "full", last)
+    );
+    expect(
+      presentationPlaybackContext(source, "highlight", first, "first")
+    ).not.toBe(presentationPlaybackContext(source, "bounce", first, "first"));
+  });
   it("requires a shorter source-size Bounce only when capabilities establish a limit", () => {
     const current = { ...asset(), durationMs: 6000 };
     expect(bounceDurationExceeded(current)).toBe(false);

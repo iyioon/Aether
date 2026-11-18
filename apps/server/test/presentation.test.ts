@@ -26,6 +26,7 @@ import {
   defaultPresentationValues,
   getPresentationRenditionKeys
 } from "../src/library/presentation.js";
+import type { SavedHighlightValues } from "../src/library/presentation.js";
 import {
   getPresentationsByAssetId,
   countPresentationEdits,
@@ -1411,6 +1412,368 @@ describe("saved media presentation", () => {
     expect(
       getPresentationRenditionKeys({ ...asset, mtimeMs: 124 }, values).full
     ).not.toBe(base.full);
+  });
+
+  const highlights = (): SavedHighlightValues[] => [
+    {
+      ...defaultPresentationValues(),
+      id: "opening",
+      name: "Opening",
+      highlight: { startMs: 0, endMs: 600 },
+      playbackRate: 0.5
+    },
+    {
+      ...defaultPresentationValues(),
+      id: "ending",
+      name: "Ending",
+      highlight: { startMs: 1000, endMs: 1800 },
+      fit: "cover",
+      zoom: 2,
+      playbackRate: 2,
+      loopMode: "bounce"
+    }
+  ];
+
+  it("saves independent highlights and projects the selected main in all library records", async () => {
+    const asset = await video("multiple.mp4");
+    const response = await put(asset.id, {
+      ...defaultPresentationValues(),
+      expectedRevision: 0,
+      highlights: highlights(),
+      mainHighlightId: "ending"
+    });
+    expect(response.statusCode).toBe(200);
+    const saved = response.json().asset.presentation;
+    expect(saved).toMatchObject({
+      revision: 1,
+      mainHighlightId: "ending",
+      highlight: { startMs: 1000, endMs: 1800 },
+      fit: "cover",
+      zoom: 2,
+      playbackRate: 2,
+      loopMode: "bounce"
+    });
+    expect(saved.highlights).toHaveLength(2);
+    expect(saved.highlights[0]).toMatchObject({
+      id: "opening",
+      playbackRate: 0.5,
+      zoom: 1
+    });
+    expect(saved.renditionKeys).toEqual(saved.highlights[1].renditionKeys);
+    expect(list()[0]?.presentation).toEqual(saved);
+    expect(getAssetsByIds(db, [asset.id])[0]?.presentation).toEqual(saved);
+    const selected = await app.inject({
+      url: `/api/assets/${asset.id}/presentation-media?highlightId=opening`,
+      ...auth
+    });
+    expect(selected.statusCode).toBe(200);
+    expect(selected.json().renditionKeys).toEqual(
+      saved.highlights[0].renditionKeys
+    );
+    expect(selected.json().bounceTimeline).toBeUndefined();
+    expect(
+      (
+        await app.inject({
+          url: `/api/assets/${asset.id}/presentation-media?highlightId=missing`,
+          ...auth
+        })
+      ).statusCode
+    ).toBe(404);
+    const conflict = await put(asset.id, {
+      ...defaultPresentationValues(),
+      expectedRevision: 0,
+      highlights: highlights(),
+      mainHighlightId: "opening"
+    });
+    expect(conflict.statusCode).toBe(409);
+    expect(conflict.json().asset.presentation).toEqual(saved);
+  });
+
+  it("validates every saved range, identifiers, names, count and main reference before writing", async () => {
+    const asset = await video("invalid-multiple.mp4");
+    const original = highlights();
+    const cases = [
+      { highlights: [original[0], original[0]], mainHighlightId: "opening" },
+      { highlights: original, mainHighlightId: "missing" },
+      { highlights: original, mainHighlightId: null },
+      { highlights: [], mainHighlightId: "opening" },
+      {
+        highlights: [{ ...original[0], name: "  " }],
+        mainHighlightId: "opening"
+      },
+      {
+        highlights: [{ ...original[0], id: "../outside" }],
+        mainHighlightId: "../outside"
+      },
+      {
+        highlights: [{ ...original[0], name: "a\nb" }],
+        mainHighlightId: "opening"
+      },
+      {
+        highlights: Array.from({ length: 21 }, (_, index) => ({
+          ...original[0],
+          id: `h-${index}`
+        })),
+        mainHighlightId: "h-0"
+      },
+      {
+        highlights: [
+          original[0],
+          { ...original[1], highlight: { startMs: 1900, endMs: 2100 } }
+        ],
+        mainHighlightId: "opening"
+      },
+      {
+        highlights: [original[0], { ...original[1], playbackRate: 3 }],
+        mainHighlightId: "opening"
+      },
+      {
+        highlights: [
+          original[0],
+          { ...original[1], highlight: { startMs: 1700, endMs: 1600 } }
+        ],
+        mainHighlightId: "opening"
+      }
+    ];
+    for (const edit of cases) {
+      expect(
+        (
+          await put(asset.id, {
+            ...defaultPresentationValues(),
+            expectedRevision: 0,
+            ...edit
+          })
+        ).statusCode
+      ).toBe(400);
+      expect(getAsset(db, asset.id)?.presentation.revision).toBe(0);
+    }
+    const still = await image("still.jpg");
+    expect(
+      (
+        await put(still.id, {
+          ...defaultPresentationValues(),
+          expectedRevision: 0,
+          highlights: original,
+          mainHighlightId: "opening"
+        })
+      ).json().error
+    ).toBe("presentation_timing_not_supported");
+  });
+
+  it("preserves secondary highlights for legacy main edits and promotes a survivor when main is removed", async () => {
+    const asset = await video("legacy-multiple.mp4");
+    expect(
+      (
+        await put(asset.id, {
+          ...defaultPresentationValues(),
+          expectedRevision: 0,
+          highlights: highlights(),
+          mainHighlightId: "opening"
+        })
+      ).statusCode
+    ).toBe(200);
+    const edited = await put(asset.id, {
+      ...defaultPresentationValues(),
+      expectedRevision: 1,
+      highlight: { startMs: 100, endMs: 700 },
+      playbackRate: 1.5
+    });
+    expect(edited.statusCode).toBe(200);
+    expect(edited.json().asset.presentation.highlights).toMatchObject([
+      {
+        id: "opening",
+        playbackRate: 1.5,
+        highlight: { startMs: 100, endMs: 700 }
+      },
+      { id: "ending", playbackRate: 2 }
+    ]);
+    const removed = await put(asset.id, {
+      ...defaultPresentationValues(),
+      expectedRevision: 2
+    });
+    expect(removed.statusCode).toBe(200);
+    expect(removed.json().asset.presentation).toMatchObject({
+      mainHighlightId: "ending",
+      highlights: [{ id: "ending" }],
+      playbackRate: 2,
+      highlight: { startMs: 1000, endMs: 1800 }
+    });
+    const cleared = await put(asset.id, {
+      ...defaultPresentationValues(),
+      expectedRevision: 3,
+      highlights: [],
+      mainHighlightId: null
+    });
+    expect(cleared.statusCode).toBe(200);
+    expect(cleared.json().asset.presentation).toMatchObject({
+      mainHighlightId: null,
+      highlights: [],
+      highlight: null
+    });
+  });
+
+  it("keeps cached ranges together and rejects a removed range without invalidating surviving renditions", async () => {
+    const asset = await video("multiple-cache.mp4");
+    const values = highlights();
+    const saved = await put(asset.id, {
+      ...defaultPresentationValues(),
+      expectedRevision: 0,
+      highlights: values,
+      mainHighlightId: "opening"
+    });
+    expect(saved.statusCode).toBe(200);
+    const file = (await resolveAssetFile(db, asset.id))!;
+    const records = saved.json().asset.presentation.highlights;
+    const prepare = (key: string) =>
+      ensurePresentationDerivative(
+        db,
+        config,
+        file,
+        "bounce",
+        key,
+        "mp4",
+        async (temporary) => {
+          await writeFile(temporary, key);
+          return "video/mp4";
+        }
+      );
+    const first = await prepare(records[0].renditionKeys.bounce);
+    const second = await prepare(records[1].renditionKeys.bounce);
+    expect(await readFile(first.path, "utf8")).toBe(
+      records[0].renditionKeys.bounce
+    );
+    expect(await readFile(second.path, "utf8")).toBe(
+      records[1].renditionKeys.bounce
+    );
+    const posterUrl = (key: string) =>
+      `/api/assets/${asset.id}/presentation-poster?variant=highlight&size=160&v=${key}`;
+    for (const record of records)
+      expect(
+        (
+          await app.inject({
+            url: posterUrl(record.renditionKeys.highlight),
+            ...auth
+          })
+        ).statusCode
+      ).toBe(200);
+    const switched = await put(asset.id, {
+      ...defaultPresentationValues(),
+      expectedRevision: 1,
+      highlights: values,
+      mainHighlightId: "ending"
+    });
+    expect(switched.statusCode).toBe(200);
+    expect(await readFile(first.path, "utf8")).toBe(
+      records[0].renditionKeys.bounce
+    );
+    expect(
+      (
+        await put(asset.id, {
+          ...defaultPresentationValues(),
+          expectedRevision: 2,
+          highlights: [values[1]],
+          mainHighlightId: "ending"
+        })
+      ).statusCode
+    ).toBe(200);
+    await expect(readFile(first.path)).rejects.toMatchObject({
+      code: "ENOENT"
+    });
+    expect(await readFile(second.path, "utf8")).toBe(
+      records[1].renditionKeys.bounce
+    );
+    expect(
+      (
+        await app.inject({
+          url: posterUrl(records[0].renditionKeys.highlight),
+          ...auth
+        })
+      ).statusCode
+    ).toBe(409);
+    expect(
+      (
+        await app.inject({
+          url: posterUrl(records[1].renditionKeys.highlight),
+          ...auth
+        })
+      ).statusCode
+    ).toBe(200);
+  });
+
+  it("resets every saved highlight's framing independently from playback, then removes all ranges on playback reset", async () => {
+    const asset = await video("multiple-reset.mp4");
+    const values = highlights();
+    expect(
+      (
+        await put(asset.id, {
+          ...defaultPresentationValues(),
+          expectedRevision: 0,
+          highlights: values,
+          mainHighlightId: "opening"
+        })
+      ).statusCode
+    ).toBe(200);
+    expect(countPresentationEdits(db)).toEqual({ framing: 1, playback: 1 });
+    resetPresentationEdits(db, { framing: true }, now());
+    const reset = getAsset(db, asset.id)!.presentation;
+    expect(reset.revision).toBe(2);
+    expect(
+      reset.highlights.map((item) => ({
+        id: item.id,
+        zoom: item.zoom,
+        playbackRate: item.playbackRate,
+        highlight: item.highlight
+      }))
+    ).toEqual(
+      values.map((item) => ({
+        id: item.id,
+        zoom: 1,
+        playbackRate: item.playbackRate,
+        highlight: item.highlight
+      }))
+    );
+    expect(countPresentationEdits(db)).toEqual({ framing: 0, playback: 1 });
+    resetPresentationEdits(db, { playback: true }, now());
+    expect(getAsset(db, asset.id)!.presentation).toMatchObject({
+      revision: 3,
+      highlights: [],
+      mainHighlightId: null,
+      highlight: null,
+      playbackRate: 1
+    });
+    expect(countPresentationEdits(db)).toEqual({ framing: 0, playback: 0 });
+  });
+
+  it("retains the collection after a source touch and clears every range when source bytes change", async () => {
+    const asset = await video("multiple-source.mp4");
+    expect(
+      (
+        await put(asset.id, {
+          ...defaultPresentationValues(),
+          expectedRevision: 0,
+          highlights: highlights(),
+          mainHighlightId: "ending"
+        })
+      ).statusCode
+    ).toBe(200);
+    const source = path.join(cwd, "media", "multiple-source.mp4");
+    const before = await stat(source);
+    await utimes(source, before.atime, new Date(before.mtimeMs + 5000));
+    await scanLibrary(db, config.mediaRoots);
+    expect(getAsset(db, asset.id)!.presentation).toMatchObject({
+      revision: 1,
+      mainHighlightId: "ending",
+      highlights: [{ id: "opening" }, { id: "ending" }]
+    });
+    await fileSystem.appendFile(source, Buffer.from([0]));
+    await scanLibrary(db, config.mediaRoots);
+    const changed = list().find((item) => item.name === "multiple-source.mp4")!;
+    expect(changed.presentation).toMatchObject({
+      highlights: [],
+      mainHighlightId: null,
+      highlight: null,
+      zoom: 1
+    });
   });
 
   const url = (id: string) => `/api/assets/${id}/presentation`;

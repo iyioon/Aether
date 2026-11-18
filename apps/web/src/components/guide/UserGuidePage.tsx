@@ -160,6 +160,12 @@ export function UserGuidePage({
               and Use saved framing.
             </p>
             <p>
+              In Info → Highlights, choose View to play a saved highlight with
+              its framing and speed. This does not change the main highlight or
+              your playback defaults. Make main sets the highlight used across
+              the media views when Play highlights only is enabled.
+            </p>
+            <p>
               The preview remains visible while the full photo or video
               prepares. A slim bar shows loading or buffering. Use Retry if
               loading fails.
@@ -202,12 +208,30 @@ export function UserGuidePage({
               </li>
             </ol>
             <h2>Set highlights and playback</h2>
+            <ol>
+              <li>
+                Choose Add highlight, or select an existing highlight from
+                Highlight.
+              </li>
+              <li>Set its name, range, speed, loop mode and framing.</li>
+              <li>
+                Choose Make main to use this highlight by default, then Save.
+              </li>
+            </ol>
             <p>
               For video and animated images, drag the highlight handles or enter
               Start and End. Seek in the preview and choose Start here or End
               here to mark the current frame. Timeline arrows adjust 100ms;
               Shift adjusts 1ms. Page keys adjust one second; Home and End jump
               to the control’s limits.
+            </p>
+            <p>
+              Each media item can have up to 20 highlights. Switching highlights
+              keeps valid unsaved changes; correct invalid times before
+              switching. One Save applies all changes. Remove highlight asks for
+              confirmation and changes the draft until Save. Removing the main
+              highlight selects the first remaining one; removing the last
+              clears its playback edits. Cancel discards these changes.
             </p>
             <p>
               Choose speed and loop mode. Repeat plays forward. Bounce plays
@@ -219,15 +243,16 @@ export function UserGuidePage({
             <p>
               Bounce and framing do not rewrite source bytes. Download returns
               the source file. Use Play highlights only in View options to play
-              the saved section.
+              the main highlight.
             </p>
             <h2>Adjust framing</h2>
             <p>
-              Choose Original, Square, Portrait or Landscape. Each layout keeps
-              its own position and zoom. Fit shows the whole item. Fill covers
-              the frame; drag to position and pinch or use Zoom to enlarge it.
-              Arrow keys move 12px, or 1px with Shift. Use -/= to zoom 5%, or 1%
-              with Shift.
+              Choose Original, Square, Portrait or Landscape. For a highlight,
+              select it first; each highlight keeps its own position and zoom
+              for these layouts. Fit shows the whole item. Fill covers the
+              frame; drag to position and pinch or use Zoom to enlarge it. Arrow
+              keys move 12px, or 1px with Shift. Use -/= to zoom 5%, or 1% with
+              Shift.
             </p>
             <p>
               Switch layouts and save once to keep all changes. Feed uses
@@ -239,7 +264,9 @@ export function UserGuidePage({
             <p>
               The preview keeps playing when tabs change. Seeking pauses at the
               chosen frame. Reset needs Save. Settings → Database can reset
-              playback or framing for the library.
+              playback or framing for the library. Highlights and playback
+              removes every highlight. Framing resets every highlight’s frames
+              while keeping its range and speed.
             </p>
             <p>
               Save closes the editor when complete. A failed save keeps your

@@ -24,11 +24,16 @@ Presentation settings live in the database and are included in normal backups.
 Restore accepts earlier supported schemas and upgrades them when the server
 opens the restored database. Generated presentation files are optional cache;
 they regenerate when absent. Keep the database when preserving saved highlights,
-per-aspect framing, speed and loop preferences.
+their names and main selection, per-highlight/per-aspect framing, speed and loop
+preferences. An earlier single highlight becomes the main highlight on upgrade.
 Returning to an older application version requires restoring a compatible backup;
 do not point it at the upgraded database. A full rebuild discards these edits along
 with other per-asset metadata. Selective resets are available in Settings and
 advance revisions to reject stale editor saves.
+**Highlights and playback** removes every highlight and its main selection and
+resets speed and loop mode. **Framing** resets the frames for every highlight
+while retaining their names, ranges, main selection, speed and loop mode. Reset
+counts refer to media items, including items with several highlights.
 
 ## File Operations And Trash
 

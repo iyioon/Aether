@@ -80,6 +80,7 @@ import { clearUploadCheckpoints } from "./management/upload-checkpoints";
 import { clearMediaImageCache } from "./media/media-image-cache";
 import { animationAtlasCache } from "./media/animation-atlas-cache";
 import { PresentationEditorDialog } from "./media/PresentationEditorDialog";
+import { saveMainHighlight } from "./media/save-main-highlight";
 
 interface AppShellProps {
   appearance: AppearanceSettings;
@@ -252,6 +253,11 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
   const { handleMediaDimensionsKnown, measuredAspectRatios } =
     useMeasuredAspectRatios();
   const [editingAsset, setEditingAsset] = useState<AssetRecord | null>(null);
+  const [highlightSelection, setHighlightSelection] = useState<{
+    assetId: string;
+    id: string;
+    sourceKey: string | undefined;
+  } | null>(null);
   const [isFeedChromeHidden, setIsFeedChromeHidden] = useState(false);
   const [comparisonAssetUpdate, setComparisonAssetUpdate] =
     useState<AssetRecord | null>(null);
@@ -469,6 +475,17 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     onReloadAssets: markResultsPending,
     shouldReloadAfterScoreChange
   });
+  const selectedSourceKey = selectedAsset?.presentation?.renditionKeys.full;
+  useEffect(() => {
+    setHighlightSelection((current) =>
+      current &&
+      (current.assetId !== selectedAssetId ||
+        (selectedSourceKey !== undefined &&
+          current.sourceKey !== selectedSourceKey))
+        ? null
+        : current
+    );
+  }, [selectedAssetId, selectedSourceKey]);
   const { viewerUsesSavedFraming, setViewerUsesSavedFraming } =
     useViewerFraming({
       mode: playbackSettings.framingMode,
@@ -911,6 +928,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
   }
 
   function openAnchoredAsset(assetId: string) {
+    setHighlightSelection(null);
     pushLocationRef.current = true;
     activeMediaAnchorIdRef.current = assetId;
     setSyncedMediaAnchorId(assetId);
@@ -918,6 +936,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
   }
 
   function openComparisonAsset(asset: AssetRecord) {
+    setHighlightSelection(null);
     pushLocationRef.current = true;
     activeMediaAnchorIdRef.current = asset.id;
     setSyncedMediaAnchorId(asset.id);
@@ -925,6 +944,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
   }
 
   function closeAnchoredAsset() {
+    setHighlightSelection(null);
     if (selectedAssetId) {
       activeMediaAnchorIdRef.current = selectedAssetId;
       setSyncedMediaAnchorId(selectedAssetId);
@@ -1628,12 +1648,22 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
         {activePage === "library" && selectedAsset ? (
           <Suspense fallback={null}>
             <MediaViewer
+              selectedHighlightId={
+                highlightSelection?.assetId === selectedAsset.id &&
+                highlightSelection.sourceKey ===
+                  selectedAsset.presentation?.renditionKeys.full
+                  ? highlightSelection.id
+                  : null
+              }
               soundPreference={playbackSettings.fullView}
               onRememberSound={rememberFullViewSound}
               useSavedFraming={viewerUsesSavedFraming}
               onFramingChange={setViewerUsesSavedFraming}
               framingAspect={aspect}
-              onHighlightsOnlyChange={setHighlightsOnly}
+              onHighlightsOnlyChange={(enabled) => {
+                if (!enabled) setHighlightSelection(null);
+                setHighlightsOnly(enabled);
+              }}
               onEditAsset={setEditingAsset}
               onManageAsset={
                 assetIsWritable(tree, selectedAsset) ? manageAsset : undefined
@@ -1651,8 +1681,14 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
                   current === selectedAsset.id ? null : selectedAsset.id
                 )
               }
-              onNext={() => selectAdjacentAsset(1)}
-              onPrevious={() => selectAdjacentAsset(-1)}
+              onNext={() => {
+                setHighlightSelection(null);
+                selectAdjacentAsset(1);
+              }}
+              onPrevious={() => {
+                setHighlightSelection(null);
+                selectAdjacentAsset(-1);
+              }}
             />
           </Suspense>
         ) : null}
@@ -1666,6 +1702,30 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
               isScoreSaving={savingScoreAssetIds.has(annotationAsset.id)}
               onAssetTagsUpdated={handleAssetTagsUpdated}
               onAssetUpdated={handleAssetUpdated}
+              selectedHighlightId={
+                highlightSelection?.assetId === annotationAsset.id &&
+                highlightSelection.sourceKey ===
+                  annotationAsset.presentation?.renditionKeys.full
+                  ? highlightSelection.id
+                  : null
+              }
+              onViewHighlight={(asset, id) => {
+                setHighlightSelection({
+                  assetId: asset.id,
+                  id,
+                  sourceKey: asset.presentation?.renditionKeys.full
+                });
+                setAnnotationAssetId(null);
+                pushLocationRef.current = true;
+                activeMediaAnchorIdRef.current = asset.id;
+                setSyncedMediaAnchorId(asset.id);
+                openAssetFullscreen(asset);
+              }}
+              onEditHighlights={(asset) => {
+                setAnnotationAssetId(null);
+                setEditingAsset(asset);
+              }}
+              onMakeMainHighlight={saveMainHighlight}
               onClose={() => setAnnotationAssetId(null)}
               onRankingChanged={() => {
                 rankingChangedRef.current = true;
@@ -1690,6 +1750,13 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
             key={editingAsset.id}
             asset={editingAsset}
             initialAspect={aspect}
+            initialHighlightId={
+              highlightSelection?.assetId === editingAsset.id &&
+              highlightSelection.sourceKey ===
+                editingAsset.presentation?.renditionKeys.full
+                ? highlightSelection.id
+                : null
+            }
             originalFit={view === "compare" ? "contain" : "cover"}
             onClose={() => setEditingAsset(null)}
             onSaved={(updated, useSavedPlayback) => {

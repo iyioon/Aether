@@ -394,6 +394,22 @@ and backup compatibility; the current Feed uses the Portrait preset. Older maps
 survive ordinary saves and are cleared by framing reset. Known identical content retains edits
 through safe moves or timestamp changes; a content replacement clears them.
 
+Multiple highlights use stable IDs and a bounded collection of at most 20 named
+sections per media item. Each section retains its source-time range, speed,
+Repeat/Bounce mode and Original/aspect framing. A nonempty collection has one
+main highlight. The existing projected fields mirror that highlight, preserving
+shared playback behavior in Gallery, Feed and Compare. Upgrading an older saved
+section retains its settings as the main highlight. An Info selection is a
+temporary viewer override; it does not save a new main highlight or change
+browser playback preferences.
+
+Playback reset removes all highlights and the main selection. Framing reset
+clears every highlight's framing while retaining its range and playback values.
+Counts refer to affected media items, and reset revisions reject stale saves.
+Backup/restore preserves the collection and main selection; safe moves and
+Trash/restore retain them through the existing asset identity. Source-content
+replacement clears every section.
+
 ### Processing And Delivery
 
 Presentation saves, playback resets, publication, sidecar backfill and retirement
@@ -418,7 +434,11 @@ source passes shared path validation. FFmpeg uses local
 protocol/container allowlists, argument arrays, deadlines and output limits.
 
 Opaque rendition keys include source identity and only the edits affecting the
-bytes. Rate/framing changes reuse renditions. Generation is shared, bounded,
+bytes. Each saved highlight carries its own keys. Selecting a secondary section
+uses its ID and current version, and source/key validation applies equally to
+main and secondary sections. Cleanup retains files referenced by any current
+highlight; removing one section cannot retire another section's current bytes.
+Rate/framing changes reuse renditions. Generation is shared, bounded,
 atomically published, and rechecks the source and key before publication.
 Authenticated GET/HEAD/range responses use private versioned browser caching;
 capabilities and manifests use `no-store`. Capability probes use a per-database
@@ -439,7 +459,13 @@ The sidecar follows the rendition's reset, replacement and removal lifecycle.
 ### Editor And Framing
 
 The shared editor uses explicit draft Save/Cancel, Playback/Framing sections and
-a single preview in a fullscreen dialog. Draft framing is selected by aspect;
+a single preview in a fullscreen dialog. A highlight picker selects the current
+section; Add highlight, Name, Make main and confirmed Remove operate on the same
+draft. Correct invalid times before changing the selected highlight. Selecting
+another section retains valid drafts, and one Save writes the collection and
+main selection atomically. Removing the main highlight selects the first
+remaining section; removing the last clears playback edits.
+Draft framing is selected by aspect;
 switching aspects retains every draft and one Save writes them atomically.
 Gallery and Ranking resolve their selected preset through `presentation-model.ts`,
 while Feed always resolves Portrait. Desktop uses preview/inspector columns;
@@ -455,6 +481,14 @@ failures restore the Play action; decode failures leave framing available.
 Video previews start with sound after an explicit Play gesture, with a shared
 speaker control in both tabs. Muting is local to the open editor and never
 changes the source or saved presentation. Bounce previews stay silent.
+
+The Info sheet separates Details and Highlights with the shared tabs primitive.
+Details stays mounted while hidden so tag drafts and in-progress actions survive
+tab changes. Highlight rows show names, source ranges, speed and loop mode,
+with distinct View and Make main controls. View closes Info and opens that
+section in the viewer. Make main waits for the revision-checked response,
+publishes the returned asset and keeps failures inline. Pending changes prevent
+dismissal; a removed action returns focus to its remaining row control.
 
 Editor shortcuts follow the active section and preserve focused text fields,
 sliders, tabs and menus. Framing arrows use the measured pan geometry to adjust
@@ -521,12 +555,23 @@ delays and alpha. It uses bounded shared atlas decoding, a source-time timeline,
 repeat/bounce ordering, and the same transport controls as video. Private source
 fingerprints protect cache reuse across requests and restarts. Legacy cache
 manifests rebuild once; public manifests contain no filesystem identity fields.
-Final publication verifies the source before and after rename. The decoded
+Final publication verifies the source before and after rename. Playback prepares
+up to two upcoming distinct atlases within a 500 ms wall-clock window, following
+playback speed, Repeat/Bounce order and the selected highlight range. The shared
+cache prioritizes current frames, then the nearest and farther lookahead atlases,
+for queued jobs and retention. Eviction breaks equal priorities by
+least-recently-used order; speculative decoded-cache hits do not update recency.
+These priorities do not override the cache's byte or entry limits. The decoded
 atlas cache retains up to 48 MiB RGBA across at most 32 atlases, plus two bounded
-concurrent fetch/decode jobs. Small atlases share that budget without repeated
-decoding; three full-size 2048px atlases exhaust it. Hidden or
-obsolete browser work is cancelled. Inactive or hidden animation canvases release
-their backing storage; lightweight Gallery canvases use the thumbnail-size
+concurrent fetch/decode jobs. Small atlases share that budget without repeated decoding;
+three full-size 2048px atlases exhaust it. A separate in-memory cache retains up
+to 32 MiB of encoded PNG atlas Blobs across at most 32 entries. Evicted decoded
+atlases can be decoded again from these bytes without another network request.
+Fetches retain their byte limits, and reuse rechecks PNG headers and descriptor
+dimensions. Lookahead requests outside the current playback window are
+cancelled, as is hidden or obsolete browser work.
+Inactive or hidden animation canvases release their backing storage;
+lightweight Gallery canvases use the thumbnail-size
 budget, while Feed, Comparison, viewer and editor retain source-size frames. Shared server generation already started
 finishes within its processing limits and rejects stale output. Video speed uses
 positive native playback rates;
@@ -659,7 +704,8 @@ settings when opened from ranking or the leaderboard.
 Layout changes leave the ordered pair
 and Undo untouched; comparison cards do not expose Edit. Presentation-only reset leaves navigation,
 ranking and Undo intact. Per-asset edits remain server-owned; private in-memory
-capability/atlas caches are cleared on sign-out.
+capability/atlas caches are cleared on sign-out. Encoded and decoded animation
+caches also clear on session expiry.
 
 ### Gallery And Viewer Actions
 

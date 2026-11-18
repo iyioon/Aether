@@ -7,6 +7,7 @@ import { resolveAssetFile, type ResolvedAssetFile } from "./media-serving.js";
 import { getAsset, upsertDerivative } from "./repository.js";
 import {
   getPresentationRenditionKeys,
+  highlightPlaybackValues,
   type MediaPresentation
 } from "./presentation.js";
 import { removePresentationDerivativeFiles } from "./derivative-cache.js";
@@ -82,16 +83,50 @@ export async function withPresentationLifecycle<T>(
 
 export function presentationForFile(
   db: AetherDatabase,
-  file: ResolvedAssetFile
+  file: ResolvedAssetFile,
+  highlightId?: string
 ): MediaPresentation {
   const asset = getAsset(db, file.asset.id);
   if (!asset) throw new PresentationMediaError("asset_not_found", 404);
+  const highlight = highlightId
+    ? asset.presentation.highlights.find((item) => item.id === highlightId)
+    : undefined;
+  if (highlightId && !highlight)
+    throw new PresentationMediaError("highlight_not_found", 404);
+  const values = highlight
+    ? { ...asset.presentation, ...highlightPlaybackValues(highlight) }
+    : asset.presentation;
+  const identity = {
+    id: file.asset.id,
+    mtimeMs: file.mtimeMs,
+    sizeBytes: file.sizeBytes
+  };
   return {
-    ...asset.presentation,
-    renditionKeys: getPresentationRenditionKeys(
-      { id: file.asset.id, mtimeMs: file.mtimeMs, sizeBytes: file.sizeBytes },
-      asset.presentation
-    )
+    ...values,
+    renditionKeys: getPresentationRenditionKeys(identity, values),
+    highlights: asset.presentation.highlights.map((item) => ({
+      ...item,
+      renditionKeys: getPresentationRenditionKeys(identity, item)
+    }))
+  };
+}
+
+export function presentationForRendition(
+  db: AetherDatabase,
+  file: ResolvedAssetFile,
+  variant: PresentationVariant,
+  key: string
+): MediaPresentation {
+  const presentation = presentationForFile(db, file);
+  if (presentation.renditionKeys[variant] === key) return presentation;
+  const highlight = presentation.highlights.find(
+    (item) => item.renditionKeys[variant] === key
+  );
+  if (!highlight) throw new StalePresentationRenditionError();
+  return {
+    ...presentation,
+    ...highlightPlaybackValues(highlight),
+    renditionKeys: highlight.renditionKeys
   };
 }
 
@@ -109,7 +144,9 @@ export async function verifyPresentationSource(
     current.sizeBytes !== file.sizeBytes ||
     current.device !== file.device ||
     current.inode !== file.inode ||
-    presentationForFile(db, current).renditionKeys[variant] !== key
+    presentationForRendition(db, current, variant, key).renditionKeys[
+      variant
+    ] !== key
   ) {
     throw new StalePresentationRenditionError();
   }
@@ -159,31 +196,47 @@ export function recordPresentationFiles(
   paths: string[]
 ): Array<{ assetId: string; path: string }> {
   return db.transaction(() => {
-    const retiredBounce = variant.startsWith("bounce-")
-      ? (db
-          .prepare(
-            "SELECT asset_id AS assetId, path FROM derivatives WHERE asset_id = ? AND kind GLOB 'presentation:bounce-*' AND kind NOT GLOB ?"
-          )
-          .all(file.asset.id, `presentation:bounce-*:${key}:*`) as Array<{
-          assetId: string;
-          path: string;
-        }>)
-      : [];
-    if (variant.startsWith("bounce-"))
-      db.prepare(
-        "DELETE FROM derivatives WHERE asset_id = ? AND kind GLOB 'presentation:bounce-*' AND kind NOT GLOB ?"
-      ).run(file.asset.id, `presentation:bounce-*:${key}:*`);
+    const presentation = presentationForFile(db, file);
+    const category = variant.startsWith("bounce-")
+      ? "bounce"
+      : variant.startsWith("highlight-")
+        ? "highlight"
+        : "full";
+    const retainedKeys = new Set([
+      presentation.renditionKeys[category],
+      ...presentation.highlights.map(
+        (highlight) => highlight.renditionKeys[category]
+      )
+    ]);
+    const scope = variant.startsWith("bounce-")
+      ? "presentation:bounce-*"
+      : `presentation:${variant}:*`;
+    const retired = (
+      db
+        .prepare(
+          "SELECT asset_id AS assetId, path, kind FROM derivatives WHERE asset_id = ? AND kind GLOB ?"
+        )
+        .all(file.asset.id, scope) as Array<{
+        assetId: string;
+        path: string;
+        kind: string;
+      }>
+    ).filter((entry) => !retainedKeys.has(entry.kind.split(":")[2]!));
+    const remove = db.prepare(
+      "DELETE FROM derivatives WHERE asset_id = ? AND path = ?"
+    );
+    for (const entry of retired) remove.run(file.asset.id, entry.path);
     const obsolete = db
       .prepare(
         "SELECT asset_id AS assetId, path FROM derivatives WHERE asset_id = ? AND kind GLOB ?"
       )
-      .all(file.asset.id, `presentation:${variant}:*`) as Array<{
+      .all(file.asset.id, `presentation:${variant}:${key}:*`) as Array<{
       assetId: string;
       path: string;
     }>;
     db.prepare(
       "DELETE FROM derivatives WHERE asset_id = ? AND kind GLOB ?"
-    ).run(file.asset.id, `presentation:${variant}:*`);
+    ).run(file.asset.id, `presentation:${variant}:${key}:*`);
     paths.forEach((filePath, index) =>
       upsertDerivative(db, {
         id: stableId("derivative", file.asset.id, variant, key, String(index)),
@@ -198,7 +251,7 @@ export function recordPresentationFiles(
         createdAt: new Date().toISOString()
       })
     );
-    return [...retiredBounce, ...obsolete].filter(
+    return [...retired, ...obsolete].filter(
       (entry) => !paths.includes(entry.path)
     );
   })();

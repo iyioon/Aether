@@ -32,6 +32,14 @@ import {
 } from "./presentation-video.js";
 
 const VersionQuery = z.object({ v: z.string().regex(/^[a-f0-9]{32}$/) });
+const CapabilitiesQuery = z
+  .object({
+    highlightId: z
+      .string()
+      .regex(/^[a-zA-Z0-9_-]{1,64}$/)
+      .optional()
+  })
+  .strict();
 const PlaybackQuery = VersionQuery.extend({
   variant: z.enum(["full", "highlight", "bounce"]).default("full"),
   codec: z.enum(["hevc", "h264"]).optional()
@@ -51,13 +59,19 @@ export function registerPresentationMediaRoutes(
 ): void {
   app.get("/api/assets/:assetId/presentation-media", async (request, reply) => {
     const params = AssetParams.safeParse(request.params);
-    if (!params.success)
+    const query = CapabilitiesQuery.safeParse(request.query);
+    if (!params.success || !query.success)
       return reply.code(400).send({ error: "invalid_request" });
     reply.header("cache-control", "no-store");
     try {
       const file = await resolveAssetFile(db, params.data.assetId);
       if (!file) return reply.code(404).send({ error: "asset_not_found" });
-      return await getPresentationMediaCapabilities({ db, config, file });
+      return await getPresentationMediaCapabilities({
+        db,
+        config,
+        file,
+        highlightId: query.data.highlightId
+      });
     } catch (error) {
       return mediaFailure(reply, error);
     }
@@ -119,7 +133,8 @@ export function registerPresentationMediaRoutes(
         const capabilities = await getPresentationMediaCapabilities({
           db,
           config,
-          file
+          file,
+          includeSavedTimeline: false
         });
         const generatePoster =
           capabilities.kind === "animation"
@@ -291,6 +306,7 @@ const SAFE_MEDIA_ERROR_CODES = new Set([
   "bounce_h264_encoder_unavailable",
   "media_tool_unavailable",
   "highlight_duration_exceeded",
+  "highlight_not_found",
   "incomplete_rendition",
   "invalid_asset",
   "invalid_highlight",

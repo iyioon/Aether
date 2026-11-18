@@ -11,6 +11,7 @@ import {
   type AppearanceSettings
 } from "./components/settings/useAppearanceSettings";
 import { Toaster } from "./components/ui/sonner";
+import { animationAtlasCache } from "./components/media/animation-atlas-cache";
 
 type AuthStatus = "checking" | "anonymous" | "authenticated" | "unavailable";
 
@@ -40,6 +41,7 @@ function AuthenticatedApp({ appearance }: { appearance: AppearanceSettings }) {
 
   useEffect(() => {
     if (authStatus !== "anonymous") return;
+    animationAtlasCache.clear();
     toast.dismiss();
     if (!logoutCleanup) return;
     // Child unmount effects flush their checkpoints before this effect runs.

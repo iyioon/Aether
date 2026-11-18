@@ -4,6 +4,7 @@ import {
   API_REQUEST_TIMEOUT_MS,
   ApiTimeoutError,
   getAiAssetTagSuggestions,
+  getPresentationMediaCapabilities,
   getTree,
   getMe,
   inspectVideoPlaybackFailure,
@@ -11,6 +12,40 @@ import {
   subscribeToUnauthorized,
   logout
 } from "./client";
+
+describe("saved highlight capabilities", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it.each([
+    [undefined, "/api/assets/media%20one/presentation-media"],
+    [
+      "section/&?",
+      "/api/assets/media%20one/presentation-media?highlightId=section%2F%26%3F"
+    ]
+  ])(
+    "scopes capability reads to the selected saved section %s",
+    async (highlightId, url) => {
+      const fetchMock = vi.fn(
+        (_input: RequestInfo | URL, _init?: RequestInit) =>
+          Promise.resolve(Response.json({ kind: "video" }))
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const controller = new AbortController();
+      await expect(
+        getPresentationMediaCapabilities(
+          "media one",
+          controller.signal,
+          highlightId
+        )
+      ).resolves.toEqual({ kind: "video" });
+      expect(fetchMock.mock.calls[0]![0]).toBe(url);
+      expect(fetchMock.mock.calls[0]![1]).toMatchObject({
+        credentials: "include"
+      });
+      expect(fetchMock.mock.calls[0]![1]?.signal).toBeInstanceOf(AbortSignal);
+    }
+  );
+});
 
 describe("video playback failure diagnostics", () => {
   const source = "/api/assets/video-1/playback?variant=bounce&v=abc";

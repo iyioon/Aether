@@ -21,7 +21,7 @@ import {
 } from "./presentation-media.js";
 import {
   ensurePresentationDerivative,
-  presentationForFile,
+  presentationForRendition,
   type PresentationFile,
   presentationCacheDirectory,
   PresentationMediaError,
@@ -190,7 +190,7 @@ export async function ensurePresentationAnimationPoster({
   size: number;
 }): Promise<PresentationFile> {
   await verifyPresentationSource(db, file, variant, key);
-  const presentation = presentationForFile(db, file);
+  const presentation = presentationForRendition(db, file, variant, key);
   const animation = await ensurePresentationAnimation({
     db,
     config,

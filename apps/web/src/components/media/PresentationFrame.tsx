@@ -21,6 +21,7 @@ interface PresentationFrameProps {
   aspect: number;
   editing: boolean;
   disabled: boolean;
+  playbackControls?: boolean;
   children: ReactNode;
   onChange: (values: PresentationValues) => void;
 }
@@ -31,6 +32,7 @@ export function PresentationFrame({
   aspect,
   editing,
   disabled,
+  playbackControls = false,
   children,
   onChange
 }: PresentationFrameProps) {
@@ -143,18 +145,24 @@ export function PresentationFrame({
             ? "Media position. Drag or use arrow keys to position; pinch or use minus and plus to zoom. Hold Shift for finer adjustments."
             : "Media preview"
         }
-        tabIndex={interactive ? 0 : undefined}
+        tabIndex={
+          !disabled && (interactive || playbackControls) ? 0 : undefined
+        }
         style={{ width: frame.width, height: frame.height }}
         onPointerDown={(event) => {
+          const previewVideo =
+            event.target instanceof HTMLVideoElement && !event.target.controls;
           if (
-            !interactive ||
+            disabled ||
             event.button !== 0 ||
-            isKeyboardActivationTarget(event.target)
+            (isKeyboardActivationTarget(event.target) && !previewVideo)
           ) {
             return;
           }
+          if (interactive || playbackControls)
+            event.currentTarget.focus({ preventScroll: true });
+          if (!interactive) return;
           event.preventDefault();
-          event.currentTarget.focus({ preventScroll: true });
           event.currentTarget.setPointerCapture(event.pointerId);
           pointers.current.set(event.pointerId, {
             x: event.clientX,

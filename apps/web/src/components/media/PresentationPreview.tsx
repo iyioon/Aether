@@ -9,6 +9,8 @@ import { MediaErrorNotice } from "./MediaErrorNotice";
 import { imageDisplayUrl, mediaUrl, thumbnailUrl } from "./media-urls";
 import { presentationMediaStyle } from "./presentation-geometry";
 import { presentationRange } from "./presentation-model";
+import { observePresentationVideoSeeking } from "./presentation-preview-video";
+import { releaseDetachedMedia } from "./detached-media";
 
 interface PresentationPreviewProps extends MediaPresentationPreviewProps {
   asset: AssetRecord;
@@ -20,6 +22,7 @@ export function PresentationPreview({
   capabilities,
   presentation,
   playheadMs,
+  seekRequest,
   isPlaying,
   muted,
   videoRef,
@@ -27,16 +30,23 @@ export function PresentationPreview({
   onDurationChange,
   onPlayingChange,
   onMutedChange,
-  onPlaybackAvailableChange
+  onPlaybackAvailableChange,
+  onRetry
 }: PresentationPreviewProps) {
-  const emittedRef = useRef<number | null>(null);
+  const seeking = useRef<ReturnType<
+    typeof observePresentationVideoSeeking
+  > | null>(null);
+  const appliedSeekRequest = useRef<number | null>(null);
   const [imageError, setImageError] = useState(false);
   const [playbackFailed, setPlaybackFailed] = useState(false);
   const [videoError, setVideoError] = useState(false);
   const [observedDuration, setObservedDuration] = useState(0);
   const duration =
-    capabilities.durationMs ?? asset.durationMs ?? observedDuration;
+    capabilities.durationMs ??
+    (observedDuration > 0 ? observedDuration : (asset.durationMs ?? 0));
   const [start, end] = presentationRange(presentation, duration);
+  const latest = useRef({ playheadMs, seekRequest, start, end });
+  latest.current = { playheadMs, seekRequest, start, end };
   const callbacks = useRef({
     onTimeChange,
     onDurationChange,
@@ -53,22 +63,29 @@ export function PresentationPreview({
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
+    const controller = observePresentationVideoSeeking(video);
+    seeking.current = controller;
+    appliedSeekRequest.current = null;
+    return () => {
+      controller.dispose();
+      if (seeking.current === controller) seeking.current = null;
+      releaseDetachedMedia(video);
+    };
+  }, [videoError, videoRef]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
     video.playbackRate = presentation.playbackRate;
-    if (playheadMs !== emittedRef.current) {
-      const target = isPlaying
-        ? Math.max(start, Math.min(Math.max(start, end - 1), playheadMs))
-        : Math.max(0, Math.min(Math.max(0, duration - 1), playheadMs));
-      video.currentTime = target / 1000;
-    }
-  }, [
-    playheadMs,
-    start,
-    end,
-    duration,
-    isPlaying,
-    presentation.playbackRate,
-    videoRef
-  ]);
+  }, [presentation.playbackRate, videoError, videoRef]);
+
+  useEffect(() => {
+    const controller = seeking.current;
+    if (!controller) return;
+    const current = latest.current;
+    appliedSeekRequest.current = current.seekRequest;
+    controller.seek(current.playheadMs);
+  }, [seekRequest, videoError, videoRef]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -81,9 +98,10 @@ export function PresentationPreview({
     let stopped = false;
     let lastPublish = -Infinity;
     const publish = () => {
-      const time = video.currentTime * 1000;
-      emittedRef.current = time;
-      callbacks.current.onTimeChange(time);
+      if (appliedSeekRequest.current !== latest.current.seekRequest) return;
+      const time = seeking.current?.readTime();
+      if (time !== null && time !== undefined)
+        callbacks.current.onTimeChange(time);
     };
     const play = () => {
       setPlaybackFailed(false);
@@ -96,12 +114,17 @@ export function PresentationPreview({
     };
     const tick = (now: number) => {
       if (stopped || document.hidden) return;
+      const { start, end } = latest.current;
+      const time = seeking.current?.readTime();
       if (
+        time !== null &&
+        time !== undefined &&
+        appliedSeekRequest.current === latest.current.seekRequest &&
         end > start &&
-        (video.currentTime * 1000 >= end - 20 || video.ended)
+        (time >= end - 20 || video.ended)
       ) {
-        video.currentTime = start / 1000;
-        play();
+        seeking.current?.seek(start);
+        if (video.paused) play();
       }
       if (now - lastPublish >= 125) {
         publish();
@@ -126,10 +149,13 @@ export function PresentationPreview({
       document.removeEventListener("visibilitychange", visibility);
       window.removeEventListener("pagehide", stop);
     };
-  }, [isPlaying, start, end, presentation.playbackRate, videoError, videoRef]);
+  }, [isPlaying, videoError, videoRef]);
 
   const style = presentationMediaStyle(presentation, "cover");
-  if (imageError) return <MediaErrorNotice message="Preview unavailable." />;
+  if (imageError)
+    return (
+      <MediaErrorNotice message="Preview unavailable." onRetry={onRetry} />
+    );
   if (capabilities.kind === "animation")
     return (
       <ControlledAnimation
@@ -139,8 +165,10 @@ export function PresentationPreview({
         highlightsOnly
         active
         controls={false}
-        showRetry
+        showRetry={Boolean(onRetry)}
+        onRetry={onRetry}
         playheadMs={playheadMs}
+        seekRequest={seekRequest}
         isPlaying={isPlaying}
         onTimeChange={onTimeChange}
         onDurationChange={onDurationChange}
@@ -171,7 +199,10 @@ export function PresentationPreview({
           style={style}
           onError={() => setImageError(true)}
         />
-        <MediaErrorNotice message="Video preview unavailable." />
+        <MediaErrorNotice
+          message="Video preview unavailable."
+          onRetry={onRetry}
+        />
       </>
     );
   return (
@@ -192,9 +223,11 @@ export function PresentationPreview({
         onPause={(event) => {
           const video = event.currentTarget;
           if (!video.isConnected || videoRef.current !== video) return;
-          const time = video.currentTime * 1000;
-          emittedRef.current = time;
-          callbacks.current.onTimeChange(time);
+          if (appliedSeekRequest.current === latest.current.seekRequest) {
+            const time = seeking.current?.readTime();
+            if (time !== null && time !== undefined)
+              callbacks.current.onTimeChange(time);
+          }
           // A queued cleanup pause may arrive after playback has restarted.
           if (video.paused && !video.ended)
             callbacks.current.onPlayingChange(false);
@@ -217,16 +250,6 @@ export function PresentationPreview({
             setObservedDuration(video.duration * 1000);
             callbacks.current.onDurationChange(video.duration * 1000);
           }
-          const maximum = Math.max(
-            0,
-            (Number.isFinite(video.duration)
-              ? video.duration * 1000
-              : duration) - 1
-          );
-          const target = isPlaying
-            ? Math.max(start, Math.min(Math.max(start, end - 1), playheadMs))
-            : Math.max(0, Math.min(maximum, playheadMs));
-          video.currentTime = target / 1000;
         }}
       />
       {playbackFailed ? (

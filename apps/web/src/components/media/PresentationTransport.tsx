@@ -58,6 +58,8 @@ export function PresentationTransport({
         size="icon"
         disabled={disabled || durationMs <= 0}
         aria-label={isPlaying ? "Pause preview" : "Play preview"}
+        title={isPlaying ? "Pause preview (Space)" : "Play preview (Space)"}
+        aria-keyshortcuts="Space"
         onClick={() => onPlayingChange(!isPlaying)}
       >
         {isPlaying ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}

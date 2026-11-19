@@ -80,8 +80,16 @@
 .media-editor-frame {
   position: relative;
   flex: 0 0 auto;
+  container: media-editor-preview / size;
   overflow: hidden;
   background: #000;
+}
+
+@container media-editor-preview (max-width: 240px) and (min-height: 160px) {
+  .media-error-notice {
+    flex-direction: column;
+    text-align: center;
+  }
 }
 
 .media-editor-frame[data-editing="true"] {

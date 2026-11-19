@@ -18,6 +18,13 @@ Notable changes to Aether are recorded here.
 
 ### Fixed
 
+- Update paused edit previews reliably after seeking, discard obsolete
+  animation frame requests, and keep backward seeking responsive. Add preview
+  Space and Playback arrow shortcuts while preserving focused controls.
+- Preview range boundaries consistently after pointer, text and keyboard edits,
+  revalidate retained times when bounds change, and clarify Reset all’s scope.
+- Retry failed edit previews without discarding drafts, and retain a useful
+  keyboard focus after loading, retrying or reloading settings.
 - Prepare upcoming animation frames according to playback speed, Repeat/Bounce
   order and highlights, reducing pauses as playback crosses frame batches.
 - Preserve deliberately moved focus while View options finishes closing.

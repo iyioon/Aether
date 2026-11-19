@@ -515,6 +515,18 @@ Framing tabs follow the [WAI tabs pattern](https://www.w3.org/WAI/ARIA/apg/patte
 retain invalid time drafts and keep one mounted preview/transport; switching tabs
 does not pause playback. Seeking pauses at a full-source timestamp. Native play
 failures restore the Play action; decode failures leave framing available.
+Explicit seek requests are separate from playback position reports. Native
+video seeks keep only the latest pending target while the current decode
+finishes, and unfinished seeks cannot publish a stale position back to the
+editor. Animation seeks cancel obsolete atlas consumers and can paint a cached
+target without waiting for another atlas; returning to the displayed frame
+clears the buffer wait before playback resumes.
+Image, video and animation failures offer preview-only Retry. It remounts the
+preview without changing the draft, source revision, selected highlight or
+playhead, and remains paused until Play. Native transport stays disabled until
+metadata is ready. Initial loading focuses the dialog; editing tools focus the
+preview when ready. Preview remounts recover focus from the document body or
+dialog while preserving focus on other controls.
 Video previews start with sound after an explicit Play gesture, with a shared
 speaker control in both tabs. Muting is local to the open editor and never
 changes the source or saved presentation. Bounce previews stay silent.
@@ -528,13 +540,20 @@ publishes the returned asset and keeps failures inline. Pending changes prevent
 dismissal; a removed action returns focus to its remaining row control.
 
 Editor shortcuts follow the active section and preserve focused text fields,
-sliders, tabs and menus. Framing arrows use the measured pan geometry to adjust
+buttons, sliders, tabs and menus. Clicking the preview focuses it; Space toggles
+playback from the preview or a timeline, without repeating on a held key.
+In Playback, Left/Right also seek from neutral editor focus with the timeline's
+100 ms or Shift 1 ms steps. Framing arrows use the measured pan geometry to adjust
 the crop position by 12px, or 1px with Shift; `-`/`=` adjust zoom
 by 5%, or 1% with Shift. Fit keeps movement and zoom disabled. Preview and highlight timelines
 use 100 ms arrow steps, 1 ms with Shift, one-second Page steps and bounded
 Home/End targets; keyboard adjustments pause and seek. These controls edit
 source time without claiming exact video-frame stepping. Pending saves and
 reloads disable editing shortcuts.
+Pointer and typed range adjustments preview the same paused boundary as their
+keyboard equivalents. Retained time drafts are revalidated when the opposite
+boundary changes. Reset all clears the complete presentation draft and still
+requires Save.
 
 The framing selector exposes Fit and Fill only. Legacy `auto` records remain
 valid and display the invoking view's equivalent explicit choice; Original

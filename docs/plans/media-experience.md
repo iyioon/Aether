@@ -1,7 +1,7 @@
 # Media Playback And Presentation Plan
 
 Status: Presentation, Bounce and HEIC implemented; automated checks and device acceptance are tracked below.\
-Reviewed: 2026-11-18.
+Reviewed: 2026-11-19.
 
 ## Outcome And Scope
 
@@ -34,10 +34,12 @@ HEIC uses the shared media surfaces and preserves the original download.
 
 - One shared editor, one preview, Playback and Framing sections. Still files
   show Framing directly. Fullscreen on desktop and phones. Explicit Save/Cancel;
-  Reset changes only the draft. Switching aspects retains all pending frames.
+  Reset all clears the presentation draft until Save. Switching aspects retains all pending frames.
   Preview and seeking stay outside the tabs; switching tools preserves playback.
   Seeking pauses anywhere in the full source. Loading, failure and editing use
-  one shell with the same header and footer.
+  one shell with the same header and footer. Preview Retry retains drafts and
+  position. Space controls preview playback; neutral Left/Right keys seek in
+  Playback, while Framing retains its crop shortcuts.
 - Highlights use original source times and two labelled handles plus editable
   time fields. Speed presets: 0.5×, 0.75×, 1×, 1.25×, 1.5× and 2×.
 - Fit shows the whole item. Fill supports drag, pinch, keyboard movement and
@@ -149,7 +151,9 @@ web presentation model, geometry, record ordering and URL-state tests.
   only the public shell.
 
 Evidence: `apps/server/test/presentation-media.test.ts`, video processing tests;
-web animation timeline/manifest/cache tests; `tests/e2e/presentation.spec.ts`.
+web animation timeline/manifest/cache and preview-seeking tests;
+`tests/e2e/presentation.spec.ts`, `tests/e2e/presentation-seeking.spec.ts` and
+`tests/e2e/presentation-retry.spec.ts`.
 See [Architecture](../architecture.md#saved-media-presentation) and
 [Security](../security.md#presentation-processing) for current module contracts.
 

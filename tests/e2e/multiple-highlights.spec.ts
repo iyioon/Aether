@@ -279,7 +279,7 @@ for (const phone of [false, true]) {
         { name: "Ending", start: 3.5, end: 5, rate: 1.5 },
         { name: "Opening", start: 0.25, end: 1.25, rate: 0.75 }
       ]) {
-        const info = await openInfo(page, asset);
+        const info = await openInfo(page, asset, phone);
         await info
           .getByRole("tab", { name: "Highlights", exact: true })
           .click();
@@ -316,7 +316,7 @@ for (const phone of [false, true]) {
       const asset = assets.find((item) => item.name === "sequence.gif")!;
       const saved = await setHighlights(page, asset);
       await openViewer(page, asset, false);
-      let info = await openInfo(page, asset);
+      let info = await openInfo(page, asset, phone);
       const tagDraft = info.getByRole("textbox", {
         name: "Add a tag",
         exact: true
@@ -372,7 +372,7 @@ for (const phone of [false, true]) {
         saved.presentation
       );
 
-      info = await openInfo(page, asset);
+      info = await openInfo(page, asset, phone);
       await info.getByRole("tab", { name: "Highlights", exact: true }).click();
       const failureGate = new Promise<void>((resolve) => {
         releaseFailure = resolve;
@@ -410,7 +410,7 @@ for (const phone of [false, true]) {
       await page.unroute(`**/api/assets/${asset.id}/presentation`);
       await info.getByRole("button", { name: "Close", exact: true }).click();
       await expect(info).toHaveCount(0);
-      info = await openInfo(page, asset);
+      info = await openInfo(page, asset, phone);
       await info.getByRole("tab", { name: "Highlights", exact: true }).click();
       await info
         .getByRole("button", {
@@ -655,9 +655,19 @@ async function openEditor(page: Page, asset: AssetRecord) {
   return editor;
 }
 
-async function openInfo(page: Page, asset: AssetRecord) {
-  await page
-    .locator(".viewer-dialog")
+async function openInfo(page: Page, asset: AssetRecord, phone: boolean) {
+  const viewer = page.locator(".viewer-dialog");
+  if (!phone) {
+    const bounds = (await viewer.boundingBox())!;
+    // Reveal auto-hidden controls with the same pointer movement a user makes.
+    await page.mouse.move(bounds.x + 2, bounds.y + 2);
+    await page.mouse.move(
+      bounds.x + bounds.width / 2,
+      bounds.y + bounds.height / 2
+    );
+    await expect(viewer).toHaveClass(/controls-visible/);
+  }
+  await viewer
     .getByRole("button", { name: `Show info for ${asset.name}`, exact: true })
     .click();
   const info = page.locator(".media-info-sheet");

@@ -102,6 +102,7 @@ export function PresentationEditorDialog({
 }: PresentationEditorDialogProps) {
   const [returnFocusTarget] = useState(captureFocusTarget);
   const descriptionId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
   const pendingRef = useRef(false);
   const [pending, setPending] = useState(false);
   const onPendingChange = useCallback((busy: boolean) => {
@@ -275,6 +276,11 @@ export function PresentationEditorDialog({
       }}
     >
       <DialogContent
+        ref={dialogRef}
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          dialogRef.current?.focus({ preventScroll: true });
+        }}
         onCloseAutoFocus={(event) => {
           event.preventDefault();
           restoreFocusAfterClose(returnFocusTarget);

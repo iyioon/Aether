@@ -47,9 +47,10 @@ export function PresentationEditorFooter({
           variant="ghost"
           disabled={pending !== null || !canReset}
           onClick={onReset}
+          title="Reset all highlights, playback and framing"
         >
           <RotateCcw aria-hidden="true" />
-          Reset
+          Reset all
         </Button>
         <div>
           <Button

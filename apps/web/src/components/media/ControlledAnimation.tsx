@@ -52,6 +52,7 @@ export interface ControlledAnimationProps {
   style?: CSSProperties;
   maxCanvasDimension?: number;
   playheadMs?: number;
+  seekRequest?: number;
   isPlaying?: boolean;
   onTimeChange?: (timeMs: number) => void;
   onDurationChange?: (durationMs: number) => void;
@@ -83,6 +84,7 @@ export function ControlledAnimation({
   style,
   maxCanvasDimension,
   playheadMs,
+  seekRequest,
   isPlaying,
   onTimeChange,
   onDurationChange,
@@ -144,6 +146,9 @@ export function ControlledAnimation({
   const paintedSourceRef = useRef("");
   const controlledTimeRef = useRef(playheadMs);
   controlledTimeRef.current = playheadMs;
+  const controlledSeekRef = useRef(seekRequest);
+  controlledSeekRef.current = seekRequest;
+  const appliedSeekRef = useRef<number | undefined>(undefined);
   const sourceTimeRef = useRef(0);
   const clockRef = useRef({ key: "", elapsed: 0 });
   const publishedTimeRef = useRef<number | null>(null);
@@ -304,7 +309,11 @@ export function ControlledAnimation({
     let frameRequest = 0;
     let latestFrame = -1;
     let lastDrawn = -1;
-    let drawing = false;
+    let drawRequest: {
+      atlas: number;
+      controller: AbortController;
+      pending: boolean;
+    } | null = null;
     let waiting = true;
     let lastPublished = -Infinity;
     let firstPaint = false;
@@ -364,21 +373,45 @@ export function ControlledAnimation({
       if (
         controller.signal.aborted ||
         displayKeyRef.current !== displayKey ||
-        broken ||
-        drawing ||
-        latestFrame === lastDrawn
+        broken
       )
         return;
+      if (latestFrame === lastDrawn) {
+        if (drawRequest?.pending) {
+          drawRequest.controller.abort();
+          workControllers.delete(drawRequest.controller);
+          drawRequest = null;
+        }
+        waiting = false;
+        return;
+      }
       const frame = manifest!.frames[latestFrame];
       if (!frame) return;
+      if (drawRequest?.pending && drawRequest.atlas === frame.atlas) return;
+      if (drawRequest && drawRequest.atlas !== frame.atlas) {
+        drawRequest.controller.abort();
+        workControllers.delete(drawRequest.controller);
+        drawRequest = null;
+      }
+      if (!drawRequest) {
+        drawRequest = {
+          atlas: frame.atlas,
+          controller: new AbortController(),
+          pending: false
+        };
+        workControllers.add(drawRequest.controller);
+      }
+      const request = drawRequest;
       const descriptor = manifest!.atlases[frame.atlas]!;
-      drawing = true;
+      request.pending = true;
       waiting = true;
       void animationAtlasCache
-        .use(descriptor, controller.signal, (atlas) => {
+        .use(descriptor, request.controller.signal, (atlas) => {
           const current = manifest!.frames[latestFrame];
           if (
             controller.signal.aborted ||
+            request.controller.signal.aborted ||
+            drawRequest !== request ||
             displayKeyRef.current !== displayKey ||
             !current ||
             current.atlas !== frame.atlas
@@ -409,6 +442,8 @@ export function ControlledAnimation({
         .catch((error: unknown) => {
           if (
             !controller.signal.aborted &&
+            !request.controller.signal.aborted &&
+            drawRequest === request &&
             displayKeyRef.current === displayKey
           ) {
             broken = true;
@@ -418,7 +453,8 @@ export function ControlledAnimation({
           }
         })
         .finally(() => {
-          drawing = false;
+          if (drawRequest !== request) return;
+          request.pending = false;
           if (
             !controller.signal.aborted &&
             displayKeyRef.current === displayKey &&
@@ -435,6 +471,7 @@ export function ControlledAnimation({
     }
 
     function seek(timeMs: number) {
+      appliedSeekRef.current = controlledSeekRef.current;
       const time = Number.isFinite(timeMs)
         ? Math.max(0, Math.min(manifest!.durationMs - 1, timeMs))
         : 0;
@@ -463,7 +500,9 @@ export function ControlledAnimation({
     seekRef.current = seek;
     const externalSeek =
       controlledTimeRef.current !== undefined &&
-      controlledTimeRef.current !== publishedTimeRef.current;
+      (controlledSeekRef.current !== undefined
+        ? controlledSeekRef.current !== appliedSeekRef.current
+        : controlledTimeRef.current !== publishedTimeRef.current);
     const initial = externalSeek
       ? controlledTimeRef.current!
       : Math.max(
@@ -493,6 +532,10 @@ export function ControlledAnimation({
       clockRef.current = { key: clockKey, elapsed };
       controller.abort();
       workControllers.delete(controller);
+      if (drawRequest) {
+        drawRequest.controller.abort();
+        workControllers.delete(drawRequest.controller);
+      }
       for (const { controller: preload } of preloads.values()) {
         preload.abort();
         workControllers.delete(preload);
@@ -519,9 +562,14 @@ export function ControlledAnimation({
   ]);
 
   useEffect(() => {
-    if (playheadMs !== undefined && playheadMs !== publishedTimeRef.current)
+    if (
+      playheadMs !== undefined &&
+      (seekRequest !== undefined
+        ? seekRequest !== appliedSeekRef.current
+        : playheadMs !== publishedTimeRef.current)
+    )
       seekRef.current(playheadMs);
-  }, [playheadMs]);
+  }, [playheadMs, seekRequest]);
 
   const playback: VideoPlayback = {
     state: {

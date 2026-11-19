@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type RefObject
+} from "react";
 import {
   ApiError,
   type AssetRecord,
@@ -37,10 +43,12 @@ import {
   removePresentationHighlight,
   renamePresentationHighlight
 } from "./presentation-highlight-editor";
+import { usePresentationPreviewKeyboard } from "./usePresentationPreviewKeyboard";
 
 export interface MediaPresentationPreviewProps {
   presentation: PresentationValues;
   playheadMs: number;
+  seekRequest: number;
   isPlaying: boolean;
   muted: boolean;
   videoRef: RefObject<HTMLVideoElement | null>;
@@ -49,6 +57,7 @@ export interface MediaPresentationPreviewProps {
   onPlayingChange: (playing: boolean) => void;
   onMutedChange: (muted: boolean) => void;
   onPlaybackAvailableChange: (available: boolean) => void;
+  onRetry?: () => void;
 }
 
 export interface MediaPresentationEditorProps {
@@ -178,6 +187,12 @@ export function MediaPresentationEditor({
     activeDraft.highlight?.startMs ?? 0
   );
   const [isPlaying, setIsPlaying] = useState(false);
+  const [seekRequest, setSeekRequest] = useState(0);
+  const seekRequestRef = useRef(0);
+  const committedSeekRef = useRef(0);
+  const playheadRef = useRef(playheadMs);
+  playheadRef.current = playheadMs;
+  const editorBodyRef = useRef<HTMLDivElement>(null);
   const [previewMuted, setPreviewMuted] = useState(false);
   const previewVideoRef = useRef<HTMLVideoElement>(null);
   const hasAudio = capabilities.kind === "video" && capabilities.hasAudio;
@@ -246,12 +261,37 @@ export function MediaPresentationEditor({
     !invalidFields.end &&
     !error?.conflict;
 
+  usePresentationPreviewKeyboard(editorBodyRef, {
+    enabled: timed && !disabled && playbackAvailable && durationMs > 0,
+    playbackTab: tab === "playback",
+    isPlaying,
+    playheadMs,
+    durationMs,
+    onPlayingChange: changePlaying,
+    onSeek: seekPreview
+  });
+
   useEffect(() => {
     activeRef.current = true;
     return () => {
       activeRef.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    committedSeekRef.current = seekRequest;
+  }, [seekRequest]);
+
+  useLayoutEffect(() => {
+    const editor =
+      editorBodyRef.current?.closest<HTMLElement>('[role="dialog"]');
+    if (!editor) return;
+    const focused = editor.ownerDocument.activeElement;
+    if (focused !== editor.ownerDocument.body && focused !== editor) return;
+    const frame = editor.querySelector<HTMLElement>(".media-editor-frame");
+    const target = frame?.hasAttribute("tabindex") ? frame : editor;
+    target.focus({ preventScroll: true });
+  }, [previewAttempt]);
 
   useEffect(() => {
     const pause = () => {
@@ -270,7 +310,8 @@ export function MediaPresentationEditor({
 
   function changeRange(start: number, end: number) {
     changeDraft(updatePresentationRange(activeDraft, start, end, durationMs));
-    setPlayheadMs((current) => presentationClamp(current, start, end));
+    const time = presentationClamp(playheadRef.current, start, end);
+    if (time !== playheadRef.current) seekPreview(time);
     setError((current) => (current?.conflict ? current : null));
   }
 
@@ -300,8 +341,7 @@ export function MediaPresentationEditor({
       (highlight) => highlight.id === id
     );
     setSelectedHighlightId(item?.id ?? null);
-    setPlayheadMs(item?.highlight.startMs ?? 0);
-    setIsPlaying(false);
+    seekPreview(item?.highlight.startMs ?? 0);
     setResetKey((current) => current + 1);
     setInvalidFields({ start: false, end: false });
   }
@@ -328,9 +368,8 @@ export function MediaPresentationEditor({
     if (pendingRef.current) return;
     const video = previewVideoRef.current;
     if (playing) {
-      if (playheadMs < startMs || playheadMs >= endMs) {
-        setPlayheadMs(startMs);
-        if (video) video.currentTime = startMs / 1000;
+      if (playheadRef.current < startMs || playheadRef.current >= endMs) {
+        seekPreview(startMs);
       }
       if (video) {
         video.muted = effectiveMuted;
@@ -339,6 +378,23 @@ export function MediaPresentationEditor({
       }
     } else video?.pause();
     setIsPlaying(playing);
+  }
+
+  function seekPreview(time: number) {
+    if (pendingRef.current) return;
+    // A pause event can arrive before a continuous pointer update commits.
+    seekRequestRef.current += 1;
+    previewVideoRef.current?.pause();
+    playheadRef.current = time;
+    setIsPlaying(false);
+    setPlayheadMs(time);
+    setSeekRequest(seekRequestRef.current);
+  }
+
+  function retryPreview() {
+    if (pendingRef.current) return;
+    setIsPlaying(false);
+    setPreviewAttempt((current) => current + 1);
   }
 
   async function save() {
@@ -397,7 +453,10 @@ export function MediaPresentationEditor({
         setPreviewAttempt((current) => current + 1);
         setObservedDuration(0);
         setPlaybackAvailable(true);
-        setPlayheadMs(values.highlight?.startMs ?? 0);
+        seekRequestRef.current += 1;
+        playheadRef.current = values.highlight?.startMs ?? 0;
+        setPlayheadMs(playheadRef.current);
+        setSeekRequest(seekRequestRef.current);
         setInvalidFields({ start: false, end: false });
         setError(null);
       }
@@ -430,7 +489,7 @@ export function MediaPresentationEditor({
 
   return (
     <>
-      <div className="media-editor-body">
+      <div className="media-editor-body" ref={editorBodyRef}>
         <div className="media-editor-preview">
           <PresentationFrame
             values={framedDraft}
@@ -441,6 +500,7 @@ export function MediaPresentationEditor({
             aspect={aspectRatio}
             editing={tab === "framing"}
             disabled={disabled}
+            playbackControls={timed && playbackAvailable}
             onChange={changeFraming}
           >
             <PresentationPreview
@@ -449,16 +509,22 @@ export function MediaPresentationEditor({
               capabilities={capabilities}
               presentation={framedDraft}
               playheadMs={playheadMs}
+              seekRequest={seekRequest}
               isPlaying={isPlaying && !unavailable}
               muted={effectiveMuted}
               videoRef={previewVideoRef}
-              onTimeChange={setPlayheadMs}
+              onTimeChange={(time) => {
+                if (committedSeekRef.current !== seekRequestRef.current) return;
+                playheadRef.current = time;
+                setPlayheadMs(time);
+              }}
               onDurationChange={setObservedDuration}
               onPlayingChange={setIsPlaying}
               onMutedChange={(muted) => {
                 if (!silentPreview) setPreviewMuted(muted);
               }}
               onPlaybackAvailableChange={setPlaybackAvailable}
+              onRetry={disabled ? undefined : retryPreview}
             />
           </PresentationFrame>
           {timed ? (
@@ -482,7 +548,7 @@ export function MediaPresentationEditor({
                 setPreviewMuted(muted);
               }}
               onPlayingChange={changePlaying}
-              onSeek={setPlayheadMs}
+              onSeek={seekPreview}
             />
           ) : null}
         </div>
@@ -555,10 +621,7 @@ export function MediaPresentationEditor({
                   playheadMs={playheadMs}
                   resetKey={resetKey}
                   onRangeChange={changeRange}
-                  onPreviewSeek={(time) => {
-                    setIsPlaying(false);
-                    setPlayheadMs(time);
-                  }}
+                  onPreviewSeek={seekPreview}
                   onChange={changeDraft}
                   onInvalidChange={(field, invalid) =>
                     setInvalidFields((current) => ({
@@ -615,8 +678,7 @@ export function MediaPresentationEditor({
             separateHighlights: false
           });
           setSelectedHighlightId(null);
-          setPlayheadMs(0);
-          setIsPlaying(false);
+          seekPreview(0);
           setInvalidFields({ start: false, end: false });
         }}
       />

@@ -144,18 +144,25 @@ close. Phone controls use safe areas; iOS may still reserve status-bar space.
 3. Adjust Playback or Framing, then choose **Save**.
 
 Save applies both tabs and closes when complete. **Cancel** discards
-unsaved changes. **Reset** changes the draft and still needs Save. Switching
+unsaved changes. **Reset all** clears every highlight, playback setting and
+framing adjustment in the draft and still needs Save. Switching
 tabs retains the draft and playback; seeking pauses at the chosen frame.
 
 Errors remain beside Save with the draft intact. Retry checks an interrupted
 save before sending it again. If another window saved first, reload its
 settings and preview before saving. Correct invalid times before retrying.
+If the preview cannot load, choose **Retry** in the preview to keep the current
+edits and position.
 
 ### Set highlights and playback
 
 Drag highlight handles or enter Start and End. Seek in the preview and choose
 **Start here** or **End here** to mark a frame. Timeline arrows adjust 100ms,
 or 1ms with Shift. Page keys adjust one second; Home/End jump to the limits.
+Dragging a range handle or entering a valid time pauses the preview at that
+boundary. Click the preview, then use Space to play or pause. In Playback,
+Left/Right seek 100ms, or 1ms with Shift, without focusing the timeline.
+Text fields, buttons, tabs and menus keep their own keys.
 
 Choose speed from 0.5× to 2× and **Repeat** or **Bounce**. Repeat plays forward;
 Bounce plays forward and backward without sound. Supported videos use a

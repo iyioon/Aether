@@ -18,6 +18,8 @@ const shortcuts = [
   ["Arrows in Framing", "Move 12px; Shift moves 1px (Fill)"],
   ["- / = in Framing", "Zoom 5%; Shift adjusts 1% (Fill)"],
   ["Arrows on editor timelines", "Adjust 100ms; Shift adjusts 1ms"],
+  ["Space in the editor preview", "Play or pause"],
+  ["Left / Right in Playback", "Seek 100ms; Shift adjusts 1ms"],
   ["Page / Home / End on timelines", "Adjust 1s / jump to limits"],
   ["Shift + F10 on a card", "Open card actions"],
   ["Esc", "Close the current panel or viewer"]
@@ -240,7 +242,11 @@ export function UserGuidePage({
               Start and End. Seek in the preview and choose Start here or End
               here to mark the current frame. Timeline arrows adjust 100ms;
               Shift adjusts 1ms. Page keys adjust one second; Home and End jump
-              to the control’s limits.
+              to the control’s limits. Dragging a handle or entering a valid
+              time pauses the preview at that boundary. Click the preview and
+              use Space to play or pause. In Playback, Left and Right seek
+              without focusing the timeline. Fields, buttons, tabs and menus
+              keep their own keys.
             </p>
             <p>
               Each media item can have up to 20 highlights. Switching highlights
@@ -280,10 +286,13 @@ export function UserGuidePage({
             <h2>Save or reset</h2>
             <p>
               The preview keeps playing when tabs change. Seeking pauses at the
-              chosen frame. Reset needs Save. Settings → Database can reset
-              playback or framing for the library. Highlights and playback
-              removes every highlight. Framing resets every highlight’s frames
-              while keeping its range and speed.
+              chosen frame. If the preview cannot load, Retry in the preview
+              keeps the current edits and position. Reset all clears every
+              highlight, playback setting and framing adjustment in the draft
+              and needs Save. Settings → Database can reset playback or framing
+              for the library. Highlights and playback removes every highlight.
+              Framing resets every highlight’s frames while keeping its range
+              and speed.
             </p>
             <p>
               Save closes the editor when complete. A failed save keeps your

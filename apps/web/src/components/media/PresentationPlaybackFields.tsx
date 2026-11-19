@@ -48,15 +48,27 @@ function TimeField({
   const [text, setText] = useState(() => formatPresentationTime(value));
   const [invalid, setInvalid] = useState(false);
   const focusedRef = useRef(false);
-  const validityRef = useRef(onValidityChange);
-  validityRef.current = onValidityChange;
+  const previousValueRef = useRef(value);
+  const fieldRef = useRef({ text, disabled, onChange, onValidityChange });
+  fieldRef.current = { text, disabled, onChange, onValidityChange };
   useEffect(() => {
-    if (!focusedRef.current) {
+    const valueChanged = previousValueRef.current !== value;
+    previousValueRef.current = value;
+    const field = fieldRef.current;
+    if (valueChanged && !focusedRef.current) {
       setText(formatPresentationTime(value));
       setInvalid(false);
-      validityRef.current(false);
+      field.onValidityChange(false);
+      return;
     }
-  }, [value]);
+    const parsed = parsePresentationTime(field.text);
+    const isInvalid = parsed === null || parsed < minimum || parsed > maximum;
+    setInvalid(isInvalid);
+    field.onValidityChange(isInvalid);
+    // Moving the other boundary can make a retained time draft valid again.
+    if (!field.disabled && !isInvalid && parsed !== null && parsed !== value)
+      field.onChange(parsed);
+  }, [value, minimum, maximum]);
   return (
     <div className="media-editor-field">
       <Label htmlFor={id}>{label}</Label>
@@ -88,7 +100,12 @@ function TimeField({
         onBlur={() => {
           focusedRef.current = false;
           const parsed = parsePresentationTime(text);
-          if (parsed !== null && parsed >= minimum && parsed <= maximum) {
+          const isInvalid =
+            parsed === null || parsed < minimum || parsed > maximum;
+          setInvalid(isInvalid);
+          onValidityChange(isInvalid);
+          if (!isInvalid && parsed !== null) {
+            if (parsed !== value) onChange(parsed);
             setText(formatPresentationTime(parsed));
           }
         }}
@@ -135,6 +152,8 @@ export function PresentationPlaybackFields({
   const keyboardHintId = useId();
   const timeFormatHintId = useId();
   const [startMs, endMs] = presentationRange(draft, durationMs);
+  const rangeRef = useRef([startMs, endMs]);
+  rangeRef.current = [startMs, endMs];
   const minimum = Math.min(durationMs, MIN_HIGHLIGHT_DURATION_MS);
   const hasTimeline = durationMs > 0;
   return (
@@ -193,8 +212,14 @@ export function PresentationPlaybackFields({
             onPreviewSeek(index === 0 ? target : Math.max(startMs, target - 1));
           }}
           onValueChange={([start, end]) => {
-            if (start !== undefined && end !== undefined)
-              onRangeChange(start, end);
+            if (start === undefined || end === undefined) return;
+            const [previousStart, previousEnd] = rangeRef.current;
+            if (start === previousStart && end === previousEnd) return;
+            rangeRef.current = [start, end];
+            onRangeChange(start, end);
+            onPreviewSeek(
+              start !== previousStart ? start : Math.max(start, end - 1)
+            );
           }}
         />
         <p id={keyboardHintId} className="media-editor-hint">
@@ -209,7 +234,10 @@ export function PresentationPlaybackFields({
             maximum={endMs - minimum}
             disabled={disabled || !hasTimeline}
             formatHintId={timeFormatHintId}
-            onChange={(start) => onRangeChange(start, endMs)}
+            onChange={(start) => {
+              onRangeChange(start, endMs);
+              onPreviewSeek(start);
+            }}
             onValidityChange={(invalid) => onInvalidChange("start", invalid)}
           />
           <TimeField
@@ -220,7 +248,10 @@ export function PresentationPlaybackFields({
             maximum={durationMs}
             disabled={disabled || !hasTimeline}
             formatHintId={timeFormatHintId}
-            onChange={(end) => onRangeChange(startMs, end)}
+            onChange={(end) => {
+              onRangeChange(startMs, end);
+              onPreviewSeek(Math.max(startMs, end - 1));
+            }}
             onValidityChange={(invalid) => onInvalidChange("end", invalid)}
           />
         </div>

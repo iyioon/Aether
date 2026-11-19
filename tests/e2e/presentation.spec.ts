@@ -270,6 +270,146 @@ for (const phone of [false, true]) {
     }
   });
 
+  test(`previews range edits and recovers retained time drafts in the ${layout} editor`, async ({
+    browser
+  }) => {
+    const context = await browser.newContext({
+      storageState,
+      ...(phone
+        ? {
+            viewport: { width: 393, height: 852 },
+            isMobile: true,
+            hasTouch: true
+          }
+        : {})
+    });
+    try {
+      const page = await context.newPage();
+      const video = fixture("clip.mp4");
+      await setPresentation(page, video, {
+        ...defaults,
+        highlight: { startMs: 500, endMs: 1500 }
+      });
+      await open(page, "gallery", "video", video.name);
+      await openGalleryEditor(page, video);
+      const editor = page.getByRole("dialog", {
+        name: "Edit media",
+        exact: true
+      });
+      const timeline = editor.getByRole("slider", {
+        name: "Preview position",
+        exact: true
+      });
+      const start = editor.getByRole("textbox", {
+        name: "Start time",
+        exact: true
+      });
+      const end = editor.getByRole("textbox", {
+        name: "End time",
+        exact: true
+      });
+      const save = editor.getByRole("button", { name: "Save", exact: true });
+      const preview = editor.locator("video");
+      await expect(preview).toBeVisible();
+      await start.fill("0.7");
+      await expect(start).toHaveValue("0.7");
+      await expect(timeline).toHaveAttribute("aria-valuenow", "700");
+      await expect
+        .poll(() =>
+          preview.evaluate((node: HTMLVideoElement) => node.currentTime)
+        )
+        .toBeCloseTo(0.7, 3);
+      await end.fill("2.8");
+      await expect(end).toHaveValue("2.8");
+      await expect(timeline).toHaveAttribute("aria-valuenow", "2799");
+      await start.fill("3");
+      await expect(end).toHaveValue("0:02.800");
+      await expect(start).toHaveAttribute("aria-invalid", "true");
+      await expect(save).toBeDisabled();
+      await editor.getByRole("tab", { name: "Framing", exact: true }).click();
+      await editor.getByRole("tab", { name: "Playback", exact: true }).click();
+      await expect(start).toHaveValue("3");
+      await expect(start).toHaveAttribute("aria-invalid", "true");
+      await end.fill("4");
+      await expect(start).toHaveValue("0:03.000");
+      await expect(start).toHaveAttribute("aria-invalid", "false");
+      await expect(save).toBeEnabled();
+      await expect(
+        editor.getByRole("combobox", { name: "Highlight", exact: true })
+      ).toBeEnabled();
+      await end.fill("2");
+      await expect(end).toHaveAttribute("aria-invalid", "true");
+      await start.fill("1");
+      await expect(start).toHaveValue("1");
+      await expect(end).toHaveValue("0:02.000");
+      await expect(end).toHaveAttribute("aria-invalid", "false");
+      await expect(save).toBeEnabled();
+
+      const rangeTrack = editor.locator(
+        ".media-editor-range [data-slot='slider-track']"
+      );
+      await preview.evaluate((node: HTMLVideoElement) => {
+        const pause = node.pause.bind(node);
+        let injectPause = true;
+        node.pause = () => {
+          pause();
+          if (injectPause) {
+            injectPause = false;
+            // Deliver a queued report before the continuous pointer update commits.
+            queueMicrotask(() => node.dispatchEvent(new Event("pause")));
+          }
+        };
+      });
+      for (const [label, fraction, isEnd] of [
+        ["Highlight start", 0.25, false],
+        ["Highlight end", 0.5, true]
+      ] as const) {
+        await editor
+          .getByRole("button", { name: "Play preview", exact: true })
+          .click();
+        await expect(
+          editor.getByRole("button", { name: "Pause preview", exact: true })
+        ).toBeVisible();
+        const thumb = editor.getByRole("slider", { name: label, exact: true });
+        await thumb.scrollIntoViewIfNeeded();
+        const thumbBox = (await thumb.boundingBox())!;
+        const trackBox = (await rangeTrack.boundingBox())!;
+        await page.mouse.move(
+          thumbBox.x + thumbBox.width / 2,
+          thumbBox.y + thumbBox.height / 2
+        );
+        await page.mouse.down();
+        await page.mouse.move(
+          trackBox.x + trackBox.width * fraction,
+          trackBox.y + trackBox.height / 2,
+          { steps: 6 }
+        );
+        await page.mouse.up();
+        await expect(
+          editor.getByRole("button", { name: "Play preview", exact: true })
+        ).toBeVisible();
+        const boundary = Number(await thumb.getAttribute("aria-valuenow"));
+        const expectedTime = isEnd ? boundary - 1 : boundary;
+        await expect(timeline).toHaveAttribute(
+          "aria-valuenow",
+          String(expectedTime)
+        );
+        await expect
+          .poll(() =>
+            preview.evaluate((node: HTMLVideoElement) => node.currentTime)
+          )
+          .toBeCloseTo(expectedTime / 1000, 3);
+      }
+      await editor.getByRole("button", { name: "Cancel", exact: true }).click();
+      expect((await getAsset(page, video.id)).presentation?.highlight).toEqual({
+        startMs: 500,
+        endMs: 1500
+      });
+    } finally {
+      await context.close();
+    }
+  });
+
   test(`adjusts only the focused playback or highlight control in the ${layout} editor`, async ({
     browser
   }) => {
@@ -2816,7 +2956,9 @@ test("does not confirm an uncertain Reset save against a replacement source with
       name: "Edit media",
       exact: true
     });
-    await editor.getByRole("button", { name: "Reset", exact: true }).click();
+    await editor
+      .getByRole("button", { name: "Reset all", exact: true })
+      .click();
     const replacement: AssetRecord = {
       ...before,
       mtimeMs: before.mtimeMs + 1,

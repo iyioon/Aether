@@ -18,6 +18,10 @@ Notable changes to Aether are recorded here.
 
 ### Fixed
 
+- Play larger GIF and animated WebP files through bounded frame batches while
+  preserving source resolution, transparency and timing.
+- Distinguish animation processing limits and decoding failures from generic
+  unavailable-media messages, retaining thumbnails and Retry where appropriate.
 - Update paused edit previews reliably after seeking, discard obsolete
   animation frame requests, and keep backward seeking responsive. Add preview
   Space and Playback arrow shortcuts while preserving focused controls.

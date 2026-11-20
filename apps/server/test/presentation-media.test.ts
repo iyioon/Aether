@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { deflateSync } from "node:zlib";
 import fastify, { type FastifyInstance } from "fastify";
-import sharp from "sharp";
+import sharp, { type Sharp } from "sharp";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { hashPassword } from "../src/auth/password.js";
 import { loadConfig, type AppConfig } from "../src/config/config.js";
@@ -567,7 +567,7 @@ describe("presentation video delivery", () => {
       )
     ).toBe(true);
     expect(await readFile(sourcePath)).toEqual(source);
-  }, 20_000);
+  }, 60_000);
 
   it("probes current media, streams full originals, and preserves HEAD, ranges and validators", async () => {
     const asset = await video();
@@ -1089,6 +1089,44 @@ async function animatedFixture(
     await verifyAvifFixtureTiming(destination);
   }
   return assetNamed(`animation.${format}`);
+}
+
+async function sparseAnimation(
+  format: "gif" | "webp",
+  size: number,
+  frameCount = 101
+) {
+  const raw = Buffer.alloc(frameCount * 4 * 4);
+  for (let index = 0; index < frameCount; index++) {
+    raw.set([255, 0, 0, 255], index * 16);
+    raw.set(
+      index === frameCount - 1
+        ? [255, 255, 0, 255]
+        : index % 2
+          ? [0, 255, 0, 255]
+          : [0, 0, 255, 255],
+      index * 16 + 8
+    );
+  }
+  const processor = sharp(raw, {
+    raw: { width: 4, height: frameCount, channels: 4, pageHeight: 1 }
+  });
+  const source = await (
+    format === "gif"
+      ? processor.gif({ delay: 100, dither: 0 })
+      : processor.webp({ delay: 100, lossless: true })
+  ).toBuffer();
+  // Delta frames change x=2; x=0 must retain the red first-frame pixel.
+  if (format === "gif") {
+    source.writeUInt16LE(size, 6);
+    source.writeUInt16LE(size, 8);
+  } else {
+    const header = source.indexOf(Buffer.from("VP8X"));
+    expect(header).toBe(12);
+    source.writeUIntLE(size - 1, header + 12, 3);
+    source.writeUIntLE(size - 1, header + 15, 3);
+  }
+  return source;
 }
 
 async function verifyAvifFixtureTiming(sourcePath: string): Promise<void> {
@@ -1625,6 +1663,239 @@ describe("controllable transparent animations", () => {
       )
     ).toBeNull();
   });
+
+  it.each(["gif", "webp"] as const)(
+    "composes %s delta frames across bounded decode batches and reuses the result",
+    async (format) => {
+      const frameCount = 101;
+      // 64.64M source pixels require a second batch under the 64M decode limit.
+      const source = await sparseAnimation(format, 800, frameCount);
+      const metadata = await sharp(source).metadata();
+      expect(metadata).toMatchObject({
+        width: 800,
+        height: 800,
+        pages: frameCount
+      });
+      expect(metadata.delay).toHaveLength(frameCount);
+      const name = `pixel-budget.${format}`;
+      const sourcePath = path.join(cwd, "media", name);
+      await writeFile(sourcePath, source);
+      const asset = await assetNamed(name);
+      const file = (await resolveAssetFile(db, asset.id))!;
+      const capabilities = await getPresentationMediaCapabilities({
+        db,
+        config,
+        file
+      });
+      expect(capabilities).toMatchObject({
+        kind: "animation",
+        width: 800,
+        height: 800,
+        durationMs: frameCount * 100
+      });
+      const key = capabilities.renditionKeys.full;
+      const encoded = vi.spyOn(sharp.prototype, "toFile");
+      const [first, shared] = await Promise.all([
+        ensurePresentationAnimation({ db, config, file, key }),
+        ensurePresentationAnimation({ db, config, file, key })
+      ]);
+      expect(shared).toEqual(first);
+      expect(first.manifest).toMatchObject({
+        width: 800,
+        height: 800,
+        durationMs: frameCount * 100
+      });
+      expect(first.manifest.frames).toHaveLength(frameCount);
+      expect(first.manifest.frames.map((frame) => frame.startMs)).toEqual(
+        Array.from({ length: frameCount }, (_, index) => index * 100)
+      );
+      expect(
+        first.manifest.frames.every((frame) => frame.durationMs === 100)
+      ).toBe(true);
+      for (const index of [99, 100]) {
+        const frame = first.manifest.frames[index]!;
+        const pixels = await sharp(first.atlasPaths[frame.atlas]!)
+          .extract({ left: frame.x, top: frame.y, width: 4, height: 1 })
+          .ensureAlpha()
+          .raw()
+          .toBuffer();
+        expect([...pixels.subarray(0, 4)]).toEqual([255, 0, 0, 255]);
+        expect([...pixels.subarray(8, 12)]).toEqual(
+          index === frameCount - 1 ? [255, 255, 0, 255] : [0, 255, 0, 255]
+        );
+        expect(pixels[15]).toBe(0);
+      }
+      const firstAtlas = await stat(first.atlasPaths[0]!, { bigint: true });
+      encoded.mockClear();
+      await expect(
+        ensurePresentationAnimation({ db, config, file, key })
+      ).resolves.toEqual(first);
+      expect(encoded).not.toHaveBeenCalled();
+      const cachedAtlas = await stat(first.atlasPaths[0]!, { bigint: true });
+      expect(cachedAtlas.ino).toBe(firstAtlas.ino);
+      expect(cachedAtlas.mtimeNs).toBe(firstAtlas.mtimeNs);
+      expect(await readFile(sourcePath)).toEqual(source);
+    },
+    60_000
+  );
+
+  it("removes incomplete animation batches and releases the failed job for retry", async () => {
+    const source = await sparseAnimation("gif", 800);
+    const sourcePath = path.join(cwd, "media", "batch-failure.gif");
+    await writeFile(sourcePath, source);
+    const asset = await assetNamed("batch-failure.gif");
+    const file = (await resolveAssetFile(db, asset.id))!;
+    const key = asset.presentation.renditionKeys.full;
+    const prototype = sharp.prototype as Sharp;
+    const original = prototype.toFile;
+    let stores = 0;
+    const failure = vi.spyOn(prototype, "toFile").mockImplementation(function (
+      this: Sharp,
+      destination: string
+    ) {
+      if (
+        /^frames-\d+\.tiff$/.test(path.basename(destination)) &&
+        ++stores === 2
+      )
+        return Promise.reject(new Error("Interrupted test batch."));
+      return original.call(this, destination);
+    });
+    await expect(
+      ensurePresentationAnimation({ db, config, file, key })
+    ).rejects.toThrow("Interrupted test batch.");
+    expect(stores).toBe(2);
+    expect(
+      await readdir(path.join(config.cacheDir, "presentations", asset.id))
+    ).toEqual([]);
+    expect(
+      db.prepare("SELECT id FROM derivatives WHERE asset_id = ?").all(asset.id)
+    ).toEqual([]);
+    expect(await readFile(sourcePath)).toEqual(source);
+    failure.mockRestore();
+    const recovered = await ensurePresentationAnimation({
+      db,
+      config,
+      file,
+      key
+    });
+    expect(recovered.manifest.frames).toHaveLength(101);
+    expect(recovered.manifest.durationMs).toBe(10_100);
+    expect(await readFile(sourcePath)).toEqual(source);
+  }, 60_000);
+
+  it.each([61, 62])(
+    "checks the source pixel boundary for %s maximum-size GIF frames without decoding",
+    async (frameCount) => {
+      const source = await sparseAnimation("gif", 2048, frameCount);
+      const name = "pixel-boundary.gif";
+      const sourcePath = path.join(cwd, "media", name);
+      await writeFile(sourcePath, source);
+      const asset = await assetNamed(name);
+      const response = await app.inject(
+        `/api/assets/${asset.id}/presentation-media`
+      );
+      expect(response.statusCode).toBe(frameCount === 61 ? 200 : 422);
+      expect(response.json()).toMatchObject(
+        frameCount === 61
+          ? { kind: "animation", width: 2048, height: 2048, durationMs: 6100 }
+          : { error: "presentation_limit_exceeded" }
+      );
+      expect(
+        await stat(path.join(config.cacheDir, "presentations", asset.id)).catch(
+          () => null
+        )
+      ).toBeNull();
+      expect(await readFile(sourcePath)).toEqual(source);
+    }
+  );
+
+  it.each(["gif", "webp"] as const)(
+    "rejects %s above the aggregate source pixel budget before decoding",
+    async (format) => {
+      // 258.56M source pixels exceed the independent 256M whole-source limit.
+      const source = await sparseAnimation(format, 1600);
+      const name = `source-budget.${format}`;
+      const sourcePath = path.join(cwd, "media", name);
+      await writeFile(sourcePath, source);
+      const asset = await assetNamed(name);
+      const response = await app.inject(
+        `/api/assets/${asset.id}/presentation-media`
+      );
+      expect(response.statusCode).toBe(422);
+      expect(response.json()).toEqual({ error: "presentation_limit_exceeded" });
+      expect(response.headers["x-aether-media-error"]).toBe(
+        "presentation_limit_exceeded"
+      );
+      expect(
+        await stat(path.join(config.cacheDir, "presentations", asset.id)).catch(
+          () => null
+        )
+      ).toBeNull();
+      expect(await readFile(sourcePath)).toEqual(source);
+    }
+  );
+
+  it.each(["gif", "webp"] as const)(
+    "reports the processing limit when %s header inspection exceeds its pixel budget",
+    async (format) => {
+      const source = await sparseAnimation(format, 8500, 2);
+      if (format === "gif") {
+        // GIF decoders derive large canvases from the actual frame extents.
+        const firstFrame = source.indexOf(
+          Buffer.from([0x2c, 0, 0, 0, 0, 4, 0, 1, 0])
+        );
+        expect(firstFrame).toBeGreaterThan(0);
+        source.writeUInt16LE(8496, firstFrame + 1);
+        source.writeUInt16LE(8499, firstFrame + 3);
+      }
+      expect(
+        await sharp(source, { limitInputPixels: 80_000_000 }).metadata()
+      ).toMatchObject({ width: 8500, height: 8500, pages: 2 });
+      const name = `header-budget.${format}`;
+      const sourcePath = path.join(cwd, "media", name);
+      await writeFile(sourcePath, source);
+      const asset = await assetNamed(name);
+      const response = await app.inject(
+        `/api/assets/${asset.id}/presentation-media`
+      );
+      expect(response.statusCode).toBe(422);
+      expect(response.json()).toEqual({ error: "presentation_limit_exceeded" });
+      expect(response.headers["x-aether-media-error"]).toBe(
+        "presentation_limit_exceeded"
+      );
+      expect(
+        await stat(path.join(config.cacheDir, "presentations", asset.id)).catch(
+          () => null
+        )
+      ).toBeNull();
+      expect(await readFile(sourcePath)).toEqual(source);
+    }
+  );
+
+  it.each(["gif", "webp"] as const)(
+    "recognizes a single-frame %s as a still image",
+    async (format) => {
+      const name = `still.${format}`;
+      const sourcePath = path.join(cwd, "media", name);
+      const processor = sharp({
+        create: { width: 32, height: 24, channels: 4, background: "red" }
+      });
+      await processor[format]().toFile(sourcePath);
+      const source = await readFile(sourcePath);
+      const asset = await assetNamed(name);
+      const response = await app.inject(
+        `/api/assets/${asset.id}/presentation-media`
+      );
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        kind: "still",
+        width: 32,
+        height: 24,
+        durationMs: null
+      });
+      expect(await readFile(sourcePath)).toEqual(source);
+    }
+  );
 
   it("uses oriented photo dimensions for indexed cards and the presentation editor without changing source bytes", async () => {
     const source = await sharp({

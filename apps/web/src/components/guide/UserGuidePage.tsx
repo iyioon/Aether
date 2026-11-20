@@ -268,6 +268,12 @@ export function UserGuidePage({
               the source file. Use Play highlights only in View options to play
               the main highlight for ordinary media entries.
             </p>
+            <p>
+              Animated image playback supports up to 60 seconds, 600 frames and
+              2,048 pixels per side, subject to processing limits. A file that
+              exceeds a limit shows a playback-limit message. Framing can remain
+              available when playback editing is unsupported.
+            </p>
             <h2>Adjust framing</h2>
             <p>
               Choose Original, Square, Portrait or Landscape. For a highlight,

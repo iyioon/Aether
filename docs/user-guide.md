@@ -188,8 +188,10 @@ prepares a compatible section. First playback may take time; later visits reuse
 it. Saving or changing a Bounce section turns on Play highlights only; framing
 and speed changes keep that preference.
 
-GIF, WebP, APNG and AVIF playback editing depends on decoding and processing
-limits. A file unavailable for playback editing can still support framing.
+GIF, WebP, APNG and AVIF playback supports up to 60 seconds, 600 frames and
+2,048 pixels per side, subject to processing limits. A file that exceeds a limit
+shows a playback-limit message. A file unavailable for playback editing can
+still support framing.
 See [presentation formats and limits](architecture.md#saved-media-presentation).
 
 ### Adjust framing

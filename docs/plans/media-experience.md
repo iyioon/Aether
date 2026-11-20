@@ -1,7 +1,7 @@
 # Media Playback And Presentation Plan
 
 Status: Presentation, Bounce and HEIC implemented; automated checks and device acceptance are tracked below.\
-Reviewed: 2026-11-19.
+Reviewed: 2026-11-21.
 
 ## Outcome And Scope
 
@@ -120,10 +120,13 @@ web presentation model, geometry, record ordering and URL-state tests.
   verify variable delays, alpha, APNG blend/dispose and selected-start posters.
 - Composed lossless PNG atlases preserve source resolution and transparency,
   rejecting frames beyond 2048px per side instead of downscaling. Adaptive
-  atlases are at most 2048px, with sixty seconds, 600 frames, 64 million total source
-  pixels and 64 MiB encoded output. Atlas generation has a two-minute job budget;
-  source decoding has a sixty-second deadline. Composed GIF/WebP frames use a
-  temporary uncompressed TIFF store so one atlas batch is held in memory.
+  atlases are at most 2048px, with sixty seconds, 600 frames and 64 MiB encoded
+  output. GIF/WebP allow 256 million total frame pixels, decoded in ranges of
+  at most 64 million pixels into one temporary uncompressed TIFF store. APNG/AVIF
+  retain a 64-million total-frame-pixel limit. Header-only inspection checks the
+  timeline before decoding. Atlas generation has a two-minute job budget;
+  source decoding has a cumulative sixty-second budget. Stores align with atlas
+  boundaries and replace the preceding store, keeping one atlas batch in memory.
   Client atlas decoding is bounded and shared.
 - Repeat video highlights loop the original authenticated stream at source times
   in Feed, viewer and Comparison. A shared section observer clamps seeks and

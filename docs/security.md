@@ -247,7 +247,13 @@ deadlines remain limited; malformed or unsupported metadata cannot produce a
 partial success.
 Animation decoding has
 frame, duration, source-size, pixel and byte limits, and rejects excess dimensions
-instead of downscaling. Native repeat highlights use the same authenticated
+instead of downscaling. GIF/WebP decoding reads bounded frame ranges into one
+temporary TIFF store of at most 64 million pixels (256 MB plus bounded TIFF
+overhead), removing it before decoding the next range. Total frame pixels are
+capped at 256 million, with a cumulative decoding deadline covering repeated
+composition and the existing job and output limits. APNG/AVIF retain their
+64-million-total-frame-pixel limit.
+Native repeat highlights use the same authenticated
 original-stream route and do not create another source copy.
 Unsafe source/cache symlinks are rejected. Temporary files are removed on
 failure; stale generation is rejected, and successful replacements remove only

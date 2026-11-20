@@ -27,6 +27,8 @@ describe("media failure notices", () => {
     ["bounce_h264_encoder_unavailable", "Bounce encoder is unavailable."],
     ["processing_busy", "Media preparation is busy."],
     ["processing_timeout", "Media preparation timed out."],
+    ["media_decode_failed", "Media could not be decoded."],
+    ["animation_frame_mismatch", "Animation could not be prepared."],
     ["source_changed", "Media changed. Try again."],
     ["stale_rendition", "Media changed. Try again."],
     ["presentation_processing_failed", "Bounce could not be prepared."],

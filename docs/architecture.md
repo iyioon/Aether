@@ -466,8 +466,11 @@ animation capabilities, rather than treating an extension as proof of animation.
 selected-start posters. `presentation-animation.ts` produces composed, alpha-
 preserving PNG atlases with original frame delays: sharp for GIF/WebP, FFmpeg
 for APNG/AVIF, including selected-start animation posters. A temporary uncompressed
-TIFF frame store keeps GIF/WebP atlas generation to one in-memory batch. Every
-source passes shared path validation. FFmpeg uses local
+TIFF frame store keeps GIF/WebP atlas generation to one in-memory atlas batch.
+Header-only first-page inspection identifies the complete timeline before
+applying processing limits. GIF/WebP decoding uses contiguous page ranges,
+replacing the temporary store between ranges instead of stacking the entire
+animation. Every source passes shared path validation. FFmpeg uses local
 protocol/container allowlists, argument arrays, deadlines and output limits.
 
 Opaque rendition keys include source identity and only the edits affecting the
@@ -719,13 +722,18 @@ longer consume the retained metadata budget. Bounce keys include `bounce-playbac
 prepared output and cached capability limits without changing full-source or
 animation identities.
 Animations retain source dimensions up to 2048px per side in lossless PNG atlases,
-with an adaptive tile grid. Limits remain sixty seconds, 600 frames, 64 million
-total source pixels, 2048px atlases and 64 MiB encoded output. Larger sources are
+with an adaptive tile grid. Limits are sixty seconds, 600 frames, 2048px atlases
+and 64 MiB encoded output. GIF/WebP allow 256 million total frame pixels, with
+at most 64 million decoded pixels in one temporary TIFF store. Stores align with
+atlas boundaries and are removed before the next range is decoded. APNG/AVIF
+retain the 64-million total-frame-pixel limit. Larger sources are
 rejected rather than downscaled. PNG composition retains decoded 8-bit RGBA;
 HDR/high-bit-depth and color-profile fidelity are not guaranteed by the current
 FFmpeg/sharp/canvas pipeline. Rendition identity v2 invalidates older scaled
 atlases; ordinary successful publication removes superseded registered files. Atlas jobs
-have a two-minute budget, including a sixty-second source-decoding deadline.
+have a two-minute budget, including a cumulative sixty-second source-decoding
+budget. Each range and frame read observes the remaining job time. Cached
+manifests must match the verified source probe's dimensions and frame delays.
 These are editing/playback budgets,
 not restrictions on indexing ordinary source media.
 

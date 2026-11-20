@@ -52,6 +52,10 @@ export function mediaFailureNotice({
     return { message: "Bounce encoder is unavailable.", canRetry: true };
   if (code === "processing_timeout")
     return { message: "Media preparation timed out.", canRetry: true };
+  if (code === "media_decode_failed")
+    return { message: "Media could not be decoded.", canRetry: true };
+  if (code === "animation_frame_mismatch")
+    return { message: "Animation could not be prepared.", canRetry: true };
   if (reason?.kind === "network")
     return { message: "Media could not be reached.", canRetry: true };
   if (

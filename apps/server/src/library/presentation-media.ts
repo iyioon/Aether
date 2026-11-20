@@ -38,6 +38,8 @@ export const ANIMATION_LIMITS = {
   durationMs: 60_000,
   frames: 600,
   inputPixels: 64_000_000,
+  // GIF/WebP span bounded stores; other decoders keep the inputPixels total.
+  sourcePixels: 256_000_000,
   frameSize: 2048,
   outputBytes: 64 * 1024 * 1024
 } as const;
@@ -408,15 +410,27 @@ async function inspectMedia(file: ResolvedAssetFile): Promise<MediaProbe> {
   ) {
     return inspectFfmpegAnimation(file);
   }
+  // First-page metadata includes the complete timeline without stacking its pixels.
   const metadata = await sharp(file.sourcePath, {
-    animated: true,
+    pages: 1,
     limitInputPixels: ANIMATION_LIMITS.inputPixels
-  }).metadata();
+  })
+    .metadata()
+    .catch((error: unknown) => {
+      if (
+        error instanceof Error &&
+        error.message === "Input image exceeds pixel limit"
+      )
+        throw new PresentationMediaError("presentation_limit_exceeded", 422);
+      throw error;
+    });
   const width = metadata.width;
   const height = metadata.pageHeight ?? metadata.height;
   if (!width || !height)
     throw new PresentationMediaError("media_decode_failed");
   const pages = metadata.pages ?? 1;
+  if (!Number.isSafeInteger(pages) || pages < 1)
+    throw new PresentationMediaError("media_decode_failed");
   if (pages <= 1)
     return {
       kind: "still",
@@ -425,6 +439,8 @@ async function inspectMedia(file: ResolvedAssetFile): Promise<MediaProbe> {
       durationMs: null,
       hasAudio: false
     };
+  if (pages > ANIMATION_LIMITS.frames)
+    throw new PresentationMediaError("presentation_limit_exceeded", 422);
   const delays = Array.from({ length: pages }, (_, index) =>
     normalizedDelay(metadata.delay?.[index] ?? 100)
   );
@@ -564,7 +580,9 @@ function validateAnimation(animation: AnimationProbe): void {
     animation.height > ANIMATION_LIMITS.frameSize ||
     animation.delays.length > ANIMATION_LIMITS.frames ||
     animation.width * animation.height * animation.delays.length >
-      ANIMATION_LIMITS.inputPixels ||
+      (animation.decoder === "sharp"
+        ? ANIMATION_LIMITS.sourcePixels
+        : ANIMATION_LIMITS.inputPixels) ||
     animation.delays.reduce((total, delay) => total + delay, 0) >
       ANIMATION_LIMITS.durationMs
   )

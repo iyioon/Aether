@@ -138,7 +138,8 @@ export async function ensurePresentationAnimation({
       key,
       file.asset.id,
       config.cacheDir,
-      identity
+      identity,
+      media.animation
     );
     if (cached) {
       await verifyAnimationSource(db, file, key, identity);
@@ -251,7 +252,7 @@ async function generateAnimation(
   try {
     const images =
       probe.decoder === "sharp"
-        ? await sharpFrames(file, probe, workDirectory)
+        ? sharpFrames(file, probe, workDirectory, deadline)
         : await ffmpegFrames(file, probe, workDirectory);
     const frameCount = probe.delays.length;
     if (images.frames && images.frames.length !== frameCount)
@@ -265,13 +266,10 @@ async function generateAnimation(
     for (let offset = 0; offset < frameCount; offset += layout.capacity) {
       if (Date.now() >= deadline)
         throw new PresentationMediaError("processing_timeout", 503);
-      const batch = images.frameStorePath
-        ? await Promise.all(
-            Array.from(
-              { length: Math.min(layout.capacity, frameCount - offset) },
-              (_, index) =>
-                readDecodedFrame(images.frameStorePath!, offset + index)
-            )
+      const batch = images.readFrames
+        ? await images.readFrames(
+            offset,
+            Math.min(layout.capacity, frameCount - offset)
           )
         : images.frames!.slice(offset, offset + layout.capacity);
       const columns = Math.min(layout.columns, batch.length);
@@ -390,48 +388,92 @@ async function generateAnimation(
 
 interface DecodedAnimation {
   frames?: string[];
-  frameStorePath?: string;
+  readFrames?: (offset: number, count: number) => Promise<Buffer[]>;
   width: number;
   height: number;
 }
-async function sharpFrames(
+function sharpFrames(
   file: ResolvedAssetFile,
   probe: AnimationProbe,
-  directory: string
-): Promise<DecodedAnimation> {
-  const frameStorePath = path.join(directory, "frames.tiff");
-  // Keep composed frames on disk so atlas generation holds one batch in memory.
-  const info = await sharp(file.sourcePath, {
-    animated: true,
-    limitInputPixels: ANIMATION_LIMITS.inputPixels
-  })
-    .ensureAlpha()
-    .timeout({ seconds: 60 })
-    .tiff({ compression: "none" })
-    .toFile(frameStorePath);
-  const height =
-    info.pageHeight ?? Math.trunc(info.height / probe.delays.length);
-  await requireBoundedFile(
-    frameStorePath,
-    ANIMATION_LIMITS.inputPixels * 4 + 2 * 1024 * 1024
-  );
-  if (
-    info.width !== probe.width ||
-    height !== probe.height ||
-    info.height !== height * probe.delays.length
-  )
-    throw new PresentationMediaError("animation_frame_mismatch");
-  return { width: info.width, height, frameStorePath };
+  directory: string,
+  deadline: number
+): DecodedAnimation {
+  let frameStorePath = path.join(directory, "frames-0.tiff");
+  const { capacity } = animationAtlasLayout(probe.width, probe.height);
+  const framesPerStore =
+    Math.floor(
+      ANIMATION_LIMITS.inputPixels / (probe.width * probe.height) / capacity
+    ) * capacity;
+  let storeOffset = -1;
+  let storeCount = 0;
+  let decodingMs = 60_000;
+  return {
+    width: probe.width,
+    height: probe.height,
+    readFrames: async (offset, count) => {
+      // Align stores with atlas boundaries; only one bounded TIFF exists at a time.
+      if (offset < storeOffset || offset + count > storeOffset + storeCount) {
+        await rm(frameStorePath, { force: true });
+        frameStorePath = path.join(directory, `frames-${offset}.tiff`);
+        const pages = Math.min(framesPerStore, probe.delays.length - offset);
+        const started = Date.now();
+        const remainingMs = Math.min(decodingMs, deadline - started);
+        if (remainingMs <= 0)
+          throw new PresentationMediaError("processing_timeout", 503);
+        const info = await sharp(file.sourcePath, {
+          page: offset,
+          pages,
+          limitInputPixels: ANIMATION_LIMITS.inputPixels
+        })
+          .ensureAlpha()
+          .timeout({ seconds: Math.max(1, Math.ceil(remainingMs / 1000)) })
+          .tiff({ compression: "none" })
+          .toFile(frameStorePath);
+        decodingMs -= Date.now() - started;
+        if (decodingMs <= 0 || Date.now() >= deadline)
+          throw new PresentationMediaError("processing_timeout", 503);
+        const height = info.pageHeight ?? Math.trunc(info.height / pages);
+        await requireBoundedFile(
+          frameStorePath,
+          ANIMATION_LIMITS.inputPixels * 4 + 2 * 1024 * 1024
+        );
+        if (
+          info.width !== probe.width ||
+          height !== probe.height ||
+          info.height !== height * pages
+        )
+          throw new PresentationMediaError("animation_frame_mismatch");
+        storeOffset = offset;
+        storeCount = pages;
+      }
+      return Promise.all(
+        Array.from({ length: count }, (_, index) =>
+          readDecodedFrame(
+            frameStorePath,
+            offset - storeOffset + index,
+            deadline
+          )
+        )
+      );
+    }
+  };
 }
 async function readDecodedFrame(
   frameStorePath: string,
-  index: number
+  index: number,
+  deadline: number
 ): Promise<Buffer> {
+  const remainingMs = deadline - Date.now();
+  if (remainingMs <= 0)
+    throw new PresentationMediaError("processing_timeout", 503);
   return sharp(frameStorePath, {
     page: index,
     pages: 1,
     limitInputPixels: ANIMATION_LIMITS.frameSize ** 2
   })
+    .timeout({
+      seconds: Math.min(20, Math.max(1, Math.ceil(remainingMs / 1000)))
+    })
     .ensureAlpha()
     .raw()
     .toBuffer();
@@ -540,7 +582,8 @@ async function readCachedAnimation(
   key: string,
   assetId: string,
   cacheDir: string,
-  identity: SourceIdentity
+  identity: SourceIdentity,
+  probe: AnimationProbe
 ): Promise<CachedAnimation | null> {
   try {
     const cached = (await readPrivateManifest(manifestPath, cacheDir)) as {
@@ -580,8 +623,9 @@ async function readCachedAnimation(
       manifest.height < 1 ||
       manifest.width > ANIMATION_LIMITS.frameSize ||
       manifest.height > ANIMATION_LIMITS.frameSize ||
-      manifest.width * manifest.height * manifest.frames.length >
-        ANIMATION_LIMITS.inputPixels ||
+      manifest.width !== probe.width ||
+      manifest.height !== probe.height ||
+      manifest.frames.length !== probe.delays.length ||
       manifest.frames.length < 1
     )
       return null;
@@ -596,6 +640,7 @@ async function readCachedAnimation(
       if (
         !Number.isSafeInteger(frame.durationMs) ||
         frame.durationMs < 1 ||
+        frame.durationMs !== probe.delays[index] ||
         frame.startMs !== timeMs ||
         frame.width !== manifest.width ||
         frame.height !== manifest.height ||

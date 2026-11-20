@@ -1,6 +1,6 @@
 import { chooseAccountAction } from "./account-menu";
 import { execFile } from "node:child_process";
-import { copyFile, mkdir, rm, utimes } from "node:fs/promises";
+import { copyFile, mkdir, rm, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import sharp from "sharp";
@@ -2168,6 +2168,252 @@ test("controls an edited animation and selectively resets playback and framing w
     await context.close();
   }
 });
+
+for (const phone of [false, true]) {
+  test(`recovers animation decoding failures without losing the ${phone ? "phone" : "desktop"} preview`, async ({
+    browser
+  }) => {
+    const context = await browser.newContext({
+      storageState,
+      ...(phone
+        ? {
+            viewport: { width: 393, height: 852 },
+            isMobile: true,
+            hasTouch: true
+          }
+        : {})
+    });
+    try {
+      const page = await context.newPage();
+      const animation = fixture("sequence.webp");
+      await setPresentation(page, animation, defaults);
+      let failCapabilities = true;
+      let failFrames = false;
+      let originalReads = 0;
+      page.on("request", (request) => {
+        if (
+          new URL(request.url()).pathname ===
+          `/api/assets/${animation.id}/media`
+        )
+          originalReads += 1;
+      });
+      await page.route(
+        `**/api/assets/${animation.id}/presentation-media`,
+        (route) =>
+          failCapabilities
+            ? route.fulfill({
+                status: 415,
+                json: { error: "media_decode_failed" }
+              })
+            : route.continue()
+      );
+      await page.route(`**/api/assets/${animation.id}/animation?*`, (route) =>
+        failFrames
+          ? route.fulfill({
+              status: 415,
+              json: { error: "animation_frame_mismatch" }
+            })
+          : route.continue()
+      );
+      const expectFailure = async (
+        host: Locator,
+        frame: Locator,
+        poster: Locator,
+        message: string
+      ) => {
+        const notice = host.locator(".media-error-notice");
+        await expect(notice).toHaveCount(1);
+        await expect(notice).toContainText(message);
+        await expect(notice).not.toContainText(
+          /Image unavailable|Animation unavailable/
+        );
+        await expect
+          .poll(() =>
+            poster.evaluate(
+              (node: HTMLImageElement) => node.complete && node.naturalWidth > 0
+            )
+          )
+          .toBe(true);
+        await expect(poster).toHaveCSS("opacity", "1");
+        await expect(frame.getByRole("progressbar")).toHaveCount(0);
+        expect(originalReads).toBe(0);
+        return notice.getByRole("button", { name: "Retry", exact: true });
+      };
+      const expectRecovered = async (host: Locator, frame: Locator) => {
+        const canvas = frame.locator("canvas");
+        await expect(canvas).toHaveCSS("opacity", "1");
+        const colors = new Set<number>();
+        await expect
+          .poll(async () => {
+            colors.add(
+              await canvas.evaluate(
+                (node: HTMLCanvasElement) =>
+                  node.getContext("2d")!.getImageData(0, 0, 1, 1).data[0]!
+              )
+            );
+            return colors.size;
+          })
+          .toBeGreaterThan(1);
+        await expect(host.locator(".media-error-notice")).toHaveCount(0);
+        await expect(frame.getByRole("progressbar")).toHaveCount(0);
+        expect(originalReads).toBe(0);
+      };
+
+      await open(page, phone ? "feed" : "gallery", "image", animation.name);
+      const item = page.locator(phone ? ".feed-item" : ".media-tile").first();
+      const preview = item.locator(".media-image-shell");
+      const retry = await expectFailure(
+        item,
+        preview,
+        preview.locator(".media-image-thumbnail"),
+        "Media could not be decoded."
+      );
+      failCapabilities = false;
+      await activate(retry, phone);
+      await expectRecovered(item, preview);
+
+      const viewerUrl = `${origin}/?folder=${encodeURIComponent(folderId)}&view=gallery&type=image&q=${encodeURIComponent(animation.name)}&asset=${animation.id}`;
+      failCapabilities = true;
+      await page.goto(viewerUrl);
+      const viewer = page.getByRole("dialog", {
+        name: animation.name,
+        exact: true
+      });
+      const viewerFrame = viewer.locator(".viewer-media-frame");
+      const viewerPoster = viewerFrame.locator(".viewer-image-thumbnail");
+      const viewerRetry = await expectFailure(
+        viewer,
+        viewerFrame,
+        viewerPoster,
+        "Media could not be decoded."
+      );
+      await expect(viewerFrame.locator(".viewer-image-original")).toHaveCount(
+        0
+      );
+      failCapabilities = false;
+      await activate(viewerRetry, phone);
+      await expectRecovered(viewer, viewerFrame);
+
+      failFrames = true;
+      await page.reload();
+      const preparationRetry = await expectFailure(
+        viewer,
+        viewerFrame,
+        viewerPoster,
+        "Animation could not be prepared."
+      );
+      failFrames = false;
+      await activate(preparationRetry, phone);
+      await expectRecovered(viewer, viewerFrame);
+    } finally {
+      await context.close();
+    }
+  });
+}
+
+for (const format of ["gif", "webp"] as const) {
+  const phone = format === "webp";
+  test(`plays a large decoded ${format.toUpperCase()} across frame batches on ${phone ? "phone" : "desktop"}`, async ({
+    browser
+  }) => {
+    const context = await browser.newContext({
+      storageState,
+      ...(phone
+        ? {
+            viewport: { width: 393, height: 852 },
+            isMobile: true,
+            hasTouch: true
+          }
+        : {})
+    });
+    const page = await context.newPage();
+    const name = `batched-sequence.${format}`;
+    const source = path.join(directory, name);
+    try {
+      await writeFile(source, await sparseAnimationFixture(format));
+      await scan(page);
+      const current = (await (
+        await page.request.get(
+          `${origin}/api/folders/${folderId}/assets?sort=filename&limit=250`
+        )
+      ).json()) as AssetListResponse;
+      const asset = current.items.find((entry) => entry.name === name)!;
+      expect(asset).toBeTruthy();
+      const response = await page.request.get(
+        `${origin}/api/assets/${asset.id}/presentation-media`
+      );
+      expect(response.ok()).toBe(true);
+      const capabilities =
+        (await response.json()) as PresentationMediaCapabilities;
+      expect(capabilities).toMatchObject({
+        kind: "animation",
+        width: 800,
+        height: 800,
+        durationMs: 10_100
+      });
+      const prepared = await page.request.get(
+        `${origin}/api/assets/${asset.id}/animation?v=${capabilities.renditionKeys.full}`
+      );
+      expect(prepared.ok()).toBe(true);
+      expect((await prepared.json()).frames).toHaveLength(101);
+
+      await open(page, phone ? "feed" : "gallery", "image", name);
+      const preview = page
+        .locator(phone ? ".feed-item" : ".media-tile")
+        .first();
+      await expect(preview.locator("canvas")).toHaveCSS("opacity", "1");
+      await expect(preview.locator(".media-error-notice")).toHaveCount(0);
+      await page.goto(
+        `${origin}/?folder=${encodeURIComponent(folderId)}&view=gallery&type=image&q=${encodeURIComponent(name)}&asset=${asset.id}`
+      );
+      const viewer = page.getByRole("dialog", { name, exact: true });
+      const canvas = viewer.locator("canvas");
+      await expect(canvas).toHaveCSS("opacity", "1");
+      await expect(canvas).toHaveAttribute("width", "800");
+      await expect(canvas).toHaveAttribute("height", "800");
+      const seek = viewer.getByRole("slider", {
+        name: "Seek animation",
+        exact: true
+      });
+      await seek.focus();
+      await viewer
+        .getByRole("button", { name: "Pause video", exact: true })
+        .click();
+      const pixels = () =>
+        canvas.evaluate((node: HTMLCanvasElement) => {
+          const data = node.getContext("2d")!.getImageData(0, 0, 4, 1).data;
+          return {
+            retained: Array.from(data.subarray(0, 4)),
+            changing: Array.from(data.subarray(8, 12)),
+            transparent: data[15]
+          };
+        });
+      await seek.press("Home");
+      await expect.poll(pixels).toEqual({
+        retained: [255, 0, 0, 255],
+        changing: [0, 0, 255, 255],
+        transparent: 0
+      });
+      await seek.press("End");
+      await expect.poll(pixels).toEqual({
+        retained: [255, 0, 0, 255],
+        changing: [255, 255, 0, 255],
+        transparent: 0
+      });
+      await expect
+        .poll(async () => Number(await seek.inputValue()))
+        .toBeGreaterThanOrEqual(10);
+      await expect(viewer.locator(".media-error-notice")).toHaveCount(0);
+    } finally {
+      await rm(source, { force: true });
+      try {
+        await scan(page);
+      } finally {
+        await context.close();
+      }
+    }
+  });
+}
 
 test("retries animation preparation in Feed and preserves an editor draft through recovery", async ({
   browser
@@ -4512,6 +4758,39 @@ async function expectEditorBounds(
 
 function fixture(name: string): AssetRecord {
   return assets.find((asset) => asset.name === name)!;
+}
+async function sparseAnimationFixture(format: "gif" | "webp") {
+  const frameCount = 101;
+  const pixels = Buffer.alloc(frameCount * 16);
+  for (let index = 0; index < frameCount; index++) {
+    pixels.set([255, 0, 0, 255], index * 16);
+    const color =
+      index === frameCount - 1
+        ? [255, 255, 0, 255]
+        : index % 2
+          ? [0, 255, 0, 255]
+          : [0, 0, 255, 255];
+    pixels.set(color, index * 16 + 8);
+  }
+  const processor = sharp(pixels, {
+    raw: { width: 4, height: frameCount, channels: 4, pageHeight: 1 }
+  });
+  const source = await (
+    format === "gif"
+      ? processor.gif({ delay: 100, dither: 0 })
+      : processor.webp({ delay: 100, lossless: true })
+  ).toBuffer();
+  // Enlarge the canvas without allocating the animation's 64.64 million pixels.
+  if (format === "gif") {
+    source.writeUInt16LE(800, 6);
+    source.writeUInt16LE(800, 8);
+  } else {
+    const header = source.indexOf(Buffer.from("VP8X"));
+    expect(header).toBe(12);
+    source.writeUIntLE(799, header + 12, 3);
+    source.writeUIntLE(799, header + 15, 3);
+  }
+  return source;
 }
 async function csrf(page: Page) {
   return {

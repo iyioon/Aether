@@ -39,6 +39,8 @@ import { useMediaSound } from "../media/useMediaSound";
 import type { SoundPreference } from "../settings/playback-settings";
 import { FeedNavRail } from "./FeedNavRail";
 import { observeFeedPrewarmPriority } from "./feed-prewarm";
+import { resolveFeedFramingAspect } from "./feed-framing";
+import type { PresentationSize } from "../media/presentation-geometry";
 import type { GalleryMetadataField } from "../gallery/gallery-metadata";
 import {
   FEED_PRELOAD_DISTANCE,
@@ -61,6 +63,9 @@ interface FeedTouchStart {
 }
 
 interface FeedPreviewProps {
+  viewport: PresentationSize;
+  onViewportSizeChange: (size: PresentationSize) => void;
+  useSavedFraming: boolean;
   soundPreference: SoundPreference;
   onRememberSound: (muted: boolean) => void;
   metadataFields: ReadonlySet<GalleryMetadataField>;
@@ -89,6 +94,9 @@ interface FeedPreviewProps {
 }
 
 export function FeedPreview({
+  viewport,
+  onViewportSizeChange,
+  useSavedFraming,
   soundPreference,
   onRememberSound,
   metadataFields,
@@ -249,6 +257,38 @@ export function FeedPreview({
       scrollTop: feedElement?.scrollTop ?? latestScrollTopRef.current
     });
   }, []);
+
+  const hasAssets = assets.length > 0;
+  useLayoutEffect(() => {
+    const element = feedRef.current;
+    if (!element) return;
+    let previousHeight = 0;
+    let previousWidth = 0;
+    const measure = () => {
+      const { clientWidth: width, clientHeight: height } = element;
+      if (width <= 0 || height <= 0) return;
+      if (width === previousWidth && height === previousHeight) return;
+      if (previousHeight > 0 && height !== previousHeight) {
+        const index = latestActiveIndexRef.current;
+        const item = itemRefs.current[index];
+        const top = item ? feedItemTop(element, item) : index * height;
+        setScrollPositionImmediately(element, top);
+        latestScrollTopRef.current = top;
+        saveFeedPosition(index);
+      }
+      previousWidth = width;
+      previousHeight = height;
+      onViewportSizeChange({ width, height });
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", measure);
+      return () => window.removeEventListener("resize", measure);
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [hasAssets, onViewportSizeChange, saveFeedPosition]);
 
   const adoptLoadedPosition = useCallback(() => {
     if (!deferredRestoreRef.current || hasOpenKeyboardLayer()) return;
@@ -903,6 +943,16 @@ export function FeedPreview({
       >
         {assets.map((asset, index) => (
           <FeedItem
+            framingAspect={
+              useSavedFraming && shouldRenderFeedMedia(index, activeIndex)
+                ? resolveFeedFramingAspect(
+                    asset.source,
+                    viewport,
+                    asset.highlightId
+                  )
+                : "Original"
+            }
+            useSavedFraming={useSavedFraming}
             metadataFields={metadataFields}
             asset={asset}
             feedSoundState={feedSoundState}

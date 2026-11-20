@@ -1,7 +1,7 @@
 import {
   layoutOptionsForView,
   viewOptions,
-  type AspectMode,
+  type LayoutMode,
   type ViewMode
 } from "../library-state";
 import { readComparisonAspect } from "../compare/comparison-layout-state";
@@ -12,7 +12,7 @@ import {
 
 export const VIEW_ASPECT_STORAGE_KEY = "aether.view-aspects.v1";
 export const VIEWER_FRAMING_STORAGE_KEY = "aether.viewer.use-saved-framing.v1";
-export type ViewAspects = Record<ViewMode, AspectMode>;
+export type ViewAspects = Record<ViewMode, LayoutMode>;
 
 export function readViewerUsesSavedFraming(): boolean {
   return safeLocalStorageGetItem(VIEWER_FRAMING_STORAGE_KEY) === "true";
@@ -25,7 +25,7 @@ export function writeViewerUsesSavedFraming(enabled: boolean): void {
 export function parseViewAspects(raw: string | null): ViewAspects {
   const defaults: ViewAspects = {
     gallery: "Square",
-    feed: "Portrait",
+    feed: "Fill screen",
     compare: "Original"
   };
   if (!raw || raw.length > 512) return defaults;
@@ -44,7 +44,7 @@ export function parseViewAspects(raw: string | null): ViewAspects {
     for (const view of viewOptions) {
       const value = (aspects as Record<string, unknown>)[view];
       if (layoutOptionsForView(view).some((option) => option === value))
-        defaults[view] = value as AspectMode;
+        defaults[view] = value as LayoutMode;
     }
   } catch {
     /* Layout preferences are optional. */

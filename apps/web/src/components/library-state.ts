@@ -18,26 +18,27 @@ export const aspectOptions = [
   "Landscape"
 ] as const;
 export type AspectMode = (typeof aspectOptions)[number];
+export type LayoutMode = AspectMode | "Fill screen";
 
-export function layoutOptionsForView(view: ViewMode): readonly AspectMode[] {
-  return view === "feed" ? ["Portrait"] : aspectOptions;
+export function layoutOptionsForView(view: ViewMode): readonly LayoutMode[] {
+  return view === "feed" ? ["Fill screen", "Original"] : aspectOptions;
 }
 
 export function normalizeAspectForView(
   view: ViewMode,
   value: unknown
-): AspectMode {
+): LayoutMode {
   return (
     layoutOptionsForView(view).find((option) => option === value) ??
     defaultAspectForView(view)
   );
 }
 
-export function defaultAspectForView(view: ViewMode): AspectMode {
+export function defaultAspectForView(view: ViewMode): LayoutMode {
   return view === "gallery"
     ? "Square"
     : view === "feed"
-      ? "Portrait"
+      ? "Fill screen"
       : "Original";
 }
 
@@ -113,7 +114,7 @@ export interface LibraryUrlState {
   folderId: string | null;
   view: ViewMode;
   gridSize: GridSize;
-  aspect: AspectMode;
+  aspect: LayoutMode;
   sort: SortMode;
   sortDirection: SortDirection;
   sortCriteria?: SortCriterion[];
@@ -252,7 +253,7 @@ export function parseLibraryStateSearch(search: string): LibraryUrlState {
       readMappedOptionParam(
         params,
         "aspect",
-        aspectOptions,
+        layoutOptionsForView(view),
         defaultAspectForView(view)
       )
     ),
@@ -302,11 +303,9 @@ export function buildLibraryStateSearch(state: LibraryUrlState): string {
     params.set("size", state.gridSize.toLowerCase());
   }
 
-  if (
-    state.view !== "feed" &&
-    state.aspect !== defaultAspectForView(state.view)
-  ) {
-    params.set("aspect", state.aspect.toLowerCase());
+  const aspect = normalizeAspectForView(state.view, state.aspect);
+  if (aspect !== defaultAspectForView(state.view)) {
+    params.set("aspect", aspect.toLowerCase());
   }
 
   if (state.sort !== defaultLibraryState.sort) {
@@ -460,11 +459,7 @@ function readMappedOptionParam<T extends string>(
   );
 }
 
-type StoredLibraryUrlState = Omit<LibraryUrlState, "aspect"> & {
-  aspect: AspectMode | "Fill screen";
-};
-
-function isLibraryUrlState(value: unknown): value is StoredLibraryUrlState {
+function isLibraryUrlState(value: unknown): value is LibraryUrlState {
   if (!isRecord(value)) {
     return false;
   }

@@ -63,6 +63,7 @@ interface MediaPreviewProps {
   asset: AssetRecord;
   selectedHighlightId?: string | null;
   framingAspect?: PresentationAspect;
+  useSavedFraming?: boolean;
   defaultFit?: "contain" | "cover";
   isActive?: boolean;
   muted?: boolean;
@@ -93,6 +94,7 @@ export const MediaPreview = memo(function MediaPreview({
   noticeContainer,
   defaultFit = "cover",
   framingAspect = "Original",
+  useSavedFraming = true,
   isActive = true,
   muted = true,
   onAudibleAutoplayBlocked,
@@ -267,7 +269,9 @@ export const MediaPreview = memo(function MediaPreview({
   );
   const framedValues = {
     ...values,
-    ...presentationFramingForAspect(values, framingAspect)
+    ...(useSavedFraming
+      ? presentationFramingForAspect(values, framingAspect)
+      : { fit: "contain" as const, focalX: 0.5, focalY: 0.5, zoom: 1 })
   };
   const bounceOverBudget =
     variant === "bounce" &&

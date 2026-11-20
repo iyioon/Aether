@@ -444,18 +444,6 @@
     padding: 0;
   }
 
-  .feed-frame {
-    width: 100%;
-    max-width: none;
-  }
-
-  @supports (width: 1cqh) {
-    .feed-frame {
-      width: 100cqw;
-      height: 100cqh;
-    }
-  }
-
   .feed-meta {
     padding: 92px calc(76px + var(--media-safe-area-right))
       calc(18px + var(--media-safe-area-bottom))

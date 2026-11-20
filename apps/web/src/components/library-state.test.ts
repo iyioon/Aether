@@ -20,7 +20,7 @@ describe("library state URL helpers", () => {
       folderId: "root-folder",
       view: "feed",
       gridSize: "Large",
-      aspect: "Portrait",
+      aspect: "Fill screen",
       sort: "score",
       sortDirection: "asc",
       mediaType: "video",
@@ -64,7 +64,7 @@ describe("library state URL helpers", () => {
       folderId: "folder-1",
       view: "feed",
       gridSize: "Compact",
-      aspect: "Landscape",
+      aspect: "Fill screen",
       sort: "score",
       sortDirection: "asc",
       search: "city sky",
@@ -168,7 +168,7 @@ describe("library state URL helpers", () => {
   it("rejects old, malformed, and invalid stored state", () => {
     const validState = {
       ...defaultLibraryState,
-      aspect: "Portrait" as const,
+      aspect: "Fill screen" as const,
       view: "feed" as const
     };
 

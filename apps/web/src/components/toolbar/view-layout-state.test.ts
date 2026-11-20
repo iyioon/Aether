@@ -5,6 +5,7 @@ import {
   writeViewAspects,
   readViewerUsesSavedFraming,
   writeViewerUsesSavedFraming,
+  VIEW_ASPECT_STORAGE_KEY,
   VIEWER_FRAMING_STORAGE_KEY
 } from "./view-layout-state";
 import {
@@ -19,7 +20,7 @@ describe("per-view layout preferences", () => {
   it("keeps defaults and validates only supported views and ratios", () => {
     expect(parseViewAspects(null)).toEqual({
       gallery: "Square",
-      feed: "Portrait",
+      feed: "Fill screen",
       compare: "Original"
     });
     expect(
@@ -34,7 +35,11 @@ describe("per-view layout preferences", () => {
           }
         })
       )
-    ).toEqual({ gallery: "Landscape", feed: "Portrait", compare: "Original" });
+    ).toEqual({
+      gallery: "Landscape",
+      feed: "Fill screen",
+      compare: "Original"
+    });
     for (const raw of [
       "bad",
       "[]",
@@ -44,7 +49,7 @@ describe("per-view layout preferences", () => {
     ])
       expect(parseViewAspects(raw)).toEqual(parseViewAspects(null));
   });
-  it("round-trips Gallery and Ranking aspects while Feed stays Portrait", () => {
+  it("round-trips supported layouts independently in each view", () => {
     for (const view of ["gallery", "compare"] as const) {
       for (const aspect of [
         "Square",
@@ -59,33 +64,32 @@ describe("per-view layout preferences", () => {
       }
     }
     expect(parseLibraryStateSearch("?view=compare").aspect).toBe("Original");
-    expect(parseLibraryStateSearch("?view=feed").aspect).toBe("Portrait");
+    expect(parseLibraryStateSearch("?view=feed").aspect).toBe("Fill screen");
+    for (const aspect of ["Fill screen", "Original"] as const) {
+      const state = { ...parseLibraryStateSearch("?view=feed"), aspect };
+      expect(parseLibraryStateSearch(buildLibraryStateSearch(state))).toEqual(
+        state
+      );
+      expect(parseStoredLibraryState(serializeLibraryState(state))).toEqual(
+        state
+      );
+    }
   });
   it("normalizes older Feed URLs and checkpoints without discarding other state", () => {
-    for (const aspect of [
-      "fill",
-      "square",
-      "original",
-      "landscape",
-      "portrait"
-    ]) {
+    for (const aspect of ["fill", "square", "landscape", "portrait"]) {
       const state = parseLibraryStateSearch(
         `?view=feed&aspect=${aspect}&folder=kept&q=clip`
       );
-      expect(state.aspect).toBe("Portrait");
+      expect(state.aspect).toBe("Fill screen");
+      expect(state.folderId).toBe("kept");
+      expect(state.search).toBe("clip");
       expect(buildLibraryStateSearch(state)).not.toContain("aspect=");
       expect(parseLibraryStateSearch(buildLibraryStateSearch(state))).toEqual(
         state
       );
     }
     const state = parseLibraryStateSearch("?view=feed&folder=kept&q=clip");
-    for (const aspect of [
-      "Fill screen",
-      "Square",
-      "Original",
-      "Landscape",
-      "Portrait"
-    ]) {
+    for (const aspect of ["Fill screen", "Square", "Landscape", "Portrait"]) {
       expect(
         parseStoredLibraryState(
           JSON.stringify({ version: 1, state: { ...state, aspect } })
@@ -95,7 +99,7 @@ describe("per-view layout preferences", () => {
         parseViewAspects(
           JSON.stringify({ version: 1, aspects: { feed: aspect } })
         ).feed
-      ).toBe("Portrait");
+      ).toBe("Fill screen");
     }
     expect(parseStoredLibraryState(serializeLibraryState(state))).toEqual(
       state
@@ -114,6 +118,77 @@ describe("per-view layout preferences", () => {
           })
         )
       ).toBeNull();
+    }
+  });
+  it("retains the Original Feed choice in URLs, checkpoints and per-view preferences", () => {
+    const state = parseLibraryStateSearch(
+      "?view=feed&aspect=original&folder=kept&q=clip&highlight=1"
+    );
+    expect(state).toMatchObject({
+      aspect: "Original",
+      folderId: "kept",
+      search: "clip",
+      highlightsOnly: true
+    });
+    expect(
+      new URLSearchParams(buildLibraryStateSearch(state)).get("aspect")
+    ).toBe("original");
+    expect(parseStoredLibraryState(serializeLibraryState(state))).toEqual(
+      state
+    );
+    expect(
+      parseViewAspects(
+        JSON.stringify({
+          version: 1,
+          aspects: { gallery: "Landscape", feed: "Original", compare: "Square" }
+        })
+      )
+    ).toEqual({ gallery: "Landscape", feed: "Original", compare: "Square" });
+  });
+  it("limits Fill screen to Feed and rejects malformed or excessive stored layouts", () => {
+    for (const view of ["gallery", "compare"] as const) {
+      const state = parseLibraryStateSearch(`?view=${view}&aspect=fill`);
+      expect(state.aspect).toBe(view === "gallery" ? "Square" : "Original");
+      expect(
+        parseViewAspects(
+          JSON.stringify({ version: 1, aspects: { [view]: "Fill screen" } })
+        )[view]
+      ).toBe(state.aspect);
+    }
+    for (const aspect of [null, false, {}, ["Original"], "x".repeat(513)]) {
+      expect(
+        parseViewAspects(
+          JSON.stringify({ version: 1, aspects: { feed: aspect } })
+        ).feed
+      ).toBe("Fill screen");
+      expect(
+        parseStoredLibraryState(
+          JSON.stringify({
+            version: 1,
+            state: { ...parseLibraryStateSearch("?view=feed"), aspect }
+          })
+        )
+      ).toBeNull();
+    }
+    expect(parseStoredLibraryState("x".repeat(8193))).toBeNull();
+  });
+  it("writes and reads each supported Feed layout without changing the other views", () => {
+    const stored = new Map<string, string>();
+    vi.stubGlobal("window", {
+      localStorage: {
+        getItem: (key: string) => stored.get(key) ?? null,
+        setItem: (key: string, value: string) => stored.set(key, value)
+      }
+    });
+    for (const feed of ["Original", "Fill screen"] as const) {
+      const aspects = {
+        gallery: "Landscape" as const,
+        feed,
+        compare: "Square" as const
+      };
+      writeViewAspects(aspects);
+      expect(readViewAspects()).toEqual(aspects);
+      expect([...stored.keys()]).toEqual([VIEW_ASPECT_STORAGE_KEY]);
     }
   });
   it("accepts only an explicit boolean viewer framing preference", () => {

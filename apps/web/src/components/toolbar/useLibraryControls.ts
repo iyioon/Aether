@@ -9,6 +9,7 @@ import {
   defaultSortDirectionForSort,
   normalizeLibrarySearch,
   type AspectMode,
+  type LayoutMode,
   layoutOptionsForView,
   normalizeAspectForView,
   type GridSize,
@@ -39,8 +40,9 @@ export function useLibraryControls({
       initialState.aspect
     )
   }));
-  const aspect = normalizeAspectForView(view, viewAspects[view]);
-  function setAspect(next: AspectMode) {
+  const layout = normalizeAspectForView(view, viewAspects[view]);
+  const aspect: AspectMode = layout === "Fill screen" ? "Portrait" : layout;
+  function setAspect(next: LayoutMode) {
     if (!layoutOptionsForView(view).includes(next)) return;
     setViewAspects((current) => ({ ...current, [view]: next }));
   }
@@ -148,6 +150,7 @@ export function useLibraryControls({
     highlightsOnly,
     setHighlightsOnly,
     applyLibraryState,
+    layout,
     aspect,
     clearTagFilters,
     gridSize,

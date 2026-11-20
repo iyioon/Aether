@@ -1,7 +1,7 @@
 import {
   layoutOptionsForView,
   sizeOptions,
-  type AspectMode,
+  type LayoutMode,
   type ViewMode,
   type GridSize
 } from "../library-state";
@@ -18,12 +18,12 @@ import {
 
 export interface LayoutControlsProps {
   view: ViewMode;
-  aspect: AspectMode;
+  aspect: LayoutMode;
   galleryMetadataFields: ReadonlySet<GalleryMetadataField>;
   gridSize: GridSize;
   onClearGalleryMetadataFields: () => void;
   onResetGalleryMetadataFields: () => void;
-  onSetAspect: (aspect: AspectMode) => void;
+  onSetAspect: (aspect: LayoutMode) => void;
   onSetGridSize: (gridSize: GridSize) => void;
   onToggleGalleryMetadataField: (field: GalleryMetadataField) => void;
 }
@@ -41,39 +41,25 @@ export function LayoutControls({
 }: LayoutControlsProps) {
   return (
     <div className="view-options-fields">
-      {view !== "feed" ? (
-        <div className="view-options-selects">
-          {view === "gallery" ? (
-            <div>
-              <Label htmlFor="view-options-size">Grid size</Label>
-              <Select
-                value={gridSize}
-                onValueChange={(value) => onSetGridSize(value as GridSize)}
-              >
-                <SelectTrigger id="view-options-size">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="view-options-select-menu">
-                  {sizeOptions.map((option) => (
-                    <SelectItem key={option} value={option}>
-                      {option}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          ) : null}
+      <div
+        className={
+          view === "feed"
+            ? "view-options-selects view-options-selects--feed"
+            : "view-options-selects"
+        }
+      >
+        {view === "gallery" ? (
           <div>
-            <Label htmlFor="view-options-aspect">Media layout</Label>
+            <Label htmlFor="view-options-size">Grid size</Label>
             <Select
-              value={aspect}
-              onValueChange={(value) => onSetAspect(value as AspectMode)}
+              value={gridSize}
+              onValueChange={(value) => onSetGridSize(value as GridSize)}
             >
-              <SelectTrigger id="view-options-aspect">
+              <SelectTrigger id="view-options-size">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="view-options-select-menu">
-                {layoutOptionsForView(view).map((option) => (
+                {sizeOptions.map((option) => (
                   <SelectItem key={option} value={option}>
                     {option}
                   </SelectItem>
@@ -81,8 +67,26 @@ export function LayoutControls({
               </SelectContent>
             </Select>
           </div>
+        ) : null}
+        <div>
+          <Label htmlFor="view-options-aspect">Media layout</Label>
+          <Select
+            value={aspect}
+            onValueChange={(value) => onSetAspect(value as LayoutMode)}
+          >
+            <SelectTrigger id="view-options-aspect">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="view-options-select-menu">
+              {layoutOptionsForView(view).map((option) => (
+                <SelectItem key={option} value={option}>
+                  {option}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
-      ) : null}
+      </div>
       <GalleryMetadataControls
         fields={galleryMetadataFields}
         onClear={onClearGalleryMetadataFields}

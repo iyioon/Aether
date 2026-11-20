@@ -80,6 +80,8 @@ import { clearUploadCheckpoints } from "./management/upload-checkpoints";
 import { clearMediaImageCache } from "./media/media-image-cache";
 import { animationAtlasCache } from "./media/animation-atlas-cache";
 import { PresentationEditorDialog } from "./media/PresentationEditorDialog";
+import { resolveFeedFramingAspect } from "./feed/feed-framing";
+import type { PresentationSize } from "./media/presentation-geometry";
 import {
   buildLibraryMediaEntries,
   findLibraryMediaEntry,
@@ -289,6 +291,10 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
       : null;
   });
   const [isFeedChromeHidden, setIsFeedChromeHidden] = useState(false);
+  const [feedViewport, setFeedViewport] = useState<PresentationSize>({
+    width: 0,
+    height: 0
+  });
   const [comparisonAssetUpdate, setComparisonAssetUpdate] =
     useState<AssetRecord | null>(null);
   const rankingChangedRef = useRef(false);
@@ -299,6 +305,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
   const {
     applyLibraryState,
     aspect,
+    layout,
     clearTagFilters,
     gridSize,
     highlightsOnly,
@@ -596,7 +603,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
         folderId: selectedFolderId,
         view,
         gridSize,
-        aspect,
+        aspect: layout,
         sort,
         sortDirection,
         ...(sortCriteria ? { sortCriteria } : {}),
@@ -623,7 +630,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
       selectedFolderId,
       view,
       gridSize,
-      aspect,
+      layout,
       sort,
       sortDirection,
       sortCriteria,
@@ -1090,6 +1097,15 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
     setEditingAsset(asset);
   }
 
+  function framingAspectForMedia(
+    asset: AssetRecord,
+    highlightId?: string | null
+  ) {
+    return view === "feed" && layout === "Fill screen"
+      ? resolveFeedFramingAspect(asset, feedViewport, highlightId)
+      : aspect;
+  }
+
   function selectViewerEntry(direction: -1 | 1) {
     if (usesEntryNavigation) {
       const entry = libraryEntries[viewerEntryIndex + direction];
@@ -1308,7 +1324,7 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
   const libraryControls =
     activePage === "library" ? (
       <LibraryControlStrip
-        aspect={aspect}
+        aspect={layout}
         galleryMetadataFields={galleryMetadataFields}
         gridSize={gridSize}
         highlightsOnly={highlightsOnly}
@@ -1720,6 +1736,9 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
                     />
                   ) : view === "feed" ? (
                     <FeedPreview
+                      viewport={feedViewport}
+                      onViewportSizeChange={setFeedViewport}
+                      useSavedFraming={layout !== "Original"}
                       soundPreference={playbackSettings.feed}
                       onRememberSound={rememberFeedSound}
                       hasQueryFilters={Boolean(
@@ -1797,7 +1816,10 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
               onRememberSound={rememberFullViewSound}
               useSavedFraming={viewerUsesSavedFraming}
               onFramingChange={setViewerUsesSavedFraming}
-              framingAspect={aspect}
+              framingAspect={framingAspectForMedia(
+                selectedAsset,
+                selectedHighlightId
+              )}
               onHighlightsOnlyChange={(enabled) => {
                 if (!enabled) setHighlightSelection(null);
                 setHighlightsOnly(enabled);
@@ -1907,7 +1929,12 @@ export function AppShell({ appearance, onLogout }: AppShellProps) {
           <PresentationEditorDialog
             key={editingAsset.id}
             asset={editingAsset}
-            initialAspect={aspect}
+            initialAspect={framingAspectForMedia(
+              editingAsset,
+              editingHighlight?.assetId === editingAsset.id
+                ? editingHighlight.id
+                : null
+            )}
             initialHighlightId={
               editingHighlight?.assetId === editingAsset.id
                 ? editingHighlight.id

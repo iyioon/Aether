@@ -50,16 +50,19 @@ HEIC uses the shared media surfaces and preserves the original download.
   one Save writes all drafts. Cards use the preset for the selected aspect; the
   expanded viewer defaults to original proportions unless Settings chooses saved
   framing or a remembered choice. Its View options can apply
-  the invoking Gallery/Ranking aspect or Feed Portrait and the corresponding
+  the invoking Gallery/Ranking aspect or Feed's resolved preset and the corresponding
   saved position/zoom. With Remember last, this browser-local appearance choice
   retains both on and off through previous/next, close/reopen, reload and logout.
   The remembered choice stores only a boolean; changing it preserves media and
   playback without editing saved frames.
-- Feed keeps one portrait layout, centered on desktop and filling compact
-  viewports. Its transport and details stay attached to the frame; the editor
-  opens on Portrait and uses that saved preset. View options keeps card info
-  without an aspect selector. Normalize older Feed layouts without losing the
-  current item or navigation state.
+- Feed fills the available workspace on desktop and phones. In View options →
+  Layout, Media layout offers Fill screen and Original, separate from Play
+  highlights only. Fill screen chooses the closest framing from the source's
+  Original proportions and explicitly saved presets, including the selected
+  highlight. Original contains the full source without saved crops. Transport
+  and details stay attached to the workspace frame. The editor and viewer use
+  the resolved aspect. Normalize older fixed Feed layouts to Fill screen while
+  retaining Original and the current item and navigation state.
 - Play highlights only is a View options preference, shared with the viewer menu
   and initialized from Settings → Playback or the resumed session/link. It is
   disabled for items without a saved section. The viewer menu also provides Use
@@ -71,7 +74,7 @@ HEIC uses the shared media surfaces and preserves the original download.
 - Comparison uses saved playback mode and speed with selected aspect framing and
   the shared Play highlights only preference. View options → Layout changes shape and card info
   without changing pair selection or Undo. Each view remembers these choices;
-  Feed stays Portrait; Ranking defaults to Original. Both start with no card info. Feed metadata uses compact icon/value rows and a
+  Feed defaults to Fill screen; Ranking defaults to Original. Both start with no card info. Feed metadata uses compact icon/value rows and a
   heart only for favorites. Comparison cards have
   no Edit action; Feed and viewer use a pencil icon.
 - Video bounce is silent. Its saved rendition is continuous forward/reverse;
@@ -96,7 +99,7 @@ HEIC uses the shared media surfaces and preserves the original download.
 Schema migration 18 adds per-asset metadata with optimistic revisions. Migration
 19 adds independent aspect presets, retaining earlier custom crops in each shape.
 Migration 20 remains for database/backup compatibility; its older Feed overrides
-are preserved by ordinary saves but no longer affect the portrait Feed. Framing
+are preserved by ordinary saves but no longer affect Feed. Framing
 reset clears both maps.
 API saves
 require an expected revision; resets advance it. Full returned asset records are

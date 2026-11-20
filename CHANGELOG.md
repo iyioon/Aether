@@ -6,6 +6,9 @@ Notable changes to Aether are recorded here.
 
 ### Added
 
+- Choose Fill screen or Original in Feed's Media layout. Fill screen uses the
+  available workspace and its closest saved framing; Original shows the full
+  uncropped media without changing playback settings.
 - Save multiple named highlights with independent ranges, framing, speed and
   Repeat/Bounce settings. Choose the main highlight in Edit media or Info, and
   view another highlight without changing the default.
@@ -203,9 +206,8 @@ Notable changes to Aether are recorded here.
   and phone layouts.
 - Group filters, sorting and layout in View options with a phone bottom sheet.
   Keep Gallery search and buttons on one row and show active-filter counts.
-- Keep Feed in a portrait frame with attached controls/details, saved Portrait
-  framing, floating phone controls, an inline favorite indicator and consistent
-  up-arrow score icons. Gallery
+- Keep Feed controls and details attached to its media frame, with floating phone
+  controls, an inline favorite indicator and consistent up-arrow score icons. Gallery
   and Ranking remember independent shapes and card details; Ranking initially
   uses Original proportions.
 - Make Edit media fullscreen with Playback/Framing tabs, one persistent preview

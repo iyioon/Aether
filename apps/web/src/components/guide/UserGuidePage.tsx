@@ -124,9 +124,15 @@ export function UserGuidePage({
             <h2>Sort and layout</h2>
             <p>
               Open View options for sorting and layout controls. Gallery and
-              Ranking remember their card shape and details separately; Feed
-              uses Portrait. Search filters do not change sort or layout
-              settings.
+              Ranking remember their card shape and details separately. Search
+              filters do not change sort or layout settings.
+            </p>
+            <p>
+              In Feed, open View options → Layout → Media layout. Fill screen
+              uses the available space and the saved framing closest to its
+              proportions. Original shows the full media in its original
+              proportions without saved crops. This choice does not change
+              playback speed, sound or Play highlights only.
             </p>
             <p>
               In Sort, add up to five rules. The first takes priority; later
@@ -178,11 +184,11 @@ export function UserGuidePage({
               Enable Show highlights separately in Gallery and Feed in this tab
               to replace this media item’s card with one entry per saved
               highlight. The entries stay together in the current sort order.
-              Each plays its saved section, speed and framing even when Play
-              highlights only is off. Scores, favorites, tags and file actions
-              apply to the source media; selecting several of its highlights
-              selects that source once. Library counts and Compare count source
-              media. Turn the setting off to return to one entry.
+              Each plays its saved section and speed even when Play highlights
+              only is off. Scores, favorites, tags and file actions apply to the
+              source media; selecting several of its highlights selects that
+              source once. Library counts and Compare count source media. Turn
+              the setting off to return to one entry.
             </p>
             <p>
               The preview remains visible while the full photo or video
@@ -284,10 +290,11 @@ export function UserGuidePage({
               Shift.
             </p>
             <p>
-              Switch layouts and save once to keep all changes. Feed uses
-              Portrait. Gallery and Compare use their selected layouts. The
-              viewer shows the complete source unless Use saved framing is
-              enabled.
+              Switch layouts and save once to keep all changes. Gallery and
+              Compare use their selected layouts. Opening Edit media from Feed
+              selects its current framing layout; Original selects the Original
+              preset. The viewer shows the complete source unless Use saved
+              framing is enabled.
             </p>
             <h2>Save or reset</h2>
             <p>

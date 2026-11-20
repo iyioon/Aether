@@ -98,7 +98,7 @@ describe("application resume and explicit locations", () => {
     expect(readInitialAppLocation().library).toEqual({
       ...defaultLibraryState,
       view: "feed",
-      aspect: "Portrait",
+      aspect: "Fill screen",
       sort: "random",
       sortCriteria: criteria,
       mediaType: "video",

@@ -207,12 +207,12 @@ Tabs separate Sort and Layout; Compare shows layout controls directly. Only
 controls that affect the current view are shown. The panel owns its active tab, while
 `useLibraryControls` continues to own query settings and open/close state.
 Changes use the existing query, URL, and restoration paths. The bounded
-`toolbar/view-layout-state.ts` cache retains independent aspect choices for
-Gallery and Ranking, migrating the older Comparison preference and normalizing
-older Feed preferences to Portrait. Explicit
-URL and restored active-view state take precedence. Card-info visibility is
-stored separately per view; Feed and Ranking default to none. Feed stays Portrait
-and Ranking defaults to Original proportions. Grid size remains Gallery-only.
+`toolbar/view-layout-state.ts` cache retains independent layout choices for
+Gallery, Feed and Ranking, migrating the older Comparison preference and
+normalizing older fixed Feed shapes to Fill screen. Original remains supported.
+Explicit URL and restored active-view state take precedence. Card-info visibility is
+stored separately per view; Feed and Ranking default to none. Feed defaults to
+Fill screen and Ranking to Original proportions. Grid size remains Gallery-only.
 Search filters leave sort and layout settings unchanged.
 
 Ordered sorting uses up to five unique field/direction rules through repeated
@@ -282,7 +282,7 @@ pause, and mute state. Commands run in the originating user gesture, and stale
 play requests and detached element listeners cannot update a replacement source.
 Preview and viewer keep their existing source selection and poster-to-first-frame
 behavior. Feed keyboard commands use registered playback commands.
-Feed transports use the shared portal pattern to stay anchored to the portrait
+Feed transports use the shared portal pattern to stay anchored to the available
 media frame. Decoded dimensions supplement indexed metadata for Original layouts
 in Gallery and Ranking. Feed details, actions, and playback
 controls share one visibility state. Tapping
@@ -391,8 +391,9 @@ Original framing. Existing custom crops migrate into each aspect preset. Missing
 presets use neutral centered defaults, independent of Original. Older clients
 that omit the map preserve it; an explicit empty map clears it. Framing reset
 clears all presets. The migration 20 `feed_framing` column is retained for database
-and backup compatibility; the current Feed uses the Portrait preset. Older maps
-survive ordinary saves and are cleared by framing reset. Known identical content retains edits
+and backup compatibility; the current Feed selects an aspect preset from the
+available workspace. Older maps survive ordinary saves and are cleared by
+framing reset. Known identical content retains edits
 through safe moves or timestamp changes; a content replacement clears them.
 
 Multiple highlights use stable IDs and a bounded collection of at most 20 named
@@ -507,8 +508,9 @@ main selection atomically. Removing the main highlight selects the first
 remaining section; removing the last clears playback edits.
 Draft framing is selected by aspect;
 switching aspects retains every draft and one Save writes them atomically.
-Gallery and Ranking resolve their selected preset through `presentation-model.ts`,
-while Feed always resolves Portrait. Desktop uses preview/inspector columns;
+Gallery and Ranking resolve their selected preset through `presentation-model.ts`.
+Feed passes the preset resolved for its available workspace, or Original when
+viewing uncropped media. Desktop uses preview/inspector columns;
 compact layouts keep the preview and transport above a scrolling inspector, with safe-area
 header/footer actions. Loading and failure states share that shell. The dialog
 shell is available immediately; editing tools and metadata load in parallel,
@@ -567,7 +569,7 @@ Saved changes still require explicit Save.
 Before a preference is saved, the expanded viewer uses original proportions with
 neutral position and zoom. Its `ViewerViewOptions` shadcn dropdown can apply the
 saved frame and geometry for the invoking aspect (Gallery/Ranking selection or
-Feed Portrait).
+Feed's resolved preset).
 The on/off choice is a browser-local appearance preference stored as a boolean
 in localStorage. It survives previous/next navigation, closing and reopening,
 reloads and logout; it contains no asset or media data. Missing or invalid stored
@@ -577,15 +579,21 @@ intact. The menu portals inside the viewer container so it
 remains available in browser fullscreen; native iPhone video fullscreen retains
 system controls and original proportions.
 
-Feed has one portrait layout: a centered, width-limited media frame on desktop
-and the available viewport on compact screens. Transport, details, tap surfaces
-and expand actions share that frame as their positioning container. The
-navigation/curation rail stays beside it on desktop and within phone safe areas.
-Feed always applies the Portrait preset and starts the editor on Portrait;
-Gallery and Ranking retain aspect selection. Old Feed layout links, preferences
-and checkpoints normalize to Portrait without discarding other browsing state.
+Feed fills its available workspace without a fixed desktop width cap. In Fill
+screen, it chooses the closest aspect from the source's Original proportions and
+explicitly saved presets, including the selected highlight's frames. Original
+mode contains the complete source with neutral position and zoom, leaving saved
+crops unapplied. Both modes preserve playback range, speed and sound. Transport,
+details, tap surfaces and expand actions share the full workspace frame as their
+positioning container. Navigation and curation controls retain their edge and
+safe-area spacing. View options → Layout exposes Media layout independently
+from the Play highlights only footer. The editor and viewer receive the resolved
+aspect. Old fixed Feed layout links, preferences and checkpoints normalize to
+Fill screen without discarding other browsing state; Original stays supported.
 Geometry changes reuse existing media bytes. Viewer framing is a display-only
-choice; editing still uses explicit Save/Cancel. Time handles follow the [W3C multi-thumb slider pattern](https://www.w3.org/WAI/ARIA/apg/patterns/slider-multithumb/);
+choice; editing still uses explicit Save/Cancel. Related layout choices remain
+grouped separately from playback, following [W3C grouping guidance](https://www.w3.org/WAI/tutorials/forms/grouping/).
+Time handles follow the [W3C multi-thumb slider pattern](https://www.w3.org/WAI/ARIA/apg/patterns/slider-multithumb/);
 direct framing and reversible edits follow [Apple Photos](https://support.apple.com/en-us/104968).
 `presentation-geometry.ts` defines the common Fit/Fill, focal point and zoom
 mapping. Indexed photo and editor dimensions include EXIF orientation to match

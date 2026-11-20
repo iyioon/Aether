@@ -35,7 +35,7 @@ window.
 - **Gallery** shows a grid. Open a card to use the viewer. Right-click or
   long-press its preview for actions. Scrolling cancels a touch hold; score
   holds keep their usual behavior.
-- **Feed** shows one item at a time in Portrait. Swipe up or down on phones,
+- **Feed** shows one item at a time. Swipe up or down on phones,
   or scroll on desktop. Tap the media to hide or show controls.
 - **Compare** shows the leaderboard. Choose **Rank media** to compare pairs.
 
@@ -45,8 +45,14 @@ For a deep folder, open **Show parent folders** in the breadcrumb to return to
 an ancestor.
 
 Open **View options** for sorting and layout controls. Gallery and
-Ranking remember their card shape and details separately; Feed uses Portrait.
-Search filters do not change sort or layout settings.
+Ranking remember their card shape and details separately. Search filters do not
+change sort or layout settings.
+
+In Feed, open **View options → Layout → Media layout**. **Fill screen** uses
+the available space and the saved framing closest to its proportions.
+**Original** shows the full media in its original proportions without saved
+crops. This choice does not change playback speed, sound or **Play highlights
+only**.
 
 In **Sort**, add up to five rules. The first rule takes priority; later rules
 order items with equal values. Drag a rule by its handle, or use **Move up** and
@@ -90,7 +96,7 @@ defaults. **Make main** sets the highlight used across the media views when
 To show each saved highlight as its own entry, enable **Show highlights separately
 in Gallery and Feed** in this tab. This setting applies to this media item. Its
 entries replace the usual card and stay together in the current sort order.
-Each plays its saved section, speed and framing even when **Play highlights only**
+Each plays its saved section and speed even when **Play highlights only**
 is off. Scores, favorites, tags and file actions apply to the source media; selecting
 several of its highlights selects that source once. Library counts and Compare
 continue to count source media. Turn the setting off to return to one entry.
@@ -203,9 +209,10 @@ position and pinch or use Zoom to enlarge it. Arrow keys move 12px, or 1px with
 Shift. Use `-`/`=` to zoom 5%, or 1% with Shift. Focused fields, tabs and menus
 keep their own keys.
 
-Switch shapes and save once to keep all changes. Feed uses Portrait; Gallery
-and Ranking use their selected shape. The viewer uses the complete source unless
-Use saved framing is enabled. Edits are shared through the server. Safe moves
+Switch shapes and save once to keep all changes. Gallery and Ranking use their
+selected shape. Opening Edit media from Feed selects its current framing shape;
+Original selects the Original preset. The viewer uses the complete source
+unless Use saved framing is enabled. Edits are shared through the server. Safe moves
 retain them; replacing source contents clears source-dependent presentation.
 
 ## Rank Media

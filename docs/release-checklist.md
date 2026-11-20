@@ -159,10 +159,14 @@ Never test rebuild or wipe against the only copy of a real library database.
   changes in both tabs. Verify subsecond bounds, tiny sections in long media,
   screen-reader descriptions, pointer/keyboard seeking, thumb visibility and
   unchanged phone control heights in light and dark themes.
-- Check the portrait Feed on desktop and phones: centered desktop media,
-  controls/details attached to that frame, safe phone controls and an inline
-  heart-only favorite indicator. Confirm no aspect selector in Feed, old layout links still
-  restore the same item, and Edit starts on the saved Portrait frame.
+- Check Feed on desktop, a portrait monitor and phone portrait/landscape: the
+  media frame fills the available workspace, with attached controls/details,
+  safe phone controls and an inline heart-only favorite indicator. In View
+  options → Layout, verify Fill screen applies the closest saved framing and
+  Original shows the complete uncropped media. Confirm resize and layout changes
+  preserve the current item and playback, Play highlights only remains
+  independent, old layout links restore the same item, and Edit starts on the
+  resolved framing preset. Include separately displayed highlights.
 - Keep a video and animation playing while switching editor tabs; seek in either
   tab, check invalid time entries survive switching, and check loading/Retry/Cancel
   use the same reachable shell. Inspect phone portrait and short landscape.

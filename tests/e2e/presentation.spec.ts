@@ -1145,9 +1145,13 @@ test("saves and cancels framing and keeps the comparison pair while changing its
       );
     }
     await open(page, "feed", "image", photo.name);
+    await expect(page.locator(".feed-item").first()).toHaveAttribute(
+      "data-aspect",
+      "Landscape"
+    );
     await expect(page.locator(".feed-item .media-image").first()).toHaveCSS(
       "transform",
-      "matrix(1.02, 0, 0, 1.02, 0, 0)"
+      "matrix(1.03, 0, 0, 1.03, 0, 0)"
     );
 
     const timedAssets = [fixture("clip.mp4"), fixture("sequence.webp")];
@@ -2615,11 +2619,12 @@ test("keeps video and animation playback and seeking available across editor tab
   }
 });
 
-test("keeps Feed portrait with attached controls, inline favorite info and saved Portrait edits", async ({
+test("fills portrait desktop Feed with attached controls, inline favorite info and the closest saved framing", async ({
   browser
 }, testInfo) => {
   const context = await browser.newContext({
     storageState,
+    viewport: { width: 1080, height: 1920 },
     hasTouch: true,
     reducedMotion: "reduce"
   });
@@ -2659,7 +2664,7 @@ test("keeps Feed portrait with attached controls, inline favorite info and saved
     await options.getByRole("tab", { name: "Layout", exact: true }).click();
     await expect(
       options.getByRole("combobox", { name: "Media layout", exact: true })
-    ).toHaveCount(0);
+    ).toHaveText("Fill screen");
     await options.getByRole("checkbox", { name: "Title", exact: true }).check();
     await options.getByRole("checkbox", { name: "Heart", exact: true }).check();
     await options
@@ -2680,9 +2685,16 @@ test("keeps Feed portrait with attached controls, inline favorite info and saved
     ).toBeLessThan(1);
     const cardBounds = (await card.boundingBox())!;
     const railBounds = (await rail.boundingBox())!;
-    expect(cardBounds.width).toBeLessThanOrEqual(470);
+    const workspace = (await page
+      .getByRole("region", { name: "Feed view" })
+      .boundingBox())!;
+    expect(cardBounds.width).toBeCloseTo(workspace.width, 0);
+    expect(cardBounds.height).toBeCloseTo(workspace.height, 0);
     expect(cardBounds.width).toBeLessThan(cardBounds.height);
-    expect(railBounds.x).toBeGreaterThan(cardBounds.x + cardBounds.width);
+    expect(railBounds.x).toBeGreaterThan(cardBounds.x);
+    expect(railBounds.x + railBounds.width).toBeLessThanOrEqual(
+      cardBounds.x + cardBounds.width
+    );
     await page.screenshot({
       path: testInfo.outputPath("feed-portrait-desktop.png")
     });
@@ -4248,10 +4260,11 @@ for (const hasTouch of [false, true]) {
         if ((await framing.getAttribute("aria-checked")) === "true")
           await activate(framing, hasTouch);
         await activate(framing, hasTouch);
-        await expectFrameAspect(viewer, 9 / 16);
+        await expectFrameAspect(viewer, hasTouch ? 9 / 16 : 1);
+        const scale = hasTouch ? 1.4 : 1.8;
         await expect(media).toHaveCSS(
           "transform",
-          "matrix(1.4, 0, 0, 1.4, 0, 0)"
+          `matrix(${scale}, 0, 0, ${scale}, 0, 0)`
         );
         await expect(media).toHaveAttribute("data-continuity", "original");
         expect(await media.getAttribute("src")).toBe(source);
@@ -4312,7 +4325,18 @@ for (const hasTouch of [false, true]) {
         await expect(media).toHaveAttribute("data-continuity", "original");
         if (hasTouch) {
           await page.setViewportSize({ width: 852, height: 393 });
-          await expectFrameAspect(viewer, 9 / 16);
+          await expectFrameAspect(viewer, asset.mediaType === "video" ? 2 : 1);
+          await expect(
+            menu.getByRole("menuitemcheckbox", {
+              name: "Use saved framing",
+              exact: true
+            })
+          ).toHaveAttribute("aria-checked", "true");
+          await expect(transport).toHaveAttribute("data-paused", "true");
+          expect(await transport.locator("input").inputValue()).toBe(
+            pausedPosition
+          );
+          await expect(media).toHaveAttribute("data-continuity", "original");
           await expect
             .poll(async () => {
               const [anchor, popup] = await Promise.all([

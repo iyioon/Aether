@@ -1,4 +1,5 @@
 import { Maximize2 } from "lucide-react";
+import type { PresentationAspect } from "../../api/client";
 import {
   memo,
   useCallback,
@@ -22,6 +23,8 @@ export type FeedSoundState = "blocked" | "muted" | "on";
 
 interface FeedItemProps {
   asset: LibraryMediaEntry;
+  framingAspect: PresentationAspect;
+  useSavedFraming: boolean;
   metadataFields: ReadonlySet<GalleryMetadataField>;
   feedSoundState: FeedSoundState;
   index: number;
@@ -48,6 +51,8 @@ interface FeedItemProps {
 
 export const FeedItem = memo(function FeedItem({
   asset,
+  framingAspect,
+  useSavedFraming,
   metadataFields,
   feedSoundState,
   index,
@@ -94,7 +99,7 @@ export const FeedItem = memo(function FeedItem({
       aria-label={`${asset.mediaType}: ${libraryMediaEntryLabel(asset)}`}
       data-entry-key={asset.entryKey}
       data-feed-index={index}
-      data-aspect="Portrait"
+      data-aspect={framingAspect}
       data-audio-state={feedSoundState}
       ref={registerItem}
     >
@@ -105,7 +110,9 @@ export const FeedItem = memo(function FeedItem({
               asset={asset.source}
               selectedHighlightId={asset.highlightId}
               controlsContainer={controlsContainer}
-              framingAspect="Portrait"
+              framingAspect={framingAspect}
+              useSavedFraming={useSavedFraming}
+              defaultFit={useSavedFraming ? "cover" : "contain"}
               isActive={isActive}
               muted={!isActive || isFeedMuted}
               onAudibleAutoplayBlocked={onAudibleAutoplayBlocked}

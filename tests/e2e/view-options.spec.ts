@@ -266,14 +266,17 @@ test("remembers independent layout and card info in Gallery, Feed and Ranking", 
   await page.getByRole("button", { name: "Feed view", exact: true }).click();
   await expect(page.locator(".feed-item").first()).toHaveAttribute(
     "data-aspect",
-    "Portrait"
+    "Original"
   );
   await expect(page.locator(".feed-meta-button")).toHaveCount(0);
-  await layout(null, true);
+  await layout("Original", true);
   await expect(page.locator(".feed-meta-button").first()).toBeVisible();
   const frame = (await page.locator(".feed-frame").first().boundingBox())!;
-  expect(frame.width).toBeLessThan(frame.height);
-  expect(frame.width).toBeLessThanOrEqual(470);
+  const workspace = (await page
+    .getByRole("region", { name: "Feed view" })
+    .boundingBox())!;
+  expect(frame.width).toBeCloseTo(workspace.width, 0);
+  expect(frame.height).toBeCloseTo(workspace.height, 0);
   await page
     .getByRole("button", { name: "Compare and rank", exact: true })
     .click();
@@ -301,7 +304,7 @@ test("remembers independent layout and card info in Gallery, Feed and Ranking", 
   await page.getByRole("button", { name: "Feed view", exact: true }).click();
   await expect(page.locator(".feed-item").first()).toHaveAttribute(
     "data-aspect",
-    "Portrait"
+    "Original"
   );
   await expect(page.locator(".feed-meta-button").first()).toBeVisible();
   await page.getByRole("button", { name: "Gallery view", exact: true }).click();
